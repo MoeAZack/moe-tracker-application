@@ -76,7 +76,7 @@
       { "from": "scripts", "to": "scripts", "filter": ["replay-collector.mjs", "normalize-vrfkit-export.py"] },
       { "from": "dist", "to": "dist" }
     ],
-    "win": { "target": ["nsis"], "artifactName": "Moe-Tracker-Application-${version}-Setup.${ext}" },
+    "win": { "target": ["nsis"], "icon": "desktop/assets/app-icon.ico", "artifactName": "Moe-Tracker-Application-${version}-Setup.${ext}" },
     "nsis": { "oneClick": false, "allowToChangeInstallationDirectory": true, "createDesktopShortcut": true, "createStartMenuShortcut": true }
   }
 }

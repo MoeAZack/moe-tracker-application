@@ -1,4 +1,4 @@
-const { app, BrowserWindow, dialog, ipcMain, safeStorage, shell } = require('electron');
+const { app, BrowserWindow, dialog, ipcMain, Menu, safeStorage, shell, Tray } = require('electron');
 const { spawn } = require('node:child_process');
 const crypto = require('node:crypto');
 const fs = require('node:fs');
@@ -12,6 +12,7 @@ const { MAX_ENVELOPE_BYTES, encryptPortablePackage, decryptPortablePackage } = r
 const { appendLocalCrashEvent } = require('./local-crash-log.cjs');
 
 let mainWindow;
+let tray;
 let serverProcess;
 let collectorProcess;
 let collectorImportPromise;
@@ -99,7 +100,7 @@ function recordLocalCrash(type, error, details = {}) {
 }
 
 function applyLoginPreference() {
-  if (process.platform === 'win32' && app.isPackaged) app.setLoginItemSettings({ openAtLogin: !!runtime.config.startWithWindows, path: process.execPath });
+  if (process.platform === 'win32' && app.isPackaged) app.setLoginItemSettings({ openAtLogin: !!runtime.config.startWithWindows, path: process.execPath, args: ['--hidden'] });
 }
 
 function freePort() {
@@ -327,13 +328,40 @@ async function desktopStatus() {
 }
 
 async function createWindow() {
+  if (mainWindow && !mainWindow.isDestroyed()) return mainWindow;
+  const startHidden = process.argv.includes('--hidden');
   mainWindow = new BrowserWindow({
     width: 1540, height: 980, minWidth: 1080, minHeight: 720,
     backgroundColor: '#050b18',
     title: 'Moe Tracker Application',
+    icon: path.join(__dirname, 'assets', 'app-icon.ico'),
+    show: !startHidden,
     webPreferences: { preload: path.join(__dirname, 'preload.cjs'), contextIsolation: true, nodeIntegration: false, sandbox: true },
   });
+  mainWindow.on('close', event => { if (!quitting) { event.preventDefault(); mainWindow.hide(); } });
+  mainWindow.on('closed', () => { mainWindow = null; });
   await mainWindow.loadURL(`http://127.0.0.1:${runtime.port}/?desktop=1`);
+  return mainWindow;
+}
+
+async function showMainWindow() {
+  const window = await createWindow();
+  if (window.isMinimized()) window.restore();
+  window.show(); window.focus();
+}
+
+function createTray() {
+  tray = new Tray(path.join(__dirname, 'assets', 'app-icon.ico'));
+  tray.setToolTip('Moe Tracker — replay watcher active');
+  tray.setContextMenu(Menu.buildFromTemplate([
+    { label: 'Replay watcher active', enabled: false },
+    { type: 'separator' },
+    { label: 'Open Moe Tracker', click: () => { void showMainWindow().catch(error => recordLocalCrash('open-window-failed', error)); } },
+    { label: 'Open replay inbox', click: () => { void shell.openPath(runtime.paths.replays); } },
+    { type: 'separator' },
+    { label: 'Quit Moe Tracker', click: () => { quitting = true; app.quit(); } },
+  ]));
+  tray.on('click', () => { void showMainWindow().catch(error => recordLocalCrash('open-window-failed', error)); });
 }
 
 ipcMain.handle('desktop:bootstrap-session', bootstrapSession);
@@ -415,15 +443,19 @@ process.on('uncaughtException', error => { void recordLocalCrash('uncaught-excep
 app.on('render-process-gone', (_event, _webContents, details) => { void recordLocalCrash('renderer-process-gone', new Error('The desktop window process stopped.'), { reason: details.reason, exitCode: details.exitCode }); });
 app.on('child-process-gone', (_event, details) => { void recordLocalCrash('electron-child-process-gone', new Error('An application helper process stopped.'), { type: details.type, reason: details.reason, exitCode: details.exitCode }); });
 
-app.whenReady().then(async () => {
-  await ensureRuntime(); applyLoginPreference(); await startLocalServer(); await startCollector(); await createWindow();
+const singleInstanceLock = app.requestSingleInstanceLock();
+if (!singleInstanceLock) app.quit();
+app.on('second-instance', () => { if (runtime) void showMainWindow().catch(error => recordLocalCrash('open-window-failed', error)); });
+
+if (singleInstanceLock) app.whenReady().then(async () => {
+  await ensureRuntime(); applyLoginPreference(); await startLocalServer(); await startCollector(); await createWindow(); createTray();
   collectorImportTimer = setInterval(() => { void autoImportProcessedEvidence().catch(error => console.warn(`[collector-import] ${error.message}`)); }, 5_000); collectorImportTimer.unref?.();
   setTimeout(() => void autoImportProcessedEvidence().catch(error => console.warn(`[collector-import] ${error.message}`)), 1_000);
   syncTimer = setInterval(() => { if (runtime.config.cloudPairing && runtime.config.mode === 'connected') void syncNow().catch(error => console.warn(`[sync] ${error.message}`)); }, 60_000); syncTimer.unref?.();
   if (runtime.config.cloudPairing && runtime.config.mode === 'connected') setTimeout(() => void syncNow().catch(error => console.warn(`[sync] ${error.message}`)), 5_000);
   setTimeout(() => void createRecoveryBackup().catch(error => console.warn(`[backup] ${error.message}`)), 8_000);
-  app.on('activate', () => { if (BrowserWindow.getAllWindows().length === 0) createWindow(); });
+  app.on('activate', () => { void showMainWindow().catch(error => recordLocalCrash('open-window-failed', error)); });
 }).catch(error => { dialog.showErrorBox('Moe Tracker could not start', error.message); app.quit(); });
 
-app.on('before-quit', () => { quitting = true; if (collectorImportTimer) clearInterval(collectorImportTimer); if (syncTimer) clearInterval(syncTimer); collectorProcess?.kill(); serverProcess?.kill(); });
-app.on('window-all-closed', () => { if (process.platform !== 'darwin') app.quit(); });
+app.on('before-quit', () => { quitting = true; if (collectorImportTimer) clearInterval(collectorImportTimer); if (syncTimer) clearInterval(syncTimer); tray?.destroy(); collectorProcess?.kill(); serverProcess?.kill(); });
+app.on('window-all-closed', () => { /* The tray keeps replay watching and synchronization alive. */ });
