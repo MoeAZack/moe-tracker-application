@@ -8,7 +8,7 @@ const shortText = z.string().min(1).max(5000);
 const imagePayload = z.object({ base64: nonEmpty, mediaType: nonEmpty });
 const roleSchema = z.enum(['coach', 'player']);
 
-export const loginKeySchema = z.object({ key: z.string().min(1).max(500), playerName: z.string().trim().min(1).max(100).optional() });
+export const loginKeySchema = z.object({ key: z.string().min(1).max(500), playerName: z.string().trim().min(1).max(100).optional(), desktopIdentity: z.object({ role: z.literal('player'), playerId: z.string().trim().min(1).max(200), displayName: z.string().trim().min(1).max(80) }).optional() });
 export const googleAuthSchema = z.object({ credential: z.string().min(1).max(8000) });
 
 export const upsertSchema = z.object({

@@ -331,12 +331,8 @@ export default function ReplayWorkspace({
   const [busy, setBusy] = useState("");
   const [error, setError] = useState("");
   const [message, setMessage] = useState("");
-  const [deviceName, setDeviceName] = useState("");
   const [deviceOwner, setDeviceOwner] = useState("");
-  const [credential, setCredential] = useState<{
-    id: string;
-    token: string;
-  } | null>(null);
+  const [pairingCode, setPairingCode] = useState<{ code: string; expiresAt: string } | null>(null);
   const [matchId, setMatchId] = useState("");
   const [teamId, setTeamId] = useState("");
   const [mappings, setMappings] = useState<Mapping[]>([]);
@@ -571,19 +567,16 @@ export default function ReplayWorkspace({
       setBusy("");
     }
   };
-  const enroll = async (event: React.FormEvent) => {
+  const createPairingCode = async (event: React.FormEvent) => {
     event.preventDefault();
     await mutate(
-      "enroll",
-      "/api/replay-intake/devices/enroll",
+      "pair-device",
+      "/api/replay-intake/pairing-codes",
       {
-        name: deviceName,
         ...(isCoach && deviceOwner ? { playerId: deviceOwner } : {}),
       },
       (result) => {
-        setCredential({ id: result.device.id, token: result.credential.token });
-        setDeviceName("");
-        void loadLists();
+        setPairingCode({ code: result.code, expiresAt: result.expiresAt });
       },
     );
   };
@@ -948,27 +941,15 @@ export default function ReplayWorkspace({
             )}
           </div>
           <form
-            onSubmit={enroll}
+            onSubmit={createPairingCode}
             className="space-y-3 border-l-0 border-white/10 lg:border-l lg:pl-4"
           >
             <div>
-              <h2 className="text-sm font-semibold">Enroll this Windows PC</h2>
+              <h2 className="text-sm font-semibold">Pair another Windows PC</h2>
               <p className="mt-1 text-xs text-slate-500">
-                The credential is shown once and must be stored by the collector
-                with Windows protection.
+                Create a short-lived code, then enter it in the desktop app. No collector key copy-and-paste is required.
               </p>
             </div>
-            <label className="block text-xs text-slate-400">
-              Device name
-              <input
-                required
-                minLength={2}
-                maxLength={80}
-                value={deviceName}
-                onChange={(event) => setDeviceName(event.target.value)}
-                className="ui-field mt-1 min-h-11 w-full px-3 text-sm"
-              />
-            </label>
             {isCoach && (
               <label className="block text-xs text-slate-400">
                 Device owner
@@ -991,45 +972,25 @@ export default function ReplayWorkspace({
               className="ui-button ui-button-primary inline-flex min-h-11 items-center gap-2 px-3 text-sm font-semibold disabled:opacity-50"
             >
               <ShieldCheck className="h-4 w-4" />
-              Enroll device
+              Create pairing code
             </button>
-            {credential && (
+            {pairingCode && (
               <div
                 role="status"
                 className="rounded-lg border border-amber-500/40 bg-amber-950/30 p-3 text-xs text-amber-100"
               >
                 <p className="font-semibold">
-                  Copy now — this credential will not be shown again.
+                  Enter this code in the desktop app before it expires.
                 </p>
-                <p className="mt-2 break-all font-mono">
-                  Device: {credential.id}
-                </p>
-                <p className="mt-1 break-all font-mono">
-                  Token: {credential.token}
-                </p>
+                <p className="mt-3 text-center font-mono text-2xl font-bold tracking-[0.24em]">{pairingCode.code}</p>
+                <p className="mt-2 text-center text-amber-200/80">Expires {time(pairingCode.expiresAt)} Cairo</p>
                 <button
                   type="button"
-                  onClick={() =>
-                    void navigator.clipboard.writeText(
-                      `${credential.id}\n${credential.token}`,
-                    )
-                  }
+                  onClick={() => void navigator.clipboard.writeText(pairingCode.code)}
                   className="ui-button mt-2 min-h-10 px-2 font-semibold"
                 >
-                  Copy credential
+                  Copy pairing code
                 </button>
-                <a
-                  href="/collector/setup-replay-collector.ps1"
-                  download
-                  className="ui-button ml-2 mt-2 inline-flex min-h-10 items-center px-2 font-semibold"
-                >
-                  Download Windows setup
-                </a>
-                <p className="mt-2 text-amber-200/80">
-                  On that coach or player PC, run the downloaded setup and paste
-                  the Device ID and one-time token above. It installs the free
-                  local parser and starts automatically with Windows.
-                </p>
               </div>
             )}
           </form>

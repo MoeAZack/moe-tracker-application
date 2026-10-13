@@ -1,4 +1,4 @@
-const { app, BrowserWindow, dialog, ipcMain, shell } = require('electron');
+const { app, BrowserWindow, dialog, ipcMain, safeStorage, shell } = require('electron');
 const { spawn } = require('node:child_process');
 const crypto = require('node:crypto');
 const fs = require('node:fs');
@@ -10,6 +10,8 @@ const path = require('node:path');
 let mainWindow;
 let serverProcess;
 let collectorProcess;
+let syncTimer;
+let syncPromise;
 let runtime;
 
 const json = async (file, fallback = null) => {
@@ -27,14 +29,21 @@ async function atomicJson(file, value) {
 function applicationRoot() {
   return app.isPackaged ? process.resourcesPath : path.resolve(__dirname, '..');
 }
+function applicationCodeRoot() {
+  return app.isPackaged ? app.getAppPath() : path.resolve(__dirname, '..');
+}
 
 function appPaths() {
-  const documents = path.join(app.getPath('documents'), 'Moe Tracker');
+  const documentsRoot = process.env.MOETRACKER_DOCUMENTS_ROOT
+    ? path.resolve(process.env.MOETRACKER_DOCUMENTS_ROOT)
+    : app.getPath('documents');
+  const documents = path.join(documentsRoot, 'Moe Tracker');
   const local = path.join(app.getPath('userData'), 'Local Workspace');
   return {
     local,
     database: path.join(local, 'data', 'db.json'),
     config: path.join(local, 'desktop-config.json'),
+    syncState: path.join(local, 'sync-state.json'),
     replays: path.join(documents, 'Replays'),
     screenshots: path.join(documents, 'Scoreboards'),
     exports: path.join(documents, 'Exports'),
@@ -68,7 +77,8 @@ async function ensureRuntime() {
     config.deviceId = `desktop-${crypto.randomUUID()}`;
     await atomicJson(paths.config, config);
   }
-  runtime = { paths, config, port: await freePort(), session: null };
+  if (!await json(paths.syncState, null)) await atomicJson(paths.syncState, { schemaVersion: 1, outbox: [], inbox: [], completed: [] });
+  runtime = { paths, config, port: await freePort(), session: null, coachSession: null };
   return runtime;
 }
 
@@ -108,10 +118,11 @@ function waitForHealth(port, timeoutMs = 20_000) {
 }
 
 async function startLocalServer() {
-  const entry = path.join(applicationRoot(), 'build', 'server.cjs');
+  const entry = path.join(applicationCodeRoot(), 'build', 'server.cjs');
   serverProcess = runNode(entry, [], { env: {
     NODE_ENV: 'production', HOST: '127.0.0.1', PORT: String(runtime.port),
     DB_PATH: runtime.paths.database,
+    PRIVATE_BACKUP_DIR: runtime.paths.backups,
     ADMIN_PASSWORD: runtime.config.adminPassword,
     JWT_SECRET: runtime.config.jwtSecret,
     APP_DESKTOP: 'true',
@@ -146,10 +157,17 @@ async function startCollector() {
 
 async function bootstrapSession() {
   if (runtime.session) return runtime.session;
-  const response = await fetch(`http://127.0.0.1:${runtime.port}/api/login-key`, { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ key: runtime.config.adminPassword }) });
+  const credentials = { key: runtime.config.adminPassword };
+  if (runtime.config.identity) credentials.desktopIdentity = runtime.config.identity;
+  const response = await fetch(`http://127.0.0.1:${runtime.port}/api/login-key`, { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify(credentials) });
   if (!response.ok) throw new Error('Local coach session could not be created.');
   runtime.session = await response.json();
   return runtime.session;
+}
+async function bootstrapCoachSession() {
+  if (runtime.coachSession) return runtime.coachSession;
+  const response = await fetch(`http://127.0.0.1:${runtime.port}/api/login-key`, { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ key: runtime.config.adminPassword }) });
+  if (!response.ok) throw new Error('Local privileged session could not be created.'); runtime.coachSession = await response.json(); return runtime.coachSession;
 }
 
 async function importEvidenceFile(file) {
@@ -158,7 +176,74 @@ async function importEvidenceFile(file) {
   const response = await fetch(`http://127.0.0.1:${runtime.port}/api/desktop/replay-evidence`, { method: 'POST', headers: { authorization: `Bearer ${session.key}`, 'content-type': 'application/json' }, body: JSON.stringify(evidence) });
   const result = await response.json().catch(() => ({}));
   if (!response.ok) throw new Error(result.error || 'Local replay evidence could not be added to the review inbox.');
+  await enqueueSyncEvidence(evidence);
   return result;
+}
+
+async function syncState() { return json(runtime.paths.syncState, { schemaVersion: 1, outbox: [], inbox: [], completed: [] }); }
+async function enqueueSyncEvidence(evidence) {
+  const state = await syncState(); const id = `replay:${evidence.source.sha256}:${evidence.evidenceSha256}`;
+  if (!state.completed.includes(id) && !state.outbox.some(item => item.id === id)) state.outbox.push({ id, kind: 'replay-evidence', sha256: evidence.source.sha256, evidence, createdAt: new Date().toISOString(), attempts: 0, lastError: null });
+  await atomicJson(runtime.paths.syncState, state);
+}
+function safeCloudUrl(value) {
+  const parsed = new URL(String(value || '').trim()); const local = ['localhost', '127.0.0.1', '::1'].includes(parsed.hostname);
+  if (parsed.username || parsed.password || (parsed.protocol !== 'https:' && !(local && parsed.protocol === 'http:'))) throw new Error('Team server must use HTTPS.');
+  return parsed.origin;
+}
+function canonical(value) { return JSON.stringify(value, (_key, nested) => nested && typeof nested === 'object' && !Array.isArray(nested) ? Object.fromEntries(Object.entries(nested).sort(([left], [right]) => left.localeCompare(right))) : nested); }
+function evidenceForPairedDevice(evidence, deviceId) {
+  const copy = structuredClone(evidence); copy.source.deviceId = deviceId; delete copy.evidenceSha256;
+  copy.evidenceSha256 = crypto.createHash('sha256').update(canonical(copy)).digest('hex'); return copy;
+}
+function cloudCredential() {
+  const pairing = runtime.config.cloudPairing; if (!pairing?.credential || !safeStorage.isEncryptionAvailable()) return null;
+  return { ...pairing, token: safeStorage.decryptString(Buffer.from(pairing.credential, 'base64')) };
+}
+async function pairDevice({ server, code }) {
+  const endpoint = safeCloudUrl(server); if (!/^[A-Z2-9]{10}$/.test(String(code || '').trim().toUpperCase())) throw new Error('Enter the 10-character pairing code.');
+  if (!safeStorage.isEncryptionAvailable()) throw new Error('Windows credential encryption is unavailable for this user.');
+  const response = await fetch(`${endpoint}/api/replay-intake/pair`, { method: 'POST', redirect: 'error', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ code: String(code).trim().toUpperCase(), deviceName: runtime.config.deviceName }) });
+  const result = await response.json().catch(() => ({})); if (!response.ok) throw new Error(result.error || 'Device pairing failed.');
+  runtime.config.cloudPairing = { server: endpoint, deviceId: result.device.id, owner: result.device.owner, credential: safeStorage.encryptString(result.credential.token).toString('base64'), pairedAt: new Date().toISOString() };
+  runtime.config.identity = result.identity; runtime.config.role = result.identity?.role || result.device.owner.role; runtime.config.mode = 'connected'; runtime.session = null; await atomicJson(runtime.paths.config, runtime.config);
+  setTimeout(() => mainWindow?.reload(), 500);
+  return { paired: true, server: endpoint, device: result.device };
+}
+async function syncOnce() {
+  const pairing = cloudCredential(); const state = await syncState();
+  if (!pairing || runtime.config.mode !== 'connected') return { state: 'local-only', message: `${state.outbox.length} change${state.outbox.length === 1 ? '' : 's'} safely queued. ${pairing ? 'Connected sync is paused.' : 'Pair this device to synchronize.'}`, pending: state.outbox.length };
+  let uploaded = 0;
+  for (const item of [...state.outbox]) {
+    try {
+      const response = await fetch(`${pairing.server}/api/replay-intake/evidence/${item.sha256}`, { method: 'POST', redirect: 'error', headers: { 'content-type': 'application/json', 'x-device-id': pairing.deviceId, 'x-device-token': pairing.token }, body: JSON.stringify(evidenceForPairedDevice(item.evidence, pairing.deviceId)) });
+      const result = await response.json().catch(() => ({})); if (!response.ok) throw new Error(result.error || `Sync failed with HTTP ${response.status}.`);
+      state.outbox = state.outbox.filter(entry => entry.id !== item.id); state.completed = [...new Set([item.id, ...state.completed])].slice(0, 1000); uploaded += 1; await atomicJson(runtime.paths.syncState, state);
+    } catch (error) {
+      const pending = state.outbox.find(entry => entry.id === item.id); if (pending) { pending.attempts += 1; pending.lastError = String(error?.message || error).slice(0, 300); pending.lastAttemptAt = new Date().toISOString(); }
+      await atomicJson(runtime.paths.syncState, state); return { state: 'attention', message: `${uploaded} uploaded; ${state.outbox.length} remain safely queued. ${String(error?.message || error)}`, uploaded, pending: state.outbox.length };
+    }
+  }
+  const inboxResponse = await fetch(`${pairing.server}/api/replay-intake/device-sync${state.cursor ? `?since=${encodeURIComponent(state.cursor)}` : ''}`, { redirect: 'error', headers: { 'x-device-id': pairing.deviceId, 'x-device-token': pairing.token } });
+  const inboxResult = await inboxResponse.json().catch(() => ({}));
+  if (!inboxResponse.ok) return { state: 'attention', message: `${uploaded} uploaded; shared updates could not be downloaded. ${inboxResult.error || `HTTP ${inboxResponse.status}`}`, uploaded, pending: state.outbox.length };
+  const received = (inboxResult.items || []).filter(item => !state.inbox.some(existing => existing.id === item.id));
+  if (received.length) {
+    const session = await bootstrapCoachSession(); const applyResponse = await fetch(`http://127.0.0.1:${runtime.port}/api/desktop/sync-inbox`, { method: 'POST', headers: { authorization: `Bearer ${session.key}`, 'content-type': 'application/json' }, body: JSON.stringify({ items: received }) });
+    const applied = await applyResponse.json().catch(() => ({})); if (!applyResponse.ok) throw new Error(applied.error || 'Downloaded team updates could not be applied.');
+    const receivedAt = new Date().toISOString(); for (const item of received) state.inbox.push({ ...item, receivedAt, applyResult: applied }); state.inbox = state.inbox.slice(-500);
+  }
+  if (inboxResult.cursor) state.cursor = inboxResult.cursor; await atomicJson(runtime.paths.syncState, state);
+  return { state: 'synced', message: `${uploaded} uploaded; ${received.length} shared update${received.length === 1 ? '' : 's'} received.`, uploaded, downloaded: received.length, pending: state.outbox.length };
+}
+async function syncNow() {
+  if (syncPromise) return syncPromise;
+  syncPromise = syncOnce().finally(() => { syncPromise = null; }); return syncPromise;
+}
+async function createRecoveryBackup() {
+  const last = Date.parse(runtime.config.lastBackupAt || ''); if (Number.isFinite(last) && Date.now() - last < 24 * 60 * 60 * 1000) return { skipped: true };
+  const session = await bootstrapCoachSession(); const response = await fetch(`http://127.0.0.1:${runtime.port}/api/desktop/backup`, { method: 'POST', headers: { authorization: `Bearer ${session.key}` } }); const result = await response.json().catch(() => ({}));
+  if (!response.ok) throw new Error(result.error || 'Automatic recovery backup failed.'); runtime.config.lastBackupAt = new Date().toISOString(); await atomicJson(runtime.paths.config, runtime.config); return result;
 }
 
 async function replayInventory() {
@@ -177,6 +262,7 @@ async function replayInventory() {
 
 async function desktopStatus() {
   const replays = await replayInventory();
+  const localSync = await syncState();
   let collector = null;
   try { collector = JSON.parse(await collectorCommand(['status'])); } catch (error) { collector = { error: error.message }; }
   return {
@@ -188,6 +274,7 @@ async function desktopStatus() {
     replayCount: replays.length,
     latestReplay: replays[0] || null,
     collector,
+    sync: { paired: !!runtime.config.cloudPairing, server: runtime.config.cloudPairing?.server || null, pending: localSync.outbox.length, received: localSync.inbox.length },
     localService: 'online',
   };
 }
@@ -206,13 +293,17 @@ ipcMain.handle('desktop:bootstrap-session', bootstrapSession);
 ipcMain.handle('desktop:get-status', desktopStatus);
 ipcMain.handle('desktop:process-match', async () => {
   await configureCollector();
-  const first = JSON.parse((await collectorCommand(['scan'])) || '[]');
-  if (first.some(item => item.status === 'observing')) return { state: 'waiting', message: 'Replay found. Waiting briefly for VALORANT to finish writing it.', items: first };
+  let first = JSON.parse((await collectorCommand(['scan'])) || '[]');
+  if (first.some(item => item.status === 'observing')) { await new Promise(resolve => setTimeout(resolve, 11_000)); first = JSON.parse((await collectorCommand(['scan'])) || '[]'); }
+  if (first.some(item => item.status === 'observing' || item.status === 'locked')) return { state: 'waiting', message: 'VALORANT is still finishing the replay. Moe Tracker will keep watching it automatically.', items: first };
   const processed = JSON.parse(await collectorCommand(['process-latest']));
   const imported = await importEvidenceFile(processed.evidencePath);
   return { state: 'review-ready', message: imported.idempotent ? 'This replay was already in the local review inbox.' : 'Replay parsed locally. The coach review draft is ready.', items: first, processed, imported };
 });
-ipcMain.handle('desktop:sync-now', async () => ({ state: 'local-only', message: 'Nothing was uploaded. Cloud sync activates after this device is paired with the team workspace.' }));
+ipcMain.handle('desktop:sync-now', syncNow);
+ipcMain.handle('desktop:pair-device', (_event, input) => pairDevice(input || {}));
+ipcMain.handle('desktop:set-sync-mode', async (_event, mode) => { if (!['offline-first', 'connected'].includes(mode)) throw new Error('Unknown synchronization mode.'); if (mode === 'connected' && !runtime.config.cloudPairing) throw new Error('Pair this device before enabling connected sync.'); runtime.config.mode = mode; await atomicJson(runtime.paths.config, runtime.config); return { mode }; });
+ipcMain.handle('desktop:set-retention-days', async (_event, value) => { const days = Number(value); if (!Number.isInteger(days) || days < 1 || days > 365) throw new Error('Retention must be between 1 and 365 days.'); runtime.config.retentionDays = days; await atomicJson(runtime.paths.config, runtime.config); await configureCollector(); return { retentionDays: days }; });
 ipcMain.handle('desktop:open-folder', async (_event, kind) => {
   const allowed = { replays: runtime.paths.replays, screenshots: runtime.paths.screenshots, exports: runtime.paths.exports, backups: runtime.paths.backups };
   if (!allowed[kind]) throw new Error('Unknown Moe Tracker folder.');
@@ -229,18 +320,38 @@ ipcMain.handle('desktop:choose-replay-folder', async () => {
   return { canceled: false, path: result.filePaths[0] };
 });
 ipcMain.handle('desktop:export-team-package', async () => {
-  const session = await bootstrapSession();
-  const response = await fetch(`http://127.0.0.1:${runtime.port}/api/backup`, { method: 'POST', headers: { authorization: `Bearer ${session.key}` } });
+  const session = await bootstrapCoachSession();
+  const response = await fetch(`http://127.0.0.1:${runtime.port}/api/portable-package/export`, { method: 'POST', headers: { authorization: `Bearer ${session.key}`, 'content-type': 'application/json' }, body: JSON.stringify({ sourceDeviceId: runtime.config.deviceId }) });
   if (!response.ok) throw new Error('Local team package could not be created.');
-  const target = path.join(runtime.paths.exports, `moe-tracker-team-${new Date().toISOString().replace(/[:.]/g, '-')}.json`);
+  const target = path.join(runtime.paths.exports, `moe-tracker-team-${new Date().toISOString().replace(/[:.]/g, '-')}.moetracker`);
   await fsp.writeFile(target, Buffer.from(await response.arrayBuffer()));
   return { exported: true, path: target };
+});
+ipcMain.handle('desktop:preview-team-package', async () => {
+  const selection = await dialog.showOpenDialog(mainWindow, { properties: ['openFile'], title: 'Preview a MoeTracker package', filters: [{ name: 'MoeTracker packages', extensions: ['moetracker'] }] });
+  if (selection.canceled || !selection.filePaths[0]) return { canceled: true };
+  const file = selection.filePaths[0]; const bytes = await fsp.readFile(file); const session = await bootstrapCoachSession();
+  const response = await fetch(`http://127.0.0.1:${runtime.port}/api/portable-package/preview`, { method: 'POST', headers: { authorization: `Bearer ${session.key}`, 'content-type': 'application/json' }, body: bytes });
+  const preview = await response.json().catch(() => ({})); if (!response.ok) throw new Error(preview.error || 'Portable package preview failed.');
+  runtime.pendingImport = { file, sha256: crypto.createHash('sha256').update(bytes).digest('hex') };
+  return { canceled: false, file, preview };
+});
+ipcMain.handle('desktop:import-team-package', async () => {
+  if (!runtime.pendingImport) throw new Error('Preview a package before importing it.');
+  const bytes = await fsp.readFile(runtime.pendingImport.file); const actual = crypto.createHash('sha256').update(bytes).digest('hex');
+  if (actual !== runtime.pendingImport.sha256) throw new Error('The package changed after preview. Preview it again.');
+  const session = await bootstrapCoachSession(); const response = await fetch(`http://127.0.0.1:${runtime.port}/api/portable-package/import`, { method: 'POST', headers: { authorization: `Bearer ${session.key}`, 'content-type': 'application/json' }, body: bytes });
+  const result = await response.json().catch(() => ({})); if (!response.ok) throw new Error(result.error || 'Portable package import failed.');
+  runtime.pendingImport = null; return { imported: true, message: 'Portable package imported. Conflicts were left unchanged.', result };
 });
 
 app.whenReady().then(async () => {
   await ensureRuntime(); await startLocalServer(); await startCollector(); await createWindow();
+  syncTimer = setInterval(() => { if (runtime.config.cloudPairing && runtime.config.mode === 'connected') void syncNow().catch(error => console.warn(`[sync] ${error.message}`)); }, 60_000); syncTimer.unref?.();
+  if (runtime.config.cloudPairing && runtime.config.mode === 'connected') setTimeout(() => void syncNow().catch(error => console.warn(`[sync] ${error.message}`)), 5_000);
+  setTimeout(() => void createRecoveryBackup().catch(error => console.warn(`[backup] ${error.message}`)), 8_000);
   app.on('activate', () => { if (BrowserWindow.getAllWindows().length === 0) createWindow(); });
 }).catch(error => { dialog.showErrorBox('Moe Tracker could not start', error.message); app.quit(); });
 
-app.on('before-quit', () => { collectorProcess?.kill(); serverProcess?.kill(); });
+app.on('before-quit', () => { if (syncTimer) clearInterval(syncTimer); collectorProcess?.kill(); serverProcess?.kill(); });
 app.on('window-all-closed', () => { if (process.platform !== 'darwin') app.quit(); });

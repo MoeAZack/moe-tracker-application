@@ -574,7 +574,7 @@ export default function App() {
               </div>
             }>
             {activeTab === 'dashboard' && analyticsData && (
-              <Dashboard data={analyticsData} theme={theme} role={role} onOpenMatch={(matchId) => { setReviewMatchId(matchId); setActiveTab('vod'); }} />
+              <Dashboard data={analyticsData} theme={theme} role={role} username={username} onOpenMatch={(matchId) => { setReviewMatchId(matchId); setActiveTab('vod'); }} />
             )}
             {activeTab === 'calendar' && data && (
               <CalendarGoals data={data} theme={theme} onUpsert={handleUpsert} onRemove={handleRemove} />
