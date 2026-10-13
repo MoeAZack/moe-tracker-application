@@ -86,7 +86,8 @@ type ReplayReview = {
 };
 type RawUploadSession = { uploadId: string; sha256: string; size: number; originalName: string; deviceId: string; owner: DeviceRecord['owner']; bucket: string; object: string; uploadUrl: string; expiresAt: string; createdAt: string };
 type RawFinalizeReceipt = { uploadId: string; deviceId: string; response: Record<string, any>; createdAt: string };
-type ReplayStore = { schemaVersion: number; devices: Record<string, DeviceRecord>; blobs: Record<string, ReplayBlob>; associations: Record<string, ReplayAssociation>; parserJobs: Record<string, ReplayParserJob>; reviews: Record<string, ReplayReview>; rawSessions: Record<string, RawUploadSession>; rawReceipts: Record<string, RawFinalizeReceipt>; screenshots: Record<string, ScreenshotPairing>; uploads?: Record<string, any> };
+type PairingCode = { codeHash: string; owner: DeviceRecord['owner']; createdAt: string; expiresAt: string; createdBy: string };
+type ReplayStore = { schemaVersion: number; devices: Record<string, DeviceRecord>; blobs: Record<string, ReplayBlob>; associations: Record<string, ReplayAssociation>; parserJobs: Record<string, ReplayParserJob>; reviews: Record<string, ReplayReview>; rawSessions: Record<string, RawUploadSession>; rawReceipts: Record<string, RawFinalizeReceipt>; screenshots: Record<string, ScreenshotPairing>; pairingCodes: Record<string, PairingCode>; uploads?: Record<string, any> };
 
 function associationKey(deviceId: string, hash: string) { return crypto.createHash('sha256').update(`${deviceId}\0${hash}`).digest('hex'); }
 function newDeviceId() { return `d_${crypto.randomBytes(18).toString('base64url')}`; }
@@ -107,6 +108,7 @@ function replayStore(db: any) {
   db.replayIntake.rawSessions ||= {};
   db.replayIntake.rawReceipts ||= {};
   db.replayIntake.screenshots ||= {};
+  db.replayIntake.pairingCodes ||= {};
   // One-time in-memory migration from the first local-only schema. Responses never read legacy records directly.
   for (const [hash, record] of Object.entries(db.replayIntake.uploads || {}) as Array<[string, any]>) {
     db.replayIntake.blobs[hash] ||= { sha256: hash, size: record.size, storedAt: record.receivedAt, parserStatus: record.parserStatus || 'unavailable', reviewStatus: 'review-required', matchId: record.matchId || null };
@@ -566,6 +568,30 @@ async function recoverRawSessions() { const store = replayStore(await readDB());
 export function registerReplayDeviceUploadRoute(app: Express) {
   assertPrivateStorageRoot();
   if (process.env.CLOUDFLARE_WORKER !== 'true') void recoverRawSessions().catch(error => console.error('[replay-raw] session recovery failed:', error?.message || error));
+  app.post('/api/replay-intake/pair', async (req, res) => {
+    try {
+      const code = String(req.body?.code || '').trim().toUpperCase(); const name = cleanDeviceName(req.body?.deviceName);
+      if (!/^[A-Z2-9]{10}$/.test(code) || !name) return res.status(400).json({ error: 'Pairing code or device name is invalid.' });
+      const db = await readDB(); const store = replayStore(db); const now = Date.now();
+      for (const [key, item] of Object.entries(store.pairingCodes)) if (Date.parse(item.expiresAt) <= now) delete store.pairingCodes[key];
+      const codeHash = tokenHash(code); const pairing = store.pairingCodes[codeHash];
+      if (!pairing || Date.parse(pairing.expiresAt) <= now) return res.status(401).json({ error: 'Pairing code is invalid or expired.' });
+      const id = newDeviceId(); const token = crypto.randomBytes(32).toString('base64url'); const createdAt = new Date(now).toISOString();
+      const device: DeviceRecord = { id, name, tokenHash: tokenHash(token), credentialVersion: 1, owner: pairing.owner, createdAt, expiresAt: new Date(now + DEVICE_TTL_MS).toISOString(), revokedAt: null, lastSeenAt: null };
+      store.devices[id] = device; delete store.pairingCodes[codeHash]; await saveDB(db);
+      const player = device.owner.playerId ? (db.rosterPlayers || []).find((item: any) => item.id === device.owner.playerId) : null;
+      res.status(201).json({ device: devicePublic(device), identity: { role: device.owner.role, playerId: device.owner.playerId, displayName: player?.displayName || (device.owner.role === 'coach' ? 'Coach' : 'Player') }, credential: { token, shownOnce: true } });
+    } catch (error: any) { res.status(error?.status || 400).json({ error: error?.message || 'Device pairing failed.' }); }
+  });
+  app.get('/api/replay-intake/device-sync', async (req, res) => {
+    try {
+      const authenticated = await authenticateDevice(req); if (!authenticated) return res.status(401).json({ error: 'Device credential is invalid, expired, or revoked.' });
+      const sinceRaw = String(req.query.since || ''); const since = sinceRaw && Number.isFinite(Date.parse(sinceRaw)) ? Date.parse(sinceRaw) : 0; const db = authenticated.db;
+      const accepted = Object.values(db.engineAdapters?.replay || {}).filter((record: any) => record?.status === 'accepted' && Date.parse(record.updatedAt || record.acceptedAt || 0) > since).sort((left: any, right: any) => String(left.updatedAt || left.acceptedAt).localeCompare(String(right.updatedAt || right.acceptedAt))).slice(0, 100) as any[];
+      const items = accepted.map(record => { const matchId = String(record.matchId); const updatedAt = String(record.updatedAt || record.acceptedAt); return { id: `accepted:${matchId}:${record.revision || 1}`, kind: 'accepted-match', updatedAt, revision: Number(record.revision || 1), replaySha256: record.provenance?.replaySha256 || null, match: (db.matches || []).find((item: any) => item.id === matchId) || null, playerStats: (db.playerStats || []).filter((item: any) => item.matchId === matchId), rounds: (db.rounds || []).filter((item: any) => item.matchId === matchId), replay: record } });
+      res.json({ items, cursor: items.length ? items[items.length - 1].updatedAt : (sinceRaw || null), hasMore: accepted.length === 100 });
+    } catch (error: any) { res.status(error?.status || 400).json({ error: error?.message || 'Device synchronization is unavailable.' }); }
+  });
   app.post('/api/replay-intake/evidence/:sha256', async (req, res) => {
     let releaseReservation: (() => void) | null = null;
     try {
@@ -752,6 +778,19 @@ export async function registerReplayDeviceRoutes(app: Express) {
       pruneParserJobs(store); pairReplayScreenshots(store); await saveDB(db);
       res.status(201).json({ sha256: expectedHash, parserStatus: blob.parserStatus, reviewStatus: blob.reviewStatus, matchId: blob.matchId, idempotent: false });
     } catch (error: any) { res.status(error?.status || 400).json({ error: error?.message || 'Local replay evidence could not be imported.' }); }
+  });
+
+  app.post('/api/replay-intake/pairing-codes', async (req, res) => {
+    try {
+      const user = actor(req); const requestedPlayerId = typeof req.body?.playerId === 'string' ? req.body.playerId : null;
+      if (user.role === 'player' && (!user.playerId || requestedPlayerId && requestedPlayerId !== user.playerId)) return res.status(403).json({ error: 'Players may pair only their own device.' });
+      const ownerPlayerId = user.role === 'player' ? user.playerId! : requestedPlayerId;
+      const db = await readDB(); if (ownerPlayerId && !db.rosterPlayers?.some((player: any) => player.id === ownerPlayerId && !player.retiredAt)) return res.status(409).json({ error: 'Choose an active roster player.' });
+      const store = replayStore(db); const alphabet = 'ABCDEFGHJKLMNPQRSTUVWXYZ23456789'; const random = crypto.randomBytes(10); const code = [...random].map(value => alphabet[value % alphabet.length]).join(''); const now = Date.now();
+      for (const [key, item] of Object.entries(store.pairingCodes)) if (Date.parse(item.expiresAt) <= now) delete store.pairingCodes[key];
+      const record: PairingCode = { codeHash: tokenHash(code), owner: { actorId: user.actorId, role: user.role, playerId: ownerPlayerId || null }, createdAt: new Date(now).toISOString(), expiresAt: new Date(now + 10 * 60 * 1000).toISOString(), createdBy: user.actorId };
+      store.pairingCodes[record.codeHash] = record; await saveDB(db); res.status(201).json({ code, expiresAt: record.expiresAt, owner: { role: record.owner.role, playerId: record.owner.playerId } });
+    } catch (error: any) { res.status(error?.status || 400).json({ error: error?.message || 'Pairing code could not be created.' }); }
   });
 
   app.get('/api/replay-intake/screenshots', async (req, res) => {
