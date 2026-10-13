@@ -25,12 +25,12 @@
 ## Then — polished Windows release
 
 - [x] Background tray behavior and automatic startup option
-- [x] Staged automatic update channel (explicit restart; current install retained on failure)
+- [x] Staged automatic update channel with post-update health verification and cached last-known-good rollback
 - [x] Configurable 30-day replay retention and storage budget
 - [ ] Encrypted scheduled local backups
 - [x] Windows installer and in-place upgrade acceptance in isolated Windows profiles
-- [x] Mobile/browser acceptance for the web summary portal
-- [ ] Signed public release and independent physical-PC accessibility acceptance
+- [x] Automated WCAG 2.2 A/AA audit for desktop/mobile login and authenticated summary surfaces
+- [ ] Signed public release and independent physical-PC/assistive-technology acceptance
 
 ## Later
 

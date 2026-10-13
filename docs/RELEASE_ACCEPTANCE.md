@@ -30,4 +30,4 @@ Accepted 13 October 2026, 13:31 Cairo (`Africa/Cairo`).
 ## Deliberately gated
 
 - Automatic updates are staged: background checks are enabled in packaged builds, but download is user-triggered and installation requires an explicit restart.
-- A signed public release, post-install health rollback, accessibility audit, and independent physical-PC acceptance remain external release gates.
+- Automated WCAG 2.2 A/AA auditing and cached post-update health rollback are implemented. A trusted signing certificate, signed public release, and independent physical-PC/assistive-technology acceptance remain external release gates.

@@ -9,21 +9,23 @@ class FakeUpdater extends EventEmitter {
   allowPrerelease = true;
   allowDowngrade = true;
   checkForUpdates = vi.fn(async () => this.emit('update-available', { version: '0.2.0' }));
-  downloadUpdate = vi.fn(async () => this.emit('update-downloaded', { version: '0.2.0' }));
+  downloadUpdate = vi.fn(async () => this.emit('update-downloaded', { version: '0.2.0', downloadedFile: 'download.exe' }));
   quitAndInstall = vi.fn();
 }
 
 describe('desktop update controller', () => {
   it('requires a verified download before installation', async () => {
     const updater = new FakeUpdater();
-    const controller = createUpdateController({ autoUpdater: updater, enabled: true });
+    const updateHealth = { prepareInstall: vi.fn(async () => ({ rollbackReady: true })) };
+    const controller = createUpdateController({ autoUpdater: updater, enabled: true, currentVersion: '0.1.0', updateHealth });
     expect(updater.autoDownload).toBe(false);
     expect(updater.autoInstallOnAppQuit).toBe(false);
     await controller.check();
     expect(controller.getState()).toMatchObject({ state: 'available', version: '0.2.0' });
     await controller.download();
     expect(controller.getState()).toMatchObject({ state: 'downloaded', percent: 100 });
-    controller.install();
+    await controller.install();
+    expect(updateHealth.prepareInstall).toHaveBeenCalledWith({ previousVersion: '0.1.0', targetVersion: '0.2.0', downloadedFile: 'download.exe' });
     expect(updater.quitAndInstall).toHaveBeenCalledWith(false, true);
   });
 

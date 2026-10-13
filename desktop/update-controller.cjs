@@ -7,8 +7,9 @@ function safeMessage(error) {
     .slice(0, 240);
 }
 
-function createUpdateController({ autoUpdater, enabled, delayMs = DEFAULT_DELAY_MS, intervalMs = DEFAULT_INTERVAL_MS, onChange = () => {} }) {
+function createUpdateController({ autoUpdater, enabled, currentVersion = null, updateHealth = null, delayMs = DEFAULT_DELAY_MS, intervalMs = DEFAULT_INTERVAL_MS, onChange = () => {} }) {
   let timer = null;
+  let downloadedFile = null;
   let state = enabled
     ? { state: 'current', version: null, percent: null, message: 'Moe Tracker is up to date.' }
     : { state: 'disabled', version: null, percent: null, message: 'Updates are available in installed builds.' };
@@ -28,7 +29,7 @@ function createUpdateController({ autoUpdater, enabled, delayMs = DEFAULT_DELAY_
     autoUpdater.on('update-available', info => setState({ state: 'available', version: info?.version || null, percent: null, message: `Version ${info?.version || 'new'} is available.` }));
     autoUpdater.on('update-not-available', () => setState({ state: 'current', version: null, percent: null, message: 'Moe Tracker is up to date.' }));
     autoUpdater.on('download-progress', progress => setState({ state: 'downloading', percent: Math.max(0, Math.min(100, Math.round(progress?.percent || 0))), message: 'Downloading the verified update…' }));
-    autoUpdater.on('update-downloaded', info => setState({ state: 'downloaded', version: info?.version || state.version, percent: 100, message: 'Update ready. Restart to install it.' }));
+    autoUpdater.on('update-downloaded', info => { downloadedFile = info?.downloadedFile || null; setState({ state: 'downloaded', version: info?.version || state.version, percent: 100, message: 'Update ready. Restart to install it.' }); });
     autoUpdater.on('error', error => setState({ state: 'error', percent: null, message: safeMessage(error) }));
   }
 
@@ -49,10 +50,11 @@ function createUpdateController({ autoUpdater, enabled, delayMs = DEFAULT_DELAY_
     return { ...state };
   }
 
-  function install() {
+  async function install() {
     if (!enabled || state.state !== 'downloaded') throw new Error('No downloaded update is ready to install.');
+    const health = updateHealth ? await updateHealth.prepareInstall({ previousVersion: currentVersion, targetVersion: state.version, downloadedFile }) : { rollbackReady: false };
     autoUpdater.quitAndInstall(false, true);
-    return { installing: true };
+    return { installing: true, rollbackReady: health.rollbackReady };
   }
 
   function start() {
