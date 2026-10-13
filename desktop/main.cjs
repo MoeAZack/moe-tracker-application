@@ -10,6 +10,7 @@ const { evidenceCandidates } = require('./evidence-handoff.cjs');
 const { scoreboardInventory, readScoreboardRecord } = require('./scoreboard-inbox.cjs');
 const { MAX_ENVELOPE_BYTES, encryptPortablePackage, decryptPortablePackage } = require('./portable-crypto.cjs');
 const { appendLocalCrashEvent } = require('./local-crash-log.cjs');
+const { createUpdateController } = require('./update-controller.cjs');
 
 let mainWindow;
 let tray;
@@ -20,6 +21,7 @@ let collectorImportTimer;
 let syncTimer;
 let syncPromise;
 let runtime;
+let updateController;
 let quitting = false;
 
 const json = async (file, fallback = null) => {
@@ -324,6 +326,7 @@ async function desktopStatus() {
     collector,
     sync: { paired: !!runtime.config.cloudPairing, server: runtime.config.cloudPairing?.server || null, pending: localSync.outbox.length, received: localSync.inbox.length },
     localService: 'online',
+    update: updateController?.getState() || { state: app.isPackaged ? 'current' : 'disabled', version: null, percent: null, message: app.isPackaged ? 'Update service is starting.' : 'Updates are available in installed builds.' },
   };
 }
 
@@ -366,6 +369,9 @@ function createTray() {
 
 ipcMain.handle('desktop:bootstrap-session', bootstrapSession);
 ipcMain.handle('desktop:get-status', desktopStatus);
+ipcMain.handle('desktop:check-for-updates', () => updateController?.check() || { state: 'disabled', message: 'Update service is not ready.' });
+ipcMain.handle('desktop:download-update', () => updateController?.download() || Promise.reject(new Error('Update service is not ready.')));
+ipcMain.handle('desktop:install-update', () => updateController?.install() || Promise.reject(new Error('Update service is not ready.')));
 ipcMain.handle('desktop:process-match', async () => {
   await configureCollector();
   let first = JSON.parse((await collectorCommand(['scan'])) || '[]');
@@ -448,7 +454,11 @@ if (!singleInstanceLock) app.quit();
 app.on('second-instance', () => { if (runtime) void showMainWindow().catch(error => recordLocalCrash('open-window-failed', error)); });
 
 if (singleInstanceLock) app.whenReady().then(async () => {
-  await ensureRuntime(); applyLoginPreference(); await startLocalServer(); await startCollector(); await createWindow(); createTray();
+  await ensureRuntime(); applyLoginPreference();
+  const { autoUpdater } = require('electron-updater');
+  updateController = createUpdateController({ autoUpdater, enabled: app.isPackaged });
+  updateController.start();
+  await startLocalServer(); await startCollector(); await createWindow(); createTray();
   collectorImportTimer = setInterval(() => { void autoImportProcessedEvidence().catch(error => console.warn(`[collector-import] ${error.message}`)); }, 5_000); collectorImportTimer.unref?.();
   setTimeout(() => void autoImportProcessedEvidence().catch(error => console.warn(`[collector-import] ${error.message}`)), 1_000);
   syncTimer = setInterval(() => { if (runtime.config.cloudPairing && runtime.config.mode === 'connected') void syncNow().catch(error => console.warn(`[sync] ${error.message}`)); }, 60_000); syncTimer.unref?.();
@@ -457,5 +467,5 @@ if (singleInstanceLock) app.whenReady().then(async () => {
   app.on('activate', () => { void showMainWindow().catch(error => recordLocalCrash('open-window-failed', error)); });
 }).catch(error => { dialog.showErrorBox('Moe Tracker could not start', error.message); app.quit(); });
 
-app.on('before-quit', () => { quitting = true; if (collectorImportTimer) clearInterval(collectorImportTimer); if (syncTimer) clearInterval(syncTimer); tray?.destroy(); collectorProcess?.kill(); serverProcess?.kill(); });
+app.on('before-quit', () => { quitting = true; updateController?.stop(); if (collectorImportTimer) clearInterval(collectorImportTimer); if (syncTimer) clearInterval(syncTimer); tray?.destroy(); collectorProcess?.kill(); serverProcess?.kill(); });
 app.on('window-all-closed', () => { /* The tray keeps replay watching and synchronization alive. */ });

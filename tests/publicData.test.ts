@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, it } from 'vitest';
-import { stripLegacySecrets, toPublicTrackerData } from '../lib/publicData';
+import { stripLegacySecrets, toPublicTrackerData, toWebsiteTrackerData } from '../lib/publicData';
 
 const savedEnv = { ...process.env };
 afterEach(() => { process.env = { ...savedEnv }; });
@@ -87,5 +87,19 @@ describe('public tracker data', () => {
       expect(result.matches).toEqual([{ id: 'safe-match' }]); expect(result).not.toHaveProperty('replayIntake'); expect(result).not.toHaveProperty('engineAdapters');
       for (const marker of ['TOKEN-HASH', 'PRIVATE-ACTOR', 'PRIVATE-DEVICE', 'PRIVATE-PLAYER', 'RAW-IDENTITY', 'PRIVATE-OBSERVATION', 'PRIVATE-RATING-INPUT']) expect(serialized).not.toContain(marker);
     }
+  });
+
+  it('projects only accepted website summary fields and drops detailed desktop evidence', () => {
+    const result = toWebsiteTrackerData({
+      settings: { teamName: 'RAAD', theme: 'slate', riotIds: { Alpha: { name: 'Private', tag: 'TAG' } }, vlr: { teamId: 'private' }, ai: { model: 'private' }, calendars: [{ key: 'team', name: 'Team', color: '#fff', gcalId: 'private-calendar', sync: true }] },
+      matches: [{ id: 'm1', date: '2026-10-13', type: 'Scrim', opponent: 'Other', map: 'Haven', ourScore: 13, theirScore: 9, notes: 'private coach note', vod: 'private-vod' }],
+      playerStats: [{ id: 'p1', matchId: 'm1', player: 'Alpha', kills: 20, deaths: 10, corrections: [{ correctedBy: 'private-coach' }] }],
+      rounds: [{ id: 'r1', matchId: 'm1', notes: 'private round detail' }], vetos: [{ id: 'v1' }], strats: [{ id: 's1', notes: 'private strat' }], stratRuns: [{ id: 'sr1' }],
+      vodReviews: [{ id: 'vod1', notes: [{ text: 'private review' }] }], lineups: [{ id: 'l1', imageUrl: 'private-image' }], seasonArchives: [{ id: 'a1' }],
+    });
+    expect(result.matches).toEqual([{ id: 'm1', date: '2026-10-13', type: 'Scrim', opponent: 'Other', map: 'Haven', ourScore: 13, theirScore: 9 }]);
+    expect(result.playerStats).toEqual([{ id: 'p1', matchId: 'm1', player: 'Alpha', kills: 20, deaths: 10 }]);
+    expect(result).toMatchObject({ rounds: [], vetos: [], strats: [], stratRuns: [], vodReviews: [], lineups: [], seasonArchives: [], secrets: {} });
+    expect(JSON.stringify(result)).not.toMatch(/private coach note|private-vod|private round detail|private strat|private review|private-image|private-calendar|private-coach|TAG/);
   });
 });

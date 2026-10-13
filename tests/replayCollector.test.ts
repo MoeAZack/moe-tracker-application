@@ -1,4 +1,5 @@
 import { describe, expect, it } from 'vitest';
+import crypto from 'crypto';
 import fs from 'fs/promises';
 import os from 'os';
 import path from 'path';
@@ -53,7 +54,7 @@ describe('Windows replay collector boundaries', () => {
   it('deletes expired raw replays only from an app-managed folder after verified evidence exists', async () => {
     const root = await fs.mkdtemp(path.join(os.tmpdir(), 'moetracker-retention-')); const managed = path.join(root, 'managed'); const external = path.join(root, 'external');
     await fs.mkdir(managed); await fs.mkdir(external);
-    const hash = 'a'.repeat(64); const deviceId = 'desktop-device-01'; const bytes = Buffer.from('verified raw replay');
+    const deviceId = 'desktop-device-01'; const bytes = Buffer.from('verified raw replay'); const hash = crypto.createHash('sha256').update(bytes).digest('hex');
     const normalized: any = { schemaVersion: 1, parserInput: { parser: { name: 'vrfkit', version: '0.2.5' }, file: { format: 'vrf' }, identities: [], rounds: [], provenance: { replaySha256: hash } }, scoreboard: { players: [], reviewRequired: true, evidenceCoverage: { status: 'complete' } }, diagnostics: { replaySha256: hash, binarySha256: 'aa55fc410f1596a6ffedc7ab579341da6edb262197c64902e74b4eed485dc23f', binaryVersion: '0.2.5', binaryCommit: 'c4d6cc0e5ec3904fdb64b350b2656b8e3ff33d53' } };
     const base: any = { schemaVersion: 1, source: { sha256: hash, size: bytes.length, originalName: 'match.vrf', deviceId }, parser: { name: 'vrfkit', version: '0.2.5', binarySha256: normalized.diagnostics.binarySha256, binaryCommit: normalized.diagnostics.binaryCommit }, normalized };
     const envelope = { ...base, evidenceSha256: localEvidenceDigest(base) }; const evidence = path.join(root, 'evidence.json'); await fs.writeFile(evidence, JSON.stringify(envelope));
@@ -62,6 +63,31 @@ describe('Windows replay collector boundaries', () => {
     try {
       await expect(collectorInternals.pruneExpiredManagedReplays(state, { retentionDays: 30, managedReplayPaths: [managed], deviceId }, Date.parse('2026-02-15T00:00:00.000Z'))).resolves.toEqual([managedRaw]);
       await expect(fs.access(managedRaw)).rejects.toMatchObject({ code: 'ENOENT' }); await expect(fs.access(externalRaw)).resolves.toBeUndefined(); expect(state.files.managed.status).toBe('evidence-retained');
+    } finally { await fs.rm(root, { recursive: true, force: true }); }
+  });
+
+  it('never deletes an expired managed replay whose current bytes differ from the verified evidence', async () => {
+    const root = await fs.mkdtemp(path.join(os.tmpdir(), 'moetracker-retention-mismatch-')); const managed = path.join(root, 'managed'); await fs.mkdir(managed);
+    const deviceId = 'desktop-device-01'; const verified = Buffer.from('verified raw replay'); const changed = Buffer.alloc(verified.length, 0x78); const hash = crypto.createHash('sha256').update(verified).digest('hex');
+    const normalized: any = { schemaVersion: 1, parserInput: { parser: { name: 'vrfkit', version: '0.2.5' }, file: { format: 'vrf' }, identities: [], rounds: [], provenance: { replaySha256: hash } }, scoreboard: { players: [], reviewRequired: true, evidenceCoverage: { status: 'complete' } }, diagnostics: { replaySha256: hash, binarySha256: 'aa55fc410f1596a6ffedc7ab579341da6edb262197c64902e74b4eed485dc23f', binaryVersion: '0.2.5', binaryCommit: 'c4d6cc0e5ec3904fdb64b350b2656b8e3ff33d53' } };
+    const base: any = { schemaVersion: 1, source: { sha256: hash, size: verified.length, originalName: 'match.vrf', deviceId }, parser: { name: 'vrfkit', version: '0.2.5', binarySha256: normalized.diagnostics.binarySha256, binaryCommit: normalized.diagnostics.binaryCommit }, normalized };
+    const evidence = path.join(root, 'evidence.json'); const raw = path.join(managed, 'match.vrf'); await fs.writeFile(evidence, JSON.stringify({ ...base, evidenceSha256: localEvidenceDigest(base) })); await fs.writeFile(raw, changed);
+    const old = Date.parse('2026-01-01T00:00:00.000Z'); const state: any = { files: { managed: { path: raw, sha256: hash, size: verified.length, mtimeMs: old, evidencePath: evidence, processedAt: '2026-01-01T00:00:00.000Z' } } };
+    try {
+      await expect(collectorInternals.pruneExpiredManagedReplays(state, { retentionDays: 30, managedReplayPaths: [managed], deviceId }, Date.parse('2026-02-15T00:00:00.000Z'))).resolves.toEqual([]);
+      await expect(fs.access(raw)).resolves.toBeUndefined(); expect(state.files.managed.lastError).toMatch(/no longer matches/);
+    } finally { await fs.rm(root, { recursive: true, force: true }); }
+  });
+
+  it('quarantines corrupt cached evidence so it can be regenerated safely', async () => {
+    const root = await fs.mkdtemp(path.join(os.tmpdir(), 'moetracker-evidence-cache-')); const cached = path.join(root, 'cached.json'); await fs.writeFile(cached, '{not-json');
+    try {
+      await expect(collectorInternals.readReusableEvidence(cached, 'a'.repeat(64), 100, 'desktop-device-01')).resolves.toBeNull();
+      await expect(fs.access(cached)).rejects.toMatchObject({ code: 'ENOENT' });
+      expect((await fs.readdir(root)).filter(name => name.startsWith('cached.json.invalid-'))).toHaveLength(1);
+      await fs.writeFile(cached, JSON.stringify({ schemaVersion: 1, source: {}, parser: {}, normalized: {}, evidenceSha256: 'b'.repeat(64) }));
+      await expect(collectorInternals.readReusableEvidence(cached, 'a'.repeat(64), 100, 'desktop-device-01')).resolves.toBeNull();
+      expect((await fs.readdir(root)).filter(name => name.startsWith('cached.json.invalid-'))).toHaveLength(2);
     } finally { await fs.rm(root, { recursive: true, force: true }); }
   });
 

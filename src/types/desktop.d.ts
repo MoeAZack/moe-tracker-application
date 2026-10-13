@@ -10,6 +10,7 @@ type DesktopStatus = {
   pendingScoreboards: number;
   latestReplay: null | { name: string; path: string; size: number; modifiedAt: string };
   localService: 'online';
+  update: { state: 'disabled' | 'current' | 'checking' | 'available' | 'downloading' | 'downloaded' | 'error'; version: string | null; percent: number | null; message: string };
   folders: { replays: string; screenshots: string; exports: string; backups: string; logs: string; valorantReplays: string };
   collector: any;
   sync: { paired: boolean; server: string | null; pending: number; received: number };
@@ -20,6 +21,9 @@ declare global {
     moeDesktop?: {
       bootstrapSession(): Promise<{ key: string; role: string; username: string }>;
       getStatus(): Promise<DesktopStatus>;
+      checkForUpdates(): Promise<DesktopStatus['update']>;
+      downloadUpdate(): Promise<DesktopStatus['update']>;
+      installUpdate(): Promise<{ installing: boolean }>;
       processMatch(): Promise<{ state: string; message: string; items?: any[] }>;
       syncNow(): Promise<{ state: string; message: string }>;
       pairDevice(input: { server: string; code: string }): Promise<{ paired: boolean; server: string; device: any }>;

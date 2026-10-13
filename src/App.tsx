@@ -24,6 +24,8 @@ const LineupLibrary = lazy(() => import('./components/LineupLibrary'));
 const EconomyAnalytics = lazy(() => import('./components/EconomyAnalytics'));
 const ScrimImport = lazy(() => import('./components/ScrimImport'));
 const ReplayWorkspace = lazy(() => import('./components/ReplayWorkspace'));
+const WebsiteMatchLog = lazy(() => import('./components/WebsiteMatchLog'));
+const WebsiteMapSummary = lazy(() => import('./components/WebsiteMapSummary'));
 
 import {
   ShieldAlert, RefreshCw, Trophy, Calendar, Swords, Compass,
@@ -76,7 +78,7 @@ export default function App() {
   // Load Database State
   const fetchDatabase = async () => {
     try {
-      const res = await apiFetch('/api/data');
+      const res = await apiFetch(desktopMode ? '/api/data' : '/api/website-summary');
       if (!res.ok) throw new Error('Failed to retrieve tracker state.');
       const json = await res.json();
       setData(json);
@@ -341,11 +343,10 @@ export default function App() {
   ] as const;
 
   const visibleTabs = useMemo(() => {
-    if (role === 'player') {
-      return tabsList.filter(tab => !['settings', 'livelogger', 'vod'].includes(tab.id));
-    }
-    return tabsList;
-  }, [role]);
+    const surfaceTabs = desktopMode ? tabsList : tabsList.filter(tab => ['dashboard', 'calendar', 'matches', 'economy', 'maps', 'roster'].includes(tab.id));
+    if (role === 'player') return surfaceTabs.filter(tab => !['settings', 'livelogger', 'vod'].includes(tab.id));
+    return surfaceTabs;
+  }, [desktopMode, role]);
 
   const appTitle = data?.settings?.teamName || 'MoeAZack Valorant Tracker';
   const themeMode = data?.settings?.theme || 'slate';
@@ -434,7 +435,7 @@ export default function App() {
           </div>
 
           {/* Vision AI Import Module Button (Only Coach can use this) */}
-          {role === 'coach' && (
+          {desktopMode && role === 'coach' && (
             <div className="liquid-subtle p-4 rounded-xl space-y-2">
               <div className="flex items-center gap-1.5 text-[#ff4655] font-black text-[10px] tracking-widest uppercase font-mono">
                 <Image className="w-4 h-4" /> SCOREBOARD IMPORT
@@ -480,14 +481,14 @@ export default function App() {
           </div>
 
           <div className="flex items-center gap-2">
-            <button
+            {desktopMode && <button
               onClick={openReplayImport}
               className="w-11 h-11 inline-flex items-center justify-center ui-button text-[#ff6975]"
               title="Import scoreboard"
               aria-label="Import scoreboard"
             >
               <Image className="w-4 h-4" />
-            </button>
+            </button>}
             <button
               onClick={() => setMobileMenuOpen(!mobileMenuOpen)}
               className="w-11 h-11 inline-flex items-center justify-center ui-button text-white"
@@ -574,12 +575,12 @@ export default function App() {
               </div>
             }>
             {activeTab === 'dashboard' && analyticsData && (
-              <Dashboard data={analyticsData} theme={theme} role={role} username={username} onOpenMatch={(matchId) => { setReviewMatchId(matchId); setActiveTab('vod'); }} onOpenReplay={() => setActiveTab('replays')} />
+              <Dashboard data={analyticsData} theme={theme} role={role} username={username} summaryMode={!desktopMode} onOpenMatch={(matchId) => { setReviewMatchId(matchId); setActiveTab('vod'); }} onOpenReplay={() => setActiveTab('replays')} />
             )}
             {activeTab === 'calendar' && data && (
               <CalendarGoals data={data} theme={theme} onUpsert={handleUpsert} onRemove={handleRemove} />
             )}
-            {activeTab === 'matches' && data && (
+            {activeTab === 'matches' && data && desktopMode && (
               <MatchLogRounds 
                 data={workspaceData || data} 
                 theme={theme} 
@@ -592,6 +593,7 @@ export default function App() {
                 onManualReplayDraftConsumed={() => setManualReplayDraft(null)}
               />
             )}
+            {activeTab === 'matches' && data && !desktopMode && <WebsiteMatchLog data={data} theme={theme} />}
             {activeTab === 'replays' && data && (
               <ReplayWorkspace data={workspaceData || data} role={role} onAccepted={fetchDatabase} onManualFallback={(item) => { setManualReplayDraft(item.draft as ScreenshotReviewDraft); setActiveTab('matches'); }} />
             )}
@@ -618,9 +620,10 @@ export default function App() {
             {activeTab === 'aitactical' && analyticsData && (
               <AITacticalHub data={analyticsData} theme={theme} onUpsert={handleUpsert} onRemove={handleRemove} />
             )}
-            {activeTab === 'maps' && analyticsData && (
+            {activeTab === 'maps' && analyticsData && desktopMode && (
               <MapBestStats data={analyticsData} theme={theme} onUpsert={handleUpsert} onRemove={handleRemove} />
             )}
+            {activeTab === 'maps' && analyticsData && !desktopMode && <WebsiteMapSummary data={analyticsData} theme={theme} />}
             {activeTab === 'comps' && analyticsData && (
               <TeamCompositions data={analyticsData} theme={theme} />
             )}
@@ -641,7 +644,7 @@ export default function App() {
       </div>
 
       {/* --- SCRIM AUTO-IMPORT MODAL --- */}
-      {scrimOpen && data && (
+      {desktopMode && scrimOpen && data && (
         <Suspense fallback={null}>
           <ScrimImport
             data={data}
