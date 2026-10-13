@@ -9,6 +9,7 @@ const path = require('node:path');
 const { evidenceCandidates } = require('./evidence-handoff.cjs');
 const { scoreboardInventory, readScoreboardRecord } = require('./scoreboard-inbox.cjs');
 const { MAX_ENVELOPE_BYTES, encryptPortablePackage, decryptPortablePackage } = require('./portable-crypto.cjs');
+const { appendLocalCrashEvent } = require('./local-crash-log.cjs');
 
 let mainWindow;
 let serverProcess;
@@ -18,6 +19,7 @@ let collectorImportTimer;
 let syncTimer;
 let syncPromise;
 let runtime;
+let quitting = false;
 
 const json = async (file, fallback = null) => {
   try { return JSON.parse(await fsp.readFile(file, 'utf8')); }
@@ -53,6 +55,7 @@ function appPaths() {
     screenshots: path.join(documents, 'Scoreboards'),
     exports: path.join(documents, 'Exports'),
     backups: path.join(documents, 'Backups'),
+    logs: path.join(local, 'Logs'),
     valorantReplays: path.join(process.env.LOCALAPPDATA || '', 'VALORANT', 'Saved', 'Demos'),
     collector: path.join(process.env.LOCALAPPDATA || '', 'MoeTracker', 'ReplayCollector'),
   };
@@ -60,7 +63,7 @@ function appPaths() {
 
 async function ensureRuntime() {
   const paths = appPaths();
-  await Promise.all(Object.values({ local: paths.local, replays: paths.replays, screenshots: paths.screenshots, exports: paths.exports, backups: paths.backups }).map(folder => fsp.mkdir(folder, { recursive: true })));
+  await Promise.all(Object.values({ local: paths.local, logs: paths.logs, replays: paths.replays, screenshots: paths.screenshots, exports: paths.exports, backups: paths.backups }).map(folder => fsp.mkdir(folder, { recursive: true })));
   let config = await json(paths.config, null);
   if (!config) {
     config = {
@@ -85,6 +88,18 @@ async function ensureRuntime() {
   if (!await json(paths.syncState, null)) await atomicJson(paths.syncState, { schemaVersion: 1, outbox: [], inbox: [], completed: [] });
   runtime = { paths, config, port: await freePort(), session: null, coachSession: null };
   return runtime;
+}
+
+function crashLogDirectory() {
+  return runtime?.paths.logs || path.join(app.getPath('userData'), 'Local Workspace', 'Logs');
+}
+
+function recordLocalCrash(type, error, details = {}) {
+  return appendLocalCrashEvent(crashLogDirectory(), type, error, details).catch(logError => console.error(`[crash-log] ${logError.message}`));
+}
+
+function applyLoginPreference() {
+  if (process.platform === 'win32' && app.isPackaged) app.setLoginItemSettings({ openAtLogin: !!runtime.config.startWithWindows, path: process.execPath });
 }
 
 function freePort() {
@@ -133,6 +148,7 @@ async function startLocalServer() {
     APP_DESKTOP: 'true',
   }});
   serverProcess.stderr.on('data', value => console.error(`[local-service] ${String(value).trim()}`));
+  serverProcess.on('exit', (code, signal) => { if (!quitting) void recordLocalCrash('local-service-exit', new Error('The local service exited unexpectedly.'), { code, signal }); });
   await waitForHealth(runtime.port);
 }
 
@@ -159,6 +175,7 @@ async function startCollector() {
   collectorProcess = runNode(script, ['watch']);
   collectorProcess.stdout.on('data', () => { void autoImportProcessedEvidence().catch(error => console.warn(`[collector-import] ${error.message}`)); });
   collectorProcess.stderr.on('data', value => console.error(`[collector] ${String(value).trim()}`));
+  collectorProcess.on('exit', (code, signal) => { if (!quitting) void recordLocalCrash('collector-exit', new Error('The replay watcher exited unexpectedly.'), { code, signal }); });
 }
 
 async function bootstrapSession() {
@@ -297,6 +314,7 @@ async function desktopStatus() {
     mode: runtime.config.mode,
     deviceName: runtime.config.deviceName,
     retentionDays: runtime.config.retentionDays,
+    startWithWindows: !!runtime.config.startWithWindows,
     cloudUrl: runtime.config.cloudUrl,
     folders: runtime.paths,
     replayCount: replays.length,
@@ -333,6 +351,7 @@ ipcMain.handle('desktop:sync-now', syncNow);
 ipcMain.handle('desktop:pair-device', (_event, input) => pairDevice(input || {}));
 ipcMain.handle('desktop:set-sync-mode', async (_event, mode) => { if (!['offline-first', 'connected'].includes(mode)) throw new Error('Unknown synchronization mode.'); if (mode === 'connected' && !runtime.config.cloudPairing) throw new Error('Pair this device before enabling connected sync.'); runtime.config.mode = mode; await atomicJson(runtime.paths.config, runtime.config); return { mode }; });
 ipcMain.handle('desktop:set-retention-days', async (_event, value) => { const days = Number(value); if (!Number.isInteger(days) || days < 1 || days > 365) throw new Error('Retention must be between 1 and 365 days.'); runtime.config.retentionDays = days; await atomicJson(runtime.paths.config, runtime.config); await configureCollector(); return { retentionDays: days }; });
+ipcMain.handle('desktop:set-start-with-windows', async (_event, enabled) => { runtime.config.startWithWindows = enabled === true; await atomicJson(runtime.paths.config, runtime.config); applyLoginPreference(); return { startWithWindows: runtime.config.startWithWindows }; });
 ipcMain.handle('desktop:list-scoreboards', async () => (await scoreboardInventory(runtime.paths.screenshots, runtime.config.processedScoreboardIds || [])).map(({ file: _privatePath, ...record }) => record));
 ipcMain.handle('desktop:read-scoreboard', async (_event, id) => {
   if (!/^[a-f0-9]{64}$/.test(String(id || ''))) throw new Error('Unknown scoreboard image.');
@@ -348,7 +367,7 @@ ipcMain.handle('desktop:complete-scoreboard', async (_event, id) => {
   await atomicJson(runtime.paths.config, runtime.config); return { completed: true };
 });
 ipcMain.handle('desktop:open-folder', async (_event, kind) => {
-  const allowed = { replays: runtime.paths.replays, screenshots: runtime.paths.screenshots, exports: runtime.paths.exports, backups: runtime.paths.backups };
+  const allowed = { replays: runtime.paths.replays, screenshots: runtime.paths.screenshots, exports: runtime.paths.exports, backups: runtime.paths.backups, logs: runtime.paths.logs };
   if (!allowed[kind]) throw new Error('Unknown Moe Tracker folder.');
   await fsp.mkdir(allowed[kind], { recursive: true });
   const error = await shell.openPath(allowed[kind]);
@@ -391,8 +410,13 @@ ipcMain.handle('desktop:import-team-package', async () => {
   runtime.pendingImport = null; return { imported: true, message: 'Portable package imported. Conflicts were left unchanged.', result };
 });
 
+process.on('unhandledRejection', reason => { void recordLocalCrash('unhandled-rejection', reason); });
+process.on('uncaughtException', error => { void recordLocalCrash('uncaught-exception', error).finally(() => { dialog.showErrorBox('Moe Tracker stopped unexpectedly', 'A local crash report was saved. Restart Moe Tracker to continue.'); app.exit(1); }); });
+app.on('render-process-gone', (_event, _webContents, details) => { void recordLocalCrash('renderer-process-gone', new Error('The desktop window process stopped.'), { reason: details.reason, exitCode: details.exitCode }); });
+app.on('child-process-gone', (_event, details) => { void recordLocalCrash('electron-child-process-gone', new Error('An application helper process stopped.'), { type: details.type, reason: details.reason, exitCode: details.exitCode }); });
+
 app.whenReady().then(async () => {
-  await ensureRuntime(); await startLocalServer(); await startCollector(); await createWindow();
+  await ensureRuntime(); applyLoginPreference(); await startLocalServer(); await startCollector(); await createWindow();
   collectorImportTimer = setInterval(() => { void autoImportProcessedEvidence().catch(error => console.warn(`[collector-import] ${error.message}`)); }, 5_000); collectorImportTimer.unref?.();
   setTimeout(() => void autoImportProcessedEvidence().catch(error => console.warn(`[collector-import] ${error.message}`)), 1_000);
   syncTimer = setInterval(() => { if (runtime.config.cloudPairing && runtime.config.mode === 'connected') void syncNow().catch(error => console.warn(`[sync] ${error.message}`)); }, 60_000); syncTimer.unref?.();
@@ -401,5 +425,5 @@ app.whenReady().then(async () => {
   app.on('activate', () => { if (BrowserWindow.getAllWindows().length === 0) createWindow(); });
 }).catch(error => { dialog.showErrorBox('Moe Tracker could not start', error.message); app.quit(); });
 
-app.on('before-quit', () => { if (collectorImportTimer) clearInterval(collectorImportTimer); if (syncTimer) clearInterval(syncTimer); collectorProcess?.kill(); serverProcess?.kill(); });
+app.on('before-quit', () => { quitting = true; if (collectorImportTimer) clearInterval(collectorImportTimer); if (syncTimer) clearInterval(syncTimer); collectorProcess?.kill(); serverProcess?.kill(); });
 app.on('window-all-closed', () => { if (process.platform !== 'darwin') app.quit(); });

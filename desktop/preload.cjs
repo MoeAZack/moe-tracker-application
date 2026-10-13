@@ -8,6 +8,7 @@ contextBridge.exposeInMainWorld('moeDesktop', Object.freeze({
   pairDevice: (input) => ipcRenderer.invoke('desktop:pair-device', input),
   setSyncMode: (mode) => ipcRenderer.invoke('desktop:set-sync-mode', mode),
   setRetentionDays: (days) => ipcRenderer.invoke('desktop:set-retention-days', days),
+  setStartWithWindows: (enabled) => ipcRenderer.invoke('desktop:set-start-with-windows', enabled),
   listScoreboards: () => ipcRenderer.invoke('desktop:list-scoreboards'),
   readScoreboard: (id) => ipcRenderer.invoke('desktop:read-scoreboard', id),
   completeScoreboard: (id) => ipcRenderer.invoke('desktop:complete-scoreboard', id),
