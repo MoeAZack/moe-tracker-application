@@ -6,10 +6,13 @@ const fsp = require('node:fs/promises');
 const http = require('node:http');
 const net = require('node:net');
 const path = require('node:path');
+const { evidenceCandidates } = require('./evidence-handoff.cjs');
 
 let mainWindow;
 let serverProcess;
 let collectorProcess;
+let collectorImportPromise;
+let collectorImportTimer;
 let syncTimer;
 let syncPromise;
 let runtime;
@@ -152,6 +155,7 @@ async function startCollector() {
   await configureCollector();
   const script = path.join(applicationRoot(), 'scripts', 'replay-collector.mjs');
   collectorProcess = runNode(script, ['watch']);
+  collectorProcess.stdout.on('data', () => { void autoImportProcessedEvidence().catch(error => console.warn(`[collector-import] ${error.message}`)); });
   collectorProcess.stderr.on('data', value => console.error(`[collector] ${String(value).trim()}`));
 }
 
@@ -178,6 +182,27 @@ async function importEvidenceFile(file) {
   if (!response.ok) throw new Error(result.error || 'Local replay evidence could not be added to the review inbox.');
   await enqueueSyncEvidence(evidence);
   return result;
+}
+
+async function autoImportProcessedEvidence() {
+  if (collectorImportPromise) return collectorImportPromise;
+  collectorImportPromise = (async () => {
+    const manifest = await json(path.join(runtime.paths.collector, 'manifest.json'), { files: {} });
+    const completed = Array.isArray(runtime.config.importedEvidenceIds) ? runtime.config.importedEvidenceIds : [];
+    const candidates = evidenceCandidates(manifest, runtime.paths.collector, completed);
+    if (!candidates.length) return { imported: 0 };
+    const importedIds = new Set(completed);
+    let imported = 0;
+    for (const candidate of candidates) {
+      await importEvidenceFile(candidate.file);
+      importedIds.add(candidate.id);
+      imported += 1;
+    }
+    runtime.config.importedEvidenceIds = [...importedIds].slice(-1000);
+    await atomicJson(runtime.paths.config, runtime.config);
+    return { imported };
+  })().finally(() => { collectorImportPromise = null; });
+  return collectorImportPromise;
 }
 
 async function syncState() { return json(runtime.paths.syncState, { schemaVersion: 1, outbox: [], inbox: [], completed: [] }); }
@@ -347,11 +372,13 @@ ipcMain.handle('desktop:import-team-package', async () => {
 
 app.whenReady().then(async () => {
   await ensureRuntime(); await startLocalServer(); await startCollector(); await createWindow();
+  collectorImportTimer = setInterval(() => { void autoImportProcessedEvidence().catch(error => console.warn(`[collector-import] ${error.message}`)); }, 5_000); collectorImportTimer.unref?.();
+  setTimeout(() => void autoImportProcessedEvidence().catch(error => console.warn(`[collector-import] ${error.message}`)), 1_000);
   syncTimer = setInterval(() => { if (runtime.config.cloudPairing && runtime.config.mode === 'connected') void syncNow().catch(error => console.warn(`[sync] ${error.message}`)); }, 60_000); syncTimer.unref?.();
   if (runtime.config.cloudPairing && runtime.config.mode === 'connected') setTimeout(() => void syncNow().catch(error => console.warn(`[sync] ${error.message}`)), 5_000);
   setTimeout(() => void createRecoveryBackup().catch(error => console.warn(`[backup] ${error.message}`)), 8_000);
   app.on('activate', () => { if (BrowserWindow.getAllWindows().length === 0) createWindow(); });
 }).catch(error => { dialog.showErrorBox('Moe Tracker could not start', error.message); app.quit(); });
 
-app.on('before-quit', () => { if (syncTimer) clearInterval(syncTimer); collectorProcess?.kill(); serverProcess?.kill(); });
+app.on('before-quit', () => { if (collectorImportTimer) clearInterval(collectorImportTimer); if (syncTimer) clearInterval(syncTimer); collectorProcess?.kill(); serverProcess?.kill(); });
 app.on('window-all-closed', () => { if (process.platform !== 'darwin') app.quit(); });
