@@ -26,7 +26,7 @@ function evidenceEnvelope(sha256: string, size: number, deviceId: string) {
 
 beforeEach(async () => {
   vi.resetModules(); tempDir = await fs.mkdtemp(path.join(os.tmpdir(), 'moetracker-replay-intake-')); dbPath = path.join(tempDir, 'db.json'); replayDir = path.join(tempDir, 'private');
-  for (const [key, value] of Object.entries({ NODE_ENV: 'test', USE_FIRESTORE: 'false', DB_PATH: dbPath, REPLAY_STORAGE_DIR: replayDir, REPLAY_LEGACY_RAW_UPLOAD_ENABLED: 'true', REPLAY_DAILY_FILES: '1', VRFKIT_RETAINED_JOB_COUNT: '1', ADMIN_PASSWORD: adminKey, JWT_SECRET: jwtSecret, GOOGLE_CLIENT_ID: '' })) vi.stubEnv(key, value);
+  for (const [key, value] of Object.entries({ NODE_ENV: 'test', APP_DESKTOP: 'true', USE_FIRESTORE: 'false', DB_PATH: dbPath, REPLAY_STORAGE_DIR: replayDir, REPLAY_LEGACY_RAW_UPLOAD_ENABLED: 'true', REPLAY_DAILY_FILES: '1', VRFKIT_RETAINED_JOB_COUNT: '1', ADMIN_PASSWORD: adminKey, JWT_SECRET: jwtSecret, GOOGLE_CLIENT_ID: '' })) vi.stubEnv(key, value);
   await fs.writeFile(dbPath, JSON.stringify({
     settings: {}, matches: [], seasonArchives: [], rosterPlayers: [{ id: 'p1', displayName: 'Player One', retiredAt: null }],
     authKeys: [{ id: 'player-key', keyHash: crypto.createHash('sha256').update(playerKey).digest('hex'), label: 'Player One', role: 'player', playerId: 'p1' }], allowedUsers: [],
@@ -41,6 +41,24 @@ afterEach(async () => {
 });
 
 describe('private replay intake', () => {
+  it('imports a locally persisted desktop evidence package idempotently without raw upload', async () => {
+    const coach = await login(adminKey); const hash = 'a'.repeat(64); const deviceId = 'desktop-device-01'; const envelope = evidenceEnvelope(hash, 100, deviceId);
+    const first = await jsonRequest('/api/desktop/replay-evidence', coach, envelope); expect(first.status).toBe(201); expect(await first.json()).toMatchObject({ sha256: hash, parserStatus: 'parsed-review-required', reviewStatus: 'review-required', idempotent: false });
+    const retry = await jsonRequest('/api/desktop/replay-evidence', coach, envelope); expect(retry.status).toBe(200); expect(await retry.json()).toMatchObject({ sha256: hash, idempotent: true });
+    const stored = JSON.parse(await fs.readFile(dbPath, 'utf8')); expect(Object.keys(stored.replayIntake.blobs)).toEqual([hash]); expect(Object.keys(stored.replayIntake.parserJobs)).toHaveLength(1); expect(stored.replayIntake.blobs[hash].rawObject).toBeNull();
+  });
+
+  it('keeps an accepted desktop replay accepted when identical evidence returns after parser-job pruning', async () => {
+    const coach = await login(adminKey); const hash = 'b'.repeat(64); const envelope = evidenceEnvelope(hash, 100, 'desktop-device-02');
+    expect((await jsonRequest('/api/desktop/replay-evidence', coach, envelope)).status).toBe(201);
+    const stored = JSON.parse(await fs.readFile(dbPath, 'utf8')); const blob = stored.replayIntake.blobs[hash];
+    delete stored.replayIntake.parserJobs[blob.parserJobId]; blob.parserJobId = null; blob.reviewStatus = 'accepted'; blob.matchId = 'match-accepted';
+    await fs.writeFile(dbPath, JSON.stringify(stored));
+    const retry = await jsonRequest('/api/desktop/replay-evidence', coach, envelope); expect(retry.status).toBe(200);
+    expect(await retry.json()).toMatchObject({ sha256: hash, reviewStatus: 'accepted', matchId: 'match-accepted', idempotent: true });
+    const final = JSON.parse(await fs.readFile(dbPath, 'utf8')); expect(final.replayIntake.blobs[hash]).toMatchObject({ reviewStatus: 'accepted', matchId: 'match-accepted', parserJobId: null }); expect(Object.keys(final.replayIntake.parserJobs)).toHaveLength(0);
+  });
+
   it('applies daily device bounds to local evidence and prunes retained completed evidence jobs', async () => {
     const coach = await login(adminKey);
     const first = await (await jsonRequest('/api/replay-intake/devices/enroll', coach, { name: 'Evidence PC 1' })).json();

@@ -64,7 +64,7 @@ type DeviceRecord = {
   createdAt: string; expiresAt: string; revokedAt: string | null; lastSeenAt: string | null;
 };
 
-type ReplayBlob = { sha256: string; size: number; storedAt: string; ingestionMode?: 'local-evidence' | 'coach-raw' | 'legacy-raw'; uploadStatus?: 'uploading' | 'verified' | 'processed' | 'deleted' | 'failed'; rawObject?: RawReplayObject | null; parserStatus: 'unavailable' | 'pending' | 'parsed-review-required' | 'failed'; parserJobId?: string | null; reviewStatus: 'review-required' | 'accepted'; matchId: string | null };
+type ReplayBlob = { sha256: string; size: number; storedAt: string; ingestionMode?: 'local-evidence' | 'coach-raw' | 'legacy-raw'; uploadStatus?: 'uploading' | 'verified' | 'processed' | 'deleted' | 'failed'; rawObject?: RawReplayObject | null; parserStatus: 'unavailable' | 'pending' | 'parsed-review-required' | 'failed'; parserJobId?: string | null; evidenceHash?: string; reviewStatus: 'review-required' | 'accepted'; matchId: string | null };
 type ReplayAssociation = { id: string; sha256: string; size: number; originalName: string; deviceId: string; owner: DeviceRecord['owner']; receivedAt: string };
 type ReplayParserJob = {
   id: string; sha256: string; requestedBy: string; status: 'queued' | 'running' | 'completed' | 'failed';
@@ -90,6 +90,12 @@ type ReplayStore = { schemaVersion: number; devices: Record<string, DeviceRecord
 
 function associationKey(deviceId: string, hash: string) { return crypto.createHash('sha256').update(`${deviceId}\0${hash}`).digest('hex'); }
 function newDeviceId() { return `d_${crypto.randomBytes(18).toString('base64url')}`; }
+function retainedEvidenceHash(store: ReplayStore, sha256: string, blob?: ReplayBlob) {
+  if (blob?.evidenceHash) return blob.evidenceHash;
+  const job = blob?.parserJobId ? store.parserJobs[blob.parserJobId] : null;
+  if (job?.result) return contentHash(job.result);
+  return store.reviews[sha256]?.rawEvidenceHash || null;
+}
 
 function replayStore(db: any) {
   db.replayIntake ||= { schemaVersion: 5, devices: {}, blobs: {}, associations: {}, parserJobs: {}, reviews: {}, rawSessions: {}, rawReceipts: {} };
@@ -577,15 +583,17 @@ export function registerReplayDeviceUploadRoute(app: Express) {
       const reservation = reserveReplayUpload(device.id, source.size, today.length, today.reduce((sum, item) => sum + Number(item.size || 0), 0), !ownAssociation);
       if (!reservation.ok) return res.status(reservation.status).json({ error: reservation.error });
       releaseReservation = reservation.release;
-      if (existing && (existing.size !== source.size || existing.parserJobId && store.parserJobs[existing.parserJobId]?.result && contentHash(store.parserJobs[existing.parserJobId].result) !== contentHash(validated.retained))) {
+      const incomingEvidenceHash = contentHash(validated.retained); const priorEvidenceHash = retainedEvidenceHash(store, expectedHash, existing);
+      if (existing && (existing.size !== source.size || priorEvidenceHash && priorEvidenceHash !== incomingEvidenceHash)) {
         return res.status(409).json({ error: 'This replay hash already has conflicting evidence.' });
       }
       const now = new Date().toISOString();
-      if (existing?.parserJobId && store.parserJobs[existing.parserJobId]?.result) {
+      if (existing && priorEvidenceHash === incomingEvidenceHash) {
+        existing.evidenceHash ||= incomingEvidenceHash;
         const association: ReplayAssociation = ownAssociation || { id: crypto.randomUUID(), sha256: expectedHash, size: source.size, originalName, deviceId: device.id, owner: device.owner, receivedAt: now };
         store.associations[ownKey] = association; device.lastSeenAt = now;
-        const sourceIds = store.parserJobs[existing.parserJobId].sourceDeviceIds;
-        if (!sourceIds.includes(device.id)) sourceIds.push(device.id);
+        const priorJob = existing.parserJobId ? store.parserJobs[existing.parserJobId] : null;
+        if (priorJob && !priorJob.sourceDeviceIds.includes(device.id)) priorJob.sourceDeviceIds.push(device.id);
         pairReplayScreenshots(store);
         await saveDB(db);
         return res.status(200).json({ ...uploadPublic(association, existing), evidenceSha256: validated.envelope.evidenceSha256, reviewRequired: existing.reviewStatus !== 'accepted', idempotent: true });
@@ -720,6 +728,32 @@ export function registerReplayDeviceUploadRoute(app: Express) {
 
 /** Session-authenticated enrollment, revocation, and private status views. */
 export async function registerReplayDeviceRoutes(app: Express) {
+  if (process.env.APP_DESKTOP === 'true') app.post('/api/desktop/replay-evidence', async (req, res) => {
+    try {
+      const user = actor(req); const envelope = req.body; const expectedHash = String(envelope?.source?.sha256 || '').toLowerCase();
+      const sourceDeviceId = String(envelope?.source?.deviceId || `desktop-${crypto.createHash('sha256').update(user.actorId).digest('hex').slice(0, 20)}`);
+      if (!HEX_SHA256.test(expectedHash)) return res.status(400).json({ error: 'Replay SHA-256 is invalid.' });
+      const validated = validateLocalReplayEvidence(envelope, sourceDeviceId); const source = validated.envelope.source; const originalName = cleanReplayName(source.originalName);
+      if (!originalName || source.size > MAX_REPLAY_BYTES) return res.status(400).json({ error: 'Local evidence source is invalid.' });
+      const db = await readDB(); const store = replayStore(db); const existing = store.blobs[expectedHash];
+      const incomingEvidenceHash = contentHash(validated.retained); const priorEvidenceHash = retainedEvidenceHash(store, expectedHash, existing);
+      if (existing && priorEvidenceHash && priorEvidenceHash !== incomingEvidenceHash) return res.status(409).json({ error: 'This replay hash already has conflicting evidence.' });
+      if (existing && priorEvidenceHash === incomingEvidenceHash) {
+        existing.evidenceHash ||= incomingEvidenceHash;
+        await saveDB(db);
+        return res.json({ sha256: expectedHash, parserStatus: existing.parserStatus, reviewStatus: existing.reviewStatus, matchId: existing.matchId, idempotent: true });
+      }
+      const now = new Date().toISOString(); const jobId = crypto.randomUUID();
+      const job: ReplayParserJob = { id: jobId, sha256: expectedHash, requestedBy: user.actorId, sourceDeviceIds: [sourceDeviceId], status: 'completed', createdAt: now, startedAt: now, completedAt: now, parser: { name: 'vrfkit', version: '0.2.5' }, reviewStatus: 'review-required', result: validated.retained, lease: null };
+      const blob: ReplayBlob = { sha256: expectedHash, size: source.size, storedAt: existing?.storedAt || now, ingestionMode: 'local-evidence', uploadStatus: 'processed', parserStatus: 'parsed-review-required', parserJobId: jobId, evidenceHash: incomingEvidenceHash, reviewStatus: existing?.reviewStatus || 'review-required', matchId: existing?.matchId || null, rawObject: null };
+      const key = associationKey(sourceDeviceId, expectedHash);
+      store.parserJobs[jobId] = job; store.blobs[expectedHash] = blob;
+      store.associations[key] ||= { id: crypto.randomUUID(), sha256: expectedHash, size: source.size, originalName, deviceId: sourceDeviceId, owner: { actorId: user.actorId, role: user.role, playerId: user.playerId || null }, receivedAt: now };
+      pruneParserJobs(store); pairReplayScreenshots(store); await saveDB(db);
+      res.status(201).json({ sha256: expectedHash, parserStatus: blob.parserStatus, reviewStatus: blob.reviewStatus, matchId: blob.matchId, idempotent: false });
+    } catch (error: any) { res.status(error?.status || 400).json({ error: error?.message || 'Local replay evidence could not be imported.' }); }
+  });
+
   app.get('/api/replay-intake/screenshots', async (req, res) => {
     if (actor(req).role !== 'coach') return res.status(403).json({ error: 'Screenshot pairing is coach-only.' });
     try {
