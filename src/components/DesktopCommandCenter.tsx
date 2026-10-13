@@ -1,7 +1,7 @@
 import React, { useEffect, useState } from 'react';
 import { CheckCircle2, Cloud, Download, FolderOpen, HardDrive, Image, LoaderCircle, Play, RefreshCw, WifiOff } from 'lucide-react';
 
-export default function DesktopCommandCenter() {
+export default function DesktopCommandCenter({ onOpenReplay }: { onOpenReplay?: () => void }) {
   const bridge = typeof window === 'undefined' ? undefined : window.moeDesktop;
   const [status, setStatus] = useState<any>(null);
   const [busy, setBusy] = useState('');
@@ -11,7 +11,12 @@ export default function DesktopCommandCenter() {
   const [pairCode, setPairCode] = useState('');
   const [retentionDays, setRetentionDays] = useState(30);
   const refresh = async () => bridge && setStatus(await bridge.getStatus());
-  useEffect(() => { bridge?.getStatus().then(value => { setStatus(value); setRetentionDays(value.retentionDays || 30); }).catch(error => setNotice(error.message)); }, []);
+  useEffect(() => {
+    let active = true;
+    const update = () => bridge?.getStatus().then(value => { if (active) { setStatus(value); setRetentionDays(value.retentionDays || 30); } }).catch(error => { if (active) setNotice(error.message); });
+    void update(); const interval = window.setInterval(update, 5_000);
+    return () => { active = false; window.clearInterval(interval); };
+  }, []);
   if (!bridge) return null;
   const run = async (name: string, task: () => Promise<any>) => {
     setBusy(name); setNotice('');
@@ -33,6 +38,7 @@ export default function DesktopCommandCenter() {
         <p className="mt-2 truncate text-base font-semibold text-white">{status?.latestReplay?.name || 'Waiting for your next practice replay'}</p>
         <p className="mt-1 text-xs text-slate-400">{status?.latestReplay ? `${mb} MB · ${status.replayCount} replay${status.replayCount === 1 ? '' : 's'} available locally` : 'VALORANT Demos and Moe Tracker Replays are watched automatically.'}</p>
         <button type="button" disabled={!!busy} onClick={() => run('process', bridge.processMatch)} className="ui-button ui-button-primary mt-4 min-h-11 px-5 text-sm disabled:opacity-60">{busy === 'process' ? <LoaderCircle className="h-4 w-4 animate-spin" /> : <Play className="h-4 w-4" />}Process latest match</button>
+        {!!status?.pendingScoreboards && <button type="button" onClick={onOpenReplay} className="ui-button mt-2 min-h-10 px-4 text-xs text-fuchsia-200"><Image className="h-4 w-4" />{status.pendingScoreboards} new scoreboard{status.pendingScoreboards === 1 ? '' : 's'} · Review locally</button>}
       </div>
       <div className="grid grid-cols-2 gap-2">
         <button type="button" onClick={() => run('screenshots', () => bridge.openFolder('screenshots'))} className="ui-button min-h-20 flex-col text-xs"><Image className="h-5 w-5 text-fuchsia-300" />Scoreboards</button>

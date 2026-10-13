@@ -7,6 +7,7 @@ const http = require('node:http');
 const net = require('node:net');
 const path = require('node:path');
 const { evidenceCandidates } = require('./evidence-handoff.cjs');
+const { scoreboardInventory, readScoreboardRecord } = require('./scoreboard-inbox.cjs');
 
 let mainWindow;
 let serverProcess;
@@ -287,6 +288,7 @@ async function replayInventory() {
 
 async function desktopStatus() {
   const replays = await replayInventory();
+  const pendingScoreboards = await scoreboardInventory(runtime.paths.screenshots, runtime.config.processedScoreboardIds || []);
   const localSync = await syncState();
   let collector = null;
   try { collector = JSON.parse(await collectorCommand(['status'])); } catch (error) { collector = { error: error.message }; }
@@ -297,6 +299,7 @@ async function desktopStatus() {
     cloudUrl: runtime.config.cloudUrl,
     folders: runtime.paths,
     replayCount: replays.length,
+    pendingScoreboards: pendingScoreboards.length,
     latestReplay: replays[0] || null,
     collector,
     sync: { paired: !!runtime.config.cloudPairing, server: runtime.config.cloudPairing?.server || null, pending: localSync.outbox.length, received: localSync.inbox.length },
@@ -329,6 +332,20 @@ ipcMain.handle('desktop:sync-now', syncNow);
 ipcMain.handle('desktop:pair-device', (_event, input) => pairDevice(input || {}));
 ipcMain.handle('desktop:set-sync-mode', async (_event, mode) => { if (!['offline-first', 'connected'].includes(mode)) throw new Error('Unknown synchronization mode.'); if (mode === 'connected' && !runtime.config.cloudPairing) throw new Error('Pair this device before enabling connected sync.'); runtime.config.mode = mode; await atomicJson(runtime.paths.config, runtime.config); return { mode }; });
 ipcMain.handle('desktop:set-retention-days', async (_event, value) => { const days = Number(value); if (!Number.isInteger(days) || days < 1 || days > 365) throw new Error('Retention must be between 1 and 365 days.'); runtime.config.retentionDays = days; await atomicJson(runtime.paths.config, runtime.config); await configureCollector(); return { retentionDays: days }; });
+ipcMain.handle('desktop:list-scoreboards', async () => (await scoreboardInventory(runtime.paths.screenshots, runtime.config.processedScoreboardIds || [])).map(({ file: _privatePath, ...record }) => record));
+ipcMain.handle('desktop:read-scoreboard', async (_event, id) => {
+  if (!/^[a-f0-9]{64}$/.test(String(id || ''))) throw new Error('Unknown scoreboard image.');
+  const record = (await scoreboardInventory(runtime.paths.screenshots, runtime.config.processedScoreboardIds || [])).find(item => item.id === id);
+  if (!record) throw new Error('The scoreboard image is no longer pending.');
+  return readScoreboardRecord(record);
+});
+ipcMain.handle('desktop:complete-scoreboard', async (_event, id) => {
+  if (!/^[a-f0-9]{64}$/.test(String(id || ''))) throw new Error('Unknown scoreboard image.');
+  const record = (await scoreboardInventory(runtime.paths.screenshots, runtime.config.processedScoreboardIds || [])).find(item => item.id === id);
+  if (!record) throw new Error('The scoreboard image is no longer pending.');
+  runtime.config.processedScoreboardIds = [...new Set([...(runtime.config.processedScoreboardIds || []), id])].slice(-1000);
+  await atomicJson(runtime.paths.config, runtime.config); return { completed: true };
+});
 ipcMain.handle('desktop:open-folder', async (_event, kind) => {
   const allowed = { replays: runtime.paths.replays, screenshots: runtime.paths.screenshots, exports: runtime.paths.exports, backups: runtime.paths.backups };
   if (!allowed[kind]) throw new Error('Unknown Moe Tracker folder.');
