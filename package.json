@@ -17,6 +17,7 @@
     "typecheck": "tsc --noEmit",
     "test": "vitest run",
     "test:ocr-browser": "npm run build && node scripts/local-ocr-browser-smoke.mjs",
+    "test:website-browser": "npm run build && node scripts/website-browser-smoke.mjs",
     "cf:worker:dev": "wrangler --config wrangler.worker.jsonc dev",
     "cf:worker:deploy": "npm run build && wrangler --config wrangler.worker.jsonc deploy",
     "cf:pages:prepare": "node scripts/prepare-cloudflare-pages.mjs",
@@ -35,6 +36,7 @@
     "@tesseract.js-data/eng": "1.0.0",
     "@vitejs/plugin-react": "^5.0.4",
     "dotenv": "^17.2.3",
+    "electron-updater": "^6.8.9",
     "express": "^5.2.1",
     "google-auth-library": "^10.9.0",
     "jsonwebtoken": "^9.0.3",
@@ -55,6 +57,8 @@
     "@typescript-eslint/eslint-plugin": "^8.70.0",
     "@typescript-eslint/parser": "^8.70.0",
     "autoprefixer": "^10.4.21",
+    "electron": "^41.10.7",
+    "electron-builder": "^26.0.12",
     "esbuild": "^0.25.0",
     "eslint": "^10.10.0",
     "playwright-core": "1.64.0",
@@ -63,20 +67,55 @@
     "typescript": "~5.8.2",
     "vite": "^6.2.3",
     "vitest": "^5.0.0",
-    "wrangler": "^4.149.0",
-    "electron": "^39.2.6",
-    "electron-builder": "^26.0.12"
+    "wrangler": "^4.149.0"
   },
   "build": {
     "appId": "com.moezack.moetracker",
     "productName": "Moe Tracker Application",
-    "directories": { "output": "release" },
-    "files": ["desktop/**/*", "dist/**/*", "build/**/*", "scripts/**/*", "package.json"],
-    "extraResources": [
-      { "from": "scripts", "to": "scripts", "filter": ["replay-collector.mjs", "normalize-vrfkit-export.py"] },
-      { "from": "dist", "to": "dist" }
+    "directories": {
+      "output": "release"
+    },
+    "files": [
+      "desktop/**/*",
+      "dist/**/*",
+      "build/**/*",
+      "scripts/**/*",
+      "package.json"
     ],
-    "win": { "target": ["nsis"], "icon": "desktop/assets/app-icon.ico", "artifactName": "Moe-Tracker-Application-${version}-Setup.${ext}" },
-    "nsis": { "oneClick": false, "allowToChangeInstallationDirectory": true, "createDesktopShortcut": true, "createStartMenuShortcut": true }
+    "extraResources": [
+      {
+        "from": "scripts",
+        "to": "scripts",
+        "filter": [
+          "replay-collector.mjs",
+          "normalize-vrfkit-export.py"
+        ]
+      },
+      {
+        "from": "dist",
+        "to": "dist"
+      }
+    ],
+    "win": {
+      "target": [
+        "nsis"
+      ],
+      "icon": "desktop/assets/app-icon.ico",
+      "artifactName": "Moe-Tracker-Application-${version}-Setup.${ext}"
+    },
+    "publish": [
+      {
+        "provider": "github",
+        "owner": "MoeAZack",
+        "repo": "moe-tracker-application",
+        "releaseType": "release"
+      }
+    ],
+    "nsis": {
+      "oneClick": false,
+      "allowToChangeInstallationDirectory": true,
+      "createDesktopShortcut": true,
+      "createStartMenuShortcut": true
+    }
   }
 }

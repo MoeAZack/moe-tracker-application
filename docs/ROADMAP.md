@@ -9,27 +9,28 @@
 - [x] One-click match processing entry point
 - [x] Scoreboard, replay, export, and backup folders
 - [x] Portable team export
-- [ ] Persist normalized local replay evidence before any upload
-- [ ] Local review inbox and identity overlay
-- [ ] Import/export `.moetracker` packages with integrity hashes
+- [x] Persist normalized local replay evidence before any upload
+- [x] Local review inbox and identity overlay
+- [x] Import/export `.moetracker` packages with integrity hashes
 
 ## Next — reliable team synchronization
 
-- [ ] Simple team pairing code for player and coach devices
-- [ ] Durable local outbox with retry and idempotency keys
-- [ ] Cloud summary contract and replay-hash deduplication
-- [ ] Coach acceptance on any authorized coach device
-- [ ] Website reduced to accepted statistics and basic team information
-- [ ] Sync status, conflict review, and offline indicators
+- [x] Simple team pairing code for player and coach devices
+- [x] Durable local outbox with retry and idempotency keys
+- [x] Cloud summary contract and replay-hash deduplication
+- [x] Coach acceptance on any authorized coach device
+- [x] Website reduced to accepted statistics and basic team information
+- [x] Sync status, conflict review, and offline indicators
 
 ## Then — polished Windows release
 
-- [ ] Background tray behavior and automatic startup option
-- [ ] Automatic update channel with rollback
-- [ ] Configurable 30-day replay retention and storage budget
+- [x] Background tray behavior and automatic startup option
+- [x] Staged automatic update channel (explicit restart; current install retained on failure)
+- [x] Configurable 30-day replay retention and storage budget
 - [ ] Encrypted scheduled local backups
-- [ ] Windows installer acceptance on a clean machine
-- [ ] Mobile/browser/accessibility acceptance for the web summary portal
+- [x] Windows installer and in-place upgrade acceptance in isolated Windows profiles
+- [x] Mobile/browser acceptance for the web summary portal
+- [ ] Signed public release and independent physical-PC accessibility acceptance
 
 ## Later
 
