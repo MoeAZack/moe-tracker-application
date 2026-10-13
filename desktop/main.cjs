@@ -11,6 +11,7 @@ const { scoreboardInventory, readScoreboardRecord } = require('./scoreboard-inbo
 const { MAX_ENVELOPE_BYTES, encryptPortablePackage, decryptPortablePackage } = require('./portable-crypto.cjs');
 const { appendLocalCrashEvent } = require('./local-crash-log.cjs');
 const { createUpdateController } = require('./update-controller.cjs');
+const { createUpdateHealth } = require('./update-health.cjs');
 
 let mainWindow;
 let tray;
@@ -456,9 +457,14 @@ app.on('second-instance', () => { if (runtime) void showMainWindow().catch(error
 if (singleInstanceLock) app.whenReady().then(async () => {
   await ensureRuntime(); applyLoginPreference();
   const { autoUpdater } = require('electron-updater');
-  updateController = createUpdateController({ autoUpdater, enabled: app.isPackaged });
+  const updateHealth = createUpdateHealth({ directory: path.join(runtime.paths.local, 'Updates') });
+  const healthState = app.isPackaged ? await updateHealth.beginStartup(app.getVersion()) : { state: 'not-pending' };
+  if (healthState.state === 'rollback-started') { quitting = true; app.quit(); return; }
+  const updatesEnabled = app.isPackaged && healthState.state !== 'safe-mode';
+  updateController = createUpdateController({ autoUpdater, enabled: updatesEnabled, currentVersion: app.getVersion(), updateHealth });
   updateController.start();
   await startLocalServer(); await startCollector(); await createWindow(); createTray();
+  if (healthState.state === 'verifying') await updateHealth.confirmHealthy(app.getVersion());
   collectorImportTimer = setInterval(() => { void autoImportProcessedEvidence().catch(error => console.warn(`[collector-import] ${error.message}`)); }, 5_000); collectorImportTimer.unref?.();
   setTimeout(() => void autoImportProcessedEvidence().catch(error => console.warn(`[collector-import] ${error.message}`)), 1_000);
   syncTimer = setInterval(() => { if (runtime.config.cloudPairing && runtime.config.mode === 'connected') void syncNow().catch(error => console.warn(`[sync] ${error.message}`)); }, 60_000); syncTimer.unref?.();
