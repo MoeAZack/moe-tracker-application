@@ -42,7 +42,9 @@ beforeEach(async () => {
       teamName: 'Test team', discordWebhook: 'private-hook', henrikApiKey: 'private-henrik', gridApiKey: 'private-grid',
       riotIds: { Alpha: { name: 'Private Riot name', tag: 'TAG', region: 'eu' } },
     },
-    matches: [{ id: 'visible-match' }],
+    matches: [{ id: 'visible-match', notes: 'private match note', vod: 'private-vod-url' }],
+    playerStats: [{ id: 'visible-stat', matchId: 'visible-match', player: 'Ahmed', kills: 12, corrections: [{ correctedBy: 'private-coach' }] }],
+    rounds: [{ id: 'private-round', matchId: 'visible-match', notes: 'private round note' }],
     rosterPlayers: [{ id: '11111111-1111-4111-8111-111111111111', displayName: 'Ahmed' }],
     coreMemberships: [],
     seasonArchives: [{ id: 'archive-1', name: 'Private archive', vodReviews: [{ id: 'private-archived-vod' }] }],
@@ -95,6 +97,15 @@ describe('HTTP authentication and authorization boundary', () => {
     expect(JSON.stringify(data)).not.toContain('private-archived-vod');
     expect(data.vodReviews).toEqual([]);
     expect(data).not.toHaveProperty('replayIntake'); expect(data).not.toHaveProperty('engineAdapters'); expect(JSON.stringify(data)).not.toContain('PRIVATE-REPLAY');
+  });
+
+  it('serves a reduced website summary without raw or detailed desktop evidence', async () => {
+    const token = await login(adminKey); const response = await request('/api/website-summary', token); expect(response.status).toBe(200);
+    const data = await response.json();
+    expect(data.matches).toEqual([{ id: 'visible-match' }]);
+    expect(data.playerStats).toEqual([{ id: 'visible-stat', matchId: 'visible-match', player: 'Ahmed', kills: 12 }]);
+    expect(data.rounds).toEqual([]); expect(data.vodReviews).toEqual([]); expect(data.seasonArchives).toEqual([]); expect(data.secrets).toEqual({});
+    expect(JSON.stringify(data)).not.toMatch(/private match note|private-vod-url|private round note|private-coach|PRIVATE-REPLAY/);
   });
 
   it('returns full season archives and Riot IDs to a coach', async () => {

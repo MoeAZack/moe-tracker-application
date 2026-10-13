@@ -30,6 +30,9 @@ export function toPublicTrackerData(db: Record<string, any>, role: 'coach' | 'pl
     // material. Players do not need archive data for any read-only view.
     publicData.seasonArchives = [];
     publicData.vodReviews = [];
+    publicData.matches = (publicData.matches || []).map(({ notes: _notes, vod: _vod, corrections: _corrections, ...match }: any) => match);
+    publicData.playerStats = (publicData.playerStats || []).map(({ notes: _notes, corrections: _corrections, ...stat }: any) => stat);
+    publicData.rounds = (publicData.rounds || []).map(({ notes: _notes, isThrow: _isThrow, thrownBy: _thrownBy, throwReason: _throwReason, iglPlayer: _iglPlayer, iglRole: _iglRole, midRoundIglChange: _midRoundIglChange, strategies: _strategies, corrections: _corrections, ...round }: any) => round);
   }
   publicData.settings = settings;
   publicData.secrets = {
@@ -39,6 +42,40 @@ export function toPublicTrackerData(db: Record<string, any>, role: 'coach' | 'pl
     DISCORD_WEBHOOK_URL: !!process.env.DISCORD_WEBHOOK_URL
   };
   return publicData;
+}
+
+const WEBSITE_MATCH_FIELDS = ['id', 'date', 'type', 'opponent', 'map', 'attW', 'attL', 'defW', 'defL', 'ourScore', 'theirScore', 'pistolAtt', 'pistolDef', 'ecoAtt', 'ecoDef', 'bonusAtt', 'bonusDef', 'rosterContext'] as const;
+const WEBSITE_STAT_FIELDS = ['id', 'matchId', 'player', 'playerId', 'displayNameSnapshot', 'appearanceType', 'agent', 'kills', 'deaths', 'assists', 'acs', 'adr', 'hs', 'headshots', 'headshotEligibleKills', 'fk', 'fd', 'plants', 'defuses', 'cl', 'clAtt', 'mk3', 'mk4', 'mk5', 'dTraded', 'kTraded', 'rating'] as const;
+
+function selectFields(record: any, fields: readonly string[]) {
+  return Object.fromEntries(fields.filter(key => record?.[key] !== undefined).map(key => [key, structuredClone(record[key])]));
+}
+
+/** Minimal authenticated website projection. Detailed evidence remains desktop-only. */
+export function toWebsiteTrackerData(db: Record<string, any>, role: 'coach' | 'player' = 'coach') {
+  const safe = toPublicTrackerData(db, role);
+  const settings = { ...(safe.settings || {}) };
+  delete settings.riotIds;
+  delete settings.vlr;
+  delete settings.ai;
+  settings.calendars = Array.isArray(settings.calendars)
+    ? settings.calendars.map(({ gcalId: _privateCalendarId, ...calendar }: any) => calendar)
+    : [];
+  return {
+    settings,
+    rosterPlayers: structuredClone(safe.rosterPlayers || []),
+    coreMemberships: structuredClone(safe.coreMemberships || []),
+    tryoutBatches: structuredClone(safe.tryoutBatches || []),
+    schedule: (safe.schedule || []).map((item: any) => selectFields(item, ['id', 'date', 'kind', 'primary', 'secondary', 'notes', 'attendance', 'calendarKey'])),
+    goals: (safe.goals || []).map((item: any) => selectFields(item, ['id', 'date', 'goal', 'notes', 'status', 'owner'])),
+    matches: (safe.matches || []).map((item: any) => selectFields(item, WEBSITE_MATCH_FIELDS)),
+    playerStats: (safe.playerStats || []).map((item: any) => selectFields(item, WEBSITE_STAT_FIELDS)),
+    soloq: (safe.soloq || []).map((item: any) => selectFields(item, ['id', 'date', 'player', 'wins', 'losses', 'rank', 'rr', 'source'])),
+    // Keep the TrackerData shape stable while proving that detailed desktop-only
+    // collections are never transferred to the browser summary portal.
+    rounds: [], vetos: [], strats: [], stratRuns: [], seasonArchives: [], vodReviews: [], lineups: [],
+    secrets: {}, serverTime: new Date().toISOString(),
+  };
 }
 
 /** Remove credential fields from imported legacy backups before storage. */

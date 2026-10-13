@@ -29,6 +29,13 @@ export default function DesktopCommandCenter({ onOpenReplay }: { onOpenReplay?: 
   const previewPackage = async () => { setBusy('preview'); setNotice(''); try { const result = await bridge.previewTeamPackage({ password: packagePassword }); if (!result.canceled) { setPackagePassword(''); setPackagePreview(result.preview); const additions = (Object.values(result.preview.collections || {}) as any[]).reduce((sum: number, item: any) => sum + Number(item.additions || 0), 0) + Number(result.preview.acceptedReplays?.additions || 0); setNotice(`Preview ready: ${additions} additions, ${result.preview.conflicts?.length || 0} conflicts.`); } } catch (error: any) { setNotice(error.message || 'Preview failed.'); } finally { setBusy(''); } };
   const exportPackage = () => run('export', async () => { const result = await bridge.exportTeamPackage({ password: packagePassword }); setPackagePassword(''); return { ...result, message: `${result.encrypted ? 'Encrypted p' : 'P'}ackage saved to ${result.path}` }; });
   const pair = () => run('pair', async () => { const result = await bridge.pairDevice({ server: pairServer, code: pairCode }); setPairCode(''); return { ...result, message: `Paired with ${result.server}.` }; });
+  const updateAction = () => run('update', async () => {
+    const current = status?.update?.state;
+    if (current === 'available') return bridge.downloadUpdate();
+    if (current === 'downloaded') return bridge.installUpdate();
+    return bridge.checkForUpdates();
+  });
+  const updateLabel = status?.update?.state === 'available' ? `Download ${status.update.version || 'update'}` : status?.update?.state === 'downloaded' ? 'Restart and update' : status?.update?.state === 'downloading' ? `Downloading ${status.update.percent || 0}%` : status?.update?.state === 'checking' ? 'Checking for updates' : 'Check for updates';
   return <section className="liquid-panel overflow-hidden rounded-2xl" aria-label="Desktop match intake">
     <div className="flex flex-wrap items-start justify-between gap-4 border-b border-white/10 px-5 py-4">
       <div><div className="flex items-center gap-2 text-sm font-semibold text-white"><HardDrive className="h-4 w-4 text-cyan-300" />This PC</div><p className="mt-1 text-xs text-slate-400">Local evidence workspace · {status?.deviceName || 'loading device'}</p></div>
@@ -50,6 +57,7 @@ export default function DesktopCommandCenter({ onOpenReplay }: { onOpenReplay?: 
         <button type="button" disabled={!!busy} onClick={() => run('startup', async () => { const result = await bridge.setStartWithWindows(!status?.startWithWindows); await refresh(); return { ...result, message: result.startWithWindows ? 'Moe Tracker will start with Windows.' : 'Start with Windows is off.' }; })} className="ui-button min-h-20 flex-col text-xs disabled:opacity-60"><Power className="h-5 w-5 text-sky-300" />Start with Windows: {status?.startWithWindows ? 'On' : 'Off'}</button>
         <button type="button" disabled={!!busy} onClick={() => run('logs', () => bridge.openFolder('logs'))} className="ui-button min-h-20 flex-col text-xs disabled:opacity-60"><FileWarning className="h-5 w-5 text-rose-300" />Local crash logs</button>
         <button type="button" disabled={!!busy} onClick={previewPackage} className="ui-button min-h-20 flex-col text-xs disabled:opacity-60"><Download className="h-5 w-5 text-violet-300" />Import package</button>
+        <button type="button" disabled={!!busy || ['disabled', 'checking', 'downloading'].includes(status?.update?.state)} onClick={updateAction} title={status?.update?.message} className="ui-button min-h-20 flex-col text-xs disabled:opacity-60">{busy === 'update' || ['checking', 'downloading'].includes(status?.update?.state) ? <LoaderCircle className="h-5 w-5 animate-spin text-blue-300" /> : <RefreshCw className="h-5 w-5 text-blue-300" />}{updateLabel}</button>
         {packagePreview && <button type="button" disabled={!!busy} onClick={() => run('import', async () => { const result = await bridge.importTeamPackage(); setPackagePreview(null); return result; })} className="ui-button ui-button-primary min-h-20 flex-col text-xs disabled:opacity-60"><CheckCircle2 className="h-5 w-5" />Apply preview</button>}
       </div>
     </div>
