@@ -21,7 +21,7 @@ async function availablePort() {
 
 async function signIn(page, origin) {
   await page.goto(origin, { waitUntil: 'domcontentloaded' });
-  await page.getByRole('button', { name: 'Coach / access key' }).click();
+  await page.getByRole('tab', { name: 'Coach / access key' }).click();
   await page.locator('#access-key').fill('browser-smoke-admin-secret-123');
   await page.getByRole('button', { name: 'Sign in' }).click();
   await page.locator('#login-container').waitFor({ state: 'detached', timeout: 20_000 });

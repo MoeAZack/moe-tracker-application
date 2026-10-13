@@ -1,7 +1,7 @@
 {
   "name": "moe-tracker-application",
   "private": true,
-  "version": "0.1.0",
+  "version": "0.1.1",
   "description": "Offline-first desktop replay analysis and team statistics for VALORANT practice",
   "main": "desktop/main.cjs",
   "type": "module",
@@ -18,6 +18,7 @@
     "test": "vitest run",
     "test:ocr-browser": "npm run build && node scripts/local-ocr-browser-smoke.mjs",
     "test:website-browser": "npm run build && node scripts/website-browser-smoke.mjs",
+    "test:a11y": "npm run build && node scripts/accessibility-audit.mjs",
     "cf:worker:dev": "wrangler --config wrangler.worker.jsonc dev",
     "cf:worker:deploy": "npm run build && wrangler --config wrangler.worker.jsonc deploy",
     "cf:pages:prepare": "node scripts/prepare-cloudflare-pages.mjs",
@@ -50,6 +51,7 @@
     "zod": "^4.4.3"
   },
   "devDependencies": {
+    "@axe-core/playwright": "^4.13.0",
     "@cloudflare/workers-types": "^5.20261013.1",
     "@types/express": "^5.0.6",
     "@types/jsonwebtoken": "^9.0.10",

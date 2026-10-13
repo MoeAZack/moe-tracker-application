@@ -175,8 +175,8 @@ export default function LoginScreen({ onLoginSuccess }: LoginScreenProps) {
         )}
 
         <div className="grid grid-cols-2 gap-2" role="tablist" aria-label="Login type">
-          <button type="button" onClick={() => { setMode('player'); setError(null); }} className={`ui-button min-h-11 text-sm font-bold ${mode === 'player' ? 'ui-button-primary' : ''}`} aria-selected={mode === 'player'}>Player</button>
-          <button type="button" onClick={() => { setMode('coach'); setError(null); }} className={`ui-button min-h-11 text-sm font-bold ${mode === 'coach' ? 'ui-button-primary' : ''}`} aria-selected={mode === 'coach'}>Coach / access key</button>
+          <button role="tab" type="button" onClick={() => { setMode('player'); setError(null); }} className={`ui-button min-h-11 text-sm font-bold ${mode === 'player' ? 'ui-button-primary' : ''}`} aria-selected={mode === 'player'}>Player</button>
+          <button role="tab" type="button" onClick={() => { setMode('coach'); setError(null); }} className={`ui-button min-h-11 text-sm font-bold ${mode === 'coach' ? 'ui-button-primary' : ''}`} aria-selected={mode === 'coach'}>Coach / access key</button>
         </div>
 
         {/* Google Sign-In (only when configured on the server) */}
