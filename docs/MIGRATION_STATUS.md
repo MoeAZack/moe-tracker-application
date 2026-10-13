@@ -6,7 +6,7 @@ Canonical direction: the desktop application becomes the offline-first evidence 
 
 - Phase 0 — desktop foundation: complete.
 - Phase 1 — stable local data core: in progress; atomic revision writes, integrity-checked recovery backups, storage bounds, and legacy import exist.
-- Phase 2 — local replay automation: implementation complete; clean-machine and extended restart acceptance remain.
+- Phase 2 — local replay automation: real-replay packaged acceptance passed; clean-machine and extended restart soak remain.
 - Phase 3 — scoreboard automation: local OCR/crop/review foundation exists; automatic folder matching acceptance remains.
 - Phase 4 — identity and role model: player-first and coach-first dashboards plus simple pairing implemented on the review branch.
 - Phase 5 — duplicate handling: replay SHA-256 cloud identity and idempotent evidence merge implemented; multi-device acceptance remains.
