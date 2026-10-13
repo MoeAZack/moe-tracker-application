@@ -27,8 +27,8 @@ declare global {
       listScoreboards(): Promise<Array<{ id: string; name: string; size: number; modifiedAt: string; mediaType: string }>>;
       readScoreboard(id: string): Promise<{ id: string; name: string; mediaType: string; bytes: Uint8Array }>;
       completeScoreboard(id: string): Promise<{ completed: boolean }>;
-      exportTeamPackage(): Promise<{ exported: boolean; path: string }>;
-      previewTeamPackage(): Promise<{ canceled: boolean; file?: string; preview?: any }>;
+      exportTeamPackage(input?: { password?: string }): Promise<{ exported: boolean; encrypted: boolean; path: string }>;
+      previewTeamPackage(input?: { password?: string }): Promise<{ canceled: boolean; file?: string; preview?: any }>;
       importTeamPackage(): Promise<{ imported: boolean; message: string; result: any }>;
       openFolder(kind: 'replays' | 'screenshots' | 'exports' | 'backups'): Promise<{ opened: boolean; path: string }>;
       chooseReplayFolder(): Promise<{ canceled: boolean; path?: string }>;
