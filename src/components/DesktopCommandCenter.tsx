@@ -1,5 +1,5 @@
 import React, { useEffect, useState } from 'react';
-import { CheckCircle2, Cloud, Download, FolderOpen, HardDrive, Image, LoaderCircle, Play, RefreshCw, WifiOff } from 'lucide-react';
+import { CheckCircle2, Cloud, Download, FileWarning, FolderOpen, HardDrive, Image, LoaderCircle, Play, Power, RefreshCw, WifiOff } from 'lucide-react';
 
 export default function DesktopCommandCenter({ onOpenReplay }: { onOpenReplay?: () => void }) {
   const bridge = typeof window === 'undefined' ? undefined : window.moeDesktop;
@@ -47,6 +47,8 @@ export default function DesktopCommandCenter({ onOpenReplay }: { onOpenReplay?: 
         <button type="button" onClick={() => run('replays', () => bridge.openFolder('replays'))} className="ui-button min-h-20 flex-col text-xs"><FolderOpen className="h-5 w-5 text-cyan-300" />Replay inbox</button>
         <button type="button" disabled={!!busy} onClick={exportPackage} className="ui-button min-h-20 flex-col text-xs disabled:opacity-60"><HardDrive className="h-5 w-5 text-amber-300" />Portable export</button>
         <button type="button" disabled={!!busy} onClick={() => run('sync', bridge.syncNow)} className="ui-button min-h-20 flex-col text-xs disabled:opacity-60"><Cloud className="h-5 w-5 text-emerald-300" />Sync now</button>
+        <button type="button" disabled={!!busy} onClick={() => run('startup', async () => { const result = await bridge.setStartWithWindows(!status?.startWithWindows); await refresh(); return { ...result, message: result.startWithWindows ? 'Moe Tracker will start with Windows.' : 'Start with Windows is off.' }; })} className="ui-button min-h-20 flex-col text-xs disabled:opacity-60"><Power className="h-5 w-5 text-sky-300" />Start with Windows: {status?.startWithWindows ? 'On' : 'Off'}</button>
+        <button type="button" disabled={!!busy} onClick={() => run('logs', () => bridge.openFolder('logs'))} className="ui-button min-h-20 flex-col text-xs disabled:opacity-60"><FileWarning className="h-5 w-5 text-rose-300" />Local crash logs</button>
         <button type="button" disabled={!!busy} onClick={previewPackage} className="ui-button min-h-20 flex-col text-xs disabled:opacity-60"><Download className="h-5 w-5 text-violet-300" />Import package</button>
         {packagePreview && <button type="button" disabled={!!busy} onClick={() => run('import', async () => { const result = await bridge.importTeamPackage(); setPackagePreview(null); return result; })} className="ui-button ui-button-primary min-h-20 flex-col text-xs disabled:opacity-60"><CheckCircle2 className="h-5 w-5" />Apply preview</button>}
       </div>
