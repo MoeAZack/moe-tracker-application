@@ -15,6 +15,8 @@ const MANIFEST_PATH = path.join(APP_DIR, 'manifest.json');
 const SECRET_PATH = path.join(APP_DIR, 'device-token.dpapi');
 const RAW_SESSION_PATH = path.join(APP_DIR, 'raw-session.dpapi');
 const STATUS_PATH = path.join(APP_DIR, 'status.json');
+const EVIDENCE_DIR = path.join(APP_DIR, 'evidence');
+const LOCK_DIR = path.join(APP_DIR, 'collector.lock');
 const DEFAULT_DEMO = path.join(process.env.LOCALAPPDATA || '', 'VALORANT', 'Saved', 'Demos');
 const REPLAY_TYPE = 'application/vnd.valorant.replay';
 const VRFKIT_PIN = { version: '0.2.5', tag: 'v0.2.5', commit: 'c4d6cc0e5ec3904fdb64b350b2656b8e3ff33d53', binarySha256: 'aa55fc410f1596a6ffedc7ab579341da6edb262197c64902e74b4eed485dc23f' };
@@ -49,9 +51,23 @@ async function atomicJson(file, value) {
   await fsp.mkdir(path.dirname(file), { recursive: true }); const temp = `${file}.${process.pid}.tmp`;
   await fsp.writeFile(temp, JSON.stringify(value, null, 2), { encoding: 'utf8', mode: 0o600 }); await fsp.rename(temp, file);
 }
+async function withCollectorLock(task) {
+  await fsp.mkdir(APP_DIR, { recursive: true }); const started = Date.now();
+  for (;;) {
+    try { await fsp.mkdir(LOCK_DIR); await atomicJson(path.join(LOCK_DIR, 'owner.json'), { pid: process.pid, acquiredAt: new Date().toISOString() }); break; }
+    catch (error) {
+      if (error?.code !== 'EEXIST') throw error;
+      const stat = await fsp.stat(LOCK_DIR).catch(() => null);
+      if (stat && Date.now() - stat.mtimeMs > 11 * 60 * 1000) { await fsp.rm(LOCK_DIR, { recursive: true, force: true }); continue; }
+      if (Date.now() - started > 10 * 60 * 1000) throw new Error('Another replay process is still running. Try again after it finishes.');
+      await new Promise(resolve => setTimeout(resolve, 250));
+    }
+  }
+  try { return await task(); } finally { await fsp.rm(LOCK_DIR, { recursive: true, force: true }); }
+}
 export function migrateConfig(raw = {}) {
   const legacy = raw && typeof raw === 'object' ? raw : {};
-  return { schemaVersion: 2, server: typeof legacy.server === 'string' ? legacy.server : '', deviceId: typeof legacy.deviceId === 'string' ? legacy.deviceId : '', replayPaths: Array.isArray(legacy.replayPaths) ? legacy.replayPaths : [DEFAULT_DEMO], scoreboardFolder: typeof legacy.scoreboardFolder === 'string' ? legacy.scoreboardFolder : '', autoUpload: legacy.autoUpload === true, stableSeconds: Number.isFinite(legacy.stableSeconds) ? legacy.stableSeconds : 10, scanSeconds: Number.isFinite(legacy.scanSeconds) ? legacy.scanSeconds : 5, ingestionMode: legacy.ingestionMode === 'coach-raw' ? 'coach-raw' : 'local-evidence', localRuntime: { binaryPath: String(legacy.localRuntime?.binaryPath || ''), pythonPath: String(legacy.localRuntime?.pythonPath || ''), normalizerPath: String(legacy.localRuntime?.normalizerPath || '') } };
+  return { schemaVersion: 2, server: typeof legacy.server === 'string' ? legacy.server : '', deviceId: typeof legacy.deviceId === 'string' ? legacy.deviceId : '', replayPaths: Array.isArray(legacy.replayPaths) ? legacy.replayPaths : [DEFAULT_DEMO], managedReplayPaths: Array.isArray(legacy.managedReplayPaths) ? legacy.managedReplayPaths : [], scoreboardFolder: typeof legacy.scoreboardFolder === 'string' ? legacy.scoreboardFolder : '', autoUpload: legacy.autoUpload === true, autoProcess: legacy.autoProcess !== false, retentionDays: Number.isFinite(legacy.retentionDays) ? Math.max(1, Math.min(365, Math.round(legacy.retentionDays))) : 30, stableSeconds: Number.isFinite(legacy.stableSeconds) ? legacy.stableSeconds : 10, scanSeconds: Number.isFinite(legacy.scanSeconds) ? legacy.scanSeconds : 5, ingestionMode: legacy.ingestionMode === 'coach-raw' ? 'coach-raw' : 'local-evidence', localRuntime: { binaryPath: String(legacy.localRuntime?.binaryPath || ''), pythonPath: String(legacy.localRuntime?.pythonPath || ''), normalizerPath: String(legacy.localRuntime?.normalizerPath || '') } };
 }
 async function config() { return migrateConfig(await readJson(CONFIG_PATH, {})); }
 async function manifest() { return readJson(MANIFEST_PATH, { schemaVersion: 1, files: {}, approved: [], scoreboardApprovals: [] }); }
@@ -95,6 +111,16 @@ function validateNormalizedEvidence(raw, replaySha256) {
   if (Buffer.byteLength(JSON.stringify(raw)) > MAX_EVIDENCE_BYTES) throw new Error('Local evidence exceeded its upload limit.');
   return raw;
 }
+function validateEvidenceEnvelope(raw, replaySha256, size, deviceId) {
+  if (!raw || raw.schemaVersion !== 1 || !raw.source || !raw.parser || !raw.normalized) throw new Error('Local evidence envelope is invalid.');
+  if (!deviceId || raw.source.deviceId !== deviceId || raw.source.sha256 !== replaySha256 || raw.source.size !== size) throw new Error('Local evidence source identity is invalid.');
+  if (raw.parser.name !== 'vrfkit' || raw.parser.version !== VRFKIT_PIN.version || raw.parser.binarySha256 !== VRFKIT_PIN.binarySha256 || raw.parser.binaryCommit !== VRFKIT_PIN.commit) throw new Error('Local evidence parser identity is invalid.');
+  validateNormalizedEvidence(raw.normalized, replaySha256);
+  const { evidenceSha256, ...unsigned } = raw;
+  const expected = crypto.createHash('sha256').update(canonical(unsigned)).digest('hex');
+  if (!/^[a-f0-9]{64}$/.test(evidenceSha256 || '') || !crypto.timingSafeEqual(Buffer.from(expected), Buffer.from(evidenceSha256))) throw new Error('Local evidence checksum is invalid.');
+  return raw;
+}
 async function assertPinnedRuntime(runtime) {
   for (const [label, value] of Object.entries(runtime || {})) if (!value || !path.isAbsolute(value)) throw new Error(`Local ${label} is not configured as an absolute path. Raw fallback is never automatic.`);
   const [binaryHash, buildText] = await Promise.all([sha256(runtime.binaryPath), fsp.readFile(path.join(path.dirname(runtime.binaryPath), 'build-info.json'), 'utf8')]); const build = JSON.parse(buildText);
@@ -102,6 +128,7 @@ async function assertPinnedRuntime(runtime) {
   await Promise.all([fsp.access(runtime.pythonPath, fs.constants.X_OK), fsp.access(runtime.normalizerPath, fs.constants.R_OK)]);
 }
 async function produceLocalEvidence(file, replaySha256, size, cfg) {
+  if (!cfg.deviceId) throw new Error('Local collector device identity is not configured.');
   await assertPinnedRuntime(cfg.localRuntime); const root = await fsp.mkdtemp(path.join(os.tmpdir(), 'moetracker-replay-')); const exportDir = path.join(root, 'export'); const normalized = path.join(root, 'normalized.json');
   try {
     await fsp.mkdir(exportDir); execFileSync(cfg.localRuntime.binaryPath, ['export', file, '--out', exportDir, '--checkpoints'], { cwd: root, windowsHide: true, stdio: 'pipe', timeout: 5 * 60 * 1000, maxBuffer: 64 * 1024 });
@@ -112,6 +139,47 @@ async function produceLocalEvidence(file, replaySha256, size, cfg) {
     const envelope = { schemaVersion: 1, source: { sha256: replaySha256, size, originalName: path.basename(file), deviceId: cfg.deviceId }, parser: { name: 'vrfkit', version: VRFKIT_PIN.version, binarySha256: VRFKIT_PIN.binarySha256, binaryCommit: VRFKIT_PIN.commit }, normalized: result };
     return { ...envelope, evidenceSha256: crypto.createHash('sha256').update(canonical(envelope)).digest('hex') };
   } finally { await fsp.rm(root, { recursive: true, force: true }); }
+}
+
+function evidencePath(hash) {
+  if (!/^[a-f0-9]{64}$/.test(hash)) throw new Error('Evidence hash is invalid.');
+  return path.join(EVIDENCE_DIR, hash.slice(0, 2), `${hash}.json`);
+}
+
+async function persistLocalEvidence(file, replaySha256, size, cfg) {
+  const target = evidencePath(replaySha256);
+  try {
+    const existing = JSON.parse(await fsp.readFile(target, 'utf8'));
+    validateEvidenceEnvelope(existing, replaySha256, size, cfg.deviceId);
+    return { target, envelope: existing, reused: true };
+  } catch (error) {
+    const invalidDerivedEvidence = error instanceof SyntaxError || /^Local (evidence|normalizer)/.test(String(error?.message || ''));
+    if (error?.code !== 'ENOENT' && !invalidDerivedEvidence) throw error;
+    if (invalidDerivedEvidence) await fsp.rename(target, `${target}.invalid-${Date.now()}`).catch(renameError => { if (renameError?.code !== 'ENOENT') throw renameError; });
+  }
+  const envelope = await produceLocalEvidence(file, replaySha256, size, cfg);
+  await atomicJson(target, envelope);
+  return { target, envelope, reused: false };
+}
+
+async function pruneExpiredManagedReplays(state, cfg, nowMs = Date.now()) {
+  const cutoff = nowMs - cfg.retentionDays * 24 * 60 * 60 * 1000; const deleted = [];
+  for (const record of Object.values(state.files || {})) {
+    if (!record?.path || !record?.sha256 || !record?.evidencePath || !record?.processedAt || Number(record.mtimeMs) > cutoff) continue;
+    const managedRoot = (cfg.managedReplayPaths || []).find(folder => folder && inside(record.path, folder));
+    if (!managedRoot) continue;
+    try {
+      const [rootReal, fileReal, stat, envelope] = await Promise.all([fsp.realpath(managedRoot), fsp.realpath(record.path), fsp.lstat(record.path), readJson(record.evidencePath, null)]);
+      if (stat.isSymbolicLink() || !inside(fileReal, rootReal)) continue;
+      validateEvidenceEnvelope(envelope, record.sha256, record.size, cfg.deviceId);
+      await fsp.rm(fileReal);
+      record.status = 'evidence-retained'; record.rawDeletedAt = new Date(nowMs).toISOString(); delete record.lastError; deleted.push(fileReal);
+    } catch (error) {
+      if (error?.code === 'ENOENT') { record.status = 'evidence-retained'; record.rawDeletedAt ||= new Date(nowMs).toISOString(); }
+      else record.lastError = `Retention skipped: ${String(error?.message || error).slice(0, 450)}`;
+    }
+  }
+  return deleted;
 }
 
 function deviceHeaders(token, deviceId) { return { 'X-Device-Id': deviceId, 'X-Device-Token': token }; }
@@ -143,7 +211,7 @@ async function upload(file, hash, size, cfg) {
   return uploadEvidence(file, hash, size, cfg, token);
 }
 
-export async function scan({ allowUpload = false, approvedHash = null } = {}) {
+async function scanUnlocked({ allowUpload = false, approvedHash = null } = {}) {
   const cfg = await config(); const state = await manifest(); const now = Date.now(); const results = [];
   for (const file of await replayFiles(cfg.replayPaths.filter(Boolean))) {
     const key = canonicalFile(file); const stat = await fsp.stat(file); const prior = state.files[key];
@@ -154,7 +222,20 @@ export async function scan({ allowUpload = false, approvedHash = null } = {}) {
     if (now - prior.stableSince < Math.max(10, cfg.stableSeconds) * 1000) { results.push({ file: path.basename(file), status: 'observing' }); continue; }
     let handle; try { handle = await fsp.open(file, 'r'); const probe = Buffer.alloc(Math.min(16, stat.size)); await handle.read(probe, 0, probe.length, 0); } catch { results.push({ file: path.basename(file), status: 'locked' }); continue; } finally { await handle?.close(); }
     const hash = prior.sha256 || await sha256(file); prior.sha256 = hash;
-    prior.status = collectorUploadCompleteForServer(prior, cfg.server) ? prior.status : 'review-required';
+    prior.status = collectorUploadCompleteForServer(prior, cfg.server) ? prior.status : (prior.evidencePath ? 'local-review-required' : 'review-required');
+    if (cfg.autoProcess && !prior.evidencePath && cfg.ingestionMode === 'local-evidence') {
+      try {
+        prior.status = 'processing-local';
+        const local = await persistLocalEvidence(file, hash, stat.size, cfg);
+        prior.evidencePath = local.target;
+        prior.evidenceSha256 = local.envelope.evidenceSha256;
+        prior.processedAt = new Date().toISOString();
+        prior.status = 'local-review-required';
+      } catch (error) {
+        prior.status = 'parser-attention-required';
+        prior.lastError = String(error?.message || error).slice(0, 500);
+      }
+    }
     const approved = approvedHash === hash || state.approved.includes(hash);
     if (allowUpload && (approved || cfg.autoUpload) && !collectorUploadComplete(prior.status)) {
       prior.status = cfg.ingestionMode === 'coach-raw' ? 'uploading' : 'processing-local';
@@ -162,24 +243,30 @@ export async function scan({ allowUpload = false, approvedHash = null } = {}) {
     }
     results.push({ file: path.basename(file), sha256: hash, size: stat.size, status: prior.status });
   }
-  await atomicJson(MANIFEST_PATH, state); return results;
+  await pruneExpiredManagedReplays(state, cfg, now); await atomicJson(MANIFEST_PATH, state); return results;
 }
+export async function scan(options = {}) { return withCollectorLock(() => scanUnlocked(options)); }
 
 async function main() {
   const [command = 'status', ...args] = process.argv.slice(2); let cfg = await config(); let state = await manifest();
   if (command === 'configure') {
-    const server = option(args, '--server'); const addPath = option(args, '--add-path'); const scoreboardFolder = option(args, '--scoreboard-folder');
+    const server = option(args, '--server'); const deviceId = option(args, '--device-id'); const addPath = option(args, '--add-path'); const managedReplayPath = option(args, '--managed-replay-path'); const scoreboardFolder = option(args, '--scoreboard-folder');
     if (server) cfg.server = serverUrl(server);
+    if (deviceId) cfg.deviceId = String(deviceId).trim();
     if (addPath) cfg.replayPaths = [...new Set([...cfg.replayPaths, path.resolve(addPath)])];
+    if (managedReplayPath) cfg.managedReplayPaths = [...new Set([...cfg.managedReplayPaths, path.resolve(managedReplayPath)])];
     if (scoreboardFolder) cfg.scoreboardFolder = path.resolve(scoreboardFolder);
-    const stableSeconds = Number(option(args, '--stable-seconds')); const scanSeconds = Number(option(args, '--scan-seconds'));
+    const stableSeconds = Number(option(args, '--stable-seconds')); const scanSeconds = Number(option(args, '--scan-seconds')); const retentionDays = Number(option(args, '--retention-days'));
     if (Number.isFinite(stableSeconds) && stableSeconds >= 3) cfg.stableSeconds = stableSeconds;
     if (Number.isFinite(scanSeconds) && scanSeconds >= 3) cfg.scanSeconds = scanSeconds;
+    if (Number.isFinite(retentionDays) && retentionDays >= 1) cfg.retentionDays = Math.min(365, Math.round(retentionDays));
     const binaryPath = option(args, '--vrfkit-binary'); const pythonPath = option(args, '--python'); const normalizerPath = option(args, '--normalizer');
     if (binaryPath) cfg.localRuntime.binaryPath = path.resolve(binaryPath); if (pythonPath) cfg.localRuntime.pythonPath = path.resolve(pythonPath); if (normalizerPath) cfg.localRuntime.normalizerPath = path.resolve(normalizerPath);
     if (has(args, '--coach-raw-fallback')) cfg.ingestionMode = 'coach-raw'; if (has(args, '--local-evidence')) cfg.ingestionMode = 'local-evidence';
     if (has(args, '--enable-auto-upload')) cfg.autoUpload = true;
     if (has(args, '--disable-auto-upload')) cfg.autoUpload = false;
+    if (has(args, '--enable-auto-process')) cfg.autoProcess = true;
+    if (has(args, '--disable-auto-process')) cfg.autoProcess = false;
     await atomicJson(CONFIG_PATH, cfg); console.log(JSON.stringify({ configured: true, ...cfg, credentialStored: fs.existsSync(SECRET_PATH) }, null, 2)); return;
   }
   if (command === 'enroll') {
@@ -192,6 +279,19 @@ async function main() {
     console.log('Device enrolled. The credential is protected for this Windows user with DPAPI.'); return;
   }
   if (command === 'scan') { console.log(JSON.stringify(await scan(), null, 2)); return; }
+  if (command === 'process-latest') {
+    const result = await withCollectorLock(async () => {
+      await scanUnlocked(); state = await manifest(); cfg = await config();
+      const candidates = Object.values(state.files).filter(item => item?.sha256 && item?.path).sort((a, b) => Number(b.mtimeMs || 0) - Number(a.mtimeMs || 0));
+      const latest = candidates[0];
+      if (!latest) throw new Error('No stable replay is available yet.');
+      const local = await persistLocalEvidence(latest.path, latest.sha256, latest.size, cfg);
+      latest.evidencePath = local.target; latest.evidenceSha256 = local.envelope.evidenceSha256; latest.processedAt = new Date().toISOString(); latest.status = 'local-review-required'; delete latest.lastError;
+      await atomicJson(MANIFEST_PATH, state);
+      return { file: path.basename(latest.path), sha256: latest.sha256, size: latest.size, status: latest.status, evidencePath: local.target, evidenceSha256: latest.evidenceSha256, reused: local.reused, summary: local.envelope.normalized?.scoreboard || null };
+    });
+    console.log(JSON.stringify(result, null, 2)); return;
+  }
   if (command === 'approve') {
     const hash = String(option(args, '--sha256') || '').toLowerCase(); if (!/^[a-f0-9]{64}$/.test(hash)) throw new Error('approve requires --sha256 <64 hex characters>.');
     state.approved = [...new Set([...state.approved, hash])]; await atomicJson(MANIFEST_PATH, state); console.log(JSON.stringify(await scan({ allowUpload: true, approvedHash: hash }), null, 2)); return;
@@ -220,11 +320,11 @@ async function main() {
   }
   if (command === 'status') {
     const runtimeReady = (await Promise.all(Object.values(cfg.localRuntime).map(async value => Boolean(value) && fsp.access(value).then(() => true, () => false)))).every(Boolean);
-    console.log(JSON.stringify({ configPath: CONFIG_PATH, manifestPath: MANIFEST_PATH, statusPath: STATUS_PATH, defaultReplayPath: DEFAULT_DEMO, server: cfg.server || null, deviceId: cfg.deviceId || null, replayPaths: cfg.replayPaths, ingestionMode: cfg.ingestionMode, localRuntimeReady: runtimeReady, resumableSessionProtected: fs.existsSync(RAW_SESSION_PATH), autoUpload: cfg.autoUpload, credentialStored: fs.existsSync(SECRET_PATH), trackedFiles: Object.keys(state.files).length, watcher: await readJson(STATUS_PATH, null) }, null, 2)); return;
+    console.log(JSON.stringify({ configPath: CONFIG_PATH, manifestPath: MANIFEST_PATH, statusPath: STATUS_PATH, evidenceDir: EVIDENCE_DIR, defaultReplayPath: DEFAULT_DEMO, server: cfg.server || null, deviceId: cfg.deviceId || null, replayPaths: cfg.replayPaths, ingestionMode: cfg.ingestionMode, localRuntimeReady: runtimeReady, resumableSessionProtected: fs.existsSync(RAW_SESSION_PATH), autoProcess: cfg.autoProcess, autoUpload: cfg.autoUpload, retentionDays: cfg.retentionDays, credentialStored: fs.existsSync(SECRET_PATH), trackedFiles: Object.keys(state.files).length, localEvidenceCount: Object.values(state.files).filter(item => item?.evidencePath).length, watcher: await readJson(STATUS_PATH, null) }, null, 2)); return;
   }
-  throw new Error('Commands: configure, enroll, scan, approve, watch, scoreboard-approve, status');
+  throw new Error('Commands: configure, enroll, scan, process-latest, approve, watch, scoreboard-approve, status');
 }
 
 if (process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href) main().catch(error => { console.error(`Replay collector: ${error.message}`); process.exitCode = 1; });
 
-export const collectorInternals = { APP_DIR, DEFAULT_DEMO, inside, canonicalFile, serverUrl, scoreboardApproval, uploadRequest, migrateConfig, validateNormalizedEvidence, resumableOffset, collectorUploadComplete, collectorUploadCompleteForServer };
+export const collectorInternals = { APP_DIR, EVIDENCE_DIR, LOCK_DIR, DEFAULT_DEMO, inside, canonicalFile, serverUrl, scoreboardApproval, uploadRequest, migrateConfig, validateNormalizedEvidence, validateEvidenceEnvelope, evidencePath, pruneExpiredManagedReplays, resumableOffset, collectorUploadComplete, collectorUploadCompleteForServer };

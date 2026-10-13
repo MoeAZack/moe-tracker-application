@@ -51,6 +51,7 @@ async function ensureRuntime() {
   if (!config) {
     config = {
       schemaVersion: 1,
+      deviceId: `desktop-${crypto.randomUUID()}`,
       deviceName: require('node:os').hostname(),
       role: 'coach',
       retentionDays: 30,
@@ -61,6 +62,10 @@ async function ensureRuntime() {
       extraReplayFolders: [],
       createdAt: new Date().toISOString(),
     };
+    await atomicJson(paths.config, config);
+  }
+  if (!config.deviceId) {
+    config.deviceId = `desktop-${crypto.randomUUID()}`;
     await atomicJson(paths.config, config);
   }
   runtime = { paths, config, port: await freePort(), session: null };
@@ -128,7 +133,8 @@ async function collectorCommand(args) {
 
 async function configureCollector() {
   const folders = [runtime.paths.valorantReplays, runtime.paths.replays, ...(runtime.config.extraReplayFolders || [])];
-  for (const folder of folders) await collectorCommand(['configure', '--add-path', folder, '--scoreboard-folder', runtime.paths.screenshots, '--stable-seconds', '10', '--scan-seconds', '5', '--disable-auto-upload']);
+  await collectorCommand(['configure', '--device-id', runtime.config.deviceId, '--managed-replay-path', runtime.paths.replays, '--scoreboard-folder', runtime.paths.screenshots, '--retention-days', String(runtime.config.retentionDays || 30), '--stable-seconds', '10', '--scan-seconds', '5', '--enable-auto-process', '--disable-auto-upload']);
+  for (const folder of folders) await collectorCommand(['configure', '--add-path', folder]);
 }
 
 async function startCollector() {
@@ -144,6 +150,15 @@ async function bootstrapSession() {
   if (!response.ok) throw new Error('Local coach session could not be created.');
   runtime.session = await response.json();
   return runtime.session;
+}
+
+async function importEvidenceFile(file) {
+  const session = await bootstrapSession();
+  const evidence = JSON.parse(await fsp.readFile(file, 'utf8'));
+  const response = await fetch(`http://127.0.0.1:${runtime.port}/api/desktop/replay-evidence`, { method: 'POST', headers: { authorization: `Bearer ${session.key}`, 'content-type': 'application/json' }, body: JSON.stringify(evidence) });
+  const result = await response.json().catch(() => ({}));
+  if (!response.ok) throw new Error(result.error || 'Local replay evidence could not be added to the review inbox.');
+  return result;
 }
 
 async function replayInventory() {
@@ -193,7 +208,9 @@ ipcMain.handle('desktop:process-match', async () => {
   await configureCollector();
   const first = JSON.parse((await collectorCommand(['scan'])) || '[]');
   if (first.some(item => item.status === 'observing')) return { state: 'waiting', message: 'Replay found. Waiting briefly for VALORANT to finish writing it.', items: first };
-  return { state: 'review-ready', message: 'Replay discovery completed. Local evidence will appear when the pinned parser runtime is ready.', items: first };
+  const processed = JSON.parse(await collectorCommand(['process-latest']));
+  const imported = await importEvidenceFile(processed.evidencePath);
+  return { state: 'review-ready', message: imported.idempotent ? 'This replay was already in the local review inbox.' : 'Replay parsed locally. The coach review draft is ready.', items: first, processed, imported };
 });
 ipcMain.handle('desktop:sync-now', async () => ({ state: 'local-only', message: 'Nothing was uploaded. Cloud sync activates after this device is paired with the team workspace.' }));
 ipcMain.handle('desktop:open-folder', async (_event, kind) => {

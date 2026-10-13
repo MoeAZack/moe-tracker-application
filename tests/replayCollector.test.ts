@@ -1,5 +1,8 @@
 import { describe, expect, it } from 'vitest';
+import fs from 'fs/promises';
+import os from 'os';
 import path from 'path';
+import { localEvidenceDigest } from '../lib/replayEvidence';
 import { collectorInternals } from '../scripts/replay-collector.mjs';
 
 describe('Windows replay collector boundaries', () => {
@@ -39,6 +42,27 @@ describe('Windows replay collector boundaries', () => {
     const migrated = collectorInternals.migrateConfig({ schemaVersion: 1, server: 'https://tracker.example', replayPaths: ['D:/Demos'], autoUpload: true });
     expect(migrated).toMatchObject({ schemaVersion: 2, ingestionMode: 'local-evidence', autoUpload: true, localRuntime: { binaryPath: '', pythonPath: '', normalizerPath: '' } });
     expect(collectorInternals.migrateConfig({ ingestionMode: 'coach-raw' }).ingestionMode).toBe('coach-raw');
+  });
+
+  it('defaults local processing and raw replay retention without inventing a cloud device identity', () => {
+    const migrated = collectorInternals.migrateConfig({});
+    expect(migrated).toMatchObject({ autoProcess: true, retentionDays: 30, deviceId: '', managedReplayPaths: [] });
+    expect(collectorInternals.migrateConfig({ autoProcess: false, retentionDays: 999 })).toMatchObject({ autoProcess: false, retentionDays: 365 });
+  });
+
+  it('deletes expired raw replays only from an app-managed folder after verified evidence exists', async () => {
+    const root = await fs.mkdtemp(path.join(os.tmpdir(), 'moetracker-retention-')); const managed = path.join(root, 'managed'); const external = path.join(root, 'external');
+    await fs.mkdir(managed); await fs.mkdir(external);
+    const hash = 'a'.repeat(64); const deviceId = 'desktop-device-01'; const bytes = Buffer.from('verified raw replay');
+    const normalized: any = { schemaVersion: 1, parserInput: { parser: { name: 'vrfkit', version: '0.2.5' }, file: { format: 'vrf' }, identities: [], rounds: [], provenance: { replaySha256: hash } }, scoreboard: { players: [], reviewRequired: true, evidenceCoverage: { status: 'complete' } }, diagnostics: { replaySha256: hash, binarySha256: 'aa55fc410f1596a6ffedc7ab579341da6edb262197c64902e74b4eed485dc23f', binaryVersion: '0.2.5', binaryCommit: 'c4d6cc0e5ec3904fdb64b350b2656b8e3ff33d53' } };
+    const base: any = { schemaVersion: 1, source: { sha256: hash, size: bytes.length, originalName: 'match.vrf', deviceId }, parser: { name: 'vrfkit', version: '0.2.5', binarySha256: normalized.diagnostics.binarySha256, binaryCommit: normalized.diagnostics.binaryCommit }, normalized };
+    const envelope = { ...base, evidenceSha256: localEvidenceDigest(base) }; const evidence = path.join(root, 'evidence.json'); await fs.writeFile(evidence, JSON.stringify(envelope));
+    const old = Date.parse('2026-01-01T00:00:00.000Z'); const managedRaw = path.join(managed, 'match.vrf'); const externalRaw = path.join(external, 'match.vrf'); await fs.writeFile(managedRaw, bytes); await fs.writeFile(externalRaw, bytes);
+    const state: any = { files: { managed: { path: managedRaw, sha256: hash, size: bytes.length, mtimeMs: old, evidencePath: evidence, processedAt: '2026-01-01T00:00:00.000Z' }, external: { path: externalRaw, sha256: hash, size: bytes.length, mtimeMs: old, evidencePath: evidence, processedAt: '2026-01-01T00:00:00.000Z' } } };
+    try {
+      await expect(collectorInternals.pruneExpiredManagedReplays(state, { retentionDays: 30, managedReplayPaths: [managed], deviceId }, Date.parse('2026-02-15T00:00:00.000Z'))).resolves.toEqual([managedRaw]);
+      await expect(fs.access(managedRaw)).rejects.toMatchObject({ code: 'ENOENT' }); await expect(fs.access(externalRaw)).resolves.toBeUndefined(); expect(state.files.managed.status).toBe('evidence-retained');
+    } finally { await fs.rm(root, { recursive: true, force: true }); }
   });
 
   it('resumes a GCS session after the last acknowledged byte', async () => {
