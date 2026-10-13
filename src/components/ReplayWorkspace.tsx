@@ -266,7 +266,7 @@ export async function refreshReplayWorkspace(
 async function extractScoreboardLocally(
   file: File,
   rosterPlayers: Array<{ id?: string; displayName: string }>,
-  selection: ScoreboardSelection,
+  selection?: ScoreboardSelection,
 ) {
   const buffer = await file.arrayBuffer();
   const imageSha256 = [
@@ -285,11 +285,9 @@ async function extractScoreboardLocally(
   image.src = dataUrl;
   await image.decode();
   const localOcr = await import("../../lib/localOcrEngine");
-  const profile = localOcr.createSelectedScoreboardProfile(
-    image.naturalWidth,
-    image.naturalHeight,
-    selection,
-  );
+  const profile = selection
+    ? localOcr.createSelectedScoreboardProfile(image.naturalWidth, image.naturalHeight, selection)
+    : localOcr.createValorantEndScreenProfile(image.naturalWidth, image.naturalHeight);
   const adapter = await localOcr.createBrowserLocalTesseractAdapter();
   try {
     return {
@@ -349,6 +347,8 @@ export default function ReplayWorkspace({
   const detailGuard = useRef(createLatestRequestGuard());
   const nameImportGuard = useRef(createLatestRequestGuard());
   const screenshotGuard = useRef(createLatestRequestGuard());
+  const folderScoreboardBusy = useRef(false);
+  const folderScoreboardAttempted = useRef(new Set<string>());
   const acceptedRef = useRef(false);
   const isCoach = role === "coach" || role === "owner";
   const activeRoster = useMemo(
@@ -728,8 +728,8 @@ export default function ReplayWorkspace({
         setNameImportBusy(false);
     }
   };
-  const submitScoreboardFirst = async (file: File) => {
-    if (!file || screenshotBusy) return;
+  const submitScoreboardFirst = async (file: File, automatic = false) => {
+    if (!file || screenshotBusy) return false;
     const request = screenshotGuard.current.start();
     const startingSelection = selectedRef.current;
     const startingSnapshot = editorSnapshotRef.current;
@@ -737,13 +737,20 @@ export default function ReplayWorkspace({
     setError("");
     setMessage("");
     try {
-      const selection = await chooseCrop(file);
-      if (!selection) return;
-      const { imageSha256, draft } = await extractScoreboardLocally(
-        file,
-        activeRoster,
-        selection,
-      );
+      let extracted;
+      if (automatic) {
+        try { extracted = await extractScoreboardLocally(file, activeRoster); }
+        catch {
+          const selection = await chooseCrop(file);
+          if (!selection) return false;
+          extracted = await extractScoreboardLocally(file, activeRoster, selection);
+        }
+      } else {
+        const selection = await chooseCrop(file);
+        if (!selection) return false;
+        extracted = await extractScoreboardLocally(file, activeRoster, selection);
+      }
+      const { imageSha256, draft } = extracted;
       const extraction = {
         map: draft.match.map,
         ourScore: draft.match.ourScore,
@@ -793,13 +800,38 @@ export default function ReplayWorkspace({
             ? `Scoreboard linked to the matching replay.${unchanged ? " Review the names and evidence before accepting." : " It is ready in the scoreboard queue."}`
             : !screenshotDevice ? "Scoreboard saved. Choose Complete manually to enter map, score and player mappings." : "Scoreboard saved. The selected device will link it when the matching replay arrives.",
         );
+      return true;
     } catch (cause: any) {
       if (screenshotGuard.current.isCurrent(request))
         announce("", cause.message || "The scoreboard could not be queued.");
+      return false;
     } finally {
       if (screenshotGuard.current.isCurrent(request)) setScreenshotBusy(false);
     }
   };
+
+  useEffect(() => {
+    if (!isCoach || loading || !window.moeDesktop) return;
+    const processFolderInbox = async () => {
+      if (folderScoreboardBusy.current || screenshotBusy || cropFile) return;
+      folderScoreboardBusy.current = true;
+      try {
+        const [pending] = await window.moeDesktop!.listScoreboards();
+        if (!pending || folderScoreboardAttempted.current.has(pending.id)) return;
+        folderScoreboardAttempted.current.add(pending.id);
+        const loaded = await window.moeDesktop!.readScoreboard(pending.id);
+        const file = new File([new Uint8Array(loaded.bytes)], loaded.name, { type: loaded.mediaType, lastModified: Date.parse(pending.modifiedAt) });
+        if (await submitScoreboardFirst(file, true)) await window.moeDesktop!.completeScoreboard(pending.id);
+      } catch (cause: any) {
+        announce("", cause.message || "The watched scoreboard could not be processed.");
+      } finally {
+        folderScoreboardBusy.current = false;
+      }
+    };
+    const initial = window.setTimeout(() => void processFolderInbox(), 750);
+    const interval = window.setInterval(() => void processFolderInbox(), 5_000);
+    return () => { window.clearTimeout(initial); window.clearInterval(interval); };
+  }, [isCoach, loading, screenshotBusy, cropFile, screenshotDevice, activeRoster]);
 
   return (
     <div className="replay-workspace min-h-[70vh] space-y-4 text-slate-100">
@@ -1076,9 +1108,9 @@ export default function ReplayWorkspace({
                   }}
                 />
               </label>
-              <p className="text-[10px] leading-relaxed text-slate-500">
-                Free local OCR · the screenshot stays on this PC · only the
-                review draft is uploaded.
+                <p className="text-[10px] leading-relaxed text-slate-500">
+                Free local OCR · the screenshot stays on this PC · standard images
+                placed in Documents\Moe Tracker\Scoreboards are picked up automatically.
               </p>
             </div>
           </div>
