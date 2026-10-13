@@ -73,7 +73,8 @@
     "directories": { "output": "release" },
     "files": ["desktop/**/*", "dist/**/*", "build/**/*", "scripts/**/*", "package.json"],
     "extraResources": [
-      { "from": "scripts", "to": "scripts", "filter": ["replay-collector.mjs", "normalize-vrfkit-export.py"] }
+      { "from": "scripts", "to": "scripts", "filter": ["replay-collector.mjs", "normalize-vrfkit-export.py"] },
+      { "from": "dist", "to": "dist" }
     ],
     "win": { "target": ["nsis"], "artifactName": "Moe-Tracker-Application-${version}-Setup.${ext}" },
     "nsis": { "oneClick": false, "allowToChangeInstallationDirectory": true, "createDesktopShortcut": true, "createStartMenuShortcut": true }

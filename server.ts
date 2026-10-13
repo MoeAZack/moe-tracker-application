@@ -14,6 +14,7 @@ import { registerEngineAdapterRoutes } from './lib/routes/engineAdapters';
 import { createPlayerPasswordVerifier, verifyPlayerPassword } from './lib/playerPassword';
 import { stripLegacySecrets, toPublicTrackerData } from './lib/publicData';
 import { registerReplayDeviceRoutes, registerReplayDeviceUploadRoute } from './lib/routes/replayIntake';
+import { registerPortablePackageRoutes } from './lib/routes/portablePackages';
 
 // Google Sign-In config (dormant unless GOOGLE_CLIENT_ID is set — password auth always works).
 const GOOGLE_CLIENT_ID = process.env.GOOGLE_CLIENT_ID || '';
@@ -105,15 +106,18 @@ export async function createApp(serveFrontend = true) {
       // 1. Check Master Admin Key
       if (safeEqual(cleanKey, adminPass)) {
         loginRecordSuccess(ip);
+        const desktopIdentity = process.env.APP_DESKTOP === 'true' && body.desktopIdentity?.role === 'player' ? body.desktopIdentity : null;
         const token = jwt.sign(
-          { role: 'coach', name: 'Administrator (Master)', kind: 'master', authVersion: hashAccessKey(adminPass) },
+          desktopIdentity
+            ? { role: 'player', name: String(desktopIdentity.displayName || 'Player').slice(0, 80), playerId: String(desktopIdentity.playerId || ''), kind: 'desktop-player', authVersion: hashAccessKey(adminPass) }
+            : { role: 'coach', name: 'Administrator (Master)', kind: 'master', authVersion: hashAccessKey(adminPass) },
           jwtSecret,
           { expiresIn: '12h' }
         );
         return res.json({
           success: true,
-          role: 'coach',
-          username: 'Administrator (Master)',
+          role: desktopIdentity ? 'player' : 'coach',
+          username: desktopIdentity ? String(desktopIdentity.displayName || 'Player').slice(0, 80) : 'Administrator (Master)',
           key: token
         });
       }
@@ -183,8 +187,7 @@ export async function createApp(serveFrontend = true) {
         return res.status(401).json({ error: 'Unauthorized cron request.' });
       }
       if (cloudflareRuntime) return res.status(410).json({ error: 'Cloudflare Free uses offline D1 exports instead of paid object backups.' });
-      const moduleName = './lib/privateBackup';
-      const { createPrivateBackup } = await import(moduleName);
+      const { createPrivateBackup } = await import('./lib/privateBackup');
       const backup = await createPrivateBackup({ reason: 'scheduled-private-recovery' });
       res.json({ success: true, backupId: backup.id, format: backup.manifest.format, replayBlobCount: backup.manifest.replayBlobs.inventory.length });
     } catch (err: any) {
@@ -220,6 +223,8 @@ export async function createApp(serveFrontend = true) {
             userRole = 'coach';
             username = decoded.name || 'Administrator';
             (req as any).sessionActorId = 'master';
+          } else if (process.env.APP_DESKTOP === 'true' && decoded?.kind === 'desktop-player' && safeEqual(decoded.authVersion || '', hashAccessKey(adminPass))) {
+            userRole = 'player'; username = decoded.name || 'Player'; (req as any).sessionPlayerId = decoded.playerId || undefined; (req as any).sessionActorId = `desktop:${decoded.playerId || 'unpaired'}`;
           } else if (decoded?.kind === 'key' && decoded.keyId) {
             const entry = db.authKeys.find((k: any) => k.id === decoded.keyId);
             const versionMatches = entry?.credentialType !== 'player-password' || decoded.credentialVersion === entry.credentialVersion;
@@ -255,7 +260,9 @@ export async function createApp(serveFrontend = true) {
     // Players are read-only. Lineup comments remain shared; coach VOD notes and replies are private.
     const playerWritable = req.method === 'POST' && (req.path === '/lineup/comment'
       || req.path === '/engine-adapters/ranked/consent' || req.path === '/engine-adapters/ranked/revoke'
-      || req.path === '/replay-intake/devices/enroll' || req.path === '/replay-intake/devices/revoke');
+      || req.path === '/replay-intake/devices/enroll' || req.path === '/replay-intake/devices/revoke'
+      || req.path === '/replay-intake/pairing-codes'
+      || (process.env.APP_DESKTOP === 'true' && req.path === '/desktop/replay-evidence'));
     if (req.method !== 'GET' && userRole === 'player' && !playerWritable) {
       return res.status(403).json({ error: 'Forbidden: Player accounts are read-only. Only Coach can make changes.' });
     }
@@ -466,15 +473,14 @@ export async function createApp(serveFrontend = true) {
   registerEngineAdapterRoutes(app);
 
   await registerReplayDeviceRoutes(app);
+  registerPortablePackageRoutes(app);
 
   // Integrations routes (secrets, calendar, Henrik, VLR, GRID) — extracted module
   registerIntegrationRoutes(app);
 
   // Gemini Vision routes (screenshot OCR + scrim auto-import) — extracted module
   if (!cloudflareRuntime) {
-    const aiRoute = './lib/routes/aiVision';
-    const extraRoute = './lib/routes/extras';
-    const [{ registerAiVisionRoutes }, { registerExtraRoutes }] = await Promise.all([import(aiRoute), import(extraRoute)]);
+    const [{ registerAiVisionRoutes }, { registerExtraRoutes }] = await Promise.all([import('./lib/routes/aiVision'), import('./lib/routes/extras')]);
     registerAiVisionRoutes(app);
     registerExtraRoutes(app);
   } else {

@@ -41,6 +41,12 @@ afterEach(async () => {
 });
 
 describe('private replay intake', () => {
+  it('opens a paired desktop player as that player instead of the local coach', async () => {
+    const response = await jsonRequest('/api/login-key', undefined, { key: adminKey, desktopIdentity: { role: 'player', playerId: 'p1', displayName: 'Player One' } }); expect(response.status).toBe(200); const session = await response.json();
+    expect(session).toMatchObject({ role: 'player', username: 'Player One' }); expect((await jsonRequest('/api/reset-metrics', session.key, {})).status).toBe(403);
+    const hash = 'd'.repeat(64); expect((await jsonRequest('/api/desktop/replay-evidence', session.key, evidenceEnvelope(hash, 100, 'desktop-player-device'))).status).toBe(201);
+  });
+
   it('imports a locally persisted desktop evidence package idempotently without raw upload', async () => {
     const coach = await login(adminKey); const hash = 'a'.repeat(64); const deviceId = 'desktop-device-01'; const envelope = evidenceEnvelope(hash, 100, deviceId);
     const first = await jsonRequest('/api/desktop/replay-evidence', coach, envelope); expect(first.status).toBe(201); expect(await first.json()).toMatchObject({ sha256: hash, parserStatus: 'parsed-review-required', reviewStatus: 'review-required', idempotent: false });
@@ -97,6 +103,23 @@ describe('private replay intake', () => {
     const body = await response.json(); expect(body.credential.token).toHaveLength(43); expect(body.device.owner).toEqual({ role: 'player', playerId: 'p1' }); expect(JSON.stringify(body.device)).not.toContain('key:player-key');
     const stored = JSON.parse(await fs.readFile(dbPath, 'utf8')); const device = stored.replayIntake.devices[body.device.id];
     expect(device.tokenHash).toBe(crypto.createHash('sha256').update(body.credential.token).digest('hex')); expect(JSON.stringify(stored)).not.toContain(body.credential.token);
+  });
+
+  it('pairs a device with a short-lived one-time code and stores only credential hashes', async () => {
+    const coach = await login(adminKey); const issued = await jsonRequest('/api/replay-intake/pairing-codes', coach, {}); expect(issued.status).toBe(201); const pairing = await issued.json(); expect(pairing.code).toMatch(/^[A-Z2-9]{10}$/);
+    const claimed = await jsonRequest('/api/replay-intake/pair', undefined, { code: pairing.code, deviceName: 'Coach Laptop' }); expect(claimed.status).toBe(201); const enrollment = await claimed.json();
+    expect(enrollment.device).toMatchObject({ name: 'Coach Laptop', owner: { role: 'coach', playerId: null } }); expect(enrollment.credential.token).toHaveLength(43);
+    expect((await jsonRequest('/api/replay-intake/pair', undefined, { code: pairing.code, deviceName: 'Second Laptop' })).status).toBe(401);
+    const storedText = await fs.readFile(dbPath, 'utf8'); expect(storedText).not.toContain(pairing.code); expect(storedText).not.toContain(enrollment.credential.token);
+  });
+
+  it('distributes only compact accepted match summaries to paired devices with a durable cursor', async () => {
+    const coach = await login(adminKey); const enrollment = await (await jsonRequest('/api/replay-intake/devices/enroll', coach, { name: 'Sync PC' })).json();
+    const stored = JSON.parse(await fs.readFile(dbPath, 'utf8')); stored.matches = [{ id: 'match-sync', date: '2026-10-13', opponent: 'Rivals', map: 'Haven' }]; stored.playerStats = [{ id: 'stat-sync', matchId: 'match-sync', playerId: 'p1', kills: 20 }]; stored.rounds = [{ id: 'round-sync', matchId: 'match-sync', roundNo: 1, result: 'W' }];
+    stored.engineAdapters = { replay: { 'match-sync': { matchId: 'match-sync', status: 'accepted', revision: 2, updatedAt: '2026-10-13T09:00:00.000Z', provenance: { replaySha256: 'c'.repeat(64) }, draft: { compact: true } } } }; await fs.writeFile(dbPath, JSON.stringify(stored));
+    const headers = { 'X-Device-Id': enrollment.device.id, 'X-Device-Token': enrollment.credential.token }; const response = await fetch(`${origin}/api/replay-intake/device-sync`, { headers }); expect(response.status).toBe(200); const sync = await response.json();
+    expect(sync).toMatchObject({ cursor: '2026-10-13T09:00:00.000Z', hasMore: false, items: [{ id: 'accepted:match-sync:2', kind: 'accepted-match', replaySha256: 'c'.repeat(64), match: { id: 'match-sync' } }] }); expect(sync.items[0].playerStats).toHaveLength(1); expect(sync.items[0].rounds).toHaveLength(1); expect(JSON.stringify(sync)).not.toContain('tokenHash');
+    const unchanged = await fetch(`${origin}/api/replay-intake/device-sync?since=${encodeURIComponent(sync.cursor)}`, { headers }); expect((await unchanged.json()).items).toEqual([]);
   });
 
   it('streams a verified replay to private hash storage, deduplicates it, and exposes no storage path', async () => {
