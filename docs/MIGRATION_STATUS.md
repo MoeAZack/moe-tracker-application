@@ -12,7 +12,7 @@ Canonical direction: the desktop application becomes the offline-first evidence 
 - Phase 5 — duplicate handling: replay SHA-256 cloud identity and idempotent evidence merge implemented; multi-device acceptance remains.
 - Phase 6 — offline/online synchronization: durable outbox/inbox, automatic retry, encrypted pairing credential, and explicit offline/connected modes implemented on the review branch.
 - Phase 7 — coach review and fan-out: existing acceptance transaction populates match, player, round, map/economy inputs and review records; wider acceptance remains.
-- Phase 8 — portable packages: integrity manifest, preview, conflict preservation, team/player/match/season scopes, and import recovery backup implemented on the review branch; password encryption remains.
+- Phase 8 — portable packages: integrity manifest, preview, conflict preservation, team/player/match/season scopes, import recovery backup, and optional local-only password encryption are implemented; cross-PC acceptance remains.
 - Phases 9–12: not started. The website remains live and unchanged.
 
 ## Safety boundaries

@@ -8,6 +8,7 @@ const net = require('node:net');
 const path = require('node:path');
 const { evidenceCandidates } = require('./evidence-handoff.cjs');
 const { scoreboardInventory, readScoreboardRecord } = require('./scoreboard-inbox.cjs');
+const { MAX_ENVELOPE_BYTES, encryptPortablePackage, decryptPortablePackage } = require('./portable-crypto.cjs');
 
 let mainWindow;
 let serverProcess;
@@ -361,28 +362,31 @@ ipcMain.handle('desktop:choose-replay-folder', async () => {
   await atomicJson(runtime.paths.config, runtime.config); await configureCollector();
   return { canceled: false, path: result.filePaths[0] };
 });
-ipcMain.handle('desktop:export-team-package', async () => {
+ipcMain.handle('desktop:export-team-package', async (_event, input = {}) => {
   const session = await bootstrapCoachSession();
   const response = await fetch(`http://127.0.0.1:${runtime.port}/api/portable-package/export`, { method: 'POST', headers: { authorization: `Bearer ${session.key}`, 'content-type': 'application/json' }, body: JSON.stringify({ sourceDeviceId: runtime.config.deviceId }) });
   if (!response.ok) throw new Error('Local team package could not be created.');
   const target = path.join(runtime.paths.exports, `moe-tracker-team-${new Date().toISOString().replace(/[:.]/g, '-')}.moetracker`);
-  await fsp.writeFile(target, Buffer.from(await response.arrayBuffer()));
-  return { exported: true, path: target };
+  const plaintext = Buffer.from(await response.arrayBuffer()); const password = String(input.password || '');
+  await fsp.writeFile(target, password ? await encryptPortablePackage(plaintext, password) : plaintext);
+  return { exported: true, encrypted: !!password, path: target };
 });
-ipcMain.handle('desktop:preview-team-package', async () => {
+ipcMain.handle('desktop:preview-team-package', async (_event, input = {}) => {
+  runtime.pendingImport = null;
   const selection = await dialog.showOpenDialog(mainWindow, { properties: ['openFile'], title: 'Preview a MoeTracker package', filters: [{ name: 'MoeTracker packages', extensions: ['moetracker'] }] });
   if (selection.canceled || !selection.filePaths[0]) return { canceled: true };
-  const file = selection.filePaths[0]; const bytes = await fsp.readFile(file); const session = await bootstrapCoachSession();
-  const response = await fetch(`http://127.0.0.1:${runtime.port}/api/portable-package/preview`, { method: 'POST', headers: { authorization: `Bearer ${session.key}`, 'content-type': 'application/json' }, body: bytes });
+  const file = selection.filePaths[0]; const bytes = await fsp.readFile(file); if (bytes.length > MAX_ENVELOPE_BYTES) throw new Error('Portable package exceeds the safety limit.');
+  const packageBytes = await decryptPortablePackage(bytes, input.password); const session = await bootstrapCoachSession();
+  const response = await fetch(`http://127.0.0.1:${runtime.port}/api/portable-package/preview`, { method: 'POST', headers: { authorization: `Bearer ${session.key}`, 'content-type': 'application/json' }, body: packageBytes });
   const preview = await response.json().catch(() => ({})); if (!response.ok) throw new Error(preview.error || 'Portable package preview failed.');
-  runtime.pendingImport = { file, sha256: crypto.createHash('sha256').update(bytes).digest('hex') };
+  runtime.pendingImport = { file, sha256: crypto.createHash('sha256').update(bytes).digest('hex'), packageBytes };
   return { canceled: false, file, preview };
 });
 ipcMain.handle('desktop:import-team-package', async () => {
   if (!runtime.pendingImport) throw new Error('Preview a package before importing it.');
   const bytes = await fsp.readFile(runtime.pendingImport.file); const actual = crypto.createHash('sha256').update(bytes).digest('hex');
   if (actual !== runtime.pendingImport.sha256) throw new Error('The package changed after preview. Preview it again.');
-  const session = await bootstrapCoachSession(); const response = await fetch(`http://127.0.0.1:${runtime.port}/api/portable-package/import`, { method: 'POST', headers: { authorization: `Bearer ${session.key}`, 'content-type': 'application/json' }, body: bytes });
+  const session = await bootstrapCoachSession(); const response = await fetch(`http://127.0.0.1:${runtime.port}/api/portable-package/import`, { method: 'POST', headers: { authorization: `Bearer ${session.key}`, 'content-type': 'application/json' }, body: runtime.pendingImport.packageBytes });
   const result = await response.json().catch(() => ({})); if (!response.ok) throw new Error(result.error || 'Portable package import failed.');
   runtime.pendingImport = null; return { imported: true, message: 'Portable package imported. Conflicts were left unchanged.', result };
 });
