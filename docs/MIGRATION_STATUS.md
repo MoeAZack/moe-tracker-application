@@ -13,7 +13,7 @@ Canonical direction: the desktop application becomes the offline-first evidence 
 - Phase 6 — offline/online synchronization: durable outbox/inbox, automatic retry, encrypted pairing credential, and explicit offline/connected modes implemented on the review branch.
 - Phase 7 — coach review and fan-out: existing acceptance transaction populates match, player, round, map/economy inputs and review records; wider acceptance remains.
 - Phase 8 — portable packages: integrity manifest, preview, conflict preservation, team/player/match/season scopes, import recovery backup, and optional local-only password encryption are implemented; cross-PC acceptance remains.
-- Phase 10 — Windows release: installer, uninstaller, silent replay watching, background retry, retention controls, optional start with Windows, and rotating local-only crash diagnostics are implemented; tray operation, automatic updates, branding, clean-PC and upgrade acceptance remain.
+- Phase 10 — Windows release: branded installer/executable, system tray, single-instance background operation, silent optional start with Windows, installer/uninstaller, replay watching, background retry, retention controls, and rotating local-only crash diagnostics are implemented; automatic updates, clean-PC and upgrade acceptance remain.
 - Phases 9, 11 and 12: not started. The website remains live and unchanged.
 
 ## Safety boundaries
