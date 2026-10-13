@@ -63,7 +63,9 @@ async function withCollectorLock(task) {
       await new Promise(resolve => setTimeout(resolve, 250));
     }
   }
-  try { return await task(); } finally { await fsp.rm(LOCK_DIR, { recursive: true, force: true }); }
+  const heartbeat = setInterval(() => { void fsp.utimes(LOCK_DIR, new Date(), new Date()).catch(() => {}); }, 30_000);
+  heartbeat.unref?.();
+  try { return await task(); } finally { clearInterval(heartbeat); await fsp.rm(LOCK_DIR, { recursive: true, force: true }); }
 }
 export function migrateConfig(raw = {}) {
   const legacy = raw && typeof raw === 'object' ? raw : {};
@@ -146,17 +148,22 @@ function evidencePath(hash) {
   return path.join(EVIDENCE_DIR, hash.slice(0, 2), `${hash}.json`);
 }
 
-async function persistLocalEvidence(file, replaySha256, size, cfg) {
-  const target = evidencePath(replaySha256);
+async function readReusableEvidence(target, replaySha256, size, deviceId) {
   try {
     const existing = JSON.parse(await fsp.readFile(target, 'utf8'));
-    validateEvidenceEnvelope(existing, replaySha256, size, cfg.deviceId);
-    return { target, envelope: existing, reused: true };
+    validateEvidenceEnvelope(existing, replaySha256, size, deviceId);
+    return existing;
   } catch (error) {
     const invalidDerivedEvidence = error instanceof SyntaxError || /^Local (evidence|normalizer)/.test(String(error?.message || ''));
     if (error?.code !== 'ENOENT' && !invalidDerivedEvidence) throw error;
-    if (invalidDerivedEvidence) await fsp.rename(target, `${target}.invalid-${Date.now()}`).catch(renameError => { if (renameError?.code !== 'ENOENT') throw renameError; });
+    if (invalidDerivedEvidence) await fsp.rename(target, `${target}.invalid-${Date.now()}-${crypto.randomBytes(4).toString('hex')}`).catch(renameError => { if (renameError?.code !== 'ENOENT') throw renameError; });
+    return null;
   }
+}
+async function persistLocalEvidence(file, replaySha256, size, cfg) {
+  const target = evidencePath(replaySha256);
+  const existing = await readReusableEvidence(target, replaySha256, size, cfg.deviceId);
+  if (existing) return { target, envelope: existing, reused: true };
   const envelope = await produceLocalEvidence(file, replaySha256, size, cfg);
   await atomicJson(target, envelope);
   return { target, envelope, reused: false };
@@ -170,8 +177,9 @@ async function pruneExpiredManagedReplays(state, cfg, nowMs = Date.now()) {
     if (!managedRoot) continue;
     try {
       const [rootReal, fileReal, stat, envelope] = await Promise.all([fsp.realpath(managedRoot), fsp.realpath(record.path), fsp.lstat(record.path), readJson(record.evidencePath, null)]);
-      if (stat.isSymbolicLink() || !inside(fileReal, rootReal)) continue;
+      if (stat.isSymbolicLink() || stat.size !== record.size || !inside(fileReal, rootReal)) continue;
       validateEvidenceEnvelope(envelope, record.sha256, record.size, cfg.deviceId);
+      if (await sha256(fileReal) !== record.sha256) throw new Error('Raw replay no longer matches its verified evidence.');
       await fsp.rm(fileReal);
       record.status = 'evidence-retained'; record.rawDeletedAt = new Date(nowMs).toISOString(); delete record.lastError; deleted.push(fileReal);
     } catch (error) {
@@ -294,7 +302,8 @@ async function main() {
   }
   if (command === 'approve') {
     const hash = String(option(args, '--sha256') || '').toLowerCase(); if (!/^[a-f0-9]{64}$/.test(hash)) throw new Error('approve requires --sha256 <64 hex characters>.');
-    state.approved = [...new Set([...state.approved, hash])]; await atomicJson(MANIFEST_PATH, state); console.log(JSON.stringify(await scan({ allowUpload: true, approvedHash: hash }), null, 2)); return;
+    const result = await withCollectorLock(async () => { state = await manifest(); state.approved = [...new Set([...state.approved, hash])]; await atomicJson(MANIFEST_PATH, state); return scanUnlocked({ allowUpload: true, approvedHash: hash }); });
+    console.log(JSON.stringify(result, null, 2)); return;
   }
   if (command === 'watch') {
     console.log(`Watching configured replay folders every ${cfg.scanSeconds}s. ${cfg.autoUpload ? 'EXPLICIT AUTO-UPLOAD ENABLED' : 'Dry-run/review-required mode'}.`);
@@ -314,8 +323,11 @@ async function main() {
   }
   if (command === 'scoreboard-approve') {
     const file = path.resolve(option(args, '--file') || ''); const replaySha256 = String(option(args, '--replay-sha256') || '').toLowerCase();
-    if (!Object.values(state.files).some(item => item.sha256 === replaySha256)) throw new Error('The replay hash must already be present in this device manifest. Run scan first.');
-    await fsp.access(file, fs.constants.R_OK); const hash = await sha256(file); const approval = scoreboardApproval(file, cfg.scoreboardFolder, replaySha256, hash); state.scoreboardApprovals.push(approval); await atomicJson(MANIFEST_PATH, state);
+    const { hash, approval } = await withCollectorLock(async () => {
+      state = await manifest(); cfg = await config();
+      if (!Object.values(state.files).some(item => item.sha256 === replaySha256)) throw new Error('The replay hash must already be present in this device manifest. Run scan first.');
+      await fsp.access(file, fs.constants.R_OK); const hash = await sha256(file); const approval = scoreboardApproval(file, cfg.scoreboardFolder, replaySha256, hash); state.scoreboardApprovals.push(approval); await atomicJson(MANIFEST_PATH, state); return { hash, approval };
+    });
     console.log(JSON.stringify({ file: path.basename(file), sha256: hash, replaySha256, status: approval.status, uploaded: false, note: 'Open this approved image in MoeTracker local OCR; it is never captured or uploaded automatically.' }, null, 2)); return;
   }
   if (command === 'status') {
@@ -327,4 +339,4 @@ async function main() {
 
 if (process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href) main().catch(error => { console.error(`Replay collector: ${error.message}`); process.exitCode = 1; });
 
-export const collectorInternals = { APP_DIR, EVIDENCE_DIR, LOCK_DIR, DEFAULT_DEMO, inside, canonicalFile, serverUrl, scoreboardApproval, uploadRequest, migrateConfig, validateNormalizedEvidence, validateEvidenceEnvelope, evidencePath, pruneExpiredManagedReplays, resumableOffset, collectorUploadComplete, collectorUploadCompleteForServer };
+export const collectorInternals = { APP_DIR, EVIDENCE_DIR, LOCK_DIR, DEFAULT_DEMO, inside, canonicalFile, serverUrl, scoreboardApproval, uploadRequest, migrateConfig, validateNormalizedEvidence, validateEvidenceEnvelope, readReusableEvidence, evidencePath, pruneExpiredManagedReplays, resumableOffset, collectorUploadComplete, collectorUploadCompleteForServer };

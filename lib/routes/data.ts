@@ -3,18 +3,28 @@ import { readDB, saveDB } from '../store';
 import { uid, validate } from '../utils';
 import { postDiscordReport } from '../services';
 import * as schemas from '../../schemas';
-import { toPublicTrackerData } from '../publicData';
+import { toPublicTrackerData, toWebsiteTrackerData } from '../publicData';
 import { preserveExistingRosterContext, validateAndNormalizeLineup } from '../matchContext';
 import { applyImmutableEntryMetadata, applyScreenshotReviewConfirmation, reconcileStatTotals } from '../entryEngine';
 
 // Core data + match logging: full payload, reset, settings, generic upsert/remove,
 // and match/round/veto saves. Protected routes (registered after the auth middleware).
-export function registerDataRoutes(app: Express) {
+export function registerDataRoutes(app: Express, options: { websiteSummaryOnly?: boolean } = {}) {
   // GET tracker full payload
   app.get('/api/data', async (req, res) => {
     try {
       const db = await readDB();
-      res.json(toPublicTrackerData(db, (req as any).user?.role === 'coach' ? 'coach' : 'player'));
+      const role = (req as any).user?.role === 'coach' ? 'coach' : 'player';
+      res.json(options.websiteSummaryOnly ? toWebsiteTrackerData(db, role) : toPublicTrackerData(db, role));
+    } catch (err: any) {
+      res.status(500).json({ error: err.message });
+    }
+  });
+
+  app.get('/api/website-summary', async (req, res) => {
+    try {
+      const db = await readDB();
+      res.json(toWebsiteTrackerData(db, (req as any).user?.role === 'coach' ? 'coach' : 'player'));
     } catch (err: any) {
       res.status(500).json({ error: err.message });
     }

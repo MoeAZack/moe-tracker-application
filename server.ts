@@ -464,7 +464,7 @@ export async function createApp(serveFrontend = true) {
   registerVodLineupRoutes(app);
 
   // Core data + match logging routes (extracted module)
-  registerDataRoutes(app);
+  registerDataRoutes(app, { websiteSummaryOnly: cloudflareRuntime });
 
   // Stable player identities, core membership history and named tryout batches.
   registerRosterRoutes(app);
