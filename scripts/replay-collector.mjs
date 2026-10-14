@@ -51,6 +51,11 @@ async function atomicJson(file, value) {
   await fsp.mkdir(path.dirname(file), { recursive: true }); const temp = `${file}.${process.pid}.tmp`;
   await fsp.writeFile(temp, JSON.stringify(value, null, 2), { encoding: 'utf8', mode: 0o600 }); await fsp.rename(temp, file);
 }
+export function processAlive(pid) {
+  try { process.kill(pid, 0); return true; }
+  catch (error) { return error?.code === 'EPERM'; }
+}
+
 async function withCollectorLock(task) {
   await fsp.mkdir(APP_DIR, { recursive: true }); const started = Date.now();
   for (;;) {
@@ -59,6 +64,11 @@ async function withCollectorLock(task) {
       if (error?.code !== 'EEXIST') throw error;
       const stat = await fsp.stat(LOCK_DIR).catch(() => null);
       if (stat && Date.now() - stat.mtimeMs > 11 * 60 * 1000) { await fsp.rm(LOCK_DIR, { recursive: true, force: true }); continue; }
+      // A watcher killed mid-scan (app upgrade, crash, Task Manager) leaves its
+      // lock behind; release it at once when the recorded owner is gone instead
+      // of blocking "Process latest replay" for the 11-minute stale window.
+      const owner = await readJson(path.join(LOCK_DIR, 'owner.json'), null).catch(() => null);
+      if (owner && Number.isInteger(owner.pid) && owner.pid !== process.pid && !processAlive(owner.pid) && stat && Date.now() - stat.mtimeMs > 2_000) { await fsp.rm(LOCK_DIR, { recursive: true, force: true }); continue; }
       if (Date.now() - started > 10 * 60 * 1000) throw new Error('Another replay process is still running. Try again after it finishes.');
       await new Promise(resolve => setTimeout(resolve, 250));
     }

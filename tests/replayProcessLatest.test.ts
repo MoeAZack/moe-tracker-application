@@ -39,3 +39,17 @@ describe('process latest replay', () => {
     expect(String(failure.stderr)).toMatch(/binaryPath is not configured/);
   });
 });
+
+describe('collector lock recovery', () => {
+  it('releases a lock left by a killed watcher instead of waiting out the stale window', async () => {
+    const { env } = await collectorWith([{ name: 'a.vrf', unsupportedBuild: '++Ares-Core+release-13.08' }]);
+    const lock = path.join(env.LOCALAPPDATA!, 'MoeTracker', 'ReplayCollector', 'collector.lock');
+    const dead = await run(process.execPath, ['-e', 'process.stdout.write(String(process.pid))']);
+    await fs.mkdir(lock); await fs.writeFile(path.join(lock, 'owner.json'), JSON.stringify({ pid: Number(dead.stdout), acquiredAt: new Date().toISOString() }));
+    const old = new Date(Date.now() - 10_000); await fs.utimes(lock, old, old);
+    const started = Date.now();
+    const { stdout } = await run(process.execPath, ['scripts/replay-collector.mjs', 'process-latest'], { env, timeout: 20_000 });
+    expect(JSON.parse(stdout).state).toBe('unsupported-patch');
+    expect(Date.now() - started).toBeLessThan(15_000);
+  });
+});
