@@ -36,7 +36,7 @@ export default function MapBestStats({ data, theme, onUpsert, onRemove }: Compon
   const stratsList = data.strats || [];
   const stratRunsList = data.stratRuns || [];
   const roundIntelligenceByMap = useMemo(() => new Map(buildMapRoundIntelligence(matches, data.rounds || []).map(row => [row.map, row])), [matches, data.rounds]);
-  const conversionText = (value?: { won: number; total: number }) => value?.total ? `${value.won}/${value.total} · ${Math.round(value.won / value.total * 100)}%` : 'Unknown';
+  const conversionText = (value?: { won: number; total: number }) => value?.total ? `${value.won}/${value.total} · ${Math.round(value.won / value.total * 100)}%` : '—';
 
   // --- MAP STATS CALCULATOR ---
   const mapStatsTable = useMemo(() => {
@@ -539,8 +539,8 @@ export default function MapBestStats({ data, theme, onUpsert, onRemove }: Compon
                         <span className={Number(winrate) >= 50 ? theme.text : 'text-gray-400'}>{winrate}%</span>
                       </td>
                       <td className="border-l border-white/5 py-3.5 px-3 text-center text-amber-500 font-bold">{attWr}%</td><td className="py-3.5 px-3 text-center text-cyan-400 font-bold">{defWr}%</td>
-                      <td className="border-l border-white/5 py-3.5 px-3 text-center text-amber-300">{conversionText(roundIntel?.pistolBySide.attack)}</td><td className="py-3.5 px-3 text-center text-cyan-300">{conversionText(roundIntel?.pistolBySide.defense)}</td><td className="py-3.5 px-3 text-center text-emerald-300">{conversionText(roundIntel?.postPistol)}</td><td className="py-3.5 px-3 text-center text-violet-300">{conversionText(roundIntel?.earnedBonus)}</td>
-                      <td className="border-l border-white/5 py-3.5 px-3 text-center font-bold text-amber-300">{roundIntel?.latestOpening?.firstHalf || 'Unknown'}</td><td className="py-3.5 px-3 text-center font-bold text-cyan-300">{roundIntel?.latestOpening?.secondHalf || 'Unknown'}</td>
+                      <td className={`border-l border-white/5 py-3.5 px-3 text-center ${roundIntel?.pistolBySide.attack.total ? 'text-amber-300' : 'text-slate-600'}`}>{conversionText(roundIntel?.pistolBySide.attack)}</td><td className={`py-3.5 px-3 text-center ${roundIntel?.pistolBySide.defense.total ? 'text-cyan-300' : 'text-slate-600'}`}>{conversionText(roundIntel?.pistolBySide.defense)}</td><td className={`py-3.5 px-3 text-center ${roundIntel?.postPistol.total ? 'text-emerald-300' : 'text-slate-600'}`}>{conversionText(roundIntel?.postPistol)}</td><td className={`py-3.5 px-3 text-center ${roundIntel?.earnedBonus.total ? 'text-violet-300' : 'text-slate-600'}`}>{conversionText(roundIntel?.earnedBonus)}</td>
+                      <td className={`border-l border-white/5 py-3.5 px-3 text-center font-bold ${roundIntel?.latestOpening?.firstHalf ? 'text-amber-300' : 'text-slate-600'}`}>{roundIntel?.latestOpening?.firstHalf || '—'}</td><td className={`py-3.5 px-3 text-center font-bold ${roundIntel?.latestOpening?.secondHalf ? 'text-cyan-300' : 'text-slate-600'}`}>{roundIntel?.latestOpening?.secondHalf || '—'}</td>
                       <td className={`border-l border-white/5 py-3.5 px-3 text-center font-bold ${Number(kd) >= 1 ? 'text-emerald-400' : 'text-rose-400'}`}>{kd}</td>
                     </tr>
                   );

@@ -664,7 +664,7 @@ export default function App() {
             {activeTab === 'roster' && analyticsData && data && (
               <div className="space-y-6">
                 {role === 'coach' && <RosterManager data={data} theme={theme} onRefresh={fetchDatabase} />}
-                <PlayerSoloTracker data={analyticsData} theme={theme} onSyncSoloQ={handleSyncSoloQ} />
+                <PlayerSoloTracker data={analyticsData} theme={theme} role={role} onSyncSoloQ={handleSyncSoloQ} onRefresh={fetchDatabase} />
               </div>
             )}
             {activeTab === 'settings' && data && (

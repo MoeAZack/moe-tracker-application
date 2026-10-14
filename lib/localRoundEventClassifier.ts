@@ -51,7 +51,7 @@ export interface ObjectiveRow { sourceRow: number; playerId: string | null; team
 export async function classifyValorantRoundEvents(image: ImageLike, players: readonly (ScreenshotPlayerRoundEvidence & { agent?: string | null })[]) {
   const width = Number(image.naturalWidth || (image as any).width);
   const height = Number(image.naturalHeight || (image as any).height);
-  if (width / height < 1.72 || width / height > 1.82 || players.length !== 10) return { events: [] as ScreenshotKillEvent[], objectives: [] as ObjectiveRow[], complete: false, unidentifiedKillRows: 0, possiblyTruncated: false };
+  if (width / height < 1.72 || width / height > 1.82 || players.length !== 10) return { events: [] as ScreenshotKillEvent[], objectives: [] as ObjectiveRow[], openingComplete: false, complete: false, unidentifiedKillRows: 0, possiblyTruncated: false };
   const sx = width / 1920; const sy = height / 1080;
   const source = document.createElement('canvas'); source.width = width; source.height = height;
   const context = source.getContext('2d', { willReadFrequently: true });
@@ -83,6 +83,7 @@ export async function classifyValorantRoundEvents(image: ImageLike, players: rea
   const objectives: ObjectiveRow[] = [];
   let hadPartialEvent = false;
   let unidentifiedKillRows = 0;
+  let unidentifiedBeforeOpening = false;
   let lastRowWasEvent = false;
   for (let row = 0; row < EVENT_ROWS_SCANNED; row += 1) {
     const top = rowTop(row);
@@ -147,6 +148,7 @@ export async function classifyValorantRoundEvents(image: ImageLike, players: rea
       // identify. Dropping it silently would let survival/KAST/FK treat the
       // round as complete, so the round is marked incomplete instead.
       unidentifiedKillRows += 1;
+      if (events.length === 0) unidentifiedBeforeOpening = true;
       continue;
     }
     const killerPlayer = killer === null ? null : players[killer];
@@ -168,6 +170,7 @@ export async function classifyValorantRoundEvents(image: ImageLike, players: rea
   return {
     events,
     objectives,
+    openingComplete: !unidentifiedBeforeOpening && !!events[0]?.killerPlayerId && !!events[0]?.victimPlayerId && !!events[0]?.killerTeam && !!events[0]?.victimTeam,
     complete: events.length > 0 && !hadPartialEvent && unidentifiedKillRows === 0 && !lastRowWasEvent,
     unidentifiedKillRows,
     possiblyTruncated: lastRowWasEvent,

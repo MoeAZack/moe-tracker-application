@@ -30,6 +30,20 @@ describe('scrim screenshot analytics', () => {
     const partial = round({ screenshotEvidence: { ...round().screenshotEvidence, eventsComplete: false, events: [{ sequence: 8, killerPlayerId: 'p1', victimPlayerId: 'x1', weapon: 'Vandal' }] } });
     expect(buildPlayerScreenshotMetrics([partial] as any)[0]).toMatchObject({ firstKills: 0, multikills: { two: 0, three: 0, four: 0, ace: 0 }, kast: { successful: 0, covered: 0 }, weapons: [{ weapon: 'Sheriff', rounds: 1, wins: 1, kills: 0, deaths: 0 }] });
   });
+  it('keeps a resolved first death when later kill-feed rows are incomplete', () => {
+    const openingOnly = round({ screenshotEvidence: {
+      ...round().screenshotEvidence,
+      openingEventComplete: true,
+      eventsComplete: false,
+      players: [{ playerId: 'p1', displayName: 'Alpha', team: 'ours', equippedWeapon: 'Sheriff', assists: 0, survived: null }],
+      events: [{ sequence: 1, killerPlayerId: 'x1', victimPlayerId: 'p1', killerTeam: 'theirs', victimTeam: 'ours', weapon: 'Vandal' }],
+    } });
+    expect(buildPlayerScreenshotMetrics([openingOnly] as any)[0]).toMatchObject({
+      firstKills: 0, firstDeaths: 1,
+      multikills: { two: 0, three: 0, four: 0, ace: 0 },
+      kast: { successful: 0, covered: 0 },
+    });
+  });
   it('does not count the same match round twice', () => {
     const duplicate = round({ id: 'different-row-id' });
     expect(buildPlayerScreenshotMetrics([round(), duplicate] as any)[0]).toMatchObject({ coveredRounds: 1, wins: 1, firstKills: 1 });

@@ -1,16 +1,27 @@
 import React, { useEffect, useMemo, useState } from 'react';
 import { TrackerData } from '../types';
-import { Activity, ShieldAlert, Users } from 'lucide-react';
+import { Activity, Archive, ShieldAlert, Users } from 'lucide-react';
 import { aggregateObservedPlayerKd, shadowRatingReadiness, rankedIntegrationReadiness } from '../../lib/uiIntegration';
 import { apiFetch } from '../utils/api';
 import { practiceDatasetCoverage } from '../../lib/practiceCompleteness';
 import ReplayMatchLog from './ReplayMatchLog';
 
-interface Props { data: TrackerData; theme: any; onSyncSoloQ: (player: string) => Promise<any>; }
+interface Props { data: TrackerData; theme: any; role: string | null; onSyncSoloQ: (player: string) => Promise<any>; onRefresh: () => Promise<void>; }
 
-export default function PlayerSoloTracker({ data, theme }: Props) {
-  const roster = useMemo(() => aggregateObservedPlayerKd(data.playerStats || []), [data.playerStats]);
+export default function PlayerSoloTracker({ data, theme, role, onRefresh }: Props) {
+  const roster = useMemo(() => {
+    const retiredIds = new Set((data.rosterPlayers || []).filter(player => player.retiredAt).map(player => player.id));
+    const retiredNames = new Set((data.rosterPlayers || []).filter(player => player.retiredAt).map(player => player.displayName.trim().toLocaleLowerCase('en')));
+    const visibleRows = (data.playerStats || []).filter(row => {
+      if (row.playerId && retiredIds.has(row.playerId)) return false;
+      const name = (row.displayNameSnapshot || row.player || '').trim().toLocaleLowerCase('en');
+      return row.playerId || !retiredNames.has(name);
+    });
+    return aggregateObservedPlayerKd(visibleRows);
+  }, [data.playerStats, data.rosterPlayers]);
   const [engineState, setEngineState] = useState<any>(null);
+  const [archivingId, setArchivingId] = useState<string | null>(null);
+  const [archiveError, setArchiveError] = useState<string | null>(null);
   useEffect(() => { let active = true; apiFetch('/api/engine-adapters').then(async response => response.ok ? response.json() : null).then(value => { if (active) setEngineState(value); }).catch(() => {}); return () => { active = false; }; }, []);
   const light = data.settings.theme === 'daylight';
   const surface = `${theme.cardBg} ${theme.border}`;
@@ -18,6 +29,20 @@ export default function PlayerSoloTracker({ data, theme }: Props) {
   const shadow = shadowRatingReadiness(engineState);
   const ranked = rankedIntegrationReadiness(engineState);
   const practice = useMemo(() => practiceDatasetCoverage(data), [data]);
+  const archivePlayer = async (playerId: string, displayName: string) => {
+    if (!window.confirm(`Archive “${displayName}”? They will disappear from active roster views, while their historical match evidence remains preserved. Their login keys and paired capture devices will be revoked.`)) return;
+    setArchivingId(playerId); setArchiveError(null);
+    try {
+      const response = await apiFetch('/api/roster/players/remove', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ playerId }) });
+      const result = await response.json().catch(() => ({}));
+      if (!response.ok) throw new Error(result.error || 'Player archive failed.');
+      await onRefresh();
+    } catch (error: any) {
+      setArchiveError(error?.message || 'Player archive failed.');
+    } finally {
+      setArchivingId(null);
+    }
+  };
 
   return <div className="space-y-6">
     <header><p className={`text-[11px] font-semibold uppercase tracking-[0.18em] ${muted}`}>Roster evidence</p><h2 className="mt-1 text-2xl font-semibold">Player overview</h2><p className={`mt-1 text-sm ${muted}`}>Observed statistics only. Missing values are not replaced with average scores.</p></header>
@@ -26,7 +51,7 @@ export default function PlayerSoloTracker({ data, theme }: Props) {
       <Readiness surface={surface} muted={muted} icon={Activity} title="Ranked consent & health" badge={ranked.status === 'ready' ? 'Persisted · offline' : 'Inactive'} detail={`${ranked.detail} Manual ranked entries remain available; no network sync is attempted.`} />
     </div>
     <section className={`rounded-xl border p-4 ${surface}`} aria-labelledby="practice-readiness-title"><h3 id="practice-readiness-title" className="text-sm font-semibold">Practice review readiness</h3><div className="mt-3 grid gap-3 sm:grid-cols-3"><EvidenceCount label="Recorded matches" value={practice.matches} available={practice.matches > 0} muted={muted} /><EvidenceCount label="With player stats" value={practice.withStats} available={practice.withStats > 0} muted={muted} /><EvidenceCount label="With round logs" value={practice.withRounds} available={practice.withRounds > 0} muted={muted} /></div><p className={`mt-3 text-xs leading-relaxed ${muted}`}>This view was not given an authenticated roster identity, so it does not guess which performance rows or goals are yours. Personal goals remain hidden until identity is explicitly supplied.</p></section>
-    <section className={`overflow-hidden rounded-xl border ${surface}`} aria-labelledby="roster-observed-title"><div className={`flex items-center gap-2 border-b px-5 py-4 ${theme.border}`}><Users className={`h-4 w-4 ${muted}`} aria-hidden="true" /><h3 id="roster-observed-title" className="text-sm font-semibold">Observed roster statistics</h3></div><div className="overflow-x-auto"><table className="min-w-[560px] w-full text-left text-sm"><thead className={`text-[10px] uppercase tracking-wider ${muted}`}><tr><th className="px-5 py-3">Player</th><th className="px-5 py-3">Recorded rows</th><th className="px-5 py-3">Observed K/D</th><th className="px-5 py-3">Paired K/D coverage</th></tr></thead><tbody>{roster.map(row => <tr key={row.identity} className={`border-t ${theme.border}`}><td className="px-5 py-3 font-semibold">{row.displayName}{row.playerId && <span className={`ml-2 text-[9px] font-normal ${muted}`}>{row.playerId}</span>}</td><td className={`px-5 py-3 ${muted}`}>{row.recordedRows}</td><td className="px-5 py-3 font-mono">{row.kd === null ? 'Unknown' : row.kd.toFixed(2)}</td><td className={`px-5 py-3 ${muted}`}>{row.pairedSamples}/{row.recordedRows} same-row samples</td></tr>)}</tbody></table>{!roster.length && <p className={`p-8 text-center text-sm ${muted}`}>No player evidence recorded.</p>}</div></section>
+    <section className={`overflow-hidden rounded-xl border ${surface}`} aria-labelledby="roster-observed-title"><div className={`flex items-center gap-2 border-b px-5 py-4 ${theme.border}`}><Users className={`h-4 w-4 ${muted}`} aria-hidden="true" /><h3 id="roster-observed-title" className="text-sm font-semibold">Observed roster statistics</h3></div>{archiveError && <p role="alert" className="mx-5 mt-4 rounded-lg border border-rose-500/30 bg-rose-500/10 p-3 text-xs text-rose-300">{archiveError}</p>}<div className="overflow-x-auto"><table className="min-w-[680px] w-full text-left text-sm"><thead className={`text-[10px] uppercase tracking-wider ${muted}`}><tr><th className="px-5 py-3">Player</th><th className="px-5 py-3">Recorded rows</th><th className="px-5 py-3">Observed K/D</th><th className="px-5 py-3">Paired K/D coverage</th>{role === 'coach' && <th className="px-5 py-3 text-right">Roster action</th>}</tr></thead><tbody>{roster.map(row => <tr key={row.identity} className={`border-t ${theme.border}`}><td className="px-5 py-3 font-semibold">{row.displayName}{row.playerId && <span className={`ml-2 text-[9px] font-normal ${muted}`}>{row.playerId}</span>}</td><td className={`px-5 py-3 ${muted}`}>{row.recordedRows}</td><td className="px-5 py-3 font-mono">{row.kd === null ? 'Unknown' : row.kd.toFixed(2)}</td><td className={`px-5 py-3 ${muted}`}>{row.pairedSamples}/{row.recordedRows} same-row samples</td>{role === 'coach' && <td className="px-5 py-3 text-right">{row.playerId ? <button type="button" disabled={archivingId !== null} onClick={() => void archivePlayer(row.playerId!, row.displayName)} className="ui-button inline-flex min-h-9 items-center gap-1.5 px-3 text-xs text-amber-200 disabled:opacity-50"><Archive className="h-3.5 w-3.5" aria-hidden="true" />{archivingId === row.playerId ? 'Archiving…' : 'Archive player'}</button> : <span className={`text-[10px] ${muted}`}>Resolve identity first</span>}</td>}</tr>)}</tbody></table>{!roster.length && <p className={`p-8 text-center text-sm ${muted}`}>No active player evidence recorded.</p>}</div></section>
     <ReplayMatchLog data={data} theme={theme} title="Player match history" description="Expand a replay-backed match to inspect every accepted player row and identity correction." />
   </div>;
 }

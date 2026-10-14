@@ -300,6 +300,8 @@ export interface RoundScreenshotEvidence {
   players: ScreenshotPlayerRoundEvidence[];
   /** True only when review confirmed that the event list covers the whole round. */
   eventsComplete?: boolean;
+  /** True when the earliest kill row is fully identified, even if later kill rows are incomplete. */
+  openingEventComplete?: boolean;
   events?: ScreenshotKillEvent[];
   /** Spike plant/defuse rows: actor, time and (implicitly) which side attacked. */
   objectives?: ScreenshotObjectiveEvent[];
