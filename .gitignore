@@ -18,3 +18,4 @@ public/ocr-test-scoreboard.png
 *.moetracker
 /data/
 /eng.traineddata
+replay-runtime/
