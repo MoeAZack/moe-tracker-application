@@ -7,7 +7,6 @@ export default function DesktopCommandCenter({ onOpenReplay, onOpenCapture }: { 
   const [busy, setBusy] = useState('');
   const [notice, setNotice] = useState('');
   const [captureRounds, setCaptureRounds] = useState(24);
-  const [captureTemplate, setCaptureTemplate] = useState<'without-performance' | 'with-performance'>('without-performance');
   const refresh = async () => bridge && setStatus(await bridge.getStatus());
   useEffect(() => {
     let active = true;
@@ -62,8 +61,9 @@ export default function DesktopCommandCenter({ onOpenReplay, onOpenCapture }: { 
           <li><span>2</span>Start capture and return to VALORANT</li>
           <li><span>3</span>Review uncertain fields, then accept</li>
         </ol>
-        <div className="mt-4 grid grid-cols-[minmax(0,1fr)_minmax(0,1.45fr)] gap-2"><label className="text-[10px] text-slate-400">Rounds<input aria-label="Numbered rounds shown in Timeline" type="number" min={1} max={32} value={captureRounds} onChange={event => setCaptureRounds(Number(event.target.value))} className="ui-field mt-1 h-10 w-full px-2 text-center text-sm text-white" /></label><label className="text-[10px] text-slate-400">Report layout<select aria-label="Post-match report layout" value={captureTemplate} onChange={event => setCaptureTemplate(event.target.value as typeof captureTemplate)} className="ui-field mt-1 h-10 w-full px-2 text-xs text-white"><option value="without-performance">Standard</option><option value="with-performance">Has Performance tab</option></select></label></div>
-        <button type="button" disabled={!!busy || !Number.isInteger(captureRounds) || captureRounds < 1 || captureRounds > 32} onClick={() => run('capture', () => bridge.startScrimCapture({ roundCount: captureRounds, template: captureTemplate }))} className="ui-button ui-button-primary mt-3 flex min-h-11 w-full items-center justify-center gap-2 px-4 text-xs disabled:opacity-50"><Image className="h-4 w-4" />Start post-match capture</button>
+        <label className="mt-4 block text-[10px] text-slate-400">Rounds<input aria-label="Numbered rounds shown in Timeline" type="number" min={1} max={32} value={captureRounds} onChange={event => setCaptureRounds(Number(event.target.value))} className="ui-field mt-1 h-10 w-full px-2 text-center text-sm text-white" /></label>
+        <p className="mt-2 text-[10px] leading-4 text-slate-400">Standard and Performance layouts are detected automatically.</p>
+        <button type="button" disabled={!!busy || !Number.isInteger(captureRounds) || captureRounds < 1 || captureRounds > 32} onClick={() => run('capture', () => bridge.startScrimCapture({ roundCount: captureRounds }))} className="ui-button ui-button-primary mt-3 flex min-h-11 w-full items-center justify-center gap-2 px-4 text-xs disabled:opacity-50"><Image className="h-4 w-4" />Start post-match capture</button>
         <button type="button" onClick={() => run('screenshots', () => bridge.openFolder('screenshots'))} className="capture-folder-button"><span><FolderOpen className="h-4 w-4" />Open capture folder</span></button>
       </aside>
     </div>

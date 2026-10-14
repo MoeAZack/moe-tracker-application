@@ -37,7 +37,7 @@ declare global {
       readScoreboard(id: string): Promise<{ id: string; name: string; mediaType: string; bytes: Uint8Array }>;
       readCaptureSession(id: string): Promise<{ id: string; captureId: string; template: string; requestedRounds: number; captures: Array<{ kind: 'scoreboard' | 'performance' | 'head-to-head' | 'round'; round?: number; name: string; mediaType: string; base64: string }> }>;
       completeScoreboard(id: string): Promise<{ completed: boolean }>;
-      startScrimCapture(input: { roundCount: number; template: 'without-performance' | 'with-performance' }): Promise<{ started: boolean; message: string }>;
+      startScrimCapture(input: { roundCount: number }): Promise<{ started: boolean; message: string }>;
       onCaptureReady(callback: (capture: { id: string; captureId: string }) => void): () => void;
       getIntegrationSecretStatus(): Promise<{ encryptionAvailable: boolean; configured: Record<'GEMINI_API_KEY' | 'GRID_API_KEY' | 'DISCORD_WEBHOOK_URL', boolean>; scope: 'local-device' }>;
       setIntegrationSecret(input: { key: 'GEMINI_API_KEY' | 'GRID_API_KEY' | 'DISCORD_WEBHOOK_URL'; value: string }): Promise<{ configured: boolean }>;

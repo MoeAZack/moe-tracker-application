@@ -10,10 +10,7 @@ if not exist "%SCRIPT%" (
 set "ROUNDS=%~1"
 if "%ROUNDS%"=="" set /p ROUNDS=How many numbered rounds appear in TIMELINE? [22]: 
 if "%ROUNDS%"=="" set "ROUNDS=22"
-set "TEMPLATE=%~3"
-if "%TEMPLATE%"=="" set /p HAS_PERFORMANCE=Does this report show a PERFORMANCE tab? [y/N]: 
-if /I "%HAS_PERFORMANCE%"=="Y" set "TEMPLATE=with-performance"
-if "%TEMPLATE%"=="" set "TEMPLATE=without-performance"
+set "TEMPLATE=without-performance"
 
 if /I "%~2"=="elevated" goto run_capture
 
@@ -26,7 +23,7 @@ if errorlevel 1 (
 exit /b 0
 
 :run_capture
-echo MoeTracker Scrim Capture is starting for %ROUNDS% rounds using %TEMPLATE%.
+echo MoeTracker Scrim Capture is starting for %ROUNDS% rounds. The report layout will be detected automatically.
 powershell.exe -NoProfile -ExecutionPolicy Bypass -File "%SCRIPT%" -RoundCount %ROUNDS% -Template "%TEMPLATE%"
 set "CAPTURE_EXIT=%ERRORLEVEL%"
 echo.
