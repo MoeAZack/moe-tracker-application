@@ -842,6 +842,23 @@ export async function registerReplayDeviceRoutes(app: Express) {
       return res.json(Object.values(store.screenshots).sort((a, b) => b.createdAt.localeCompare(a.createdAt)).map(screenshotPairingPublic));
     } catch { return res.status(500).json({ error: 'Screenshot pairing status is unavailable.' }); }
   });
+  app.delete('/api/replay-intake/screenshots', async (req, res) => {
+    if (actor(req).role !== 'coach') return res.status(403).json({ error: 'Screenshot pairing is coach-only.' });
+    try {
+      const db = await readDB(); const store = replayStore(db); const removed = Object.keys(store.screenshots).length;
+      store.screenshots = {}; await saveDB(db);
+      return res.json({ removed });
+    } catch { return res.status(500).json({ error: 'The screenshot queue could not be cleared.' }); }
+  });
+  app.delete('/api/replay-intake/screenshots/:id', async (req, res) => {
+    if (actor(req).role !== 'coach') return res.status(403).json({ error: 'Screenshot pairing is coach-only.' });
+    try {
+      const id = String(req.params.id || ''); const db = await readDB(); const store = replayStore(db);
+      if (!store.screenshots[id]) return res.status(404).json({ error: 'Screenshot draft not found.' });
+      delete store.screenshots[id]; await saveDB(db);
+      return res.json({ removed: true, id });
+    } catch { return res.status(500).json({ error: 'The screenshot draft could not be deleted.' }); }
+  });
   app.post('/api/replay-intake/screenshots/local', async (req, res) => {
     const user = actor(req);
     if (user.role !== 'coach') return res.status(403).json({ error: 'Screenshot pairing is coach-only.' });
@@ -958,6 +975,27 @@ export async function registerReplayDeviceRoutes(app: Express) {
       const visible = Object.values(store.associations).filter(item => user.role === 'coach' || (item.owner?.actorId === user.actorId && item.owner?.playerId === user.playerId));
       res.json(visible.flatMap(item => store.blobs[item.sha256] ? [uploadPublic(item, store.blobs[item.sha256])] : []));
     } catch (error: any) { res.status(500).json({ error: error.message }); }
+  });
+
+  app.delete('/api/replay-intake/uploads/:sha256', async (req, res) => {
+    try {
+      const user = actor(req); if (user.role !== 'coach') return res.status(403).json({ error: 'Only a coach can delete replay evidence.' });
+      const sha256 = String(req.params.sha256 || '').toLowerCase();
+      if (!HEX_SHA256.test(sha256)) return res.status(400).json({ error: 'Replay SHA-256 is invalid.' });
+      const db = await readDB(); const store = replayStore(db); const blob = store.blobs[sha256];
+      if (!blob) return res.status(404).json({ error: 'Replay evidence not found.' });
+      const active = Object.values(store.parserJobs).some(job => job.sha256 === sha256 && ['queued', 'running'].includes(job.status));
+      if (active) return res.status(409).json({ error: 'Wait for replay processing to finish before deleting it.' });
+      if (blob.rawObject && blob.rawObject.status !== 'deleted') await deleteRawReplayObject(blob.rawObject);
+      await fsp.rm(privateReplayPath(sha256), { force: true }).catch(() => {});
+      for (const [key, association] of Object.entries(store.associations)) if (association.sha256 === sha256) delete store.associations[key];
+      for (const [key, job] of Object.entries(store.parserJobs)) if (job.sha256 === sha256) delete store.parserJobs[key];
+      for (const screenshot of Object.values(store.screenshots)) if (screenshot.replaySha256 === sha256) {
+        screenshot.replaySha256 = null; screenshot.suggestions = []; screenshot.status = 'pending'; screenshot.reason = 'Replay deleted. Choose another replay or complete this screenshot manually.';
+      }
+      delete store.reviews[sha256]; delete store.blobs[sha256]; await saveDB(db);
+      return res.json({ removed: true, sha256 });
+    } catch (error: any) { return res.status(500).json({ error: error?.message || 'Replay evidence could not be deleted.' }); }
   });
 
   app.post('/api/replay-intake/uploads/:sha256/parse', async (req, res) => {

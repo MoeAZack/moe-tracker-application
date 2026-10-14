@@ -87,6 +87,7 @@ describe('strict screenshot pairing', () => {
 let temporary: string; let dbPath: string; let server: Server | undefined; let origin: string;
 const admin = 'screenshot-admin-secret-at-least-24-characters';
 async function request(route: string, token?: string, body?: any) { return fetch(`${origin}${route}`, { method: body === undefined ? 'GET' : 'POST', headers: { ...(token ? { Authorization: `Bearer ${token}` } : {}), ...(body === undefined ? {} : { 'Content-Type': 'application/json' }) }, ...(body === undefined ? {} : { body: JSON.stringify(body) }) }); }
+async function remove(route: string, token: string) { return fetch(`${origin}${route}`, { method: 'DELETE', headers: { Authorization: `Bearer ${token}` } }); }
 async function login(key = admin) { const response = await request('/api/login-key', undefined, { key }); expect(response.status).toBe(200); return (await response.json()).key; }
 function envelope(deviceId: string) {
   const normalized: any = { schemaVersion: 1, scoreboard: board(), parserInput: { parser: { name: 'vrfkit', version: VRFKIT_PIN.version }, provenance: { replaySha256: hash }, file: { format: 'vrf', support: 'supported' }, identities: board().players.map(p => ({ playerId: p.playerId, teamId: p.teamId })), summary: { roundCount: 22, finalScore: { teamA: 9, teamB: 13 }, players: [] }, rounds: [], capabilities: [] }, diagnostics: { replaySha256: hash, binarySha256: VRFKIT_PIN.windowsX64ExeSha256, binaryVersion: VRFKIT_PIN.version, binaryCommit: VRFKIT_PIN.commit, manifestSha256: 'f'.repeat(64), replayBuild: null, outputFileCount: 1, outputBytes: 1, identityMappingComplete: true, duplicateActorMappings: 0, duplicatePawnMappings: 0 } };
@@ -152,5 +153,20 @@ describe('screenshot-first authenticated workflow', () => {
     const unsafe = raw() as any; unsafe.players[0].rawMetrics = { base64: 'PRIVATE_IMAGE_PAYLOAD' };
     expect((await request('/api/replay-intake/screenshots/local', coach, { deviceId: device.device.id, imageSha256: 'e'.repeat(64), capturedAt: '2026-10-12T20:00:00.000Z', extraction: unsafe })).status).toBe(400);
     expect(await fs.readFile(dbPath, 'utf8')).not.toContain('PRIVATE_IMAGE_PAYLOAD');
+  });
+  it('lets coaches delete individual scoreboard drafts and replay evidence without deleting saved match rows', async () => {
+    const coach = await login(); const player = await login('player-key');
+    const device = await (await request('/api/replay-intake/devices/enroll', coach, { name: 'Cleanup PC' })).json();
+    const evidence = await fetch(`${origin}/api/replay-intake/evidence/${hash}`, { method: 'POST', headers: { 'Content-Type': 'application/json', 'X-Device-Id': device.device.id, 'X-Device-Token': device.credential.token }, body: JSON.stringify(envelope(device.device.id)) });
+    expect(evidence.status).toBe(201);
+    const draft = await (await request('/api/replay-intake/screenshots/local', coach, { deviceId: 'manual-entry', imageSha256: 'd'.repeat(64), capturedAt: '2026-10-12T20:00:00.000Z', extraction: raw() })).json();
+    expect((await remove(`/api/replay-intake/screenshots/${draft.id}`, player)).status).toBe(403);
+    expect((await remove(`/api/replay-intake/screenshots/${draft.id}`, coach)).status).toBe(200);
+    expect(await (await request('/api/replay-intake/screenshots', coach)).json()).toEqual([]);
+    expect((await remove(`/api/replay-intake/uploads/${hash}`, player)).status).toBe(403);
+    expect((await remove(`/api/replay-intake/uploads/${hash}`, coach)).status).toBe(200);
+    expect(await (await request('/api/replay-intake/uploads', coach)).json()).toEqual([]);
+    const stored = JSON.parse(await fs.readFile(dbPath, 'utf8'));
+    expect(stored.matches).toEqual([]); expect(stored.replayIntake.blobs).toEqual({}); expect(stored.replayIntake.associations).toEqual({}); expect(stored.replayIntake.parserJobs).toEqual({});
   });
 });

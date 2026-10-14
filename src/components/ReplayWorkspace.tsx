@@ -10,6 +10,7 @@ import {
   Play,
   RefreshCw,
   ShieldCheck,
+  Trash2,
   Unplug,
   UploadCloud,
 } from "lucide-react";
@@ -595,6 +596,30 @@ export default function ReplayWorkspace({
       () => void loadLists(),
     );
   };
+  const removeReplay = async (upload: Upload) => {
+    if (!window.confirm(`Delete replay evidence “${upload.originalName}”? The saved match, if any, will remain.`)) return;
+    setBusy(`delete-replay-${upload.sha256}`); setError(""); setMessage("");
+    try {
+      const response = await apiFetch(`/api/replay-intake/uploads/${upload.sha256}`, { method: "DELETE" });
+      const json = await response.json().catch(() => ({}));
+      if (!response.ok) throw new Error(json.error || "Replay evidence could not be deleted.");
+      if (selectedRef.current === upload.sha256) { selectedRef.current = ""; setSelected(""); setDetail(null); }
+      await loadLists(true); announce("Replay evidence deleted.");
+    } catch (cause: any) { announce("", cause.message || "Replay evidence could not be deleted."); }
+    finally { setBusy(""); }
+  };
+  const removeScreenshot = async (id?: string) => {
+    const all = !id;
+    if (!window.confirm(all ? `Delete all ${screenshots.length} retained scoreboard drafts?` : "Delete this retained scoreboard draft?")) return;
+    setBusy(all ? "clear-screenshots" : `delete-screenshot-${id}`); setError(""); setMessage("");
+    try {
+      const response = await apiFetch(`/api/replay-intake/screenshots${id ? `/${id}` : ""}`, { method: "DELETE" });
+      const json = await response.json().catch(() => ({}));
+      if (!response.ok) throw new Error(json.error || "Scoreboard draft could not be deleted.");
+      await loadLists(true); announce(all ? "Scoreboard queue cleared." : "Scoreboard draft deleted.");
+    } catch (cause: any) { announce("", cause.message || "Scoreboard draft could not be deleted."); }
+    finally { setBusy(""); }
+  };
   const parse = async () => {
     const target = selectedRef.current;
     if (!target) return;
@@ -1124,9 +1149,7 @@ export default function ReplayWorkspace({
                 <h3 className="text-xs font-semibold text-slate-300">
                   Scoreboard queue
                 </h3>
-                <span className="text-[10px] text-slate-500">
-                  {screenshots.length} retained drafts
-                </span>
+                <div className="flex items-center gap-2"><span className="text-[10px] text-slate-500">{screenshots.length} retained drafts</span><button type="button" disabled={!!busy} onClick={() => void removeScreenshot()} className="inline-flex min-h-9 items-center gap-1.5 rounded-lg border border-rose-300/15 px-2 text-[10px] font-semibold text-rose-300 hover:bg-rose-300/10 disabled:opacity-40"><Trash2 className="h-3.5 w-3.5" />Clear queue</button></div>
               </div>
               <ul className="mt-2 grid gap-2 lg:grid-cols-2">
                 {screenshots.slice(0, 6).map((item) => (
@@ -1148,7 +1171,7 @@ export default function ReplayWorkspace({
                             ?.name || "Collection device"}
                         </p>
                       </div>
-                      <Pill state={item.status}>{item.status}</Pill>
+                      <div className="flex items-center gap-2"><Pill state={item.status}>{item.status}</Pill><button type="button" aria-label="Delete scoreboard draft" disabled={!!busy} onClick={() => void removeScreenshot(item.id)} className="inline-flex h-9 w-9 items-center justify-center rounded-lg border border-rose-300/15 text-rose-300 hover:bg-rose-300/10 disabled:opacity-40"><Trash2 className="h-4 w-4" /></button></div>
                     </div>
                     <p className="mt-2 text-[11px] text-slate-400">
                       {item.reason}
@@ -1233,16 +1256,8 @@ export default function ReplayWorkspace({
             </div>
             <div className="max-h-[34rem] overflow-y-auto">
               {uploads.map((upload) => (
-                <button
-                  key={upload.id}
-                  type="button"
-                  onClick={() => {
-                    selectedRef.current = upload.sha256;
-                    setSelected(upload.sha256);
-                  }}
-                  aria-current={selected === upload.sha256 ? "true" : undefined}
-                  className="replay-inbox-item w-full min-h-16 border-b border-slate-800 p-3 text-left focus:outline-none focus:ring-2 focus:ring-inset focus:ring-teal-400"
-                >
+                <div key={upload.id} className="replay-inbox-item flex min-h-16 items-center border-b border-slate-800">
+                <button type="button" onClick={() => { selectedRef.current = upload.sha256; setSelected(upload.sha256); }} aria-current={selected === upload.sha256 ? "true" : undefined} className="min-w-0 flex-1 p-3 text-left focus:outline-none focus:ring-2 focus:ring-inset focus:ring-teal-400">
                   <span className="flex items-start justify-between gap-2">
                     <span className="min-w-0">
                       <span className="block truncate text-sm font-semibold text-slate-200">
@@ -1270,7 +1285,7 @@ export default function ReplayWorkspace({
                       {upload.sha256.slice(0, 8)}
                     </span>
                   </span>
-                </button>
+                </button><button type="button" aria-label={`Delete replay evidence ${upload.originalName}`} disabled={!!busy} onClick={() => void removeReplay(upload)} className="mr-2 inline-flex h-10 w-10 shrink-0 items-center justify-center rounded-lg border border-rose-300/15 text-rose-300 hover:bg-rose-300/10 disabled:opacity-40"><Trash2 className="h-4 w-4" /></button></div>
               ))}
               {!uploads.length && (
                 <p className="p-4 text-sm text-slate-500">

@@ -7,6 +7,7 @@ contextBridge.exposeInMainWorld('moeDesktop', Object.freeze({
   downloadUpdate: () => ipcRenderer.invoke('desktop:download-update'),
   installUpdate: () => ipcRenderer.invoke('desktop:install-update'),
   processMatch: () => ipcRenderer.invoke('desktop:process-match'),
+  deleteReplay: (replayPath) => ipcRenderer.invoke('desktop:delete-replay', replayPath),
   syncNow: () => ipcRenderer.invoke('desktop:sync-now'),
   pairDevice: (input) => ipcRenderer.invoke('desktop:pair-device', input),
   setSyncMode: (mode) => ipcRenderer.invoke('desktop:set-sync-mode', mode),
