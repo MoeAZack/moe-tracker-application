@@ -532,8 +532,10 @@ ipcMain.handle('desktop:process-match', async () => {
     if (/Local (binaryPath|pythonPath|normalizerPath) is not configured/.test(String(error?.message || ''))) throw new Error('The verified replay parser is not installed on this PC. Screenshot capture still works; install or repair the replay parser from Settings before processing replay files.');
     throw error;
   }
+  if (processed?.state === 'unsupported-patch') return { state: 'unsupported-patch', message: processed.message, items: first };
   const imported = await importEvidenceFile(processed.evidencePath);
-  return { state: 'review-ready', message: imported.idempotent ? 'This replay was already in the local review inbox.' : 'Replay parsed locally. The coach review draft is ready.', items: first, processed, imported };
+  const skippedNote = processed.skippedUnsupported ? ` Skipped ${processed.skippedUnsupported} newer replay${processed.skippedUnsupported === 1 ? '' : 's'} from an unsupported VALORANT patch; use screenshot capture for those.` : '';
+  return { state: 'review-ready', message: `${imported.idempotent ? 'This replay was already in the local review inbox.' : 'Replay parsed locally. The coach review draft is ready.'}${skippedNote}`, items: first, processed, imported };
 });
 ipcMain.handle('desktop:sync-now', syncNow);
 ipcMain.handle('desktop:pair-device', (_event, input) => pairDevice(input || {}));

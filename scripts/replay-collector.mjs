@@ -309,13 +309,30 @@ async function main() {
   if (command === 'process-latest') {
     const result = await withCollectorLock(async () => {
       await scanUnlocked(); state = await manifest(); cfg = await config();
-      const candidates = Object.values(state.files).filter(item => item?.sha256 && item?.path).sort((a, b) => Number(b.mtimeMs || 0) - Number(a.mtimeMs || 0));
+      const all = Object.values(state.files).filter(item => item?.sha256 && item?.path).sort((a, b) => Number(b.mtimeMs || 0) - Number(a.mtimeMs || 0));
+      if (!all.length) throw new Error('No stable replay is available yet.');
+      // Replays the watcher already identified as a newer VALORANT patch than
+      // the bundled parser supports are skipped, so the newest readable one is used.
+      const candidates = all.filter(item => !item.unsupportedBuild);
+      if (!candidates.length) {
+        const patches = [...new Set(all.map(item => String(item.unsupportedBuild).replace(/^\+\+Ares-Core\+release-/, '')))].join(', ');
+        return { state: 'unsupported-patch', unsupported: all.length, message: `All ${all.length} replay${all.length === 1 ? ' is' : 's are'} from VALORANT patch ${patches}. The bundled parser (vrfkit ${VRFKIT_PIN.version}) reads patches 11.06 to 13.06 only. Use the post-match screenshot capture for these matches.` };
+      }
       const latest = candidates[0];
-      if (!latest) throw new Error('No stable replay is available yet.');
-      const local = await persistLocalEvidence(latest.path, latest.sha256, latest.size, cfg);
+      let local;
+      try { local = await persistLocalEvidence(latest.path, latest.sha256, latest.size, cfg); }
+      catch (error) {
+        const branch = unsupportedReplayBranch(error);
+        latest.status = 'parser-attention-required'; latest.lastError = describeParserFailure(error);
+        if (branch) latest.unsupportedBuild = branch;
+        await atomicJson(MANIFEST_PATH, state);
+        if (branch) return { state: 'unsupported-patch', unsupported: 1, message: latest.lastError };
+        throw new Error(latest.lastError);
+      }
+      const skipped = all.length - candidates.length;
       latest.evidencePath = local.target; latest.evidenceSha256 = local.envelope.evidenceSha256; latest.processedAt = new Date().toISOString(); latest.status = 'local-review-required'; delete latest.lastError;
       await atomicJson(MANIFEST_PATH, state);
-      return { file: path.basename(latest.path), sha256: latest.sha256, size: latest.size, status: latest.status, evidencePath: local.target, evidenceSha256: latest.evidenceSha256, reused: local.reused, summary: local.envelope.normalized?.scoreboard || null };
+      return { state: 'processed', skippedUnsupported: skipped, file: path.basename(latest.path), sha256: latest.sha256, size: latest.size, status: latest.status, evidencePath: local.target, evidenceSha256: latest.evidenceSha256, reused: local.reused, summary: local.envelope.normalized?.scoreboard || null };
     });
     console.log(JSON.stringify(result, null, 2)); return;
   }
