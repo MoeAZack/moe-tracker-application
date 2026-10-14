@@ -234,12 +234,15 @@ const collectorJsonCommand = args => collectJson(collectorCommand, args);
 async function configureCollector() {
   const folders = [runtime.paths.valorantReplays, runtime.paths.replays, ...(runtime.config.extraReplayFolders || [])];
   const collectorRoot = runtime.paths.collector;
+  // Prefer the parser runtime bundled with the installer (hash-pinned vrfkit
+  // v0.2.5 + embedded Python with pyarrow); fall back to a manual install.
+  const bundled = path.join(applicationRoot(), 'replay-runtime');
+  const firstExisting = (...candidates) => candidates.find(file => fs.existsSync(file)) || candidates[0];
   const knownRuntime = {
-    binaryPath: path.join(collectorRoot, 'runtime', 'vrfkit-v0.2.5', 'vrfkit.exe'),
-    pythonPath: path.join(process.env.LOCALAPPDATA || '', 'Programs', 'Python', 'Python312', 'python.exe'),
-    normalizerPath: path.join(collectorRoot, 'app', 'normalize-vrfkit-export.py'),
+    binaryPath: firstExisting(path.join(bundled, 'vrfkit', 'vrfkit.exe'), path.join(collectorRoot, 'runtime', 'vrfkit-v0.2.5', 'vrfkit.exe')),
+    pythonPath: firstExisting(path.join(bundled, 'python', 'python.exe'), path.join(process.env.LOCALAPPDATA || '', 'Programs', 'Python', 'Python312', 'python.exe')),
+    normalizerPath: firstExisting(path.join(collectorRoot, 'app', 'normalize-vrfkit-export.py'), path.join(applicationRoot(), 'scripts', 'normalize-vrfkit-export.py')),
   };
-  if (!fs.existsSync(knownRuntime.normalizerPath)) knownRuntime.normalizerPath = path.join(applicationRoot(), 'scripts', 'normalize-vrfkit-export.py');
   const runtimeArgs = Object.values(knownRuntime).every(file => path.isAbsolute(file) && fs.existsSync(file))
     ? ['--vrfkit-binary', knownRuntime.binaryPath, '--python', knownRuntime.pythonPath, '--normalizer', knownRuntime.normalizerPath]
     : [];

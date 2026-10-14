@@ -26,7 +26,22 @@ RELEVANT = {
     "BombPlantedRPC.BombPlanter", "BombDefusedRPC.DefusingCharacter", "Wins",
     "OrbPickedUpRPC.Orb Gatherer", "OrbPickedUpRPC.Collectable Orb",
 }
-MAP_NAMES = {"/Game/Maps/Triad/Triad": "Haven"}
+# VALORANT internal map codenames -> display names. Unknown assets stay null
+# (reviewed by the coach) rather than guessed.
+MAP_NAMES = {
+    "/Game/Maps/Ascent/Ascent": "Ascent",
+    "/Game/Maps/Duality/Duality": "Bind",
+    "/Game/Maps/Triad/Triad": "Haven",
+    "/Game/Maps/Bonsai/Bonsai": "Split",
+    "/Game/Maps/Port/Port": "Icebox",
+    "/Game/Maps/Foxtrot/Foxtrot": "Breeze",
+    "/Game/Maps/Canyon/Canyon": "Fracture",
+    "/Game/Maps/Pitt/Pitt": "Pearl",
+    "/Game/Maps/Jam/Jam": "Lotus",
+    "/Game/Maps/Juliett/Juliett": "Sunset",
+    "/Game/Maps/Infinity/Infinity": "Abyss",
+    "/Game/Maps/Rook/Rook": "Corrode",
+}
 
 
 def sha256(path: Path) -> str:
