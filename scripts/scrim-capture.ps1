@@ -22,10 +22,6 @@ param(
 
 $ErrorActionPreference = 'Stop'
 
-# Safety cap on timeline images (regulation + long overtime); the typed round
-# count is only a hint now that tiles are detected on screen.
-$RoundCap = 48
-
 # Moe Tracker launches this bundled helper from the post-match capture card. It
 # uses ordinary Windows screen capture and mouse input on the completed match
 # summary; it does not inspect VALORANT memory or automate gameplay.
@@ -33,46 +29,17 @@ $RoundCap = 48
 $referenceWidth = 1920
 $referenceHeight = 1080
 
-$tabTargets = if ($Template -eq 'with-performance') {
-  [ordered]@{
-    scoreboard = @{ x = 112; y = 300 }
-    performance = @{ x = 112; y = 350 }
-    headToHead = @{ x = 112; y = 395 }
-    timeline = @{ x = 112; y = 445 }
-  }
-} else {
-  [ordered]@{
-    scoreboard = @{ x = 112; y = 300 }
-    headToHead = @{ x = 112; y = 350 }
-    timeline = @{ x = 112; y = 395 }
-  }
-}
-
-# Measured centers of the round tiles at 1920 x 1080. The strip inserts a
-# 36-pixel non-clickable separator after round 12 and again after round 24.
-$roundBaseX = 386
-$roundStepX = 54
-$roundSeparatorWidth = 36
 $roundY = 337
-
-function Get-RoundTargetX([int]$round, [int]$firstVisibleRound) {
-  $x = $roundBaseX + (($round - $firstVisibleRound) * $roundStepX)
-  if ($firstVisibleRound -le 12 -and $round -gt 12) { $x += $roundSeparatorWidth }
-  if ($firstVisibleRound -le 24 -and $round -gt 24) { $x += $roundSeparatorWidth }
-  return $x
-}
 
 if ($DryRun) {
   $plan = [ordered]@{
     referenceResolution = "$referenceWidth x $referenceHeight (coordinates scale to the detected 16:9 render area)"
-    template = $Template
+    requestedTemplate = $Template
+    templateDetection = 'automatic from visible Summary tabs'
     roundCount = $RoundCount
     outputRoot = $OutputRoot
-    captures = @('scoreboard') + $(if ($Template -eq 'with-performance') { @('performance') }) + @('head-to-head') + (1..$RoundCount | ForEach-Object { "round-$('{0:d2}' -f $_)" })
-    roundTargets = 1..$RoundCount | ForEach-Object {
-      $firstVisibleRound = if ($_ -le 24) { 1 } else { $RoundCount - 23 }
-      @{ round = $_; firstVisibleRound = $firstVisibleRound; x = (Get-RoundTargetX $_ $firstVisibleRound); y = $roundY }
-    }
+    captures = @('scoreboard', 'performance-if-present', 'head-to-head') + (1..$RoundCount | ForEach-Object { "round-$('{0:d2}' -f $_)" })
+    timelinePasses = @(@{ edge = 'left'; captured = [Math]::Min($RoundCount, 24) }) + $(if ($RoundCount -gt 24) { @(@{ edge = 'right'; captured = $RoundCount - 24 }) })
   }
   $plan | ConvertTo-Json -Depth 5
   exit 0
@@ -126,6 +93,40 @@ using System.Runtime.InteropServices;
 // white round-number labels (reference band y=289..307, x=340..1740 at
 // 1920x1080). Works whatever way the strip is scrolled, including overtime.
 public static class MoeTimelineTiles {
+  public static int[] DetectSummaryTabCenters(Bitmap bitmap) {
+    double sx = bitmap.Width / 1920.0, sy = bitmap.Height / 1080.0;
+    int x0 = (int)Math.Round(35 * sx), x1 = (int)Math.Round(285 * sx);
+    int y0 = (int)Math.Round(270 * sy), y1 = (int)Math.Round(475 * sy);
+    Rectangle area = new Rectangle(x0, y0, x1 - x0, y1 - y0);
+    BitmapData data = bitmap.LockBits(area, ImageLockMode.ReadOnly, PixelFormat.Format32bppArgb);
+    byte[] pixels = new byte[data.Stride * area.Height];
+    try { Marshal.Copy(data.Scan0, pixels, 0, pixels.Length); }
+    finally { bitmap.UnlockBits(data); }
+    List<int> centers = new List<int>();
+    int start = -1, previous = -1;
+    int gap = Math.Max(3, (int)Math.Round(5 * sy));
+    for (int y = 0; y < area.Height; y++) {
+      int bright = 0;
+      for (int x = 0; x < area.Width; x++) {
+        int i = y * data.Stride + x * 4;
+        int b = pixels[i], g = pixels[i + 1], r = pixels[i + 2];
+        if (r > 145 && g > 145 && b > 145 && Math.Max(r, Math.Max(g, b)) - Math.Min(r, Math.Min(g, b)) < 75) bright++;
+      }
+      if (bright < Math.Max(5, (int)Math.Round(8 * sx))) continue;
+      if (start < 0) { start = previous = y; continue; }
+      if (y - previous > gap) { centers.Add((int)Math.Round(((start + previous) / 2.0 + y0) / sy)); start = y; }
+      previous = y;
+    }
+    if (start >= 0) centers.Add((int)Math.Round(((start + previous) / 2.0 + y0) / sy));
+    // The selected Performance label can turn teal and fall outside the
+    // neutral-text threshold. Timeline is the last row and remains detectable,
+    // so its y-position is the reliable discriminator between 3- and 4-tab
+    // summaries; return calibrated click centres instead of partial OCR rows.
+    if (centers.Count < 2 || !centers.Exists(y => y >= 285 && y <= 315)) return new int[0];
+    bool hasFourthRow = centers.Exists(y => y > 420);
+    return hasFourthRow ? new int[] { 300, 349, 397, 445 } : new int[] { 300, 349, 397 };
+  }
+
   public static int[] DetectLabelCenters(Bitmap bitmap) {
     double sx = bitmap.Width / 1920.0, sy = bitmap.Height / 1080.0;
     int x0 = (int)Math.Round(340 * sx), x1 = (int)Math.Round(1740 * sx);
@@ -166,7 +167,13 @@ function Get-ValorantFrame([hashtable]$window) {
 
 function Get-VisibleTimelineTiles([hashtable]$window) {
   $frame = Get-ValorantFrame $window
-  try { return ,[MoeTimelineTiles]::DetectLabelCenters($frame) }
+  try { return [MoeTimelineTiles]::DetectLabelCenters($frame) }
+  finally { $frame.Dispose() }
+}
+
+function Get-SummaryTabCenters([hashtable]$window) {
+  $frame = Get-ValorantFrame $window
+  try { return [MoeTimelineTiles]::DetectSummaryTabCenters($frame) }
   finally { $frame.Dispose() }
 }
 
@@ -305,31 +312,6 @@ function Save-ValorantCapture([hashtable]$window, [string]$path) {
   }
 }
 
-function Get-RoundHeaderFingerprint([hashtable]$window, [string]$path) {
-  $bitmap = [System.Drawing.Bitmap]::FromFile($path)
-  try {
-    $left = [Math]::Round(1200 * $window.ViewWidth / $referenceWidth)
-    $top = [Math]::Round(405 * $window.ViewHeight / $referenceHeight)
-    $width = [Math]::Round(540 * $window.ViewWidth / $referenceWidth)
-    $height = [Math]::Round(60 * $window.ViewHeight / $referenceHeight)
-    $crop = $bitmap.Clone((New-Object System.Drawing.Rectangle($left, $top, $width, $height)), $bitmap.PixelFormat)
-    try {
-      $stream = New-Object System.IO.MemoryStream
-      try {
-        $crop.Save($stream, [System.Drawing.Imaging.ImageFormat]::Png)
-        $sha = [System.Security.Cryptography.SHA256]::Create()
-        # Windows PowerShell 5.1 runs on .NET Framework, which has no
-        # Convert.ToHexString; BitConverter works on every runtime.
-        try { return ([BitConverter]::ToString($sha.ComputeHash($stream.ToArray()))).Replace('-', '') }
-        finally { $sha.Dispose() }
-      }
-      finally { $stream.Dispose() }
-    }
-    finally { $crop.Dispose() }
-  }
-  finally { $bitmap.Dispose() }
-}
-
 $diagnosticLog = Join-Path ([Environment]::GetFolderPath('LocalApplicationData')) 'MoeTracker\scrim-capture-last-run.log'
 [void][System.IO.Directory]::CreateDirectory((Split-Path $diagnosticLog -Parent))
 Start-Transcript -LiteralPath $diagnosticLog -Force | Out-Null
@@ -355,87 +337,90 @@ try {
     Write-Host "Documents is not writable; using fallback capture folder: $captureFolder" -ForegroundColor Yellow
   }
 
+  $tabCenters = @(Get-SummaryTabCenters $window)
+  if ($tabCenters.Count -notin @(3, 4)) {
+    throw "Could not identify the post-match Summary tabs. Expected 3 or 4 rows; detected $($tabCenters.Count)."
+  }
+  $hasPerformance = $tabCenters.Count -eq 4
+  $effectiveTemplate = if ($hasPerformance) { 'with-performance' } else { 'without-performance' }
+
   $manifest = [ordered]@{
     schemaVersion = 1
     captureId = $captureId
     createdAt = (Get-Date).ToUniversalTime().ToString('o')
     resolution = @{ width = $window.ViewWidth; height = $window.ViewHeight }
     requestedRounds = $RoundCount
-    template = $Template
+    template = $effectiveTemplate
+    requestedTemplate = $Template
+    detectedTabs = $tabCenters
     outputFolder = $captureFolder
     status = 'capturing'
     captures = @()
     timelinePasses = @()
   }
 
-  Invoke-ValorantClick $window $tabTargets.scoreboard.x $tabTargets.scoreboard.y
+  Invoke-ValorantClick $window 112 $tabCenters[0]
   Start-Sleep -Milliseconds $PageDelayMs
   $scoreboardPath = Join-Path $captureFolder 'scoreboard.png'
   Save-ValorantCapture $window $scoreboardPath
   $manifest.captures += @{ kind = 'scoreboard'; file = 'scoreboard.png' }
 
-  if ($Template -eq 'with-performance') {
-    Invoke-ValorantClick $window $tabTargets.performance.x $tabTargets.performance.y
+  if ($hasPerformance) {
+    Invoke-ValorantClick $window 112 $tabCenters[1]
     Start-Sleep -Milliseconds $PageDelayMs
     $performancePath = Join-Path $captureFolder 'performance.png'
     Save-ValorantCapture $window $performancePath
     $manifest.captures += @{ kind = 'performance'; file = 'performance.png' }
   }
 
-  Invoke-ValorantClick $window $tabTargets.headToHead.x $tabTargets.headToHead.y
+  Invoke-ValorantClick $window 112 $tabCenters[$tabCenters.Count - 2]
   Start-Sleep -Milliseconds $PageDelayMs
   $headToHeadPath = Join-Path $captureFolder 'head-to-head.png'
   Save-ValorantCapture $window $headToHeadPath
   $manifest.captures += @{ kind = 'head-to-head'; file = 'head-to-head.png' }
 
-  Invoke-ValorantClick $window $tabTargets.timeline.x $tabTargets.timeline.y
+  Invoke-ValorantClick $window 112 $tabCenters[$tabCenters.Count - 1]
   Start-Sleep -Milliseconds $PageDelayMs
 
-  # The strip may open centred on the player's best round, and matches over
-  # 24 rounds (overtime, play-all-rounds customs) never fit in one view.
-  # Instead of clicking fixed slot positions, detect the visible tiles by
-  # their round-number labels, click each one, then scroll right and repeat.
-  # Images are numbered in capture order; the importer files each one under
-  # the "ROUND N" header printed on it, so scroll offsets can't mislabel data.
-  $seenFingerprints = New-Object 'System.Collections.Generic.HashSet[string]'
+  # Capture exactly the requested match length. The left pass supplies rounds
+  # 1..24. For overtime, two right-scroll sweeps reach the hard right edge and
+  # only the final N-24 tiles are captured. Capturing two entire viewports was
+  # the source of 48 files, 16 duplicates, and a missing round 32.
   $captureIndex = 0
-  $passes = @(120, -120)
-  $previousTiles = $null
-  foreach ($wheel in $passes) {
-    Invoke-TimelineScroll $window $wheel
-    $tiles = Get-VisibleTimelineTiles $window
-    $manifest.timelinePasses += @{ wheel = $wheel; tiles = $tiles.Count }
-    if ($previousTiles -and (($tiles -join ',') -eq ($previousTiles -join ','))) { continue }
-    $previousTiles = $tiles
+  function Capture-RoundTiles([object[]]$tiles, [string]$passName, [ref]$index) {
     foreach ($tileX in $tiles) {
-      if ($captureIndex -ge $RoundCap) { break }
       Invoke-ValorantClick $window $tileX $roundY
       Start-Sleep -Milliseconds $RoundDelayMs
-      $candidate = Join-Path $captureFolder "pending-$($captureIndex + 1).png"
-      Save-ValorantCapture $window $candidate
-      $fingerprint = Get-RoundHeaderFingerprint $window $candidate
-      if ($seenFingerprints.Contains($fingerprint)) {
-        # A late UI response can leave the previous round on screen: retry once.
-        Invoke-ValorantClick $window $tileX $roundY
-        Start-Sleep -Milliseconds ([Math]::Max($RoundDelayMs, 1000))
-        Save-ValorantCapture $window $candidate
-        $fingerprint = Get-RoundHeaderFingerprint $window $candidate
-      }
-      if ($seenFingerprints.Contains($fingerprint)) {
-        Remove-Item -LiteralPath $candidate -Force
-        continue
-      }
-      [void]$seenFingerprints.Add($fingerprint)
-      $captureIndex++
-      $fileName = "round-$('{0:d2}' -f $captureIndex).png"
-      Move-Item -LiteralPath $candidate -Destination (Join-Path $captureFolder $fileName) -Force
-      $manifest.captures += @{ kind = 'round'; round = $captureIndex; file = $fileName }
+      $index.Value++
+      $fileName = "round-$('{0:d2}' -f $index.Value).png"
+      Save-ValorantCapture $window (Join-Path $captureFolder $fileName)
+      $manifest.captures += @{ kind = 'round'; round = $index.Value; file = $fileName; pass = $passName }
     }
   }
+
+  Invoke-TimelineScroll $window 120
+  $leftTiles = @(Get-VisibleTimelineTiles $window)
+  $firstCount = [Math]::Min($RoundCount, 24)
+  if ($leftTiles.Count -lt $firstCount) {
+    throw "Only $($leftTiles.Count) timeline tiles were visible at the left edge; expected at least $firstCount."
+  }
+  $manifest.timelinePasses += @{ edge = 'left'; tiles = $leftTiles.Count; captured = $firstCount }
+  Capture-RoundTiles @($leftTiles | Select-Object -First $firstCount) 'left' ([ref]$captureIndex)
+
+  $tailCount = $RoundCount - $firstCount
+  if ($tailCount -gt 0) {
+    Invoke-TimelineScroll $window -120
+    Invoke-TimelineScroll $window -120
+    $rightTiles = @(Get-VisibleTimelineTiles $window)
+    if ($rightTiles.Count -lt $tailCount) {
+      throw "Only $($rightTiles.Count) timeline tiles were visible at the right edge; expected at least $tailCount."
+    }
+    $manifest.timelinePasses += @{ edge = 'right'; tiles = $rightTiles.Count; captured = $tailCount }
+    Capture-RoundTiles @($rightTiles | Select-Object -Last $tailCount) 'right' ([ref]$captureIndex)
+  }
+
   $detectedRoundCount = $captureIndex
-  if ($detectedRoundCount -eq 0) { throw 'No timeline round tiles were detected. Open the TIMELINE tab of the post-match Summary and try again.' }
-  # Rounds are numbered by capture order; the importer re-keys them by header.
-  $manifest.requestedRounds = $detectedRoundCount
+  if ($detectedRoundCount -ne $RoundCount) { throw "Captured $detectedRoundCount rounds; expected $RoundCount." }
   $manifest.roundNumbering = 'capture-order'
   $manifest.detectedRounds = $detectedRoundCount
 

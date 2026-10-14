@@ -571,16 +571,14 @@ ipcMain.handle('desktop:complete-scoreboard', async (_event, id) => {
 });
 ipcMain.handle('desktop:start-scrim-capture', async (_event, input = {}) => {
   const roundCount = Number(input.roundCount);
-  const template = String(input.template || 'without-performance');
   if (!Number.isInteger(roundCount) || roundCount < 1 || roundCount > 32) throw new Error('Round count must be between 1 and 32.');
-  if (!['without-performance', 'with-performance'].includes(template)) throw new Error('Unknown capture layout.');
   const launcher = path.join(applicationRoot(), 'scripts', 'start-scrim-capture.cmd');
   if (!path.isAbsolute(launcher) || !fs.existsSync(launcher)) throw new Error('The built-in capture helper is missing. Reinstall Moe Tracker.');
-  const command = "$process = Start-Process -FilePath $env:MOE_CAPTURE_LAUNCHER -Verb RunAs -ArgumentList @($env:MOE_CAPTURE_ROUNDS, 'elevated', $env:MOE_CAPTURE_TEMPLATE) -PassThru; if (-not $process) { exit 1 }";
+  const command = "$process = Start-Process -FilePath $env:MOE_CAPTURE_LAUNCHER -Verb RunAs -ArgumentList @($env:MOE_CAPTURE_ROUNDS, 'elevated') -PassThru; if (-not $process) { exit 1 }";
   await new Promise((resolve, reject) => {
     const child = spawn('powershell.exe', ['-NoProfile', '-NonInteractive', '-ExecutionPolicy', 'Bypass', '-Command', command], {
       windowsHide: true,
-      env: { ...process.env, MOE_CAPTURE_LAUNCHER: launcher, MOE_CAPTURE_ROUNDS: String(roundCount), MOE_CAPTURE_TEMPLATE: template },
+      env: { ...process.env, MOE_CAPTURE_LAUNCHER: launcher, MOE_CAPTURE_ROUNDS: String(roundCount) },
       stdio: ['ignore', 'ignore', 'pipe'],
     });
     let stderr = '';
