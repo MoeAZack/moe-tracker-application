@@ -508,14 +508,16 @@ export default function MapBestStats({ data, theme, onUpsert, onRemove }: Compon
           </div>
 
           <div className="overflow-x-auto">
-            <table className="w-full min-w-[1480px] text-left border-collapse font-mono text-xs">
+            <table className="w-full min-w-[1580px] text-left border-collapse font-mono text-xs">
               <thead>
-                <tr className="border-b border-white/10 text-[9px] uppercase tracking-widest text-gray-500"><th className="px-3 py-2" colSpan={4}>Map results</th><th className="border-l border-white/10 px-3 py-2 text-center" colSpan={2}>Side win rate</th><th className="border-l border-white/10 px-3 py-2 text-center" colSpan={4}>Opening conversions</th><th className="border-l border-white/10 px-3 py-2 text-center" colSpan={2}>Latest opening three</th><th className="border-l border-white/10 px-3 py-2 text-center">Combat</th></tr>
+                <tr className="border-b border-white/10 text-[9px] uppercase tracking-widest text-gray-500"><th className="px-3 py-2" colSpan={4}>Map results</th><th className="border-l border-white/10 px-3 py-2 text-center" colSpan={2}>Side win rate</th><th className="border-l border-white/10 px-3 py-2 text-center" colSpan={6}>Long-term opening conversion · first three rounds of each side</th><th className="border-l border-white/10 px-3 py-2 text-center">Combat</th></tr>
                 <tr className="border-b border-white/10 text-gray-500 uppercase font-bold">
                   <th className="py-3 px-3">Map</th><th className="py-3 px-3 text-center">Played</th><th className="py-3 px-3 text-center">W / L / D</th><th className="py-3 px-3 text-center">Win rate</th>
                   <th className="border-l border-white/10 py-3 px-3 text-center">ATT</th><th className="py-3 px-3 text-center">DEF</th>
-                  <th className="border-l border-white/10 py-3 px-3 text-center">Pistol ATT</th><th className="py-3 px-3 text-center">Pistol DEF</th><th className="py-3 px-3 text-center">After pistol</th><th className="py-3 px-3 text-center">Earned bonus</th>
-                  <th className="border-l border-white/10 py-3 px-3 text-center">First half</th><th className="py-3 px-3 text-center">Second half</th><th className="border-l border-white/10 py-3 px-3 text-center">Team K/D</th>
+                  <th className="border-l border-white/10 py-3 px-3 text-center">Pistol ATT<br/><span className="font-normal normal-case">R1 / R13</span></th><th className="py-3 px-3 text-center">Pistol DEF<br/><span className="font-normal normal-case">R1 / R13</span></th>
+                  <th className="py-3 px-3 text-center">Anti-eco ATT<br/><span className="font-normal normal-case">R2 / R14 after pistol W</span></th><th className="py-3 px-3 text-center">Anti-eco DEF<br/><span className="font-normal normal-case">R2 / R14 after pistol W</span></th>
+                  <th className="py-3 px-3 text-center">Bonus ATT<br/><span className="font-normal normal-case">R3 / R15 after 2–0</span></th><th className="py-3 px-3 text-center">Bonus DEF<br/><span className="font-normal normal-case">R3 / R15 after 2–0</span></th>
+                  <th className="border-l border-white/10 py-3 px-3 text-center">Team K/D</th>
                 </tr>
               </thead>
               <tbody className="divide-y divide-white/5">
@@ -539,8 +541,9 @@ export default function MapBestStats({ data, theme, onUpsert, onRemove }: Compon
                         <span className={Number(winrate) >= 50 ? theme.text : 'text-gray-400'}>{winrate}%</span>
                       </td>
                       <td className="border-l border-white/5 py-3.5 px-3 text-center text-amber-500 font-bold">{attWr}%</td><td className="py-3.5 px-3 text-center text-cyan-400 font-bold">{defWr}%</td>
-                      <td className={`border-l border-white/5 py-3.5 px-3 text-center ${roundIntel?.pistolBySide.attack.total ? 'text-amber-300' : 'text-slate-600'}`}>{conversionText(roundIntel?.pistolBySide.attack)}</td><td className={`py-3.5 px-3 text-center ${roundIntel?.pistolBySide.defense.total ? 'text-cyan-300' : 'text-slate-600'}`}>{conversionText(roundIntel?.pistolBySide.defense)}</td><td className={`py-3.5 px-3 text-center ${roundIntel?.postPistol.total ? 'text-emerald-300' : 'text-slate-600'}`}>{conversionText(roundIntel?.postPistol)}</td><td className={`py-3.5 px-3 text-center ${roundIntel?.earnedBonus.total ? 'text-violet-300' : 'text-slate-600'}`}>{conversionText(roundIntel?.earnedBonus)}</td>
-                      <td className={`border-l border-white/5 py-3.5 px-3 text-center font-bold ${roundIntel?.latestOpening?.firstHalf ? 'text-amber-300' : 'text-slate-600'}`}>{roundIntel?.latestOpening?.firstHalf || '—'}</td><td className={`py-3.5 px-3 text-center font-bold ${roundIntel?.latestOpening?.secondHalf ? 'text-cyan-300' : 'text-slate-600'}`}>{roundIntel?.latestOpening?.secondHalf || '—'}</td>
+                      <td className={`border-l border-white/5 py-3.5 px-3 text-center ${roundIntel?.pistolBySide.attack.total ? 'text-amber-300' : 'text-slate-600'}`}>{conversionText(roundIntel?.pistolBySide.attack)}</td><td className={`py-3.5 px-3 text-center ${roundIntel?.pistolBySide.defense.total ? 'text-cyan-300' : 'text-slate-600'}`}>{conversionText(roundIntel?.pistolBySide.defense)}</td>
+                      <td className={`py-3.5 px-3 text-center ${roundIntel?.postPistolBySide.attack.total ? 'text-amber-300' : 'text-slate-600'}`}>{conversionText(roundIntel?.postPistolBySide.attack)}</td><td className={`py-3.5 px-3 text-center ${roundIntel?.postPistolBySide.defense.total ? 'text-cyan-300' : 'text-slate-600'}`}>{conversionText(roundIntel?.postPistolBySide.defense)}</td>
+                      <td className={`py-3.5 px-3 text-center ${roundIntel?.earnedBonusBySide.attack.total ? 'text-amber-300' : 'text-slate-600'}`}>{conversionText(roundIntel?.earnedBonusBySide.attack)}</td><td className={`py-3.5 px-3 text-center ${roundIntel?.earnedBonusBySide.defense.total ? 'text-cyan-300' : 'text-slate-600'}`}>{conversionText(roundIntel?.earnedBonusBySide.defense)}</td>
                       <td className={`border-l border-white/5 py-3.5 px-3 text-center font-bold ${Number(kd) >= 1 ? 'text-emerald-400' : 'text-rose-400'}`}>{kd}</td>
                     </tr>
                   );

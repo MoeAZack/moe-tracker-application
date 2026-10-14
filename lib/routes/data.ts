@@ -6,7 +6,7 @@ import * as schemas from '../../schemas';
 import { toPublicTrackerData, toWebsiteTrackerData } from '../publicData';
 import { preserveExistingRosterContext, validateAndNormalizeLineup } from '../matchContext';
 import { applyImmutableEntryMetadata, applyScreenshotReviewConfirmation, reconcileStatTotals } from '../entryEngine';
-import { buildPlayerScreenshotMetrics, materializeFirstDeathsFromRoundEvidence, screenshotPlayerIdentity } from '../scrimRoundAnalytics';
+import { buildPlayerScreenshotMetrics, materializeFirstDeathsFromRoundEvidence, materializeScreenshotMetricsFromRoundEvidence, screenshotPlayerIdentity } from '../scrimRoundAnalytics';
 import { buildMapRoundIntelligence } from '../mapRoundAnalytics';
 
 // Core data + match logging: full payload, reset, settings, generic upsert/remove,
@@ -16,6 +16,7 @@ export function registerDataRoutes(app: Express, options: { websiteSummaryOnly?:
   app.get('/api/data', async (req, res) => {
     try {
       const db = await readDB();
+      materializeScreenshotMetricsFromRoundEvidence(db);
       materializeFirstDeathsFromRoundEvidence(db);
       const role = (req as any).user?.role === 'coach' ? 'coach' : 'player';
       res.json(options.websiteSummaryOnly ? toWebsiteTrackerData(db, role) : toPublicTrackerData(db, role));
@@ -27,6 +28,7 @@ export function registerDataRoutes(app: Express, options: { websiteSummaryOnly?:
   app.get('/api/website-summary', async (req, res) => {
     try {
       const db = await readDB();
+      materializeScreenshotMetricsFromRoundEvidence(db);
       materializeFirstDeathsFromRoundEvidence(db);
       res.json(toWebsiteTrackerData(db, (req as any).user?.role === 'coach' ? 'coach' : 'player'));
     } catch (err: any) {

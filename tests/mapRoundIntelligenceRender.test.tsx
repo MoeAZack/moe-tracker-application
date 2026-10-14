@@ -35,7 +35,12 @@ describe('map round intelligence panel', () => {
     const html = renderToStaticMarkup(<MapBestStats data={data} theme={{ text: 'text-red' }} onUpsert={async () => null} onRemove={async () => null} />);
     expect(html).toContain('Pistol ATT');
     expect(html).toContain('Pistol DEF');
-    expect(html).toContain('W–W–L');
+    expect(html).toContain('Anti-eco ATT');
+    expect(html).toContain('Anti-eco DEF');
+    expect(html).toContain('Bonus ATT');
+    expect(html).toContain('Bonus DEF');
+    expect(html).toContain('first three rounds of each side');
+    expect(html).not.toContain('Latest opening three');
     expect(html.indexOf('Map Pool Breakdown')).toBeLessThan(html.indexOf('Economy punishments'));
   });
 });

@@ -83,7 +83,9 @@ const empty = (identity: string, displayName: string): Mutable => ({
 export function buildPlayerScreenshotMetrics(rounds: readonly Round[]) {
   const players = new Map<string, Mutable>();
   const coveredRoundKeys = new Set<string>();
-  for (const round of rounds) {
+  const cumulativeAssists = new Map<string, { roundNo: number; value: number }>();
+  const orderedRounds = [...rounds].sort((a, b) => a.matchId.localeCompare(b.matchId) || a.roundNo - b.roundNo);
+  for (const round of orderedRounds) {
     const evidence = round.screenshotEvidence;
     const result = knownResult(round.result);
     if (!evidence || evidence.reviewStatus !== 'confirmed' || !result) continue;
@@ -155,17 +157,42 @@ export function buildPlayerScreenshotMetrics(rounds: readonly Round[]) {
           row.kills += count;
         }
       }
-      const assistsKnown = typeof observation.assists === 'number';
+      const assistKey = `${round.matchId}\u0000${identity}`;
+      const previousAssists = cumulativeAssists.get(assistKey);
+      let roundAssists: number | null = null;
+      if (typeof observation.assists === 'number' && Number.isFinite(observation.assists) && observation.assists >= 0) {
+        if (round.roundNo === 1) roundAssists = observation.assists;
+        else if (previousAssists?.roundNo === round.roundNo - 1 && observation.assists >= previousAssists.value) roundAssists = observation.assists - previousAssists.value;
+        cumulativeAssists.set(assistKey, { roundNo: round.roundNo, value: observation.assists });
+      }
+      const assistsKnown = roundAssists !== null;
       const survivalKnown = typeof observation.survived === 'boolean';
       const eventCoverage = !!playerId && eventsComplete;
       if (assistsKnown && survivalKnown && eventCoverage) {
         metric.kast!.covered += 1;
         const traded = events.some(event => event.victimPlayerId === observation.playerId && typeof event.tradedWithinSeconds === 'number' && event.tradedWithinSeconds <= 5);
-        if ((roundKills || 0) > 0 || observation.assists! > 0 || observation.survived || traded) metric.kast!.successful += 1;
+        if ((roundKills || 0) > 0 || roundAssists! > 0 || observation.survived || traded) metric.kast!.successful += 1;
       }
     }
   }
   return [...players.values()].map(metric => ({ ...metric, weapons: metric.weapons.sort((a, b) => b.rounds - a.rounds || a.weapon.localeCompare(b.weapon)) }));
+}
+
+/** Refresh saved match summaries from their retained confirmed round evidence. */
+export function materializeScreenshotMetricsFromRoundEvidence(data: { rounds?: Round[]; playerStats?: any[] }, matchId?: string) {
+  const rounds = data.rounds || []; const stats = data.playerStats || [];
+  const matchIds = [...new Set(rounds.filter(round => round.screenshotEvidence && (!matchId || round.matchId === matchId)).map(round => round.matchId))];
+  let changed = 0;
+  for (const id of matchIds) {
+    const byIdentity = new Map(buildPlayerScreenshotMetrics(rounds.filter(round => round.matchId === id)).map(metric => [metric.identity, metric]));
+    for (const stat of stats.filter(stat => stat.matchId === id)) {
+      const metric = byIdentity.get(screenshotPlayerIdentity(stat.playerId, stat.displayNameSnapshot || stat.player || ''));
+      if (!metric) continue;
+      const { identity: _identity, displayName: _displayName, ...screenshotMetrics } = metric;
+      stat.screenshotMetrics = screenshotMetrics; changed += 1;
+    }
+  }
+  return changed;
 }
 
 /**
