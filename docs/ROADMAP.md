@@ -39,6 +39,9 @@
 
 ## Upcoming — evidence quality and coach workflow
 
+The detailed build order, contracts, acceptance gates, and explicit deferrals for
+the coaching SaaS are maintained in [SAAS-COACHING-ROADMAP.md](./SAAS-COACHING-ROADMAP.md).
+
 - [ ] Broaden the varied-match screenshot acceptance set across maps, UI languages, display scaling, and GPU color profiles
 - [ ] Add confidence-guided correction for uncertain trade, clutch, and later-kill event rows without blocking reliable FK/FD
 - [ ] Add coach-side tryout comparison views and a guided promotion flow from temporary identity to permanent roster member
@@ -46,10 +49,20 @@
 - [ ] Complete a second-PC install, synchronization, update, rollback, and fullscreen-capture acceptance run
 - [ ] Complete human screen-reader, keyboard-only, high-contrast, and 200% zoom accessibility acceptance
 - [ ] Obtain a public Windows code-signing certificate and publish the signed installer through the staged update channel
+- [ ] S0 — Stabilize canonical evidence references, metric envelopes, and signal identifiers
+- [ ] S1 — Generate an accepted-evidence practice-block summary after capture
+- [ ] S2 — Turn detected review signals into an evidence-linked coaching inbox
+- [ ] S3 — Carry reviewed findings into assignments and next-block verification
+- [ ] S4 — Add player, tryout, teammate, period, agent, side, and map comparisons
+- [ ] S5 — Add configurable coach-dashboard presets and saved layouts
+- [ ] S6 — Complete the tray-first lightweight capture experience
+- [ ] S7 — Add bounded team notifications and Discord delivery
 
 ## Later
 
 - [ ] Official Riot opt-in/API integration if the product is approved
 - [ ] Optional coach-requested temporary raw upload
 - [ ] Clip extraction from locally available VOD/replay evidence
+- [ ] S8 — Research replay-backed 2D spatial intelligence after parser reliability is proven
+- [ ] S9 — Evaluate licensed public opponent intelligence after the private workflow is reliable
 - [ ] Never: process-memory inspection, injection, or live unfair assistance
