@@ -255,6 +255,7 @@ async function scanUnlocked({ allowUpload = false, approvedHash = null } = {}) {
         prior.evidenceSha256 = local.envelope.evidenceSha256;
         prior.processedAt = new Date().toISOString();
         prior.status = 'local-review-required';
+        delete prior.lastError; delete prior.unsupportedBuild;
       } catch (error) {
         prior.status = 'parser-attention-required';
         prior.lastError = describeParserFailure(error);
