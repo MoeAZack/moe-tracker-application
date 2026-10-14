@@ -1,7 +1,7 @@
 {
   "name": "moe-tracker-application",
   "private": true,
-  "version": "0.1.1",
+  "version": "0.1.8",
   "description": "Offline-first desktop replay analysis and team statistics for VALORANT practice",
   "main": "desktop/main.cjs",
   "type": "module",
@@ -19,6 +19,7 @@
     "test:ocr-browser": "npm run build && node scripts/local-ocr-browser-smoke.mjs",
     "test:website-browser": "npm run build && node scripts/website-browser-smoke.mjs",
     "test:a11y": "npm run build && node scripts/accessibility-audit.mjs",
+    "test:scrim-capture": "powershell.exe -NoProfile -ExecutionPolicy Bypass -File scripts/scrim-capture.ps1 -RoundCount 24 -Template without-performance -DryRun && powershell.exe -NoProfile -ExecutionPolicy Bypass -File scripts/scrim-capture.ps1 -RoundCount 28 -Template with-performance -DryRun",
     "cf:worker:dev": "wrangler --config wrangler.worker.jsonc dev",
     "cf:worker:deploy": "npm run build && wrangler --config wrangler.worker.jsonc deploy",
     "cf:pages:prepare": "node scripts/prepare-cloudflare-pages.mjs",
@@ -90,7 +91,10 @@
         "to": "scripts",
         "filter": [
           "replay-collector.mjs",
-          "normalize-vrfkit-export.py"
+          "normalize-vrfkit-export.py",
+          "scrim-capture.ps1",
+          "start-scrim-capture.cmd",
+          "install-scrim-capture.ps1"
         ]
       },
       {

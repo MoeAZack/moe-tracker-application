@@ -1,6 +1,7 @@
 export {};
 
 type DesktopStatus = {
+  appVersion: string;
   mode: 'offline-first' | 'connected';
   deviceName: string;
   retentionDays: number;
@@ -17,6 +18,8 @@ type DesktopStatus = {
 };
 
 declare global {
+  const __APP_VERSION__: string;
+
   interface Window {
     moeDesktop?: {
       bootstrapSession(): Promise<{ key: string; role: string; username: string }>;
@@ -30,13 +33,21 @@ declare global {
       setSyncMode(mode: 'offline-first' | 'connected'): Promise<{ mode: 'offline-first' | 'connected' }>;
       setRetentionDays(days: number): Promise<{ retentionDays: number }>;
       setStartWithWindows(enabled: boolean): Promise<{ startWithWindows: boolean }>;
-      listScoreboards(): Promise<Array<{ id: string; name: string; size: number; modifiedAt: string; mediaType: string }>>;
+      listScoreboards(): Promise<Array<{ id: string; name: string; size: number; modifiedAt: string; mediaType: string; capture?: null | { captureId: string; template: string; requestedRounds: number } }>>;
       readScoreboard(id: string): Promise<{ id: string; name: string; mediaType: string; bytes: Uint8Array }>;
+      readCaptureSession(id: string): Promise<{ id: string; captureId: string; template: string; requestedRounds: number; captures: Array<{ kind: 'scoreboard' | 'performance' | 'head-to-head' | 'round'; round?: number; name: string; mediaType: string; base64: string }> }>;
       completeScoreboard(id: string): Promise<{ completed: boolean }>;
+      startScrimCapture(input: { roundCount: number; template: 'without-performance' | 'with-performance' }): Promise<{ started: boolean; message: string }>;
+      onCaptureReady(callback: (capture: { id: string; captureId: string }) => void): () => void;
+      getIntegrationSecretStatus(): Promise<{ encryptionAvailable: boolean; configured: Record<'GEMINI_API_KEY' | 'GRID_API_KEY' | 'DISCORD_WEBHOOK_URL', boolean>; scope: 'local-device' }>;
+      setIntegrationSecret(input: { key: 'GEMINI_API_KEY' | 'GRID_API_KEY' | 'DISCORD_WEBHOOK_URL'; value: string }): Promise<{ configured: boolean }>;
       exportTeamPackage(input?: { password?: string }): Promise<{ exported: boolean; encrypted: boolean; path: string }>;
       previewTeamPackage(input?: { password?: string }): Promise<{ canceled: boolean; file?: string; preview?: any }>;
       importTeamPackage(): Promise<{ imported: boolean; message: string; result: any }>;
       openFolder(kind: 'replays' | 'screenshots' | 'exports' | 'backups' | 'logs'): Promise<{ opened: boolean; path: string }>;
+      reportDiagnostic(input: { action: string; message: string }): Promise<{ code: string }>;
+      exportSupportBundle(): Promise<{ path: string; fileCount: number; includedCapture: boolean; message: string }>;
+      queueScreenshotSummary(input: any): Promise<{ queued: boolean; id: string }>;
       chooseReplayFolder(): Promise<{ canceled: boolean; path?: string }>;
     };
   }

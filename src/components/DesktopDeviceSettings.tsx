@@ -1,0 +1,42 @@
+import { useEffect, useState, type ComponentType } from 'react';
+import { CheckCircle2, Cloud, Download, FileArchive, FileWarning, FolderOpen, HardDrive, Image, Power, RefreshCw } from 'lucide-react';
+
+export default function DesktopDeviceSettings() {
+  const bridge = typeof window === 'undefined' ? undefined : window.moeDesktop;
+  const [status, setStatus] = useState<any>(null);
+  const [busy, setBusy] = useState('');
+  const [notice, setNotice] = useState('');
+  const [packagePreview, setPackagePreview] = useState<any>(null);
+  const [packagePassword, setPackagePassword] = useState('');
+  const [pairServer, setPairServer] = useState('https://moetracker-site.pages.dev');
+  const [pairCode, setPairCode] = useState('');
+  const [retentionDays, setRetentionDays] = useState(30);
+  const refresh = async () => bridge && setStatus(await bridge.getStatus());
+  useEffect(() => { let active = true; const update = () => bridge?.getStatus().then(value => { if (active) { setStatus(value); setRetentionDays(value.retentionDays || 30); } }).catch(error => { if (active) setNotice(error.message); }); void update(); return () => { active = false; }; }, []);
+  if (!bridge) return <p className="text-xs text-slate-400">Device controls are available in the Windows app.</p>;
+  const run = async (name: string, task: () => Promise<any>) => { setBusy(name); setNotice(''); try { const result = await task(); setNotice(result.message || (result.path ? `Saved to ${result.path}` : 'Done.')); await refresh(); } catch (error: any) { const message = error.message || 'Action failed.'; const diagnostic = await bridge.reportDiagnostic({ action: name, message }).catch(() => null); setNotice(`${message}${diagnostic?.code ? ` Error code: ${diagnostic.code}` : ''}`); } finally { setBusy(''); } };
+  const previewPackage = async () => { setBusy('preview'); setNotice(''); try { const result = await bridge.previewTeamPackage({ password: packagePassword }); if (!result.canceled) { setPackagePreview(result.preview); setPackagePassword(''); setNotice(`Preview ready · ${result.preview?.conflicts?.length || 0} conflicts.`); } } catch (error: any) { setNotice(error.message || 'Preview failed.'); } finally { setBusy(''); } };
+  const updateAction = () => run('update', async () => status?.update?.state === 'available' ? bridge.downloadUpdate() : status?.update?.state === 'downloaded' ? bridge.installUpdate() : bridge.checkForUpdates());
+  const updateLabel = status?.update?.state === 'available' ? `Download ${status.update.version || 'update'}` : status?.update?.state === 'downloaded' ? 'Restart and update' : status?.update?.state === 'downloading' ? `Downloading ${status.update.percent || 0}%` : 'Check for updates';
+  return <section className="space-y-4" aria-labelledby="device-settings-title">
+    <div><h4 id="device-settings-title" className="text-xs font-black uppercase tracking-widest text-[#ff4655]">This PC &amp; team sync</h4><p className="mt-1 text-[11px] text-gray-400">Maintenance, sharing, diagnostics, and update controls for this Windows device.</p></div>
+    <div className="grid gap-2 sm:grid-cols-2 xl:grid-cols-3">
+      <DeviceButton icon={Image} label="Captured scoreboards" detail={`${status?.pendingScoreboards || 0} awaiting review`} onClick={() => run('screenshots', () => bridge.openFolder('screenshots'))} />
+      <DeviceButton icon={FolderOpen} label="Replay inbox" detail={`${status?.replayCount || 0} detected`} onClick={() => run('replays', () => bridge.openFolder('replays'))} />
+      <DeviceButton icon={Cloud} label="Sync now" detail={status?.sync?.paired ? `${status.sync.pending || 0} pending` : 'Pair this PC first'} disabled={!!busy || !status?.sync?.paired} onClick={() => run('sync', bridge.syncNow)} />
+      <DeviceButton icon={HardDrive} label="Portable export" detail="Share approved team data" disabled={!!busy} onClick={() => run('export', async () => { const result = await bridge.exportTeamPackage({ password: packagePassword }); setPackagePassword(''); return { ...result, message: `Package saved to ${result.path}` }; })} />
+      <DeviceButton icon={Download} label="Import package" detail="Preview before applying" disabled={!!busy} onClick={previewPackage} />
+      <DeviceButton icon={Power} label={`Start with Windows: ${status?.startWithWindows ? 'On' : 'Off'}`} detail="Launch in the background" disabled={!!busy} onClick={() => run('startup', () => bridge.setStartWithWindows(!status?.startWithWindows))} />
+      <DeviceButton icon={FileWarning} label="Local crash logs" detail="Open diagnostic logs" disabled={!!busy} onClick={() => run('logs', () => bridge.openFolder('logs'))} />
+      <DeviceButton icon={FileArchive} label="Export support bundle" detail="One file to send for help" disabled={!!busy} onClick={() => run('support', bridge.exportSupportBundle)} />
+      <DeviceButton icon={RefreshCw} label={updateLabel} detail={status?.update?.message || 'App updates'} disabled={!!busy || ['disabled', 'checking', 'downloading'].includes(status?.update?.state)} onClick={updateAction} />
+      {packagePreview && <DeviceButton icon={CheckCircle2} label="Apply imported package" detail={`${packagePreview.conflicts?.length || 0} conflicts found`} disabled={!!busy} onClick={() => run('import', async () => { const result = await bridge.importTeamPackage(); setPackagePreview(null); return result; })} />}
+    </div>
+    {!status?.sync?.paired && <div className="grid gap-2 rounded-xl border border-violet-300/15 bg-violet-300/[0.045] p-4 sm:grid-cols-[minmax(0,1fr)_180px_auto]"><input aria-label="Team server" className="ui-field min-h-11 px-3 text-sm" value={pairServer} onChange={event => setPairServer(event.target.value)} /><input aria-label="Pairing code" className="ui-field min-h-11 px-3 font-mono text-sm uppercase tracking-widest" maxLength={10} value={pairCode} onChange={event => setPairCode(event.target.value.toUpperCase())} placeholder="TEAM CODE" /><button type="button" disabled={!!busy || pairCode.length !== 10} onClick={() => run('pair', async () => { const result = await bridge.pairDevice({ server: pairServer, code: pairCode }); setPairCode(''); return { ...result, message: `Paired with ${result.server}.` }; })} className="ui-button ui-button-primary min-h-11 px-4 text-sm disabled:opacity-50">Pair PC</button></div>}
+    <div className="grid gap-3 rounded-xl border border-white/[0.07] bg-black/10 p-3 lg:grid-cols-[minmax(0,1fr)_minmax(250px,.55fr)] lg:items-center"><div><p className="text-xs font-semibold">Portable package password</p><p className="mt-1 text-[10px] text-gray-400">Optional. Use 8–256 characters to encrypt exports.</p></div><input aria-label="Portable package password" type="password" autoComplete="new-password" minLength={8} maxLength={256} value={packagePassword} onChange={event => setPackagePassword(event.target.value)} placeholder="Leave blank for no password" className="ui-field min-h-10 px-3 text-sm" /></div>
+    <div className="flex flex-wrap items-center justify-between gap-3 text-[11px] text-gray-400"><label className="inline-flex items-center gap-2">Keep raw replays for<input aria-label="Raw replay retention days" type="number" min={1} max={365} value={retentionDays} onChange={event => setRetentionDays(Number(event.target.value))} onBlur={() => run('retention', () => bridge.setRetentionDays(retentionDays))} className="ui-field h-9 w-20 px-2 text-center" />days</label><button type="button" onClick={() => run('folder', bridge.chooseReplayFolder)} className="inline-flex min-h-9 items-center gap-1 text-cyan-300"><RefreshCw className="h-3 w-3" />Add replay folder</button></div>
+    {notice && <div className="rounded-lg border border-cyan-300/15 bg-cyan-300/[0.05] px-4 py-3 text-xs text-cyan-100" role="status">{notice}</div>}
+  </section>;
+}
+
+function DeviceButton({ icon: Icon, label, detail, onClick, disabled }: { icon: ComponentType<any>; label: string; detail: string; onClick: () => void; disabled?: boolean }) { return <button type="button" disabled={disabled} onClick={onClick} className="desktop-tool-button min-h-16 disabled:opacity-45"><Icon className="h-4 w-4 shrink-0 text-cyan-300" /><span className="min-w-0 text-left"><span className="block truncate text-xs font-semibold">{label}</span><span className="mt-0.5 block truncate text-[10px] text-gray-500">{detail}</span></span></button>; }

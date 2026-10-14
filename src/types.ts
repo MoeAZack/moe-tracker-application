@@ -234,6 +234,65 @@ export interface PlayerStats {
   rowOperation?: 'create';
   sourceMetadata?: EntrySourceMetadata;
   corrections?: EntryCorrectionMetadata[];
+  /** Coach-accepted aggregates derived from round screenshots. Raw images stay local. */
+  screenshotMetrics?: PlayerScreenshotMetrics;
+}
+
+export type EvidenceConfidence = 'confirmed' | 'high' | 'medium' | 'low';
+export type EconomyClass = 'eco' | 'low' | 'half' | 'full' | 'unknown';
+
+export interface ScreenshotKillEvent {
+  sequence: number;
+  killerPlayerId?: string | null;
+  victimPlayerId?: string | null;
+  killerTeam?: 'ours' | 'theirs' | null;
+  victimTeam?: 'ours' | 'theirs' | null;
+  weapon?: string | null;
+  distanceMeters?: number | null;
+  tradedWithinSeconds?: number | null;
+}
+
+export interface ScreenshotPlayerRoundEvidence {
+  playerId?: string | null;
+  displayName: string;
+  team: 'ours' | 'theirs';
+  equippedWeapon?: string | null;
+  armor?: string | null;
+  loadoutValue?: number | null;
+  bank?: number | null;
+  kills?: number | null;
+  assists?: number | null;
+  survived?: boolean | null;
+}
+
+export interface RoundScreenshotEvidence {
+  schemaVersion: 1;
+  reviewStatus: 'review-required' | 'confirmed';
+  confidence: EvidenceConfidence;
+  sourceImage?: string;
+  ourAverageLoadout?: number | null;
+  enemyAverageLoadout?: number | null;
+  ourAverageBank?: number | null;
+  enemyAverageBank?: number | null;
+  players: ScreenshotPlayerRoundEvidence[];
+  /** True only when review confirmed that the event list covers the whole round. */
+  eventsComplete?: boolean;
+  events?: ScreenshotKillEvent[];
+}
+
+export interface PlayerScreenshotMetrics {
+  schemaVersion: 1;
+  coveredRounds: number;
+  wins: number;
+  losses: number;
+  firstKills: number;
+  firstDeaths: number;
+  multikills: { two: number; three: number; four: number; ace: number };
+  lowBudgetWins: number;
+  highBudgetLosses: number;
+  antiEcoLosses: number;
+  kast?: { successful: number; covered: number };
+  weapons: Array<{ weapon: string; rounds: number; wins: number; kills: number; deaths: number }>;
 }
 
 export interface ScreenshotReviewDraft {
@@ -323,6 +382,7 @@ export interface Round {
   iglRole?: string; // "Primary" or "Secondary"
   midRoundIglChange?: boolean | string;
   strategies?: string; // Comma-separated strategies run
+  screenshotEvidence?: RoundScreenshotEvidence;
 }
 
 export interface Veto {

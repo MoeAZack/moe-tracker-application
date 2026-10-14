@@ -45,7 +45,7 @@ export function toPublicTrackerData(db: Record<string, any>, role: 'coach' | 'pl
 }
 
 const WEBSITE_MATCH_FIELDS = ['id', 'date', 'type', 'opponent', 'map', 'attW', 'attL', 'defW', 'defL', 'ourScore', 'theirScore', 'pistolAtt', 'pistolDef', 'ecoAtt', 'ecoDef', 'bonusAtt', 'bonusDef', 'rosterContext'] as const;
-const WEBSITE_STAT_FIELDS = ['id', 'matchId', 'player', 'playerId', 'displayNameSnapshot', 'appearanceType', 'agent', 'kills', 'deaths', 'assists', 'acs', 'adr', 'hs', 'headshots', 'headshotEligibleKills', 'fk', 'fd', 'plants', 'defuses', 'cl', 'clAtt', 'mk3', 'mk4', 'mk5', 'dTraded', 'kTraded', 'rating'] as const;
+const WEBSITE_STAT_FIELDS = ['id', 'matchId', 'player', 'playerId', 'displayNameSnapshot', 'appearanceType', 'agent', 'kills', 'deaths', 'assists', 'acs', 'adr', 'hs', 'headshots', 'headshotEligibleKills', 'fk', 'fd', 'plants', 'defuses', 'cl', 'clAtt', 'mk3', 'mk4', 'mk5', 'dTraded', 'kTraded', 'rating', 'screenshotMetrics'] as const;
 
 function selectFields(record: any, fields: readonly string[]) {
   return Object.fromEntries(fields.filter(key => record?.[key] !== undefined).map(key => [key, structuredClone(record[key])]));

@@ -18,7 +18,7 @@ export function createSeed() {
     // This legacy projection is maintained by roster mutations for existing selectors.
     players: [] as string[],
     maps: ['Abyss', 'Ascent', 'Bind', 'Breeze', 'Corrode', 'Haven', 'Icebox', 'Lotus', 'Pearl', 'Split', 'Sunset'],
-    agents: ['Astra', 'Breach', 'Brimstone', 'Chamber', 'Clove', 'Cypher', 'Deadlock', 'Fade', 'Gekko', 'Harbor', 'Iso', 'Jett', 'KAY/O', 'Killjoy', 'Neon', 'Omen', 'Phoenix', 'Raze', 'Reyna', 'Sage', 'Skye', 'Sova', 'Viper', 'Vyse', 'Yoru'],
+    agents: ['Astra', 'Breach', 'Brimstone', 'Chamber', 'Clove', 'Cypher', 'Deadlock', 'Fade', 'Gekko', 'Harbor', 'Iso', 'Jett', 'KAY/O', 'Killjoy', 'Miks', 'Neon', 'Omen', 'Phoenix', 'Raze', 'Reyna', 'Sage', 'Skye', 'Sova', 'Tejo', 'Veto', 'Viper', 'Vyse', 'Waylay', 'Yoru'],
     matchTypes: ['Scrim', 'Official', 'Tournament'],
     attendanceStates: ['Prac', 'Official', 'OFF', 'Late', 'Absent'],
     goalStates: ['Open', 'In progress', 'Done'],

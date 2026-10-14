@@ -12,6 +12,11 @@
 - [x] Persist normalized local replay evidence before any upload
 - [x] Local review inbox and identity overlay
 - [x] Import/export `.moetracker` packages with integrity hashes
+- [x] One-button post-match timeline capture with automatic review opening
+- [x] Local recognition for the complete current VALORANT agent roster
+- [x] Screenshot-derived FK/FD, weapon, economy, multi-kill, map, and composition evidence
+- [x] Temporary tryout identities that preserve analytics before the permanent roster is selected
+- [x] One-click support bundle with diagnostic logs and recent capture evidence
 
 ## Next — reliable team synchronization
 
@@ -31,6 +36,16 @@
 - [x] Windows installer and in-place upgrade acceptance in isolated Windows profiles
 - [x] Automated WCAG 2.2 A/AA audit for desktop/mobile login and authenticated summary surfaces
 - [ ] Signed public release and independent physical-PC/assistive-technology acceptance
+
+## Upcoming — evidence quality and coach workflow
+
+- [ ] Broaden the varied-match screenshot acceptance set across maps, UI languages, display scaling, and GPU color profiles
+- [ ] Add confidence-guided correction for uncertain trade, clutch, and later-kill event rows without blocking reliable FK/FD
+- [ ] Add coach-side tryout comparison views and a guided promotion flow from temporary identity to permanent roster member
+- [ ] Add scheduled encrypted local backups with restore rehearsal and retention controls
+- [ ] Complete a second-PC install, synchronization, update, rollback, and fullscreen-capture acceptance run
+- [ ] Complete human screen-reader, keyboard-only, high-contrast, and 200% zoom accessibility acceptance
+- [ ] Obtain a public Windows code-signing certificate and publish the signed installer through the staged update channel
 
 ## Later
 

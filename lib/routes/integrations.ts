@@ -12,7 +12,8 @@ export function registerIntegrationRoutes(app: Express) {
       res.json({
         ANTHROPIC_API_KEY: !!process.env.ANTHROPIC_API_KEY || !!db.secrets.ANTHROPIC_API_KEY,
         HENRIK_API_KEY: !!process.env.HENRIK_API_KEY,
-        GRID_API_KEY: !!process.env.GRID_API_KEY
+        GRID_API_KEY: !!process.env.GRID_API_KEY,
+        DISCORD_WEBHOOK_URL: !!process.env.DISCORD_WEBHOOK_URL
       });
     } catch (err: any) {
       res.status(500).json({ error: err.message });
@@ -26,7 +27,7 @@ export function registerIntegrationRoutes(app: Express) {
       res.json({
         gemini: { configured: has(process.env.GEMINI_API_KEY), note: 'AI coach, tactical hub, screenshot OCR (needs active billing)' },
         henrik: { configured: false, note: 'Legacy ranked integration disabled; provider eligibility, versioned consent and exact account gating are not persisted' },
-        grid: { configured: false, note: 'GRID import disabled until provider eligibility, activation and schema gates are accepted' },
+        grid: { configured: has(process.env.GRID_API_KEY), note: has(process.env.GRID_API_KEY) ? 'Key available; GRID ingestion remains gated until provider activation and schema acceptance' : 'Add the key locally or as a Cloudflare secret; ingestion still requires provider activation' },
         discord: { configured: has(process.env.DISCORD_WEBHOOK_URL), note: 'Automatic match report broadcasts' },
         vlr: { configured: false, note: 'Disabled until team-side mapping and idempotency are verified' },
         dailySync: { configured: false, note: 'Legacy scheduled ranked sync disabled' }

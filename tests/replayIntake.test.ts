@@ -54,6 +54,20 @@ describe('private replay intake', () => {
     const stored = JSON.parse(await fs.readFile(dbPath, 'utf8')); expect(Object.keys(stored.replayIntake.blobs)).toEqual([hash]); expect(Object.keys(stored.replayIntake.parserJobs)).toHaveLength(1); expect(stored.replayIntake.blobs[hash].rawObject).toBeNull();
   });
 
+  it('preserves the existing desktop review when a migrated parser envelope differs', async () => {
+    const coach = await login(adminKey); const hash = 'c'.repeat(64); const deviceId = 'desktop-device-03';
+    const original = evidenceEnvelope(hash, 100, deviceId);
+    expect((await jsonRequest('/api/desktop/replay-evidence', coach, original)).status).toBe(201);
+    const revised: any = evidenceEnvelope(hash, 100, deviceId);
+    revised.normalized.scoreboard.durationMs.value = 2;
+    const revisedBase = { ...revised }; delete revisedBase.evidenceSha256; revised.evidenceSha256 = localEvidenceDigest(revisedBase);
+    const retry = await jsonRequest('/api/desktop/replay-evidence', coach, revised);
+    expect(retry.status).toBe(200);
+    expect(await retry.json()).toMatchObject({ sha256: hash, idempotent: true, existingEvidencePreserved: true });
+    const stored = JSON.parse(await fs.readFile(dbPath, 'utf8'));
+    expect(Object.keys(stored.replayIntake.parserJobs)).toHaveLength(1);
+  });
+
   it('keeps an accepted desktop replay accepted when identical evidence returns after parser-job pruning', async () => {
     const coach = await login(adminKey); const hash = 'b'.repeat(64); const envelope = evidenceEnvelope(hash, 100, 'desktop-device-02');
     expect((await jsonRequest('/api/desktop/replay-evidence', coach, envelope)).status).toBe(201);

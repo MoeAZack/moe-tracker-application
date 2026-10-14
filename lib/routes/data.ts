@@ -6,6 +6,7 @@ import * as schemas from '../../schemas';
 import { toPublicTrackerData, toWebsiteTrackerData } from '../publicData';
 import { preserveExistingRosterContext, validateAndNormalizeLineup } from '../matchContext';
 import { applyImmutableEntryMetadata, applyScreenshotReviewConfirmation, reconcileStatTotals } from '../entryEngine';
+import { buildPlayerScreenshotMetrics } from '../scrimRoundAnalytics';
 
 // Core data + match logging: full payload, reset, settings, generic upsert/remove,
 // and match/round/veto saves. Protected routes (registered after the auth middleware).
@@ -270,8 +271,28 @@ export function registerDataRoutes(app: Express, options: { websiteSummaryOnly?:
         db.rounds.push(r);
       });
 
+      // Materialize accepted screenshot summaries onto each match/player row. The
+      // website receives these small aggregates, never the raw round screenshots.
+      const derived = buildPlayerScreenshotMetrics(db.rounds.filter((round: any) => round.matchId === matchId));
+      const byIdentity = new Map(derived.map(metric => [metric.identity, metric]));
+      db.playerStats = db.playerStats.map((stat: any) => {
+        if (stat.matchId !== matchId) return stat;
+        const displayName = stat.displayNameSnapshot || stat.player || '';
+        const identity = stat.playerId || `name:${String(displayName).trim().toLocaleLowerCase()}`;
+        const metric = byIdentity.get(identity);
+        const { screenshotMetrics: _old, ...clean } = stat;
+        if (!metric) return clean;
+        const { identity: _identity, displayName: _displayName, ...screenshotMetrics } = metric;
+        return { ...clean, screenshotMetrics };
+      });
+
       await saveDB(db);
-      res.json({ matchId, rows: rows || [], count: (rows || []).length });
+      const match = db.matches.find((item: any) => item.id === matchId) || null;
+      const summarizedStats = db.playerStats.filter((item: any) => item.matchId === matchId && item.screenshotMetrics);
+      res.json({
+        matchId, rows: rows || [], count: (rows || []).length,
+        screenshotSummary: match && summarizedStats.length ? { schemaVersion: 1, match, playerStats: summarizedStats, updatedAt: new Date().toISOString() } : null,
+      });
     } catch (err: any) {
       res.status(500).json({ error: err.message });
     }
