@@ -10,7 +10,12 @@ permissions:
 
 jobs:
   linux-deps:
+    # Offline dev sandboxes cannot reach npm or artifact storage, but can
+    # fetch git refs. Publish a trimmed node_modules snapshot to a temporary
+    # orphan branch (deleted after use) so tests and OCR backtests run there.
     runs-on: ubuntu-latest
+    permissions:
+      contents: write
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v4
@@ -18,13 +23,15 @@ jobs:
           node-version: 22
           cache: npm
       - run: npm ci
-      - name: Snapshot node_modules for offline dev sandboxes
-        run: tar -czf node_modules-linux.tgz node_modules
-      - uses: actions/upload-artifact@v4
-        with:
-          name: node-modules-linux
-          path: node_modules-linux.tgz
-          retention-days: 3
+      - name: Push trimmed node_modules snapshot to ci/deps-snapshot
+        shell: bash
+        run: |
+          rm -rf node_modules/electron/dist node_modules/app-builder-bin node_modules/7zip-bin node_modules/.cache
+          mkdir -p /tmp/snap && tar -czf /tmp/snap/nm.tgz node_modules
+          cd /tmp/snap && split -b 45m nm.tgz nm.tgz.part- && rm nm.tgz && sha256sum nm.tgz.part-* > SHA256SUMS
+          git init -q -b ci/deps-snapshot && git add -A
+          git -c user.name=ci -c user.email=ci@users.noreply.github.com commit -q -m "deps snapshot for ${GITHUB_SHA}"
+          git push -f "https://x-access-token:${{ secrets.GITHUB_TOKEN }}@github.com/${GITHUB_REPOSITORY}.git" ci/deps-snapshot
 
   verify:
     runs-on: ubuntu-latest

@@ -6,7 +6,9 @@ export function normalizeCaptureName(value: unknown): string {
     .replace(/[\u0300-\u036f]/g, '')
     .toLocaleLowerCase()
     .replace(/\s+[0-9]{1,2}$/g, '')
-    .replace(/[^a-z0-9]/g, '');
+    // Keep letters from every script (Cyrillic, Greek, CJK, ...). Stripping
+    // to a-z collapsed non-Latin names to '' so they collided on one id.
+    .replace(/[^\p{L}\p{N}]/gu, '');
 }
 
 function captureNameDistance(left: string, right: string): number {
@@ -92,4 +94,70 @@ export function canonicalScoreboardName(
     return closeCaptureName(candidate, key);
   });
   return cleanCaptureDisplayName(candidates.length === 1 && candidates[0].extractedName ? candidates[0].extractedName : roundName);
+}
+
+export interface CapturedRoundLike {
+  roundNo: number;
+  result: string;
+  winBy: string;
+  extractionIssues: string[];
+  screenshotEvidence?: (RoundScreenshotEvidence & { displayedRoundNo?: number | null }) | any;
+}
+
+const CONFIDENCE_RANK: Record<string, number> = { high: 3, medium: 2, low: 1 };
+
+/**
+ * File each round image under the round number printed on it.
+ *
+ * The capture helper clicks timeline tiles by position. When the timeline is
+ * scrolled (overtime, more tiles than fit), every click lands on a different
+ * round than the file name says. The "ROUND N" header is authoritative: images
+ * are re-keyed to it, duplicates keep the most confident read, and rounds
+ * that were never captured become explicit blanks for the coach to fill.
+ */
+export function reconcileCapturedRoundNumbers<R extends CapturedRoundLike>(
+  rounds: readonly R[],
+  expectedRoundCount?: number | null,
+): { rounds: Array<R | CapturedRoundLike>; rekeyed: number; duplicates: number; missing: number[] } {
+  const byNumber = new Map<number, R>();
+  let rekeyed = 0; let duplicates = 0;
+  const unreadable: R[] = [];
+  for (const round of rounds) {
+    const displayed = round.screenshotEvidence?.displayedRoundNo;
+    const issues = round.extractionIssues.filter(issue => issue !== 'round-number-mismatch');
+    if (!Number.isInteger(displayed) || displayed < 1) { unreadable.push({ ...round, extractionIssues: issues }); continue; }
+    const roundNo = displayed as number;
+    const moved = roundNo !== round.roundNo;
+    if (moved) rekeyed += 1;
+    const candidate = {
+      ...round,
+      roundNo,
+      extractionIssues: moved ? [...new Set([...issues, 'round-rekeyed-from-header'])] : issues,
+      screenshotEvidence: round.screenshotEvidence ? { ...round.screenshotEvidence, ...(moved ? { capturedAsRoundNo: round.roundNo } : {}) } : round.screenshotEvidence,
+    } as R;
+    const existing = byNumber.get(roundNo);
+    if (existing) {
+      duplicates += 1;
+      const rank = (value: R) => CONFIDENCE_RANK[String(value.screenshotEvidence?.confidence)] || 0;
+      if (rank(candidate) > rank(existing)) byNumber.set(roundNo, candidate);
+      continue;
+    }
+    byNumber.set(roundNo, candidate);
+  }
+  // A header that could not be read keeps its click position only when that
+  // slot is still free; it stays flagged for review either way.
+  for (const round of unreadable) {
+    if (!byNumber.has(round.roundNo)) byNumber.set(round.roundNo, { ...round, extractionIssues: [...new Set([...round.extractionIssues, 'round-number-unreadable'])] });
+    else duplicates += 1;
+  }
+  const highest = Math.max(0, ...byNumber.keys(), Number.isInteger(expectedRoundCount) ? Number(expectedRoundCount) : 0);
+  const missing: number[] = [];
+  const output: Array<R | CapturedRoundLike> = [];
+  for (let roundNo = 1; roundNo <= highest; roundNo += 1) {
+    const round = byNumber.get(roundNo);
+    if (round) { output.push(round); continue; }
+    missing.push(roundNo);
+    output.push({ roundNo, result: '', winBy: '', extractionIssues: ['round-not-captured'] });
+  }
+  return { rounds: output, rekeyed, duplicates, missing };
 }

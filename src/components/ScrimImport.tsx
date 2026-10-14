@@ -7,10 +7,10 @@ import { reportDesktopDiagnostic } from '../utils/desktopDiagnostics';
 import { createBrowserLocalTesseractAdapter, createValorantEndScreenProfile, createValorantHeadToHeadProfile, createValorantPerformanceProfile, createValorantRoundSummaryProfile, extractLocalScoreboardDraft } from '../../lib/localOcrEngine';
 import { parseLocalRoundRecognitions } from '../../lib/localRoundOcrEngine';
 import { classifyValorantRoundEvents } from '../../lib/localRoundEventClassifier';
-import { canonicalScoreboardName, cleanCaptureDisplayName, cleanCaptureMap, inferAlliedScoreboardNames, normalizeCaptureName, scoreFromCompleteRounds } from '../../lib/scrimCaptureImport';
+import { canonicalScoreboardName, cleanCaptureDisplayName, cleanCaptureMap, inferAlliedScoreboardNames, normalizeCaptureName, reconcileCapturedRoundNumbers, scoreFromCompleteRounds } from '../../lib/scrimCaptureImport';
 import { classifyAverageLoadout, classifyTeamEquipment } from '../../lib/scrimRoundAnalytics';
 import { classifyValorantScoreboardAgents } from '../../lib/localAgentClassifier';
-import { addSurvivalEvidence, captureConsistencyIssues, enrichScreenshotEvents } from '../../lib/screenshotEvidence';
+import { addSurvivalEvidence, canonicalizeRoundIdentities, captureConsistencyReport, enrichScreenshotEvents } from '../../lib/screenshotEvidence';
 import { parseLocalHeadToHeadRecognitions, parseLocalPerformanceRecognitions } from '../../lib/localPerformanceOcrEngine';
 
 interface Props {
@@ -28,6 +28,8 @@ const toB64 = (file: File): Promise<string> =>
     r.onerror = () => reject(new Error('Could not read the image.'));
     r.readAsDataURL(file);
   });
+
+const INFORMATIONAL_ROUND_ISSUES = new Set(['round-rekeyed-from-header']);
 
 const num = (v: any) => (v === null || v === undefined || v === '' ? undefined : Number(v));
 
@@ -58,7 +60,9 @@ export default function ScrimImport({ data, theme, onSaveMatch, onSaveRounds, on
   const [alliedSideConfirmed, setAlliedSideConfirmed] = useState(false);
   const autoLoadStarted = useRef(false);
   const roundsComplete = rounds.every(round => round.result === 'W' || round.result === 'L');
-  const consistencyIssues = captureConsistencyIssues({ ourScore: meta.ourScore, theirScore: meta.theirScore, rounds, players });
+  const consistency = captureConsistencyReport({ ourScore: meta.ourScore, theirScore: meta.theirScore, rounds, players });
+  const [warningsAcknowledged, setWarningsAcknowledged] = useState(false);
+  const consistencyBlocked = consistency.errors.length > 0 || (consistency.warnings.length > 0 && !warningsAcknowledged);
 
   const sideForRound = (roundNo: number, firstHalf: 'Att' | 'Def') => {
     const opp = firstHalf === 'Att' ? 'Def' : 'Att';
@@ -185,7 +189,10 @@ export default function ScrimImport({ data, theme, onSaveMatch, onSaveRounds, on
         });
         extractedRounds.push({ roundNo: capture.round!, result: parsed.result || '', winBy: parsed.winBy || '', screenshotEvidence: parsed.evidence, extractionIssues: parsed.issues });
       }
-      const completeScore = extractedRounds.every(round => !round.extractionIssues.includes('round-number-mismatch')) ? scoreFromCompleteRounds(extractedRounds) : null;
+      const scoreboardRoundCount = Number.isInteger(draft.match.ourScore) && Number.isInteger(draft.match.theirScore) ? Number(draft.match.ourScore) + Number(draft.match.theirScore) : null;
+      const reconciled = reconcileCapturedRoundNumbers(extractedRounds, scoreboardRoundCount);
+      extractedRounds.splice(0, extractedRounds.length, ...(reconciled.rounds as typeof extractedRounds));
+      const completeScore = scoreFromCompleteRounds(extractedRounds);
       setMeta(current => ({ ...current, map: cleanCaptureMap(draft.match.map), ourScore: completeScore?.ourScore ?? draft.match.ourScore, theirScore: completeScore?.theirScore ?? draft.match.theirScore }));
       const alliedNames = inferAlliedScoreboardNames(draft.stats, extractedRounds);
       const resolvedPlayers = draft.stats.map(player => ({
@@ -195,37 +202,38 @@ export default function ScrimImport({ data, theme, onSaveMatch, onSaveRounds, on
       }));
       // Stabilize OCR variants across all round images so economy/weapon
       // summaries attach to the same five match-stat rows.
+      const canonicalIdentity = (rawName: string) => {
+        const displayName = canonicalScoreboardName(rawName, resolvedPlayers);
+        const matched = matchExtractedRosterName(displayName, rosterPlayers);
+        const playerId = matched.rosterMatch.status === 'matched' && matched.matchedPlayerId
+          ? matched.matchedPlayerId
+          : `name:${normalizeCaptureName(displayName)}`;
+        return { displayName, playerId };
+      };
+      const restoredRawNames = [...draft.stats.map(stat => stat.extractedName), ...resolvedPlayers.map(stat => stat.extractedName)];
       for (const round of extractedRounds) {
-        const identities = new Map<string, string>();
-        round.screenshotEvidence.players = round.screenshotEvidence.players.map(player => {
-          const originalIdentity = player.playerId || `name:${player.displayName.trim().toLocaleLowerCase()}`;
-          const displayName = canonicalScoreboardName(player.displayName, resolvedPlayers);
-          const matched = matchExtractedRosterName(displayName, rosterPlayers);
-          const playerId = matched.rosterMatch.status === 'matched' && matched.matchedPlayerId
-            ? matched.matchedPlayerId
-            : `name:${normalizeCaptureName(displayName)}`;
-          identities.set(originalIdentity, playerId);
-          return { ...player, displayName, playerId };
+        if (!round.screenshotEvidence) continue;
+        const canonical = canonicalizeRoundIdentities({
+          players: round.screenshotEvidence.players,
+          events: round.screenshotEvidence.events || [],
+          resolve: canonicalIdentity,
+          extraRawNames: restoredRawNames,
         });
-        round.screenshotEvidence.events = (round.screenshotEvidence.events || []).map(event => ({
-          ...event,
-          killerPlayerId: event.killerPlayerId ? identities.get(event.killerPlayerId) || event.killerPlayerId : null,
-          victimPlayerId: event.victimPlayerId ? identities.get(event.victimPlayerId) || event.victimPlayerId : null,
-        }));
+        round.screenshotEvidence.players = canonical.players;
+        round.screenshotEvidence.events = canonical.events;
         round.screenshotEvidence.players = addSurvivalEvidence(round.screenshotEvidence.players, round.screenshotEvidence.events, round.screenshotEvidence.eventsComplete === true);
-        round.screenshotEvidence.reviewStatus = round.screenshotEvidence.confidence === 'high' && round.extractionIssues.length === 0
+        round.screenshotEvidence.reviewStatus = round.screenshotEvidence.confidence === 'high' && round.extractionIssues.every(issue => INFORMATIONAL_ROUND_ISSUES.has(issue))
           ? 'confirmed'
           : 'review-required';
       }
       const firstDeaths = new Map<string, number>();
       const firstDeathCoverageComplete = extractedRounds.length > 0 && extractedRounds.every(round => round.screenshotEvidence?.eventsComplete === true);
       for (const round of extractedRounds) {
-        const first = round.screenshotEvidence.events?.[0];
+        const first = round.screenshotEvidence?.events?.[0];
         if (first?.victimTeam === 'ours' && first.victimPlayerId) firstDeaths.set(first.victimPlayerId, (firstDeaths.get(first.victimPlayerId) || 0) + 1);
       }
       for (const player of resolvedPlayers) {
-        const matched = matchExtractedRosterName(player.extractedName, rosterPlayers);
-        const identity = matched.rosterMatch.status === 'matched' && matched.matchedPlayerId ? matched.matchedPlayerId : `name:${normalizeCaptureName(player.extractedName)}`;
+        const identity = canonicalIdentity(player.extractedName).playerId;
         player.fd = firstDeathCoverageComplete ? (firstDeaths.get(identity) || 0) : null;
       }
       setPlayers(resolvedPlayers);
@@ -262,8 +270,12 @@ export default function ScrimImport({ data, theme, onSaveMatch, onSaveRounds, on
       setError('Review every uncertain round and choose Win or Loss before saving.');
       return;
     }
-    if (consistencyIssues.length) {
-      setError(`Resolve the capture checks before saving: ${consistencyIssues.join(' ')}`);
+    if (consistency.errors.length) {
+      setError(`Resolve the capture checks before saving: ${consistency.errors.join(' ')}`);
+      return;
+    }
+    if (consistency.warnings.length && !warningsAcknowledged) {
+      setError('Review the capture warnings and tick the acknowledgement before saving.');
       return;
     }
     setSaving(true);
@@ -443,7 +455,9 @@ export default function ScrimImport({ data, theme, onSaveMatch, onSaveRounds, on
               </div>
             </div>}
 
-            {consistencyIssues.length > 0 && <div className="rounded-lg border border-rose-400/25 bg-rose-400/[0.06] p-3 text-[11px] text-rose-200"><div className="mb-1 font-bold uppercase tracking-wider">Capture checks</div>{consistencyIssues.map(issue => <div key={issue}>• {issue}</div>)}</div>}
+            {consistency.errors.length > 0 && <div role="alert" className="rounded-lg border border-rose-400/25 bg-rose-400/[0.06] p-3 text-[11px] text-rose-200"><div className="mb-1 font-bold uppercase tracking-wider">Fix before saving</div>{consistency.errors.map(issue => <div key={issue}>• {issue}</div>)}</div>}
+            {consistency.warnings.length > 0 && <div className="rounded-lg border border-amber-400/25 bg-amber-400/[0.06] p-3 text-[11px] text-amber-100"><div className="mb-1 font-bold uppercase tracking-wider">Double-check</div>{consistency.warnings.map(issue => <div key={issue}>• {issue}</div>)}
+              <label className="mt-2 flex items-start gap-2"><input type="checkbox" checked={warningsAcknowledged} onChange={(e) => setWarningsAcknowledged(e.target.checked)} /><span>I checked these totals and they are correct.</span></label></div>}
 
             <label className="flex items-start gap-2 text-xs text-gray-300">
               <input type="checkbox" checked={alliedSideConfirmed} onChange={(e) => setAlliedSideConfirmed(e.target.checked)} />
@@ -452,7 +466,7 @@ export default function ScrimImport({ data, theme, onSaveMatch, onSaveRounds, on
 
             <div className="flex gap-2">
               <button onClick={() => setStep('upload')} className="px-4 py-2.5 border border-white/10 text-gray-300 text-xs font-bold uppercase tracking-widest rounded-lg cursor-pointer">Back</button>
-              <button onClick={save} disabled={saving || !roundsComplete || consistencyIssues.length > 0 || !canCommitScreenshotReview(meta, alliedSideConfirmed)} className="flex-1 py-2.5 bg-[#ff4655] hover:bg-[#ff5e6a] disabled:opacity-40 text-white font-bold text-xs uppercase tracking-widest rounded-lg flex items-center justify-center gap-2 cursor-pointer">
+              <button onClick={save} disabled={saving || !roundsComplete || consistencyBlocked || !canCommitScreenshotReview(meta, alliedSideConfirmed)} className="flex-1 py-2.5 bg-[#ff4655] hover:bg-[#ff5e6a] disabled:opacity-40 text-white font-bold text-xs uppercase tracking-widest rounded-lg flex items-center justify-center gap-2 cursor-pointer">
                 {saving ? <Loader2 className="w-4 h-4 animate-spin" /> : <CheckCircle className="w-4 h-4" />} Save Scrim
               </button>
             </div>

@@ -49,7 +49,7 @@ const colourError = (left: Uint8ClampedArray, right: Uint8ClampedArray) =>
 export async function classifyValorantRoundEvents(image: ImageLike, players: readonly (ScreenshotPlayerRoundEvidence & { agent?: string | null })[]) {
   const width = Number(image.naturalWidth || (image as any).width);
   const height = Number(image.naturalHeight || (image as any).height);
-  if (width / height < 1.72 || width / height > 1.82 || players.length !== 10) return { events: [] as ScreenshotKillEvent[], complete: false };
+  if (width / height < 1.72 || width / height > 1.82 || players.length !== 10) return { events: [] as ScreenshotKillEvent[], complete: false, unidentifiedKillRows: 0, possiblyTruncated: false };
   const sx = width / 1920; const sy = height / 1080;
   const source = document.createElement('canvas'); source.width = width; source.height = height;
   const context = source.getContext('2d', { willReadFrequently: true });
@@ -57,6 +57,7 @@ export async function classifyValorantRoundEvents(image: ImageLike, players: rea
   context.drawImage(image, 0, 0, width, height);
   const classifyAgent = await createValorantAgentRegionClassifier(image);
   const classifyWeapon = await createValorantWeaponRegionClassifier(image);
+  const EVENT_ROWS_SCANNED = 11;
   const rowTop = (row: number) => Math.round((470 + row * 42.4) * sy);
   const table = players.map((_player, row) => portraitPixels(source, Math.round(1222 * sx), rowTop(row), Math.round(38 * sx), Math.round(42 * sy)));
   const tableColours = players.map((_player, row) => context.getImageData(Math.round(1450 * sx), rowTop(row) + Math.round(20 * sy), 1, 1).data);
@@ -78,8 +79,9 @@ export async function classifyValorantRoundEvents(image: ImageLike, players: rea
   };
   const events: ScreenshotKillEvent[] = [];
   let hadPartialEvent = false;
-  let sawUnmatchedBetweenKills = false;
-  for (let row = 0; row < 11; row += 1) {
+  let unidentifiedKillRows = 0;
+  let lastRowWasEvent = false;
+  for (let row = 0; row < EVENT_ROWS_SCANNED; row += 1) {
     const top = rowTop(row);
     const killerPortrait = portraitPixels(source, Math.round(368 * sx), top, Math.round(36 * sx), Math.round(42 * sy));
     const victimPortrait = portraitPixels(source, Math.round(656 * sx), top, Math.round(40 * sx), Math.round(42 * sy));
@@ -116,10 +118,13 @@ export async function classifyValorantRoundEvents(image: ImageLike, players: rea
     const killer = uniqueAgentRow(killerAgent, killerCandidates) ?? (killerTeam ? match(killerPortrait, killerCandidates) : null);
     const victim = uniqueAgentRow(victimAgent, victimCandidates) ?? (killerTeam ? match(victimPortrait, victimCandidates) : null);
     if (killer === null && victim === null) {
-      if (events.length) sawUnmatchedBetweenKills = true;
+      // Plant/defuse rows were already excluded above (flat victim area), so
+      // a row that still shows a victim portrait is a kill we could not
+      // identify. Dropping it silently would let survival/KAST/FK treat the
+      // round as complete, so the round is marked incomplete instead.
+      unidentifiedKillRows += 1;
       continue;
     }
-    if (sawUnmatchedBetweenKills) sawUnmatchedBetweenKills = false; // plant rows may appear between eliminations
     const killerPlayer = killer === null ? null : players[killer];
     const victimPlayer = victim === null ? null : players[victim];
     if (!killerPlayer || !victimPlayer) hadPartialEvent = true;
@@ -132,6 +137,14 @@ export async function classifyValorantRoundEvents(image: ImageLike, players: rea
       victimTeam: victimPlayer?.team || (killerTeam === 'ours' ? 'theirs' : killerTeam === 'theirs' ? 'ours' : null),
       weapon: classifyWeapon({ left: Math.round(468 * sx), top: top + Math.round(5 * sy), width: Math.round(132 * sx), height: Math.round(31 * sy) }),
     });
+    if (row === EVENT_ROWS_SCANNED - 1) lastRowWasEvent = true;
   }
-  return { events, complete: events.length > 0 && !hadPartialEvent };
+  // An event in the final scanned row means the log may continue below it
+  // (revives plus plant/defuse rows can exceed the visible rows).
+  return {
+    events,
+    complete: events.length > 0 && !hadPartialEvent && unidentifiedKillRows === 0 && !lastRowWasEvent,
+    unidentifiedKillRows,
+    possiblyTruncated: lastRowWasEvent,
+  };
 }
