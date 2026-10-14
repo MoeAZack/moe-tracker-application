@@ -514,9 +514,9 @@ export default function MapBestStats({ data, theme, onUpsert, onRemove }: Compon
                 <tr className="border-b border-white/10 text-gray-500 uppercase font-bold">
                   <th className="py-3 px-3">Map</th><th className="py-3 px-3 text-center">Played</th><th className="py-3 px-3 text-center">W / L / D</th><th className="py-3 px-3 text-center">Win rate</th>
                   <th className="border-l border-white/10 py-3 px-3 text-center">ATT</th><th className="py-3 px-3 text-center">DEF</th>
-                  <th className="border-l border-white/10 py-3 px-3 text-center">Pistol ATT<br/><span className="font-normal normal-case">R1 / R13</span></th><th className="py-3 px-3 text-center">Pistol DEF<br/><span className="font-normal normal-case">R1 / R13</span></th>
-                  <th className="py-3 px-3 text-center">Anti-eco ATT<br/><span className="font-normal normal-case">R2 / R14 after pistol W</span></th><th className="py-3 px-3 text-center">Anti-eco DEF<br/><span className="font-normal normal-case">R2 / R14 after pistol W</span></th>
-                  <th className="py-3 px-3 text-center">Bonus ATT<br/><span className="font-normal normal-case">R3 / R15 after 2–0</span></th><th className="py-3 px-3 text-center">Bonus DEF<br/><span className="font-normal normal-case">R3 / R15 after 2–0</span></th>
+                  <th className="border-l border-white/10 py-3 px-3 text-center">Pistol ATT</th><th className="py-3 px-3 text-center">Pistol DEF</th>
+                  <th className="py-3 px-3 text-center">Anti-eco ATT</th><th className="py-3 px-3 text-center">Anti-eco DEF</th>
+                  <th className="py-3 px-3 text-center">Bonus ATT</th><th className="py-3 px-3 text-center">Bonus DEF</th>
                   <th className="border-l border-white/10 py-3 px-3 text-center">Team K/D</th>
                 </tr>
               </thead>

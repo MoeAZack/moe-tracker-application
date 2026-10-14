@@ -50,7 +50,7 @@ describe('observed roster dashboard', () => {
       matches: [{ id: 'm1', date: '2026-10-14', map: 'Ascent', ourScore: 13, theirScore: 8 }],
       playerStats: [{ id: 's1', matchId: 'm1', player: 'Trial', agent: 'Jett', kills: 20, deaths: 10, assists: 5, acs: 250, adr: 160, hs: 30, fk: 4, fd: 2, plants: 1, defuses: 0, screenshotMetrics: { schemaVersion: 1, coveredRounds: 21, wins: 13, losses: 8, firstKills: 4, firstDeaths: 2, multikills: { two: 3, three: 1, four: 0, ace: 0 }, lowBudgetWins: 2, highBudgetLosses: 1, antiEcoLosses: 1, kast: { successful: 16, covered: 21 }, weapons: [{ weapon: 'Vandal', rounds: 12, wins: 8, kills: 15, deaths: 6 }] } }],
     } as any);
-    expect(row).toMatchObject({ displayName: 'Trial', status: 'tryout', matches: 1, mainAgent: 'Jett', kills: 20, firstKills: 4, firstDeaths: 2, lowBudgetWins: 2, highBudgetLosses: 1, antiEcoLosses: 1, maps: [{ name: 'Ascent', matches: 1, wins: 1 }], weapons: [{ name: 'Vandal', rounds: 12 }] });
+    expect(row).toMatchObject({ displayName: 'Trial', status: 'tryout', matches: 1, wins: 1, losses: 0, mainAgent: 'Jett', kills: 20, firstKills: 4, firstDeaths: 2, lowBudgetWins: 2, highBudgetLosses: 1, antiEcoLosses: 1, maps: [{ name: 'Ascent', matches: 1, wins: 1 }], weapons: [{ name: 'Vandal', rounds: 12 }] });
     expect(row.kast).toBeCloseTo(16 / 21);
   });
 });

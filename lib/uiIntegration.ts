@@ -42,7 +42,7 @@ export interface ObservedPlayerKd {
 }
 
 export interface ObservedPlayerDashboard extends ObservedPlayerKd {
-  matches: number; wins: number; winRate: number | null; kills: number; deaths: number; assists: number;
+  matches: number; wins: number; losses: number; winRate: number | null; kills: number; deaths: number; assists: number;
   mainAgent: string | null; avgAcs: number | null; avgAdr: number | null; avgHs: number | null;
   firstKills: number | null; firstDeaths: number | null; kast: number | null;
   recentForm: Array<'W' | 'L' | '—'>; status: 'core' | 'standIn' | 'tryout';
@@ -95,7 +95,7 @@ export function aggregateObservedPlayerDashboard(data: Pick<TrackerData, 'player
   }
   return [...groups.entries()].map(([identity, group]) => {
     const rows = group.rows; const matchIds = [...new Set(rows.map(row => row.matchId))];
-    const outcomes = matchIds.map(id => matchWon(matches.get(id))); const wins = outcomes.filter(Boolean).length;
+    const outcomes = matchIds.map(id => matchWon(matches.get(id))); const wins = outcomes.filter(value => value === true).length; const losses = outcomes.filter(value => value === false).length;
     const paired = rows.filter(row => knownNumber(row.kills) && knownNumber(row.deaths));
     const kills = rows.reduce((sum, row) => sum + (knownNumber(row.kills) ? row.kills : 0), 0);
     const deaths = rows.reduce((sum, row) => sum + (knownNumber(row.deaths) ? row.deaths : 0), 0);
@@ -122,7 +122,7 @@ export function aggregateObservedPlayerDashboard(data: Pick<TrackerData, 'player
     const status = (group.playerId && activeCore.has(group.playerId) ? 'core' : stored?.rosterStatus || (group.playerId && activeTryouts.has(group.playerId) ? 'tryout' : rows.find(row => row.appearanceType)?.appearanceType)) || 'tryout';
     return {
       identity, playerId: group.playerId, displayName: group.displayName, recordedRows: rows.length, pairedSamples: paired.length,
-      matches: matchIds.length, wins, winRate: outcomes.some(value => value !== null) ? wins / outcomes.filter(value => value !== null).length : null,
+      matches: matchIds.length, wins, losses, winRate: outcomes.some(value => value !== null) ? wins / outcomes.filter(value => value !== null).length : null,
       kills, deaths, assists, kd: paired.length ? ratio(kills, deaths) : null, mainAgent: agents[0]?.name || null,
       avgAcs: average(row => row.acs), avgAdr: average(row => row.adr), avgHs: average(row => row.hs), firstKills, firstDeaths,
       kast: kastCovered ? kastSuccessful / kastCovered : null,
