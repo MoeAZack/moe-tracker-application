@@ -19,7 +19,7 @@ export function classifyAverageLoadout(value: unknown): EconomyClass {
 
 const FULL_WEAPONS = ['vandal', 'phantom', 'operator', 'odin', 'guardian', 'outlaw'];
 const LOW_WEAPONS = ['spectre', 'stinger', 'bulldog', 'judge', 'bucky', 'marshal', 'ares'];
-const PISTOLS = ['classic', 'ghost', 'sheriff', 'frenzy', 'shorty'];
+const PISTOLS = ['classic', 'ghost', 'sheriff', 'frenzy', 'shorty', 'bandit'];
 
 export function classifyTeamEquipment(players: ReadonlyArray<{ team?: string; equippedWeapon?: string | null }>, team: 'ours' | 'theirs'): EconomyClass {
   const weapons = players.filter(player => player.team === team).map(player => String(player.equippedWeapon || '').toLocaleLowerCase().replace(/[^a-z]/g, ''));

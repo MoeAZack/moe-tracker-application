@@ -109,7 +109,7 @@ export function captureConsistencyReport(input: {
     // kills from deaths, so a gap is a warning to double-check, not a block.
     const roundCount = Math.max(1, input.rounds.length);
     if (kills > deaths + 2) warnings.push(`More kills than deaths (${kills} vs ${deaths}); check for a misread digit.`);
-    else if (deaths - kills > Math.max(3, Math.ceil(roundCount * 0.4))) warnings.push(`Deaths exceed kills by ${deaths - kills} (${kills} vs ${deaths}); spike or fall deaths explain a small gap, a larger one usually means a misread digit.`);
+    else if (deaths - kills > Math.max(3, Math.ceil(roundCount * 0.25))) warnings.push(`Deaths exceed kills by ${deaths - kills} (${kills} vs ${deaths}); spike or fall deaths explain a small gap, a larger one usually means a misread digit.`);
   }
   for (let index = 0; index < input.rounds.length; index += 1) {
     const evidence = input.rounds[index].screenshotEvidence;
@@ -124,4 +124,27 @@ export function captureConsistencyReport(input: {
 export function captureConsistencyIssues(input: Parameters<typeof captureConsistencyReport>[0]) {
   const report = captureConsistencyReport(input);
   return [...report.errors, ...report.warnings];
+}
+
+/**
+ * VALORANT can show a previous match's player table under a new header
+ * (seen on real captures: two sessions with identical KDA tables but
+ * different scores and dates). Flag a draft whose allied K/D/A lines exactly
+ * match an already-saved match so the coach doesn't import the same game twice.
+ */
+export function findDuplicateScoreboardMatch(
+  draftPlayers: ReadonlyArray<{ include?: boolean; kills?: number | null; deaths?: number | null; assists?: number | null }>,
+  savedStats: ReadonlyArray<{ matchId?: string; kills?: number | null; deaths?: number | null; assists?: number | null }>,
+): string | null {
+  const line = (row: { kills?: number | null; deaths?: number | null; assists?: number | null }) => `${row.kills}/${row.deaths}/${row.assists}`;
+  const allied = draftPlayers.filter(player => player.include && Number.isInteger(player.kills) && Number.isInteger(player.deaths) && Number.isInteger(player.assists)).map(line).sort();
+  if (allied.length < 4) return null;
+  const byMatch = new Map<string, string[]>();
+  for (const row of savedStats) {
+    if (!row.matchId || !Number.isInteger(row.kills) || !Number.isInteger(row.deaths) || !Number.isInteger(row.assists)) continue;
+    byMatch.set(row.matchId, [...(byMatch.get(row.matchId) || []), line(row)]);
+  }
+  const signature = allied.join('|');
+  for (const [matchId, lines] of byMatch) if (lines.sort().join('|') === signature) return matchId;
+  return null;
 }

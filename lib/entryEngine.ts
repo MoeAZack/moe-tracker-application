@@ -199,6 +199,8 @@ export function buildScreenshotReviewDraft(raw: any, options: ScreenshotOptions)
         acs: nullable(player.acs), adr: nullable(player.adr), hs: nullable(player.hs),
         fk: nullable(player.fk), fd: nullable(player.fd),
         plants: nullable(player.plants), defuses: nullable(player.defuses),
+        ...(nullable(player.trades) !== null ? { trades: nullable(player.trades) } : {}),
+        ...(nullable(player.performanceScore) !== null ? { performanceScore: nullable(player.performanceScore) } : {}),
         ...(player.rawMetrics ? { rawMetrics: structuredClone(player.rawMetrics) } : {}),
         ...(player.rawConfidence ? { rawConfidence: structuredClone(player.rawConfidence) } : {}),
       };

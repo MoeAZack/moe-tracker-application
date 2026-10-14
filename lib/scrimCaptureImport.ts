@@ -25,10 +25,27 @@ function captureNameDistance(left: string, right: string): number {
   return previous[right.length];
 }
 
+/**
+ * Collapse glyphs Tesseract routinely swaps in the VALORANT font
+ * (1/l/i/|, 0/o, 5/s, 8/b, rn/m) so "panw1d" and "panwild" compare equal.
+ * Used only for fuzzy matching, never for display or stored identities.
+ */
+export function confusableCaptureKey(value: string): string {
+  return value
+    .replace(/rn/g, 'm')
+    .replace(/[1il|!]+/g, 'l')
+    .replace(/0/g, 'o')
+    .replace(/5/g, 's')
+    .replace(/8/g, 'b');
+}
+
 const closeCaptureName = (left: string, right: string) => {
   if (Math.min(left.length, right.length) < 4) return false;
   if (left.includes(right) || right.includes(left)) return true;
-  return captureNameDistance(left, right) <= (Math.max(left.length, right.length) >= 8 ? 2 : 1);
+  const allowance = Math.max(left.length, right.length) >= 8 ? 2 : 1;
+  if (captureNameDistance(left, right) <= allowance) return true;
+  const leftKey = confusableCaptureKey(left); const rightKey = confusableCaptureKey(right);
+  return leftKey === rightKey || captureNameDistance(leftKey, rightKey) <= allowance;
 };
 
 export function cleanCaptureDisplayName(value: unknown): string {

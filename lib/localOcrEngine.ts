@@ -74,9 +74,10 @@ export function createValorantRoundSummaryProfile(width: number, height: number)
   for (let row = 0; row < 11; row += 1) {
     const top = 470 + row * 42.4;
     regions.push({ id: `event.${row}.timestamp`, kind: 'text', layout: 'line', rectangle: box(405, top, 46, 38) });
-    regions.push({ id: `event.${row}.distance`, kind: 'integer', layout: 'line', rectangle: box(600, top, 56, 38) });
+    // Digits end at x<=637; the 'm' unit (640-647) and the victim portrait (655+) are excluded.
+    regions.push({ id: `event.${row}.distance`, kind: 'integer', layout: 'line', rectangle: box(596, top, 42, 38) });
   }
-  return createImmutableLocalOcrProfile({ id: 'valorant-round-summary-v1', version: 4, status: 'accepted', dimensions: { width, height }, regions });
+  return createImmutableLocalOcrProfile({ id: 'valorant-round-summary-v1', version: 5, status: 'accepted', dimensions: { width, height }, regions });
 }
 
 export function createValorantPerformanceProfile(width: number, height: number): LocalOcrProfile {
@@ -124,7 +125,51 @@ export function createSelectedScoreboardProfile(width: number, height: number, s
 }
 
 /** Accepted geometry for the standard VALORANT post-match scoreboard shown in the app. */
-export function createValorantEndScreenProfile(width: number, height: number): LocalOcrProfile {
+/**
+ * Post-match scoreboard layouts.
+ * - custom (scrims): KDA | First Bloods | Plants | Defuses
+ * - competitive (matchmaking, has a Performance tab):
+ *   Performance Score | KDA | Trades | First Bloods | Plants | Defuses
+ * Reading a competitive board with the custom geometry puts Trades into FK
+ * and samples the gaps between the remaining columns.
+ */
+export type ValorantScoreboardLayout = 'custom' | 'competitive';
+
+export interface ScoreDigitBoxes { left: { left: number; width: number }; right: { left: number; width: number } }
+
+/**
+ * Locate the two coloured score numbers in "11 DEFEAT 13" / "13 VICTORY 9".
+ * Their x position depends on digit count and on the word between them, so a
+ * fixed box clipped one-digit and wide scores. The digits are teal/red while
+ * the word is white, so saturated columns separate them cleanly.
+ * Returns reference (1920x1080) coordinates, or null when not exactly two.
+ */
+export function measureScoreDigitBoxes(pixels: { width: number; height: number; data: Uint8ClampedArray }): ScoreDigitBoxes | null {
+  const sx = pixels.width / 1920; const sy = pixels.height / 1080;
+  const x0 = Math.round(20 * sx); const x1 = Math.round(340 * sx);
+  const y0 = Math.round(150 * sy); const y1 = Math.round(215 * sy);
+  const clusters: Array<[number, number]> = [];
+  let start = -1; let previous = -1;
+  for (let x = x0; x < x1; x += 1) {
+    let saturated = 0;
+    for (let y = y0; y < y1; y += 1) {
+      const index = (y * pixels.width + x) * 4;
+      const high = Math.max(pixels.data[index], pixels.data[index + 1], pixels.data[index + 2]);
+      const low = Math.min(pixels.data[index], pixels.data[index + 1], pixels.data[index + 2]);
+      if (high - low > 90) saturated += 1;
+    }
+    if (saturated < 3) continue;
+    if (start < 0) { start = previous = x; continue; }
+    if (x - previous > Math.round(18 * sx)) { clusters.push([start, previous]); start = x; }
+    previous = x;
+  }
+  if (start >= 0) clusters.push([start, previous]);
+  if (clusters.length !== 2) return null;
+  const box = ([from, to]: [number, number]) => ({ left: Math.max(0, Math.round(from / sx) - 6), width: Math.round((to - from) / sx) + 12 });
+  return { left: box(clusters[0]), right: box(clusters[1]) };
+}
+
+export function createValorantEndScreenProfile(width: number, height: number, layout: ValorantScoreboardLayout = 'custom', scoreBoxes?: ScoreDigitBoxes | null): LocalOcrProfile {
   if (!Number.isInteger(width) || !Number.isInteger(height) || width <= 0 || height <= 0) {
     throw Object.assign(new Error('The scoreboard image dimensions are invalid.'), { status: 422 });
   }
@@ -136,22 +181,35 @@ export function createValorantEndScreenProfile(width: number, height: number): L
     const rectangle = (left: number, top: number, regionWidth: number, regionHeight: number) => ({ left: Math.round(left * sx), top: Math.round(top * sy), width: Math.max(1, Math.round(regionWidth * sx)), height: Math.max(1, Math.round(regionHeight * sy)) });
     const regions: LocalOcrRegion[] = [
       { id: 'map', kind: 'text', rectangle: rectangle(1624, 178, 155, 38) },
-      { id: 'score.left', kind: 'integer', rectangle: rectangle(34, 151, 50, 65) },
-      { id: 'score.right', kind: 'integer', rectangle: rectangle(261, 151, 48, 65) },
+      { id: 'score.left', kind: 'integer', rectangle: scoreBoxes ? rectangle(scoreBoxes.left.left, 151, scoreBoxes.left.width, 65) : rectangle(34, 151, 50, 65) },
+      { id: 'score.right', kind: 'integer', rectangle: scoreBoxes ? rectangle(scoreBoxes.right.left, 151, scoreBoxes.right.width, 65) : rectangle(261, 151, 48, 65) },
     ];
-    const metricGeometry: Record<LocalOcrMetric, [number, number]> = {
+    const competitive = layout === 'competitive';
+    // Column centres measured on real 1920x1080 captures:
+    // custom KDA 975 / FB 1183 / plants 1390 / defuses 1597;
+    // competitive perf 827 / KDA 1006 / trades 1169 / FB 1332 / plants 1495 / defuses 1658.
+    const metricGeometry: Record<LocalOcrMetric, [number, number]> = competitive ? {
+      kills: [948, 38], deaths: [986, 38], assists: [1024, 40],
+      fk: [1297, 70], plants: [1460, 70], defuses: [1623, 70],
+    } : {
       kills: [927, 34], deaths: [963, 34], assists: [999, 36],
       fk: [1148, 70], plants: [1358, 66], defuses: [1564, 66],
     };
     for (let row = 0; row < 10; row += 1) {
       const top = 321 + row * 48;
-      regions.push({ id: `player.${row}.name`, kind: 'text', rectangle: rectangle(445, top, 425, 45) });
+      regions.push({ id: `player.${row}.name`, kind: 'text', rectangle: competitive ? rectangle(466, top, 258, 45) : rectangle(445, top, 425, 45) });
       for (const metric of METRICS) {
         const [left, regionWidth] = metricGeometry[metric];
         regions.push({ id: `player.${row}.${metric}`, kind: 'integer', rectangle: rectangle(left, top, regionWidth, 45) });
       }
+      if (competitive) {
+        regions.push({ id: `player.${row}.trades`, kind: 'integer', rectangle: rectangle(1134, top, 70, 45) });
+        regions.push({ id: `player.${row}.performanceScore`, kind: 'integer', rectangle: rectangle(780, top, 94, 45) });
+      }
     }
-    return createImmutableLocalOcrProfile({ id: 'valorant-post-match-scoreboard-v1', version: 2, status: 'accepted', dimensions: { width, height }, regions });
+    return createImmutableLocalOcrProfile(competitive
+      ? { id: 'valorant-post-match-scoreboard-competitive-v1', version: 1, status: 'accepted', dimensions: { width, height }, regions }
+      : { id: 'valorant-post-match-scoreboard-v1', version: 2, status: 'accepted', dimensions: { width, height }, regions });
   }
   if (aspect >= 2.35 && aspect <= 2.75) {
     const sx = width / VALORANT_PLAYER_TABLE_REFERENCE.width; const sy = height / VALORANT_PLAYER_TABLE_REFERENCE.height;
@@ -224,6 +282,13 @@ const EXPECTED_REGION_KINDS = new Map<string, LocalOcrRegionKind>([
     ...METRICS.map(metric => [`player.${row}.${metric}`, 'integer'] as [string, LocalOcrRegionKind]),
   ]).flat(),
 ]);
+const COMPETITIVE_REGION_KINDS = new Map<string, LocalOcrRegionKind>([
+  ...EXPECTED_REGION_KINDS,
+  ...Array.from({ length: 10 }, (_, row) => [
+    [`player.${row}.trades`, 'integer'] as [string, LocalOcrRegionKind],
+    [`player.${row}.performanceScore`, 'integer'] as [string, LocalOcrRegionKind],
+  ]).flat(),
+]);
 const CROPPED_REGION_KINDS = new Map<string, LocalOcrRegionKind>(Array.from({ length: 10 }, (_, row) => [
   [`player.${row}.name`, 'text'] as [string, LocalOcrRegionKind],
   ...(['kills', 'deaths', 'assists'] as const).map(metric => [`player.${row}.${metric}`, 'integer'] as [string, LocalOcrRegionKind]),
@@ -281,7 +346,8 @@ function acceptedProfile(
   const expectedRegions = profile.id === 'valorant-player-table-v1' ? CROPPED_REGION_KINDS
     : profile.id === 'valorant-round-summary-v1' ? ROUND_REGION_KINDS
       : profile.id === 'valorant-performance-v1' ? PERFORMANCE_REGION_KINDS
-        : profile.id === 'valorant-head-to-head-v1' ? HEAD_TO_HEAD_REGION_KINDS : EXPECTED_REGION_KINDS;
+        : profile.id === 'valorant-head-to-head-v1' ? HEAD_TO_HEAD_REGION_KINDS
+          : profile.id === 'valorant-post-match-scoreboard-competitive-v1' ? COMPETITIVE_REGION_KINDS : EXPECTED_REGION_KINDS;
   if (!Array.isArray(profile.regions) || profile.regions.length !== expectedRegions.size) {
     return fail(`The local OCR crop profile must contain exactly ${expectedRegions.size} regions.`);
   }
@@ -332,9 +398,10 @@ export function parseStrictKda(raw: string | undefined): { kills: number; deaths
 
 type BrowserRecognitionRegion = LocalOcrRegion & { recognitionKind?: 'kda' | 'timestamp' };
 export function browserRecognitionRegions(profile: LocalOcrProfile): BrowserRecognitionRegion[] {
-  if (profile.id !== 'valorant-player-table-v1' && profile.id !== 'valorant-post-match-scoreboard-v1') return profile.regions.map(region => ({ ...region, ...(region.id.endsWith('.timestamp') ? { recognitionKind: 'timestamp' as const } : {}), rectangle: { ...region.rectangle } }));
+  const fullScoreboard = profile.id === 'valorant-post-match-scoreboard-v1' || profile.id === 'valorant-post-match-scoreboard-competitive-v1';
+  if (profile.id !== 'valorant-player-table-v1' && !fullScoreboard) return profile.regions.map(region => ({ ...region, ...(region.id.endsWith('.timestamp') ? { recognitionKind: 'timestamp' as const } : {}), rectangle: { ...region.rectangle } }));
   const byId = new Map(profile.regions.map(region => [region.id, region]));
-  const output: BrowserRecognitionRegion[] = profile.id === 'valorant-post-match-scoreboard-v1'
+  const output: BrowserRecognitionRegion[] = fullScoreboard
     ? profile.regions.filter(region => !/^player\.\d+\.(kills|deaths|assists)$/.test(region.id)).map(region => ({ ...region, rectangle: { ...region.rectangle } }))
     : [];
   for (let row = 0; row < 10; row += 1) {
@@ -371,6 +438,9 @@ export function parseLocalScoreboardRecognitions(
       adr: null,
       hs: null,
       fd: null,
+      // Competitive boards only; null (unknown) on custom/scrim boards.
+      trades: strictInteger(byId.get(`player.${row}.trades`)?.text, 60),
+      performanceScore: strictInteger(byId.get(`player.${row}.performanceScore`)?.text, 999),
       rawMetrics,
       rawConfidence,
     };

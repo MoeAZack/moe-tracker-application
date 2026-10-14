@@ -9,7 +9,7 @@ import { replayIntakeInternals } from '../lib/routes/replayIntake';
 import { assertSeasonArchivesStorageSize } from '../lib/roster';
 
 const tempDirs: string[] = [];
-afterEach(async () => { delete process.env.DB_PATH; delete process.env.REPLAY_STORAGE_DIR; delete process.env.PRIVATE_BACKUP_DIR; vi.resetModules(); await Promise.all(tempDirs.splice(0).map(dir => fs.rm(dir, { recursive: true, force: true }))); });
+afterEach(async () => { delete process.env.PRIVATE_BACKUP_KEY; delete process.env.PRIVATE_BACKUP_KEEP; delete process.env.DB_PATH; delete process.env.REPLAY_STORAGE_DIR; delete process.env.PRIVATE_BACKUP_DIR; vi.resetModules(); await Promise.all(tempDirs.splice(0).map(dir => fs.rm(dir, { recursive: true, force: true }))); });
 
 function state() {
   return ensureStorageSchema({ settings: {}, matches: [], playerStats: [], seasonArchives: [], replayIntake: { schemaVersion: 4, devices: {}, blobs: {}, associations: {}, parserJobs: {}, reviews: {} }, engineAdapters: { replay: {}, ratings: { records: {} } } });
@@ -164,6 +164,33 @@ describe('durable replay publication', () => {
 });
 
 describe('private backup and exact restore', () => {
+  it('encrypts recovery state, never stores secrets, restores with the device key and prunes old automatic copies', async () => {
+    const dir = await fs.mkdtemp(path.join(os.tmpdir(), 'moe-backup-enc-')); tempDirs.push(dir);
+    vi.resetModules();
+    process.env.DB_PATH = path.join(dir, 'db.json'); process.env.REPLAY_STORAGE_DIR = path.join(dir, 'replays'); process.env.PRIVATE_BACKUP_DIR = path.join(dir, 'backups');
+    process.env.PRIVATE_BACKUP_KEY = 'device-key-material-0123456789'; process.env.PRIVATE_BACKUP_KEEP = '2';
+    const { readDB, saveDB } = await import('../lib/store');
+    const db = await readDB(); db.matches = [{ id: 'kept' }]; db.secrets = { HENRIK_API_KEY: 'super-secret-value' }; await saveDB(db);
+    const backup = await import('../lib/privateBackup');
+    const made = await backup.createPrivateBackup({ reason: 'scheduled-private-recovery' });
+    const files = await fs.readdir(made.directory);
+    expect(files).toContain('state.json.enc'); expect(files).not.toContain('state.json');
+    const stored = await fs.readFile(path.join(made.directory, 'state.json.enc'), 'utf8');
+    expect(stored).not.toContain('kept'); expect(stored).not.toContain('super-secret-value');
+    const changed = await readDB(); changed.matches = []; await saveDB(changed);
+    await expect(backup.restorePrivateBackup(made.directory)).resolves.toMatchObject({ restored: true });
+    const restored = await readDB(); expect(restored.matches).toEqual([{ id: 'kept' }]); expect(restored.secrets).toMatchObject({ HENRIK_API_KEY: 'super-secret-value' });
+    process.env.PRIVATE_BACKUP_KEY = 'a-different-device-key-material';
+    await expect(backup.validatePrivateBackup(made.directory)).rejects.toThrow(/decrypt/);
+    process.env.PRIVATE_BACKUP_KEY = 'device-key-material-0123456789';
+    for (let index = 0; index < 3; index += 1) await backup.createPrivateBackup({ reason: 'scheduled-private-recovery' });
+    const automatic = [];
+    for (const entry of await fs.readdir(path.join(dir, 'backups'))) {
+      const manifest = JSON.parse(await fs.readFile(path.join(dir, 'backups', entry, 'manifest.json'), 'utf8'));
+      if (String(manifest.reason).startsWith('scheduled')) automatic.push(entry);
+    }
+    expect(automatic).toHaveLength(2);
+  });
   it('validates checksums, supports dry-run, snapshots before replacement, and deletes omissions', async () => {
     const dir = await fs.mkdtemp(path.join(os.tmpdir(), 'moe-backup-')); tempDirs.push(dir);
     vi.resetModules();

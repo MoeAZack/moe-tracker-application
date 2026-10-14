@@ -51,7 +51,7 @@ export async function createValorantAgentRegionClassifier(image: CanvasImageSour
 }
 
 /** Score the ten fixed post-match portrait cells against the bundled agent art. */
-export async function scoreValorantScoreboardAgents(image: CanvasImageSource & { naturalWidth?: number; naturalHeight?: number }) {
+export async function scoreValorantScoreboardAgents(image: CanvasImageSource & { naturalWidth?: number; naturalHeight?: number }, layout: 'custom' | 'competitive' = 'custom') {
   const width = Number(image.naturalWidth || (image as any).width); const height = Number(image.naturalHeight || (image as any).height);
   if (width / height < 1.72 || width / height > 1.82) return Array.from({ length: 10 }, () => [] as AgentTemplateScore[]);
   const templates = await loadTemplates();
@@ -61,7 +61,8 @@ export async function scoreValorantScoreboardAgents(image: CanvasImageSource & {
   sourceContext.drawImage(image, 0, 0, width, height);
   const matches: AgentTemplateScore[][] = [];
   for (let row = 0; row < 10; row += 1) {
-    const left = Math.round(398 * sx), top = Math.round((321 + row * 48) * sy), cropWidth = Math.round(40 * sx), cropHeight = Math.round(48 * sy);
+    // Portrait column: custom table starts at x=387, competitive at x=348.
+    const left = Math.round((layout === 'competitive' ? 359 : 398) * sx), top = Math.round((321 + row * 48) * sy), cropWidth = Math.round(40 * sx), cropHeight = Math.round(48 * sy);
     const crop = document.createElement('canvas'); crop.width = crop.height = 32;
     const cropContext = crop.getContext('2d', { willReadFrequently: true }); if (!cropContext) throw new Error('Agent portrait matching is unavailable.');
     cropContext.drawImage(source, left, top, cropWidth, cropHeight, 0, 0, 32, 32);
@@ -86,6 +87,6 @@ export async function scoreValorantScoreboardAgents(image: CanvasImageSource & {
 }
 
 /** Match the ten fixed post-match portrait cells against the bundled agent art. */
-export async function classifyValorantScoreboardAgents(image: CanvasImageSource & { naturalWidth?: number; naturalHeight?: number }) {
-  return (await scoreValorantScoreboardAgents(image)).map(chooseAgentMatch);
+export async function classifyValorantScoreboardAgents(image: CanvasImageSource & { naturalWidth?: number; naturalHeight?: number }, layout: 'custom' | 'competitive' = 'custom') {
+  return (await scoreValorantScoreboardAgents(image, layout)).map(chooseAgentMatch);
 }

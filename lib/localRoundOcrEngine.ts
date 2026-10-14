@@ -45,6 +45,38 @@ const parseDistance = (value: string) => {
 };
 
 /** Parse column OCR without repairing or inventing missing cells. */
+export const VALORANT_WEAPON_NAMES = ['Classic', 'Shorty', 'Frenzy', 'Ghost', 'Sheriff', 'Bandit', 'Stinger', 'Spectre', 'Bucky', 'Judge', 'Bulldog', 'Guardian', 'Phantom', 'Vandal', 'Marshal', 'Outlaw', 'Operator', 'Ares', 'Odin', 'Melee'];
+export const VALORANT_ARMOR_NAMES = ['Heavy Armor', 'Light Armor', 'Regen Shield', 'None'];
+
+function editDistance(left: string, right: string) {
+  const previous = Array.from({ length: right.length + 1 }, (_value, index) => index);
+  for (let row = 1; row <= left.length; row += 1) {
+    let diagonal = previous[0]; previous[0] = row;
+    for (let column = 1; column <= right.length; column += 1) {
+      const above = previous[column];
+      previous[column] = Math.min(previous[column] + 1, previous[column - 1] + 1, diagonal + (left[row - 1] === right[column - 1] ? 0 : 1));
+      diagonal = above;
+    }
+  }
+  return previous[right.length];
+}
+
+/**
+ * Snap OCR text of a small closed vocabulary ("host" -> Ghost, "Fuardian" ->
+ * Guardian, "ut law" -> Outlaw). Only a unique nearest name within two edits
+ * is accepted; anything else stays as read so the review can flag it.
+ */
+export function snapToKnownName(raw: string | null, names: readonly string[]): string | null {
+  if (!raw) return null;
+  const key = raw.toLocaleLowerCase().replace(/[^a-z]/g, '');
+  if (!key) return null;
+  const ranked = names.map(name => ({ name, distance: editDistance(key, name.toLocaleLowerCase().replace(/[^a-z]/g, '')) })).sort((a, b) => a.distance - b.distance);
+  const [best, next] = ranked;
+  if (best.distance === 0) return best.name;
+  if (best.distance <= 2 && key.length >= 3 && (!next || next.distance > best.distance)) return best.name;
+  return raw.trim();
+}
+
 export function parseLocalRoundRecognitions(recognitions: readonly LocalOcrRecognition[], sourceImage?: string): LocalRoundDraft {
   const byId = new Map(recognitions.map(item => [item.regionId, item]));
   const resultText = byId.get('round.result')?.text || '';
@@ -58,8 +90,8 @@ export function parseLocalRoundRecognitions(recognitions: readonly LocalOcrRecog
     bank: currencyIntegers(byId.get(`player.${row}.bank`)?.text || '')[0] ?? null,
   }));
   const equipment = Array.from({ length: 10 }, (_, row) => ({
-    weapon: lines(byId.get(`player.${row}.weapon`)?.text || '')[0] || null,
-    armor: lines(byId.get(`player.${row}.armor`)?.text || '')[0] || null,
+    weapon: snapToKnownName(lines(byId.get(`player.${row}.weapon`)?.text || '')[0] || null, VALORANT_WEAPON_NAMES),
+    armor: snapToKnownName(lines(byId.get(`player.${row}.armor`)?.text || '')[0] || null, VALORANT_ARMOR_NAMES),
   }));
   const averages: Array<number | null> = [
     byId.get('averages.ourLoadout')?.text,
