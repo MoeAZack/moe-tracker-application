@@ -116,3 +116,13 @@ describe('Windows replay collector boundaries', () => {
     finally { globalThis.fetch = prior; }
   });
 });
+
+describe('unsupported VALORANT patches', () => {
+  it('explains a replay newer than the pinned parser instead of a raw error', async () => {
+    const { describeParserFailure, unsupportedReplayBranch } = await import('../scripts/replay-collector.mjs');
+    const error = Object.assign(new Error('Command failed: vrfkit export'), { stderr: Buffer.from("error: unsupported branch: unsupported replay branch: no payload transform is registered for replay branch '++Ares-Core+release-13.08'; known branches: ++Ares-Core+release-13.06") });
+    expect(unsupportedReplayBranch(error)).toBe('++Ares-Core+release-13.08');
+    expect(describeParserFailure(error)).toMatch(/patch 13\.08.*13\.06.*screenshot capture/);
+    expect(describeParserFailure(new Error('other failure'))).toBe('other failure');
+  });
+});

@@ -143,6 +143,22 @@ async function produceLocalEvidence(file, replaySha256, size, cfg) {
   } finally { await fsp.rm(root, { recursive: true, force: true }); }
 }
 
+// vrfkit registers a payload transform per VALORANT build; replays from a
+// newer patch are refused until the pinned parser is updated.
+export function unsupportedReplayBranch(error) {
+  const text = `${error?.stderr ? String(error.stderr) : ''}\n${error?.message || ''}`;
+  return text.match(/unsupported replay branch:[^']*'([^']+)'/)?.[1] || text.match(/branch '(\+\+Ares-Core\+release-[0-9.]+)'/)?.[1] || null;
+}
+
+export function describeParserFailure(error) {
+  const branch = unsupportedReplayBranch(error);
+  if (branch) {
+    const patch = branch.replace(/^\+\+Ares-Core\+release-/, '');
+    return `This replay is from VALORANT patch ${patch}. The bundled parser (vrfkit ${VRFKIT_PIN.version}) reads patches 11.06 to 13.06 only. Use the post-match screenshot capture for this match.`;
+  }
+  return String(error?.message || error).slice(0, 500);
+}
+
 function evidencePath(hash) {
   if (!/^[a-f0-9]{64}$/.test(hash)) throw new Error('Evidence hash is invalid.');
   return path.join(EVIDENCE_DIR, hash.slice(0, 2), `${hash}.json`);
@@ -241,7 +257,9 @@ async function scanUnlocked({ allowUpload = false, approvedHash = null } = {}) {
         prior.status = 'local-review-required';
       } catch (error) {
         prior.status = 'parser-attention-required';
-        prior.lastError = String(error?.message || error).slice(0, 500);
+        prior.lastError = describeParserFailure(error);
+        const branch = unsupportedReplayBranch(error);
+        if (branch) prior.unsupportedBuild = branch; else delete prior.unsupportedBuild;
       }
     }
     const approved = approvedHash === hash || state.approved.includes(hash);

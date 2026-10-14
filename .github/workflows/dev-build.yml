@@ -71,6 +71,8 @@ jobs:
   windows-installer:
     needs: verify
     runs-on: windows-latest
+    permissions:
+      contents: write
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v4
@@ -129,6 +131,15 @@ jobs:
           $installer = Get-ChildItem release\Moe-Tracker-Application-*-Setup.exe | Select-Object -First 1
           if (-not $installer) { throw 'Installer was not created.' }
           (Get-FileHash $installer.FullName -Algorithm SHA256).Hash | Out-File -Encoding ascii "$($installer.FullName).sha256"
+      - name: Publish installer parts to ci/dev-installer (temporary, for offline delivery)
+        shell: bash
+        run: |
+          set -e
+          mkdir -p /tmp/inst && cp release/Moe-Tracker-Application-*-Setup.exe release/Moe-Tracker-Application-*-Setup.exe.sha256 /tmp/inst/
+          cd /tmp/inst && exe=$(ls *-Setup.exe) && split -b 24m "$exe" "$exe.part-" && rm "$exe" && sha256sum * > SHA256SUMS
+          git init -q -b ci/dev-installer && git add -A
+          git -c user.name=ci -c user.email=ci@users.noreply.github.com commit -q -m "unsigned dev installer for ${GITHUB_SHA}"
+          git push -f "https://x-access-token:${{ secrets.GITHUB_TOKEN }}@github.com/${GITHUB_REPOSITORY}.git" ci/dev-installer
       - uses: actions/upload-artifact@v4
         with:
           name: unsigned-windows-installer

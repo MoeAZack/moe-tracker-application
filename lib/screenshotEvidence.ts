@@ -157,7 +157,9 @@ export function enrichObjectiveRows(
   details: ReadonlyArray<{ sourceRow: number; occurredAtSeconds: number | null; objective?: 'plant' | 'defuse' | null }>,
 ): ScreenshotObjectiveEvent[] {
   const byRow = new Map(details.map(detail => [detail.sourceRow, detail]));
-  return rows.map(row => ({
+  // Keep only rows whose "Planted"/"Defused" label was read: other flat-victim
+  // rows (revives, the "Avg. Loadout" footer) are not objectives.
+  return rows.filter(row => byRow.get(row.sourceRow)?.objective).map(row => ({
     type: byRow.get(row.sourceRow)?.objective ?? null,
     sourceRow: row.sourceRow,
     playerId: row.playerId,
