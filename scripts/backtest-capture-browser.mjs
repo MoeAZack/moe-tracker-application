@@ -1,39 +1,64 @@
+// Offline capture backtest: runs the shared capture pipeline in headless
+// Chromium over one or more Scrim-* folders and writes the extracted drafts.
+//   node scripts/backtest-capture-browser.mjs <out-dir> <capture-folder>...
+// Requires `npm run build` first (serves dist/ with the OCR/agent/weapon assets).
+// Optional: CHROMIUM_PATH (defaults to Playwright's bundled browser),
+// ROSTER_JSON (path to [{id?, displayName}]).
 import { build } from 'esbuild';
 import { chromium } from 'playwright-core';
-import { readFile, readdir, rm, writeFile } from 'node:fs/promises';
+import { createServer } from 'node:http';
+import { mkdir, readFile, readdir, rm, writeFile } from 'node:fs/promises';
+import { existsSync } from 'node:fs';
 import path from 'node:path';
 
-const folder = process.argv[2];
-const origin = process.argv[3];
-if (!folder || !origin) throw new Error('Usage: node scripts/backtest-capture-browser.mjs <capture-folder> <app-origin>');
+const [outDir, ...folders] = process.argv.slice(2);
+if (!outDir || !folders.length) throw new Error('Usage: node scripts/backtest-capture-browser.mjs <out-dir> <capture-folder>...');
 const root = process.cwd();
-const js = path.join(root, 'dist', 'capture-backtest.js');
-const html = path.join(root, 'dist', 'capture-backtest.html');
-await build({ entryPoints: [path.join(root, 'scripts', 'capture-backtest-entry.ts')], outfile: js, bundle: true, format: 'esm', platform: 'browser', target: 'es2022' });
-await writeFile(html, '<!doctype html><script type="module" src="/capture-backtest.js"></script>');
-const names = await readdir(folder);
-const rounds = names.filter(name => /^round-\d+\.png$/i.test(name)).sort().map(name => ({ round: Number(name.match(/\d+/)?.[0]), name, base64: null }));
-const payload = {
-  scoreboard: (await readFile(path.join(folder, 'scoreboard.png'))).toString('base64'),
-  performance: names.includes('performance.png') ? (await readFile(path.join(folder, 'performance.png'))).toString('base64') : null,
-  headToHead: names.includes('head-to-head.png') ? (await readFile(path.join(folder, 'head-to-head.png'))).toString('base64') : null,
-  rounds: await Promise.all(rounds.map(async item => ({ ...item, base64: (await readFile(path.join(folder, item.name))).toString('base64') }))),
-};
-const browser = await chromium.launch({ executablePath: 'C:/Program Files/Google/Chrome/Application/chrome.exe', headless: true });
+const dist = path.join(root, 'dist');
+if (!existsSync(path.join(dist, 'ocr-assets'))) throw new Error('Run `npm run build` first so dist/ocr-assets exists.');
+const js = path.join(dist, 'capture-backtest.js');
+const html = path.join(dist, 'capture-backtest.html');
+await build({ entryPoints: [path.join(root, 'scripts', 'capture-backtest-entry.ts')], outfile: js, bundle: true, format: 'esm', platform: 'browser', target: 'es2022', logLevel: 'warning' });
+await writeFile(html, '<!doctype html><meta charset="utf-8"><script type="module" src="/capture-backtest.js"></script>');
+const types = { '.js': 'text/javascript', '.mjs': 'text/javascript', '.html': 'text/html', '.json': 'application/json', '.png': 'image/png', '.wasm': 'application/wasm', '.gz': 'application/gzip', '.css': 'text/css' };
+const server = createServer(async (request, response) => {
+  try {
+    const url = decodeURIComponent(new URL(request.url, 'http://x').pathname);
+    const file = path.normalize(path.join(dist, url));
+    if (!file.startsWith(dist)) { response.writeHead(403).end(); return; }
+    const body = await readFile(file);
+    response.writeHead(200, { 'content-type': types[path.extname(file)] || 'application/octet-stream' }).end(body);
+  } catch { response.writeHead(404).end(); }
+});
+await new Promise(resolve => server.listen(0, '127.0.0.1', resolve));
+const origin = `http://127.0.0.1:${server.address().port}`;
+const executablePath = process.env.CHROMIUM_PATH || undefined;
+const browser = await chromium.launch({ executablePath, headless: true });
+const rosterPlayers = process.env.ROSTER_JSON ? JSON.parse(await readFile(process.env.ROSTER_JSON, 'utf8')) : [];
+await mkdir(outDir, { recursive: true });
 try {
-  const probe = await fetch(`${origin}/capture-backtest.html?probe=${Date.now()}`);
-  const probeText = await probe.text();
-  if (!probe.ok || !probeText.includes('capture-backtest.js')) throw new Error(`Backtest harness was not served (${probe.status}, ${probeText.slice(0, 80)})`);
-  const page = await browser.newPage();
-  page.on('console', message => console.error(`[browser:${message.type()}] ${message.text()}`));
-  page.on('pageerror', error => console.error(`[browser-error] ${error.message}`));
-  await page.goto(`${origin}/capture-backtest.html?run=${Date.now()}`, { waitUntil: 'domcontentloaded' });
-  await page.waitForFunction(() => typeof window.__runCaptureBacktest === 'function', null, { timeout: 60_000 });
-  const result = await page.evaluate(async data => await window.__runCaptureBacktest(data), payload);
-  const output = path.join(root, 'release', `capture-backtest-${path.basename(folder)}.json`);
-  await writeFile(output, JSON.stringify(result, null, 2));
-  console.log(JSON.stringify({ output, map: result.draft.match.map, score: [result.draft.match.ourScore, result.draft.match.theirScore], alliedPlayers: result.players.filter(player => player.include).map(player => player.extractedName), rounds: result.rounds.length, completeResults: result.rounds.filter(round => round.result === 'W' || round.result === 'L').length }));
+  for (const folder of folders) {
+    const names = await readdir(folder);
+    const captures = [];
+    for (const name of names.sort()) {
+      const round = name.match(/^round-(\d+)\.png$/i);
+      const kind = round ? 'round' : name === 'scoreboard.png' ? 'scoreboard' : name === 'performance.png' ? 'performance' : name === 'head-to-head.png' ? 'head-to-head' : null;
+      if (!kind) continue;
+      captures.push({ kind, ...(round ? { round: Number(round[1]) } : {}), name, mediaType: 'image/png', base64: (await readFile(path.join(folder, name))).toString('base64') });
+    }
+    const page = await browser.newPage();
+    page.on('pageerror', error => console.error(`[${path.basename(folder)} page-error] ${error.message}`));
+    await page.goto(`${origin}/capture-backtest.html`, { waitUntil: 'domcontentloaded' });
+    await page.waitForFunction(() => typeof window.__runCaptureBacktest === 'function', null, { timeout: 60_000 });
+    const started = Date.now();
+    const result = await page.evaluate(async data => await window.__runCaptureBacktest(data), { captures, rosterPlayers });
+    await page.close();
+    const output = path.join(outDir, `${path.basename(folder)}.json`);
+    await writeFile(output, JSON.stringify({ folder: path.basename(folder), seconds: Math.round((Date.now() - started) / 1000), ...result }, null, 2));
+    console.log(`${path.basename(folder)}: ${result.meta.map} ${result.meta.ourScore}-${result.meta.theirScore} · ${result.rounds.length} rounds · ${Math.round((Date.now() - started) / 1000)}s`);
+  }
 } finally {
   await browser.close();
+  server.close();
   await Promise.all([rm(js, { force: true }), rm(html, { force: true })]);
 }

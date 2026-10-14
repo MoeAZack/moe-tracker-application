@@ -10,8 +10,8 @@ import { classifyValorantRoundEvents } from '../../lib/localRoundEventClassifier
 import { canonicalScoreboardName, cleanCaptureDisplayName, cleanCaptureMap, inferAlliedScoreboardNames, normalizeCaptureName, reconcileCapturedRoundNumbers, scoreFromCompleteRounds } from '../../lib/scrimCaptureImport';
 import { classifyAverageLoadout, classifyTeamEquipment } from '../../lib/scrimRoundAnalytics';
 import { classifyValorantScoreboardAgents } from '../../lib/localAgentClassifier';
-import { addSurvivalEvidence, canonicalizeRoundIdentities, captureConsistencyReport, enrichScreenshotEvents } from '../../lib/screenshotEvidence';
-import { parseLocalHeadToHeadRecognitions, parseLocalPerformanceRecognitions } from '../../lib/localPerformanceOcrEngine';
+import { captureConsistencyReport, findDuplicateScoreboardMatch } from '../../lib/screenshotEvidence';
+import { extractCaptureSession, INFORMATIONAL_ROUND_ISSUES } from '../../lib/captureSessionPipeline';
 
 interface Props {
   data: TrackerData;
@@ -28,8 +28,6 @@ const toB64 = (file: File): Promise<string> =>
     r.onerror = () => reject(new Error('Could not read the image.'));
     r.readAsDataURL(file);
   });
-
-const INFORMATIONAL_ROUND_ISSUES = new Set(['round-rekeyed-from-header']);
 
 const num = (v: any) => (v === null || v === undefined || v === '' ? undefined : Number(v));
 
@@ -60,7 +58,10 @@ export default function ScrimImport({ data, theme, onSaveMatch, onSaveRounds, on
   const [alliedSideConfirmed, setAlliedSideConfirmed] = useState(false);
   const autoLoadStarted = useRef(false);
   const roundsComplete = rounds.every(round => round.result === 'W' || round.result === 'L');
-  const consistency = captureConsistencyReport({ ourScore: meta.ourScore, theirScore: meta.theirScore, rounds, players });
+  const duplicateOf = findDuplicateScoreboardMatch(players, data.playerStats || []);
+  const baseConsistency = captureConsistencyReport({ ourScore: meta.ourScore, theirScore: meta.theirScore, rounds, players });
+  const duplicateMatch = duplicateOf ? (data.matches || []).find(match => match.id === duplicateOf) : null;
+  const consistency = duplicateOf ? { ...baseConsistency, warnings: [...baseConsistency.warnings, `These player lines are identical to the saved match ${duplicateMatch ? `${duplicateMatch.date} ${duplicateMatch.map} ${duplicateMatch.ourScore}-${duplicateMatch.theirScore}` : duplicateOf}. VALORANT sometimes shows a previous scoreboard; make sure this is a different game.`] } : baseConsistency;
   const [warningsAcknowledged, setWarningsAcknowledged] = useState(false);
   const consistencyBlocked = consistency.errors.length > 0 || (consistency.warnings.length > 0 && !warningsAcknowledged);
 
@@ -116,126 +117,15 @@ export default function ScrimImport({ data, theme, onSaveMatch, onSaveRounds, on
         ? data.rosterPlayers.map(player => ({ id: player.id, displayName: player.displayName }))
         : roster.map(displayName => ({ displayName }));
       adapter = await createBrowserLocalTesseractAdapter();
-      setCaptureProgress('Reading the final scoreboard locally…');
-      const scoreboardImage = await imageFromBase64(scoreboardCapture.base64, scoreboardCapture.mediaType);
-      const scoreboardProfile = createValorantEndScreenProfile(scoreboardImage.naturalWidth, scoreboardImage.naturalHeight);
-      const draft = await extractLocalScoreboardDraft(adapter, scoreboardImage, scoreboardProfile.dimensions, { capturedAt: new Date().toISOString(), rosterPlayers }, scoreboardProfile);
-      setCaptureProgress('Identifying agent portraits locally…');
-      const detectedAgents = await classifyValorantScoreboardAgents(scoreboardImage).catch(() => Array<string | null>(10).fill(null));
-      draft.stats = draft.stats.map((player, index) => ({ ...player, agent: detectedAgents[index] || player.agent }));
-      const performanceCapture = session.captures.find(item => item.kind === 'performance');
-      const headToHeadCapture = session.captures.find(item => item.kind === 'head-to-head');
-      const performance = performanceCapture ? await (async () => {
-        const image = await imageFromBase64(performanceCapture.base64, performanceCapture.mediaType);
-        const profile = createValorantPerformanceProfile(image.naturalWidth, image.naturalHeight);
-        return parseLocalPerformanceRecognitions(await adapter!.recognize(image, profile));
-      })() : null;
-      const headToHead = headToHeadCapture ? await (async () => {
-        const image = await imageFromBase64(headToHeadCapture.base64, headToHeadCapture.mediaType);
-        const profile = createValorantHeadToHeadProfile(image.naturalWidth, image.naturalHeight);
-        return parseLocalHeadToHeadRecognitions(await adapter!.recognize(image, profile));
-      })() : null;
-      if (headToHead?.totals) {
-        const ownerRows = draft.stats.map((player, index) => ({ player, index })).filter(({ player }) => player.kills === headToHead.totals!.kills && player.deaths === headToHead.totals!.deaths && player.assists === headToHead.totals!.assists);
-        if (ownerRows.length === 1) {
-          const ownerIndex = ownerRows[0].index;
-          draft.stats = draft.stats.map((player, index) => index === ownerIndex ? {
-            ...player, headToHead: headToHead.rows,
-            ...(performance?.performanceScore !== null && performance?.performanceScore !== undefined ? { performanceScore: performance.performanceScore } : {}),
-            ...(performance?.hs !== null && performance?.hs !== undefined ? { hs: performance.hs } : {}),
-            ...(performance?.firstBloods !== null && performance?.firstBloods !== undefined ? { fk: performance.firstBloods } : {}),
-          } : player);
-        }
-      }
-      const roundCaptures = session.captures.filter(item => item.kind === 'round' && Number.isInteger(item.round)).sort((a, b) => Number(a.round) - Number(b.round));
-      const extractedRounds = [];
-      for (let index = 0; index < roundCaptures.length; index += 1) {
-        const capture = roundCaptures[index];
-        setCaptureProgress(`Reading round ${capture.round} locally · ${index + 1} of ${roundCaptures.length}`);
-        const image = await imageFromBase64(capture.base64, capture.mediaType);
-        const profile = createValorantRoundSummaryProfile(image.naturalWidth, image.naturalHeight);
-        const parsed = parseLocalRoundRecognitions(await adapter.recognize(image, profile), capture.name);
-        if (parsed.displayedRoundNo === null) parsed.issues = [...new Set([...parsed.issues, 'round-number-unreadable'])];
-        else if (parsed.displayedRoundNo !== capture.round) parsed.issues = [...new Set([...parsed.issues, 'round-number-mismatch'])];
-        const eventPlayers = parsed.evidence.players.map(player => {
-          const canonical = canonicalScoreboardName(player.displayName, draft.stats);
-          const scoreboardPlayer = draft.stats.find(candidate => normalizeCaptureName(candidate.extractedName) === normalizeCaptureName(canonical));
-          return { ...player, agent: scoreboardPlayer?.agent || null };
-        });
-        // Tesseract can occasionally miss the bottom scoreboard name while
-        // the portrait is still perfectly visible. Restore that tenth row
-        // from the final scoreboard so event/FK/FD matching stays automatic.
-        if (eventPlayers.length >= 8 && eventPlayers.length < 10) {
-          const present = new Set(eventPlayers.map(player => normalizeCaptureName(canonicalScoreboardName(player.displayName, draft.stats))));
-          const missing = draft.stats.filter(player => !present.has(normalizeCaptureName(player.extractedName)));
-          const ours = eventPlayers.filter(player => player.team === 'ours').length;
-          const theirs = eventPlayers.filter(player => player.team === 'theirs').length;
-          const shortTeam = ours === 5 && theirs < 5 ? 'theirs' : theirs === 5 && ours < 5 ? 'ours' : null;
-          if (shortTeam && missing.length === 10 - eventPlayers.length) for (const player of missing) eventPlayers.push({
-            displayName: player.extractedName,
-            team: shortTeam,
-            agent: player.agent || null,
-          });
-        }
-        const eventClassification = await classifyValorantRoundEvents(image, eventPlayers);
-        parsed.evidence.events = enrichScreenshotEvents(eventClassification.events, parsed.eventDetails);
-        parsed.evidence.eventsComplete = eventClassification.complete;
-        if (!eventClassification.complete) parsed.issues = [...new Set([...parsed.issues, 'event-log'])];
-        parsed.evidence.extractionIssues = parsed.issues;
-        parsed.evidence.players = parsed.evidence.players.map(player => {
-          if (player.team !== 'ours') return player;
-          const matched = matchExtractedRosterName(player.displayName, rosterPlayers);
-          return { ...player, playerId: matched.rosterMatch.status === 'matched' ? matched.matchedPlayerId : null };
-        });
-        extractedRounds.push({ roundNo: capture.round!, result: parsed.result || '', winBy: parsed.winBy || '', screenshotEvidence: parsed.evidence, extractionIssues: parsed.issues });
-      }
-      const scoreboardRoundCount = Number.isInteger(draft.match.ourScore) && Number.isInteger(draft.match.theirScore) ? Number(draft.match.ourScore) + Number(draft.match.theirScore) : null;
-      const reconciled = reconcileCapturedRoundNumbers(extractedRounds, scoreboardRoundCount);
-      extractedRounds.splice(0, extractedRounds.length, ...(reconciled.rounds as typeof extractedRounds));
-      const completeScore = scoreFromCompleteRounds(extractedRounds);
-      setMeta(current => ({ ...current, map: cleanCaptureMap(draft.match.map), ourScore: completeScore?.ourScore ?? draft.match.ourScore, theirScore: completeScore?.theirScore ?? draft.match.theirScore }));
-      const alliedNames = inferAlliedScoreboardNames(draft.stats, extractedRounds);
-      const resolvedPlayers = draft.stats.map(player => ({
-        ...player,
-        extractedName: cleanCaptureDisplayName(player.extractedName),
-        include: player.rosterMatch.status === 'matched' || alliedNames.has(normalizeCaptureName(player.extractedName)),
-      }));
-      // Stabilize OCR variants across all round images so economy/weapon
-      // summaries attach to the same five match-stat rows.
-      const canonicalIdentity = (rawName: string) => {
-        const displayName = canonicalScoreboardName(rawName, resolvedPlayers);
-        const matched = matchExtractedRosterName(displayName, rosterPlayers);
-        const playerId = matched.rosterMatch.status === 'matched' && matched.matchedPlayerId
-          ? matched.matchedPlayerId
-          : `name:${normalizeCaptureName(displayName)}`;
-        return { displayName, playerId };
-      };
-      const restoredRawNames = [...draft.stats.map(stat => stat.extractedName), ...resolvedPlayers.map(stat => stat.extractedName)];
-      for (const round of extractedRounds) {
-        if (!round.screenshotEvidence) continue;
-        const canonical = canonicalizeRoundIdentities({
-          players: round.screenshotEvidence.players,
-          events: round.screenshotEvidence.events || [],
-          resolve: canonicalIdentity,
-          extraRawNames: restoredRawNames,
-        });
-        round.screenshotEvidence.players = canonical.players;
-        round.screenshotEvidence.events = canonical.events;
-        round.screenshotEvidence.players = addSurvivalEvidence(round.screenshotEvidence.players, round.screenshotEvidence.events, round.screenshotEvidence.eventsComplete === true);
-        round.screenshotEvidence.reviewStatus = round.screenshotEvidence.confidence === 'high' && round.extractionIssues.every(issue => INFORMATIONAL_ROUND_ISSUES.has(issue))
-          ? 'confirmed'
-          : 'review-required';
-      }
-      const firstDeaths = new Map<string, number>();
-      const firstDeathCoverageComplete = extractedRounds.length > 0 && extractedRounds.every(round => round.screenshotEvidence?.eventsComplete === true);
-      for (const round of extractedRounds) {
-        const first = round.screenshotEvidence?.events?.[0];
-        if (first?.victimTeam === 'ours' && first.victimPlayerId) firstDeaths.set(first.victimPlayerId, (firstDeaths.get(first.victimPlayerId) || 0) + 1);
-      }
-      for (const player of resolvedPlayers) {
-        const identity = canonicalIdentity(player.extractedName).playerId;
-        player.fd = firstDeathCoverageComplete ? (firstDeaths.get(identity) || 0) : null;
-      }
+      const extracted = await extractCaptureSession({
+        captures: session.captures,
+        rosterPlayers,
+        adapter,
+        loadImage: capture => imageFromBase64(capture.base64, capture.mediaType),
+        progress: setCaptureProgress,
+      });
+      const { draft, players: resolvedPlayers, rounds: extractedRounds } = extracted;
+      setMeta(current => ({ ...current, ...extracted.meta }));
       setPlayers(resolvedPlayers);
       setRounds(extractedRounds);
       setSourceMetadata(draft.sourceMetadata);
@@ -312,7 +202,7 @@ export default function ScrimImport({ data, theme, onSaveMatch, onSaveRounds, on
         screenshotEvidence: {
           schemaVersion: 1,
           captureId: pendingCaptureId,
-          scoreboardPlayers: players.map(p => ({ name: p.extractedName, agent: p.agent || null, kills: num(p.kills) ?? null, deaths: num(p.deaths) ?? null, assists: num(p.assists) ?? null, fk: num(p.fk) ?? null, plants: num(p.plants) ?? null, defuses: num(p.defuses) ?? null, allied: !!p.include })),
+          scoreboardPlayers: players.map(p => ({ name: p.extractedName, agent: p.agent || null, kills: num(p.kills) ?? null, deaths: num(p.deaths) ?? null, assists: num(p.assists) ?? null, fk: num(p.fk) ?? null, trades: num(p.trades) ?? null, plants: num(p.plants) ?? null, defuses: num(p.defuses) ?? null, allied: !!p.include })),
         },
       };
 
@@ -324,7 +214,7 @@ export default function ScrimImport({ data, theme, onSaveMatch, onSaveRounds, on
           kills: num(p.kills) ?? null, deaths: num(p.deaths) ?? null, assists: num(p.assists) ?? null,
           acs: num(p.acs) ?? null, adr: num(p.adr) ?? null, hs: num(p.hs) ?? null,
           fk: num(p.fk) ?? null, fd: num(p.fd) ?? null,
-          performanceScore: num(p.performanceScore) ?? null, ...(p.headToHead ? { headToHead: p.headToHead } : {}),
+          performanceScore: num(p.performanceScore) ?? null, trades: num(p.trades) ?? null, ...(p.headToHead ? { headToHead: p.headToHead } : {}),
           plants: num(p.plants) ?? null, defuses: num(p.defuses) ?? null, sourceMetadata,
         }));
 

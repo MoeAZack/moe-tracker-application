@@ -39,6 +39,53 @@ async function replayInventory(state: any) {
   return inventory;
 }
 
+const ENCRYPTED_STATE_FORMAT = 'moetracker-backup-aesgcm/v1';
+
+/** Key from the desktop's OS-protected credential store, when configured. */
+function backupKey(): Buffer | null {
+  const material = process.env.PRIVATE_BACKUP_KEY;
+  return material && material.length >= 16 ? crypto.createHash('sha256').update(`moetracker-backup:${material}`).digest() : null;
+}
+
+function encryptState(plaintext: string, key: Buffer) {
+  const iv = crypto.randomBytes(12);
+  const cipher = crypto.createCipheriv('aes-256-gcm', key, iv);
+  cipher.setAAD(Buffer.from(ENCRYPTED_STATE_FORMAT));
+  const ciphertext = Buffer.concat([cipher.update(plaintext, 'utf8'), cipher.final()]);
+  return JSON.stringify({ format: ENCRYPTED_STATE_FORMAT, iv: iv.toString('base64'), tag: cipher.getAuthTag().toString('base64'), ciphertext: ciphertext.toString('base64') });
+}
+
+function decryptState(envelopeText: string, key: Buffer | null) {
+  if (!key) throw Object.assign(new Error('This recovery backup is encrypted and this device has no backup key.'), { status: 409 });
+  const envelope = JSON.parse(envelopeText);
+  if (envelope?.format !== ENCRYPTED_STATE_FORMAT) throw Object.assign(new Error('Encrypted backup format is unsupported.'), { status: 400 });
+  try {
+    const decipher = crypto.createDecipheriv('aes-256-gcm', key, Buffer.from(String(envelope.iv), 'base64'));
+    decipher.setAAD(Buffer.from(ENCRYPTED_STATE_FORMAT));
+    decipher.setAuthTag(Buffer.from(String(envelope.tag), 'base64'));
+    return Buffer.concat([decipher.update(Buffer.from(String(envelope.ciphertext), 'base64')), decipher.final()]).toString('utf8');
+  } catch {
+    throw Object.assign(new Error('Encrypted backup could not be decrypted with this device key.'), { status: 422 });
+  }
+}
+
+/** Keep the newest N automatic backups; never touch pre-restore/pre-import safety copies. */
+async function pruneAutomaticBackups(keep: number) {
+  if (!Number.isInteger(keep) || keep < 1) return;
+  const entries = await fs.readdir(backupRoot(), { withFileTypes: true }).catch(() => []);
+  const automatic: Array<{ dir: string; createdAt: number }> = [];
+  for (const entry of entries) {
+    if (!entry.isDirectory()) continue;
+    const dir = path.join(backupRoot(), entry.name);
+    try {
+      const manifest = JSON.parse(await fs.readFile(path.join(dir, 'manifest.json'), 'utf8'));
+      if (manifest?.format === PRIVATE_BACKUP_FORMAT && String(manifest.reason || '').startsWith('scheduled')) automatic.push({ dir, createdAt: Date.parse(manifest.createdAt) || 0 });
+    } catch { /* unrelated or incomplete folder */ }
+  }
+  automatic.sort((a, b) => b.createdAt - a.createdAt);
+  for (const stale of automatic.slice(keep)) await fs.rm(stale.dir, { recursive: true, force: true });
+}
+
 async function atomicWrite(file: string, contents: string) {
   const temporary = `${file}.${crypto.randomBytes(8).toString('hex')}.tmp`;
   const handle = await fs.open(temporary, 'wx', 0o600);
@@ -54,9 +101,12 @@ export async function createPrivateBackup(options: { reason?: string; directory?
   if (!directory.startsWith(`${backupRoot()}${path.sep}`) && !options.directory) throw new Error('Backup path escaped its private root.');
   await fs.mkdir(path.dirname(directory), { recursive: true, mode: 0o700 });
   await fs.mkdir(directory, { recursive: false, mode: 0o700 });
-  const stateText = JSON.stringify(state);
-  const stateFile = 'state.json';
-  await atomicWrite(path.join(directory, stateFile), stateText);
+  // Integration secrets live in the OS credential store on desktop; never copy
+  // them into recovery files. Restore keeps the device's current secrets.
+  const stateText = JSON.stringify({ ...state, secrets: {} });
+  const key = backupKey();
+  const stateFile = key ? 'state.json.enc' : 'state.json';
+  await atomicWrite(path.join(directory, stateFile), key ? encryptState(stateText, key) : stateText);
   const inventory = await replayInventory(state);
   const manifest = {
     format: PRIVATE_BACKUP_FORMAT,
@@ -65,11 +115,12 @@ export async function createPrivateBackup(options: { reason?: string; directory?
     reason: options.reason || 'scheduled-private-recovery',
     storageSchemaVersion: STORAGE_SCHEMA_VERSION,
     completeReplacement: true,
-    files: [{ path: stateFile, bytes: Buffer.byteLength(stateText), sha256: sha256(stateText) }],
+    files: [{ path: stateFile, bytes: Buffer.byteLength(stateText), sha256: sha256(stateText), ...(key ? { encrypted: ENCRYPTED_STATE_FORMAT } : {}) }],
     replayBlobs: { embedded: false, inventory },
   };
   const manifestText = JSON.stringify(manifest, null, 2);
   await atomicWrite(path.join(directory, 'manifest.json'), manifestText);
+  if (String(manifest.reason).startsWith('scheduled')) await pruneAutomaticBackups(Number(process.env.PRIVATE_BACKUP_KEEP || 0)).catch(() => {});
   return { id, directory, manifest };
 }
 
@@ -79,8 +130,9 @@ export async function validatePrivateBackup(directory: string) {
   if (manifest?.format !== PRIVATE_BACKUP_FORMAT || manifest?.completeReplacement !== true || !Array.isArray(manifest.files) || manifest.files.length !== 1) throw Object.assign(new Error('Private backup manifest is invalid or unsupported.'), { status: 400 });
   if (Number(manifest.storageSchemaVersion) > STORAGE_SCHEMA_VERSION) throw Object.assign(new Error('Private backup uses a newer storage schema.'), { status: 409 });
   const stateEntry = manifest.files[0];
-  if (stateEntry.path !== 'state.json' || !/^[a-f0-9]{64}$/.test(String(stateEntry.sha256))) throw Object.assign(new Error('Private backup state entry is invalid.'), { status: 400 });
-  const stateText = await fs.readFile(path.join(root, 'state.json'), 'utf8');
+  if ((stateEntry.path !== 'state.json' && stateEntry.path !== 'state.json.enc') || !/^[a-f0-9]{64}$/.test(String(stateEntry.sha256))) throw Object.assign(new Error('Private backup state entry is invalid.'), { status: 400 });
+  const storedText = await fs.readFile(path.join(root, stateEntry.path), 'utf8');
+  const stateText = stateEntry.path === 'state.json.enc' ? decryptState(storedText, backupKey()) : storedText;
   if (Buffer.byteLength(stateText) !== Number(stateEntry.bytes) || sha256(stateText) !== stateEntry.sha256) throw Object.assign(new Error('Private backup checksum validation failed.'), { status: 422 });
   const state = JSON.parse(stateText); assertSeasonArchivesStorageSize(state.seasonArchives || []); validateTrackerState(state, { jsonFile: true });
   if (!manifest.replayBlobs || manifest.replayBlobs.embedded !== false || !Array.isArray(manifest.replayBlobs.inventory)) throw Object.assign(new Error('Private backup replay inventory metadata is invalid.'), { status: 400 });
@@ -109,7 +161,8 @@ export async function restorePrivateBackup(directory: string, options: { dryRun?
   if (options.dryRun) return { dryRun: true, metadataValid: validated.metadataValid, blobInventoryComplete: validated.blobStatus.complete, readyForRestore: validated.metadataValid && validated.blobStatus.complete, blobStatus: validated.blobStatus, backupId: validated.manifest.id, preRestoreBackupId: null };
   if (!validated.blobStatus.complete) throw Object.assign(new Error('Private backup metadata is valid, but its replay blob inventory is missing or corrupt.'), { status: 409, blobStatus: validated.blobStatus });
   const before = await createPrivateBackup({ reason: `pre-restore:${validated.manifest.id}` });
-  await replaceDB(validated.state);
+  const current = await readDB();
+  await replaceDB({ ...validated.state, secrets: { ...(validated.state.secrets || {}), ...(current.secrets || {}) } });
   return { dryRun: false, restored: true, backupId: validated.manifest.id, preRestoreBackupId: before.id, completeReplacement: true };
 }
 

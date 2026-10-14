@@ -26,6 +26,7 @@ let collectorImportTimer;
 let syncTimer;
 let syncPromise;
 let captureInboxTimer;
+let backupTimer;
 let lastNotifiedCaptureId = null;
 let syncStateMutation = Promise.resolve();
 let runtime;
@@ -72,7 +73,8 @@ function appPaths() {
   };
 }
 
-const CONFIG_SECRETS = [['adminPassword', 'adminCredential', 32], ['jwtSecret', 'jwtCredential', 48]];
+// backupKey encrypts automatic recovery backups (AES-256-GCM in the local service).
+const CONFIG_SECRETS = [['adminPassword', 'adminCredential', 32], ['jwtSecret', 'jwtCredential', 48], ['backupKey', 'backupKeyCredential', 32]];
 function protectConfigSecrets(config) {
   if (!safeStorage.isEncryptionAvailable()) return config;
   for (const [plain, encrypted, bytes] of CONFIG_SECRETS) {
@@ -185,6 +187,8 @@ async function startLocalServer() {
     NODE_ENV: 'production', HOST: '127.0.0.1', PORT: String(runtime.port),
     DB_PATH: runtime.paths.database,
     PRIVATE_BACKUP_DIR: runtime.paths.backups,
+    ...(runtime.config.backupKey ? { PRIVATE_BACKUP_KEY: runtime.config.backupKey } : {}),
+    PRIVATE_BACKUP_KEEP: '14',
     ADMIN_PASSWORD: runtime.config.adminPassword,
     JWT_SECRET: runtime.config.jwtSecret,
     APP_DESKTOP: 'true',
@@ -192,7 +196,11 @@ async function startLocalServer() {
   }});
   serverProcess = child;
   child.stderr.on('data', value => console.error(`[local-service] ${String(value).trim()}`));
-  child.on('exit', (code, signal) => { if (!quitting && serverProcess === child) void recordLocalCrash('local-service-exit', new Error('The local service exited unexpectedly.'), { code, signal }); });
+  child.on('exit', (code, signal) => {
+    if (quitting || serverProcess !== child) return;
+    void recordLocalCrash('local-service-exit', new Error('The local service exited unexpectedly.'), { code, signal });
+    superviseRestart('local-service', startLocalServer);
+  });
   await waitForHealth(runtime.port);
 }
 
@@ -245,7 +253,25 @@ async function startCollector() {
   collectorProcess = runNode(script, ['watch']);
   collectorProcess.stdout.on('data', () => { void autoImportProcessedEvidence().catch(error => console.warn(`[collector-import] ${error.message}`)); });
   collectorProcess.stderr.on('data', value => console.error(`[collector] ${String(value).trim()}`));
-  collectorProcess.on('exit', (code, signal) => { if (!quitting) void recordLocalCrash('collector-exit', new Error('The replay watcher exited unexpectedly.'), { code, signal }); });
+  const child = collectorProcess;
+  collectorProcess.on('exit', (code, signal) => {
+    if (quitting || collectorProcess !== child) return;
+    void recordLocalCrash('collector-exit', new Error('The replay watcher exited unexpectedly.'), { code, signal });
+    superviseRestart('collector', startCollector);
+  });
+}
+
+// Restart crashed children with backoff (2s, 4s, 8s ... capped at 60s). A
+// child that keeps crashing more than 5 times in 10 minutes is left stopped
+// and reported, instead of looping forever.
+const restartHistory = new Map();
+function superviseRestart(name, start) {
+  const now = Date.now();
+  const recent = (restartHistory.get(name) || []).filter(at => now - at < 10 * 60 * 1000);
+  if (recent.length >= 5) { void recordLocalCrash(`${name}-restart-abandoned`, new Error(`${name} crashed repeatedly; restart Moe Tracker to try again.`)); return; }
+  recent.push(now); restartHistory.set(name, recent);
+  const delay = Math.min(60_000, 2_000 * 2 ** (recent.length - 1));
+  setTimeout(() => { if (!quitting) void start().catch(error => recordLocalCrash(`${name}-restart-failed`, error)); }, delay);
 }
 
 async function bootstrapSession() {
@@ -365,10 +391,19 @@ async function syncOnce() {
       return { state: 'attention', message: `${uploaded} uploaded; ${state.outbox.length} remain safely queued. ${String(error?.message || error)}`, uploaded, pending: state.outbox.length };
     }
   }
-  const inboxResponse = await fetch(`${pairing.server}/api/replay-intake/device-sync${state.cursor ? `?since=${encodeURIComponent(state.cursor)}` : ''}`, { redirect: 'error', headers: { 'x-device-id': pairing.deviceId, 'x-device-token': pairing.token } });
-  const inboxResult = await inboxResponse.json().catch(() => ({}));
-  if (!inboxResponse.ok) return { state: 'attention', message: `${uploaded} uploaded; shared updates could not be downloaded. ${inboxResult.error || `HTTP ${inboxResponse.status}`}`, uploaded, pending: state.outbox.length };
-  const received = (inboxResult.items || []).filter(item => !state.inbox.some(existing => existing.id === item.id));
+  // Follow hasMore so a backlog larger than one page is fully downloaded.
+  const inboxResult = { items: [], cursor: state.cursor || null };
+  for (let page = 0; page < 20; page += 1) {
+    const inboxResponse = await fetch(`${pairing.server}/api/replay-intake/device-sync${inboxResult.cursor ? `?since=${encodeURIComponent(inboxResult.cursor)}` : ''}`, { redirect: 'error', headers: { 'x-device-id': pairing.deviceId, 'x-device-token': pairing.token } });
+    const pageResult = await inboxResponse.json().catch(() => ({}));
+    if (!inboxResponse.ok) return { state: 'attention', message: `${uploaded} uploaded; shared updates could not be downloaded. ${pageResult.error || `HTTP ${inboxResponse.status}`}`, uploaded, pending: state.outbox.length };
+    const fresh = (pageResult.items || []).filter(item => !inboxResult.items.some(existing => existing.id === item.id));
+    inboxResult.items.push(...fresh);
+    const advanced = pageResult.cursor && pageResult.cursor !== inboxResult.cursor;
+    if (pageResult.cursor) inboxResult.cursor = pageResult.cursor;
+    if (!pageResult.hasMore || !advanced) break;
+  }
+  const received = inboxResult.items.filter(item => !state.inbox.some(existing => existing.id === item.id));
   let applyResult = null;
   if (received.length) {
     const session = await bootstrapCoachSession(); const applyResponse = await fetch(`http://127.0.0.1:${runtime.port}/api/desktop/sync-inbox`, { method: 'POST', headers: { authorization: `Bearer ${session.key}`, 'content-type': 'application/json' }, body: JSON.stringify({ items: received }) });
@@ -654,8 +689,11 @@ if (singleInstanceLock) app.whenReady().then(async () => {
   syncTimer = setInterval(() => { if (runtime.config.cloudPairing && runtime.config.mode === 'connected') void syncNow().catch(error => console.warn(`[sync] ${error.message}`)); }, 60_000); syncTimer.unref?.();
   setTimeout(() => void syncNow().catch(error => console.warn(`[sync] ${error.message}`)), 5_000);
   setTimeout(() => void createRecoveryBackup().catch(error => console.warn(`[backup] ${error.message}`)), 8_000);
+  // The tray keeps the app alive for days; re-check every 6 hours so a daily
+  // encrypted recovery backup is taken even without a restart.
+  backupTimer = setInterval(() => void createRecoveryBackup().catch(error => console.warn(`[backup] ${error.message}`)), 6 * 60 * 60 * 1000);
   app.on('activate', () => { void showMainWindow().catch(error => recordLocalCrash('open-window-failed', error)); });
 }).catch(error => { dialog.showErrorBox('Moe Tracker could not start', error.message); app.quit(); });
 
-app.on('before-quit', () => { quitting = true; updateController?.stop(); if (collectorImportTimer) clearInterval(collectorImportTimer); if (syncTimer) clearInterval(syncTimer); if (captureInboxTimer) clearInterval(captureInboxTimer); tray?.destroy(); collectorProcess?.kill(); serverProcess?.kill(); });
+app.on('before-quit', () => { quitting = true; updateController?.stop(); if (collectorImportTimer) clearInterval(collectorImportTimer); if (syncTimer) clearInterval(syncTimer); if (captureInboxTimer) clearInterval(captureInboxTimer); if (backupTimer) clearInterval(backupTimer); tray?.destroy(); collectorProcess?.kill(); serverProcess?.kill(); });
 app.on('window-all-closed', () => { /* The tray keeps replay watching and synchronization alive. */ });

@@ -5,7 +5,7 @@ import { parseLocalRoundRecognitions } from '../lib/localRoundOcrEngine';
 describe('local round screenshot extraction contract', () => {
   it('uses calibrated text and numeric regions for a native 16:9 capture', () => {
     const profile = createValorantRoundSummaryProfile(1920, 1080);
-    expect(profile.version).toBe(4); expect(profile.regions).toHaveLength(70); expect(profile.regions.filter(region => region.layout === 'block')).toHaveLength(7);
+    expect(profile.version).toBe(5); expect(profile.regions).toHaveLength(70); expect(profile.regions.filter(region => region.layout === 'block')).toHaveLength(7);
   });
   it('creates review-required evidence and reports missing columns', () => {
     const draft = parseLocalRoundRecognitions([

@@ -22,6 +22,10 @@ param(
 
 $ErrorActionPreference = 'Stop'
 
+# Safety cap on timeline images (regulation + long overtime); the typed round
+# count is only a hint now that tiles are detected on screen.
+$RoundCap = 48
+
 # Moe Tracker launches this bundled helper from the post-match capture card. It
 # uses ordinary Windows screen capture and mouse input on the completed match
 # summary; it does not inspect VALORANT memory or automate gameplay.
@@ -110,6 +114,61 @@ public static class MoeScrimNative {
   public const uint MouseWheel = 0x0800;
 }
 '@
+
+Add-Type -ReferencedAssemblies System.Drawing -TypeDefinition @'
+using System;
+using System.Collections.Generic;
+using System.Drawing;
+using System.Drawing.Imaging;
+using System.Runtime.InteropServices;
+
+// Finds the round tiles currently visible in the TIMELINE strip by their
+// white round-number labels (reference band y=289..307, x=340..1740 at
+// 1920x1080). Works whatever way the strip is scrolled, including overtime.
+public static class MoeTimelineTiles {
+  public static int[] DetectLabelCenters(Bitmap bitmap) {
+    double sx = bitmap.Width / 1920.0, sy = bitmap.Height / 1080.0;
+    int x0 = (int)Math.Round(340 * sx), x1 = (int)Math.Round(1740 * sx);
+    int y0 = (int)Math.Round(289 * sy), y1 = (int)Math.Round(307 * sy);
+    Rectangle area = new Rectangle(x0, y0, x1 - x0, y1 - y0);
+    BitmapData data = bitmap.LockBits(area, ImageLockMode.ReadOnly, PixelFormat.Format32bppArgb);
+    byte[] pixels = new byte[data.Stride * area.Height];
+    try { Marshal.Copy(data.Scan0, pixels, 0, pixels.Length); }
+    finally { bitmap.UnlockBits(data); }
+    List<int> centers = new List<int>();
+    int gap = Math.Max(6, (int)Math.Round(12 * sx));
+    int start = -1, previous = -1;
+    for (int x = 0; x < area.Width; x++) {
+      int white = 0;
+      for (int y = 0; y < area.Height; y++) {
+        int i = y * data.Stride + x * 4;
+        if (pixels[i] > 185 && pixels[i + 1] > 185 && pixels[i + 2] > 185) white++;
+      }
+      if (white < 2) continue;
+      if (start < 0) { start = previous = x; continue; }
+      if (x - previous > gap) { centers.Add((int)Math.Round(((start + previous) / 2.0 + x0) / sx)); start = x; }
+      previous = x;
+    }
+    if (start >= 0) centers.Add((int)Math.Round(((start + previous) / 2.0 + x0) / sx));
+    return centers.ToArray();
+  }
+}
+'@
+
+function Get-ValorantFrame([hashtable]$window) {
+  Confirm-ValorantForeground $window
+  $bitmap = New-Object System.Drawing.Bitmap($window.ViewWidth, $window.ViewHeight, [System.Drawing.Imaging.PixelFormat]::Format32bppArgb)
+  $graphics = [System.Drawing.Graphics]::FromImage($bitmap)
+  try { $graphics.CopyFromScreen($window.Left + $window.ViewLeft, $window.Top + $window.ViewTop, 0, 0, $bitmap.Size) }
+  finally { $graphics.Dispose() }
+  return $bitmap
+}
+
+function Get-VisibleTimelineTiles([hashtable]$window) {
+  $frame = Get-ValorantFrame $window
+  try { return ,[MoeTimelineTiles]::DetectLabelCenters($frame) }
+  finally { $frame.Dispose() }
+}
 
 function Get-ValorantWindow {
   $process = Get-Process -Name 'VALORANT-Win64-Shipping' -ErrorAction SilentlyContinue |
@@ -259,7 +318,9 @@ function Get-RoundHeaderFingerprint([hashtable]$window, [string]$path) {
       try {
         $crop.Save($stream, [System.Drawing.Imaging.ImageFormat]::Png)
         $sha = [System.Security.Cryptography.SHA256]::Create()
-        try { return [Convert]::ToHexString($sha.ComputeHash($stream.ToArray())) }
+        # Windows PowerShell 5.1 runs on .NET Framework, which has no
+        # Convert.ToHexString; BitConverter works on every runtime.
+        try { return ([BitConverter]::ToString($sha.ComputeHash($stream.ToArray()))).Replace('-', '') }
         finally { $sha.Dispose() }
       }
       finally { $stream.Dispose() }
@@ -304,6 +365,7 @@ try {
     outputFolder = $captureFolder
     status = 'capturing'
     captures = @()
+    timelinePasses = @()
   }
 
   Invoke-ValorantClick $window $tabTargets.scoreboard.x $tabTargets.scoreboard.y
@@ -329,59 +391,52 @@ try {
   Invoke-ValorantClick $window $tabTargets.timeline.x $tabTargets.timeline.y
   Start-Sleep -Milliseconds $PageDelayMs
 
-  # The game may initially center the strip on the player's best round. Always
-  # normalize to the far-left edge before capturing numbered rounds.
-  Invoke-TimelineScroll $window 120
-  $firstPassEnd = [Math]::Min($RoundCount, 24)
-  $previousRoundFingerprint = $null
-  $detectedRoundCount = 0
-  for ($round = 1; $round -le $firstPassEnd; $round++) {
-    Invoke-ValorantClick $window (Get-RoundTargetX $round 1) $roundY
-    Start-Sleep -Milliseconds $RoundDelayMs
-    $fileName = "round-$('{0:d2}' -f $round).png"
-    $roundPath = Join-Path $captureFolder $fileName
-    Save-ValorantCapture $window $roundPath
-    $fingerprint = Get-RoundHeaderFingerprint $window $roundPath
-    if ($previousRoundFingerprint -and $fingerprint -eq $previousRoundFingerprint) {
-      # One retry handles a late UI response. A second identical header means
-      # this tile does not exist (or the click failed), so never invent a round.
-      Invoke-ValorantClick $window (Get-RoundTargetX $round 1) $roundY
-      Start-Sleep -Milliseconds ([Math]::Max($RoundDelayMs, 1000))
-      Save-ValorantCapture $window $roundPath
-      $fingerprint = Get-RoundHeaderFingerprint $window $roundPath
-    }
-    if ($previousRoundFingerprint -and $fingerprint -eq $previousRoundFingerprint) {
-      Remove-Item -LiteralPath $roundPath -Force
-      $manifest.timelineStopReason = "Round $round did not change the displayed round after retry."
-      break
-    }
-    $manifest.captures += @{ kind = 'round'; round = $round; file = $fileName }
-    $previousRoundFingerprint = $fingerprint
-    $detectedRoundCount = $round
-  }
-
-  if ($RoundCount -gt 24 -and $detectedRoundCount -eq 24) {
-    Invoke-TimelineScroll $window -120
-    $tailFirstVisibleRound = $RoundCount - 23
-    for ($round = 25; $round -le $RoundCount; $round++) {
-      Invoke-ValorantClick $window (Get-RoundTargetX $round $tailFirstVisibleRound) $roundY
+  # The strip may open centred on the player's best round, and matches over
+  # 24 rounds (overtime, play-all-rounds customs) never fit in one view.
+  # Instead of clicking fixed slot positions, detect the visible tiles by
+  # their round-number labels, click each one, then scroll right and repeat.
+  # Images are numbered in capture order; the importer files each one under
+  # the "ROUND N" header printed on it, so scroll offsets can't mislabel data.
+  $seenFingerprints = New-Object 'System.Collections.Generic.HashSet[string]'
+  $captureIndex = 0
+  $passes = @(120, -120)
+  $previousTiles = $null
+  foreach ($wheel in $passes) {
+    Invoke-TimelineScroll $window $wheel
+    $tiles = Get-VisibleTimelineTiles $window
+    $manifest.timelinePasses += @{ wheel = $wheel; tiles = $tiles.Count }
+    if ($previousTiles -and (($tiles -join ',') -eq ($previousTiles -join ','))) { continue }
+    $previousTiles = $tiles
+    foreach ($tileX in $tiles) {
+      if ($captureIndex -ge $RoundCap) { break }
+      Invoke-ValorantClick $window $tileX $roundY
       Start-Sleep -Milliseconds $RoundDelayMs
-      $fileName = "round-$('{0:d2}' -f $round).png"
-      $roundPath = Join-Path $captureFolder $fileName
-      Save-ValorantCapture $window $roundPath
-      $fingerprint = Get-RoundHeaderFingerprint $window $roundPath
-      if ($previousRoundFingerprint -and $fingerprint -eq $previousRoundFingerprint) {
-        Remove-Item -LiteralPath $roundPath -Force
-        $manifest.timelineStopReason = "Round $round did not change the displayed round after scrolling."
-        break
+      $candidate = Join-Path $captureFolder "pending-$($captureIndex + 1).png"
+      Save-ValorantCapture $window $candidate
+      $fingerprint = Get-RoundHeaderFingerprint $window $candidate
+      if ($seenFingerprints.Contains($fingerprint)) {
+        # A late UI response can leave the previous round on screen: retry once.
+        Invoke-ValorantClick $window $tileX $roundY
+        Start-Sleep -Milliseconds ([Math]::Max($RoundDelayMs, 1000))
+        Save-ValorantCapture $window $candidate
+        $fingerprint = Get-RoundHeaderFingerprint $window $candidate
       }
-      $manifest.captures += @{ kind = 'round'; round = $round; file = $fileName }
-      $previousRoundFingerprint = $fingerprint
-      $detectedRoundCount = $round
+      if ($seenFingerprints.Contains($fingerprint)) {
+        Remove-Item -LiteralPath $candidate -Force
+        continue
+      }
+      [void]$seenFingerprints.Add($fingerprint)
+      $captureIndex++
+      $fileName = "round-$('{0:d2}' -f $captureIndex).png"
+      Move-Item -LiteralPath $candidate -Destination (Join-Path $captureFolder $fileName) -Force
+      $manifest.captures += @{ kind = 'round'; round = $captureIndex; file = $fileName }
     }
-    $manifest.timelineTailStatus = 'captured-after-scroll'
   }
-
+  $detectedRoundCount = $captureIndex
+  if ($detectedRoundCount -eq 0) { throw 'No timeline round tiles were detected. Open the TIMELINE tab of the post-match Summary and try again.' }
+  # Rounds are numbered by capture order; the importer re-keys them by header.
+  $manifest.requestedRounds = $detectedRoundCount
+  $manifest.roundNumbering = 'capture-order'
   $manifest.detectedRounds = $detectedRoundCount
 
   $manifest.status = 'complete'

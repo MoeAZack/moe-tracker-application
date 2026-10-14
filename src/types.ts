@@ -220,6 +220,8 @@ export interface PlayerStats {
   fd?: number | null;
   rating?: string | number | null;
   performanceScore?: number | null;
+  /** Scoreboard TRADES column (competitive layout only). */
+  trades?: number | null;
   headToHead?: Array<{ opponent: string | null; kills: number; deaths: number; assists: number }>;
   plants?: number;
   defuses?: number;
@@ -351,6 +353,7 @@ export interface ScreenshotReviewDraft {
     rawMetrics?: Record<string, string>;
     rawConfidence?: Record<string, number | null>;
     performanceScore?: number | null;
+    trades?: number | null;
     headToHead?: Array<{ opponent: string | null; kills: number; deaths: number; assists: number }>;
   }>;
   rounds: Array<{ roundNo: number; result: 'W' | 'L'; winBy: string | null }>;

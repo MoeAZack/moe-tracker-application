@@ -54,6 +54,12 @@ jobs:
           node-version: 24
           cache: npm
       - run: npm ci
+      - name: Capture helper checks (Windows PowerShell 5.1)
+        shell: powershell
+        run: |
+          powershell.exe -NoProfile -ExecutionPolicy Bypass -File tests\windows\timeline-tiles.ps1
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          npm run test:scrim-capture
       - name: Build unsigned installer
         shell: pwsh
         env:
