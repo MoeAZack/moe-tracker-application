@@ -167,6 +167,37 @@ describe('explicit match statistics save contract', () => {
     expect(stat).toMatchObject({ kills: 22, deaths: 14, assists: 7, kDef: null, fk: null, fd: 0 });
   });
 
+  it('keeps the complete scoreboard when round analytics cover only some players', async () => {
+    const seeded = fixture();
+    seeded.playerStats = ['Alpha', 'Bravo', 'Charlie', 'Delta', 'Echo'].map((player, index) => ({
+      id: `stat-${index + 1}`, matchId: 'match-1', player, kills: 10 - index, source: 'screenshot',
+    }));
+    await fs.writeFile(dbPath, JSON.stringify(seeded));
+    const token = await login(adminKey);
+    const response = await fetch(`${origin}/api/save-rounds`, {
+      method: 'POST',
+      headers: { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        matchId: 'match-1',
+        rows: [{
+          roundNo: 1, side: 'Attack', result: 'W',
+          screenshotEvidence: {
+            schemaVersion: 1, reviewStatus: 'confirmed', eventsComplete: false, events: [],
+            players: [
+              { displayName: 'Alpha', team: 'ours', equippedWeapon: 'Vandal' },
+              { displayName: 'Bravo', team: 'ours', equippedWeapon: 'Phantom' },
+            ],
+          },
+        }],
+      }),
+    });
+    expect(response.status).toBe(200);
+    const result = await response.json();
+    expect(result.playerStats.map((row: any) => row.player)).toEqual(['Alpha', 'Bravo', 'Charlie', 'Delta', 'Echo']);
+    expect(result.screenshotSummary.playerStats.map((row: any) => row.player)).toEqual(['Alpha', 'Bravo']);
+    expect(JSON.parse(await fs.readFile(dbPath, 'utf8')).playerStats).toHaveLength(5);
+  });
+
   it('rejects negative, fractional, and out-of-range metrics without writing', async () => {
     const token = await login(adminKey);
     const invalidBodies = [

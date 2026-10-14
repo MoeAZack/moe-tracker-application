@@ -288,9 +288,14 @@ export function registerDataRoutes(app: Express, options: { websiteSummaryOnly?:
 
       await saveDB(db);
       const match = db.matches.find((item: any) => item.id === matchId) || null;
-      const summarizedStats = db.playerStats.filter((item: any) => item.matchId === matchId && item.screenshotMetrics);
+      const matchStats = db.playerStats.filter((item: any) => item.matchId === matchId);
+      const summarizedStats = matchStats.filter((item: any) => item.screenshotMetrics);
       res.json({
         matchId, rows: rows || [], count: (rows || []).length,
+        // The analytics upload intentionally contains only rows with derived
+        // screenshot metrics. Return the complete scoreboard separately so a
+        // partial OCR identity match can never shrink the visible/saved lineup.
+        playerStats: matchStats,
         screenshotSummary: match && summarizedStats.length ? { schemaVersion: 1, match, playerStats: summarizedStats, updatedAt: new Date().toISOString() } : null,
       });
     } catch (err: any) {
