@@ -102,4 +102,20 @@ describe('public tracker data', () => {
     expect(result).toMatchObject({ rounds: [], vetos: [], strats: [], stratRuns: [], vodReviews: [], lineups: [], seasonArchives: [], secrets: {} });
     expect(JSON.stringify(result)).not.toMatch(/private coach note|private-vod|private round detail|private strat|private review|private-image|private-calendar|private-coach|TAG/);
   });
+
+  it('materializes round conversion summaries for the website without exposing detailed rounds', () => {
+    const result = toWebsiteTrackerData({
+      settings: {},
+      matches: [{ id: 'm1', date: '2026-10-14', type: 'Scrim', opponent: 'Other', map: 'Ascent' }],
+      playerStats: [],
+      rounds: [
+        { id: 'r1', matchId: 'm1', roundNo: 1, side: 'Attack', result: 'W', buy: 'Eco', enemyBuy: 'Eco' },
+        { id: 'r2', matchId: 'm1', roundNo: 2, side: 'Attack', result: 'W', buy: 'Low', enemyBuy: 'Eco' },
+        { id: 'r3', matchId: 'm1', roundNo: 3, side: 'Attack', result: 'L', buy: 'Half', enemyBuy: 'Full' },
+      ],
+    });
+    expect(result.rounds).toEqual([]);
+    expect(result.matches[0].roundAnalytics).toMatchObject({ schemaVersion: 1, map: 'Ascent', coveredRounds: 3, postPistol: { won: 1, total: 1 }, earnedBonus: { won: 0, total: 1 } });
+    expect(JSON.stringify(result.matches[0].roundAnalytics)).not.toContain('screenshotEvidence');
+  });
 });

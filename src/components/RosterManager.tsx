@@ -1,5 +1,5 @@
-import React, { useMemo, useState } from 'react';
-import { AlertTriangle, Archive, RotateCcw, Trash2, UserPlus, Users } from 'lucide-react';
+import React, { useEffect, useMemo, useState } from 'react';
+import { AlertTriangle, Archive, ChevronDown, RotateCcw, Trash2, UserPlus, Users } from 'lucide-react';
 import type { TrackerData } from '../types';
 import { apiFetch } from '../utils/api';
 import PlayerPasswordForm from './PlayerPasswordForm';
@@ -29,6 +29,8 @@ export default function RosterManager({ data, theme, onRefresh }: Props) {
   const [newSeasonName, setNewSeasonName] = useState('');
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [collapsed, setCollapsed] = useState(() => typeof window !== 'undefined' && window.localStorage.getItem('moe.roster-manager.collapsed') === 'true');
+  useEffect(() => { window.localStorage.setItem('moe.roster-manager.collapsed', String(collapsed)); }, [collapsed]);
 
   const mutate = async (route: string, body: unknown) => {
     setBusy(true);
@@ -109,10 +111,12 @@ export default function RosterManager({ data, theme, onRefresh }: Props) {
 
   return (
     <section className={`rounded-2xl border ${theme.border} ${theme.cardBg} p-6 space-y-6`}>
-      <div className="flex items-center gap-2">
-        <Users className="w-5 h-5 text-[#ff4655]" />
-        <h3 className="text-lg font-black tracking-tight uppercase">Roster & Tryout Batches</h3>
-      </div>
+      <button type="button" aria-expanded={!collapsed} aria-controls="roster-management-content" onClick={() => setCollapsed(value => !value)} className="flex min-h-11 w-full items-center justify-between gap-3 rounded-xl px-2 text-left hover:bg-white/[0.04]">
+        <span className="flex min-w-0 items-center gap-2"><Users className="h-5 w-5 shrink-0 text-[#ff4655]" /><span><span className="block text-lg font-black tracking-tight uppercase">Roster & Tryout Batches</span><span className="block text-[10px] font-normal normal-case tracking-normal text-gray-500">{activeCore.size} core · {visibleRosterPlayers.length} active identities · {batches.filter(batch => batch.status === 'active').length} active batch{batches.filter(batch => batch.status === 'active').length === 1 ? '' : 'es'}</span></span></span>
+        <span className="flex shrink-0 items-center gap-2 text-xs font-semibold text-cyan-200">{collapsed ? 'Expand' : 'Minimize'}<ChevronDown className={`h-4 w-4 transition-transform ${collapsed ? '' : 'rotate-180'}`} /></span>
+      </button>
+
+      {!collapsed && <div id="roster-management-content" className="space-y-6">
 
       <div className="p-3 rounded-lg bg-amber-500/10 border border-amber-500/25 text-amber-300 text-xs flex gap-2">
         <AlertTriangle className="w-4 h-4 shrink-0 mt-0.5" />
@@ -226,6 +230,7 @@ export default function RosterManager({ data, theme, onRefresh }: Props) {
 
         <TryoutModePanel enabled={tryoutsMode} activeBatchId={activeTryoutBatchId} batches={batches} players={players} corePlayerIds={activeCore} busy={busy} mutate={mutate} />
       </div>
+      </div>}
     </section>
   );
 }

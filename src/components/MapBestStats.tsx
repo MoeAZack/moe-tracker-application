@@ -1,8 +1,10 @@
 import React, { useState, useMemo } from 'react';
 import { TrackerData, Strat, StratRun } from '../types';
 import { Compass, Calculator, BookOpen, Plus, Edit2, Trash2, CheckCircle2, XCircle, TrendingUp, HelpCircle, ShieldAlert, AlertTriangle, UserMinus, Skull, Sparkles, Users } from 'lucide-react';
-import { matchOutcome } from '../../lib/analyticsEvidence';
+import { knownResult, matchOutcome } from '../../lib/analyticsEvidence';
+import { classifyAverageLoadout, classifyTeamEquipment } from '../../lib/scrimRoundAnalytics';
 import ReplayMatchLog from './ReplayMatchLog';
+import MapRoundIntelligencePanel from './MapRoundIntelligencePanel';
 
 interface ComponentProps {
   data: TrackerData;
@@ -205,12 +207,12 @@ export default function MapBestStats({ data, theme, onUpsert, onRemove }: Compon
 
   // --- TACTICAL LOSS & THROW ANALYTICS ---
   const throwStats = useMemo(() => {
-    const mapThrows: Record<string, { totalThrows: number; reasons: Record<string, number>; players: Record<string, number> }> = {};
+    const mapThrows: Record<string, { totalThrows: number; evidenceLosses: number; reasons: Record<string, number>; players: Record<string, number> }> = {};
     const playerIssues: Record<string, { overpeeks: number; failedClutches: number; otherThrows: number; total: number }> = {};
     const reasonFrequency: Record<string, number> = {};
 
     maps.forEach(m => {
-      mapThrows[m] = { totalThrows: 0, reasons: {}, players: {} };
+      mapThrows[m] = { totalThrows: 0, evidenceLosses: 0, reasons: {}, players: {} };
     });
 
     // Legacy settings can outlive a roster reset. Zero-evidence discipline rows
@@ -226,6 +228,33 @@ export default function MapBestStats({ data, theme, onUpsert, onRemove }: Compon
 
     const allRounds = data.rounds || [];
     const allMatches = data.matches || [];
+    const numberedByMatch = new Map<string, Map<number, any>>();
+    allRounds.forEach(round => { const numbered = numberedByMatch.get(round.matchId) || new Map(); if (!numbered.has(round.roundNo)) numbered.set(round.roundNo, round); numberedByMatch.set(round.matchId, numbered); });
+
+    const economy = (round: any, team: 'ours' | 'theirs') => {
+      const explicit = String(team === 'ours' ? round.buy || '' : round.enemyBuy || '').toLocaleLowerCase();
+      if (['eco', 'pistol'].includes(explicit)) return 'eco';
+      if (['low', 'force', 'force buy'].includes(explicit)) return 'low';
+      if (['half', 'bonus', 'half buy'].includes(explicit)) return 'half';
+      if (['full', 'full buy'].includes(explicit)) return 'full';
+      const evidence = round.screenshotEvidence;
+      if (!evidence || evidence.reviewStatus !== 'confirmed') return 'unknown';
+      const equipment = classifyTeamEquipment(evidence.players || [], team);
+      return equipment !== 'unknown' ? equipment : classifyAverageLoadout(team === 'ours' ? evidence.ourAverageLoadout : evidence.enemyAverageLoadout);
+    };
+
+    const lostTwoPlayerAdvantage = (round: any) => {
+      const evidence = round.screenshotEvidence;
+      const events = [...(evidence?.events || [])].sort((a: any, b: any) => a.sequence - b.sequence);
+      if (evidence?.reviewStatus !== 'confirmed' || evidence?.eventsComplete !== true || !events.length || events.some((event: any, index: number) => event.sequence !== index + 1)) return false;
+      let ours = 5, theirs = 5, peak = 0;
+      for (const event of events) {
+        if (event.victimTeam === 'ours') ours = Math.max(0, ours - 1);
+        if (event.victimTeam === 'theirs') theirs = Math.max(0, theirs - 1);
+        peak = Math.max(peak, ours - theirs);
+      }
+      return peak >= 2;
+    };
 
     allRounds.forEach(r => {
       const isAThrow = (r.isThrow as any) === 'TRUE' || (r.isThrow as any) === true;
@@ -237,7 +266,7 @@ export default function MapBestStats({ data, theme, onUpsert, onRemove }: Compon
         if (match) {
           const mapName = match.map;
           if (!mapThrows[mapName]) {
-            mapThrows[mapName] = { totalThrows: 0, reasons: {}, players: {} };
+            mapThrows[mapName] = { totalThrows: 0, evidenceLosses: 0, reasons: {}, players: {} };
           }
           mapThrows[mapName].totalThrows++;
           if (r.throwReason && r.throwReason !== '-') {
@@ -267,6 +296,26 @@ export default function MapBestStats({ data, theme, onUpsert, onRemove }: Compon
           reasonFrequency[r.throwReason] = (reasonFrequency[r.throwReason] || 0) + 1;
         }
       }
+
+      if (knownResult(r.result) === 'loss') {
+        const match = allMatches.find(m => m.id === r.matchId);
+        if (!match?.map) return;
+        const ours = economy(r, 'ours');
+        const theirs = economy(r, 'theirs');
+        const pistolRound = r.roundNo === 2 ? 1 : r.roundNo === 14 ? 13 : null;
+        const lostPostPistol = pistolRound !== null && knownResult(numberedByMatch.get(r.matchId)?.get(pistolRound)?.result) === 'win';
+        const reason = ours === 'full' && (theirs === 'eco' || theirs === 'low') ? 'Anti-eco loss'
+          : lostPostPistol ? 'Failed post-pistol conversion'
+            : lostTwoPlayerAdvantage(r) ? 'Lost 2+ player advantage'
+              : ours === 'full' ? 'Full-buy loss'
+                : null;
+        if (reason) {
+          const mapRow = mapThrows[match.map] || (mapThrows[match.map] = { totalThrows: 0, evidenceLosses: 0, reasons: {}, players: {} });
+          mapRow.evidenceLosses += 1;
+          mapRow.reasons[reason] = (mapRow.reasons[reason] || 0) + 1;
+          reasonFrequency[reason] = (reasonFrequency[reason] || 0) + 1;
+        }
+      }
     });
 
     return { mapThrows, playerIssues, reasonFrequency };
@@ -277,8 +326,9 @@ export default function MapBestStats({ data, theme, onUpsert, onRemove }: Compon
     let maxThrows = 0;
     Object.entries(throwStats.mapThrows).forEach(([m, s]) => {
       const stat = s as any;
-      if (stat.totalThrows > maxThrows) {
-        maxThrows = stat.totalThrows;
+      const riskCount = stat.evidenceLosses || stat.totalThrows;
+      if (riskCount > maxThrows) {
+        maxThrows = riskCount;
         topMap = m;
       }
     });
@@ -314,6 +364,7 @@ export default function MapBestStats({ data, theme, onUpsert, onRemove }: Compon
   const totalThrownRounds = useMemo(() => {
     return Object.values(throwStats.playerIssues).reduce((acc, curr: any) => acc + curr.total, 0);
   }, [throwStats]);
+  const totalEvidenceLosses = useMemo(() => Object.values(throwStats.mapThrows).reduce((total, row: any) => total + row.evidenceLosses, 0), [throwStats]);
 
   // --- PLAYBOOK STRAT COMPUTATION ---
   const filteredStrats = useMemo(() => {
@@ -446,7 +497,9 @@ export default function MapBestStats({ data, theme, onUpsert, onRemove }: Compon
 
       {/* VIEW: MAP POOL STATS */}
       {activeSubTab === 'stats' && (
-        <div className={`p-5 rounded-xl border ${isLight ? 'bg-white border-slate-200 text-slate-800 shadow-sm' : 'bg-white/5 border-white/10'} space-y-4`}>
+        <div className="space-y-4">
+          <MapRoundIntelligencePanel data={data} />
+          <div className={`p-5 rounded-xl border ${isLight ? 'bg-white border-slate-200 text-slate-800 shadow-sm' : 'bg-white/5 border-white/10'} space-y-4`}>
           <div className="flex items-center gap-2 mb-2">
             <Compass className={`w-5 h-5 ${theme.text}`} />
             <h4 className="font-black text-sm uppercase tracking-wide">Map Pool Breakdown</h4>
@@ -495,6 +548,7 @@ export default function MapBestStats({ data, theme, onUpsert, onRemove }: Compon
                 })}
               </tbody>
             </table>
+          </div>
           </div>
         </div>
       )}
@@ -570,10 +624,10 @@ export default function MapBestStats({ data, theme, onUpsert, onRemove }: Compon
           {/* Top Quick Metrics */}
           <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
             <div className={`p-4 rounded-xl border ${isLight ? 'bg-white border-slate-200 text-slate-800 shadow-sm' : 'bg-white/5 border-white/10'} space-y-1`}>
-              <span className="text-[9px] uppercase font-bold text-gray-400 font-mono block">Team Thrown Rounds</span>
+              <span className="text-[9px] uppercase font-bold text-gray-400 font-mono block">Evidence-costly losses</span>
               <div className="flex items-baseline gap-2">
-                <span className="text-2xl font-black text-rose-500">{totalThrownRounds}</span>
-                <span className="text-[9px] text-gray-500 font-mono">Rounds Lost</span>
+                <span className="text-2xl font-black text-rose-500">{totalEvidenceLosses}</span>
+                <span className="text-[9px] text-gray-500 font-mono">Auto-detected</span>
               </div>
             </div>
 
@@ -586,7 +640,7 @@ export default function MapBestStats({ data, theme, onUpsert, onRemove }: Compon
             </div>
 
             <div className={`p-4 rounded-xl border ${isLight ? 'bg-white border-slate-200 text-slate-800 shadow-sm' : 'bg-white/5 border-white/10'} space-y-1`}>
-              <span className="text-[9px] uppercase font-bold text-gray-400 font-mono block">High Throw-Risk Map</span>
+              <span className="text-[9px] uppercase font-bold text-gray-400 font-mono block">Highest costly-loss map</span>
               <div className="flex items-baseline gap-2">
                 <span className="text-sm font-black text-white truncate">{topMapThrow.map}</span>
                 <span className="text-xs text-rose-400 font-mono">({topMapThrow.count})</span>
@@ -594,10 +648,10 @@ export default function MapBestStats({ data, theme, onUpsert, onRemove }: Compon
             </div>
 
             <div className={`p-4 rounded-xl border ${isLight ? 'bg-white border-slate-200 text-slate-800 shadow-sm' : 'bg-white/5 border-white/10'} space-y-1`}>
-              <span className="text-[9px] uppercase font-bold text-gray-400 font-mono block">Overpeeking Leader</span>
+              <span className="text-[9px] uppercase font-bold text-gray-400 font-mono block">Coach-confirmed throws</span>
               <div className="flex items-baseline gap-2">
-                <span className="text-sm font-black text-amber-400 truncate">{topOverpeeker.name}</span>
-                <span className="text-xs text-amber-500 font-mono">({topOverpeeker.count})</span>
+                <span className="text-2xl font-black text-amber-400">{totalThrownRounds}</span>
+                <span className="text-[9px] text-gray-500 font-mono">Overpeek: {topOverpeeker.count ? `${topOverpeeker.name} (${topOverpeeker.count})` : 'not marked'}</span>
               </div>
             </div>
           </div>
@@ -607,10 +661,10 @@ export default function MapBestStats({ data, theme, onUpsert, onRemove }: Compon
             <div className={`p-5 rounded-xl border ${isLight ? 'bg-white border-slate-200 text-slate-800 shadow-sm' : 'bg-white/5 border-white/10'} space-y-3`}>
               <h4 className="text-xs font-black uppercase font-mono text-[#ff4655] tracking-wider flex items-center gap-2">
                 <Compass className="w-4 h-4 text-[#ff4655]" />
-                Map Tactical Throw Densities
+                Map Costly-Loss Densities
               </h4>
               <p className="text-[9.5px] text-gray-400 font-mono leading-relaxed">
-                Highlights which competitive map zones generate the most costly structural throws during scrims.
+                Automatic evidence flags economy punishments, failed post-pistol conversions, full-buy losses, and complete-event 2+ player advantage collapses. It does not assign player blame.
               </p>
 
               <div className="overflow-x-auto">
@@ -618,14 +672,15 @@ export default function MapBestStats({ data, theme, onUpsert, onRemove }: Compon
                   <thead>
                     <tr className="border-b border-white/10 text-gray-500 uppercase font-black text-[9px]">
                       <th className="py-2">Map</th>
-                      <th className="py-2 text-center">Total Throws</th>
+                      <th className="py-2 text-center">Costly losses</th>
+                      <th className="py-2 text-center">Confirmed throws</th>
                       <th className="py-2">Primary Loss Driver</th>
                       <th className="py-2">Prone Player</th>
                     </tr>
                   </thead>
                   <tbody className="divide-y divide-white/5">
                     {maps.map(mName => {
-                      const stats = throwStats.mapThrows[mName] || { totalThrows: 0, reasons: {}, players: {} };
+                      const stats = throwStats.mapThrows[mName] || { totalThrows: 0, evidenceLosses: 0, reasons: {}, players: {} };
                       
                       // Find top reason for this map
                       let topMapReason = '-';
@@ -654,13 +709,14 @@ export default function MapBestStats({ data, theme, onUpsert, onRemove }: Compon
                           <td className="py-2 text-white font-bold">{mName}</td>
                           <td className="py-2 text-center">
                             <span className={`px-2 py-0.5 rounded font-black text-[10px] ${
-                              stats.totalThrows > 4 ? 'bg-rose-500/10 text-rose-400 border border-rose-500/20' :
-                              stats.totalThrows > 0 ? 'bg-amber-500/10 text-amber-400 border border-amber-500/20' :
+                              stats.evidenceLosses > 4 ? 'bg-rose-500/10 text-rose-400 border border-rose-500/20' :
+                              stats.evidenceLosses > 0 ? 'bg-amber-500/10 text-amber-400 border border-amber-500/20' :
                               'bg-gray-500/5 text-gray-600'
                             }`}>
-                              {stats.totalThrows}
+                              {stats.evidenceLosses}
                             </span>
                           </td>
+                          <td className="py-2 text-center text-gray-400">{stats.totalThrows}</td>
                           <td className="py-2 text-gray-300 text-[11px] truncate max-w-[120px]">{topMapReason}</td>
                           <td className="py-2 text-amber-400 text-[11px] font-bold">{topMapPlayer}</td>
                         </tr>
@@ -680,7 +736,7 @@ export default function MapBestStats({ data, theme, onUpsert, onRemove }: Compon
                   Roster Discipline Leaderboard
                 </h4>
                 <p className="text-[9.5px] text-gray-400 font-mono leading-relaxed">
-                  Identifies which team players require immediate tactical coaching to reduce round losses.
+                  Player blame is coach-confirmed only. Screenshots cannot prove positioning intent such as an overpeek.
                 </p>
 
                 <div className="overflow-x-auto">
@@ -696,7 +752,7 @@ export default function MapBestStats({ data, theme, onUpsert, onRemove }: Compon
                       </tr>
                     </thead>
                     <tbody className="divide-y divide-white/5">
-                      {Object.entries(throwStats.playerIssues)
+                      {Object.entries(throwStats.playerIssues).filter(([, row]: any) => row.total > 0)
                         .sort((a, b) => (b[1] as any).total - (a[1] as any).total)
                         .map(([pName, s]) => {
                           const stats = s as any;
@@ -725,6 +781,7 @@ export default function MapBestStats({ data, theme, onUpsert, onRemove }: Compon
                             </tr>
                           );
                         })}
+                      {Object.values(throwStats.playerIssues).every((row: any) => row.total === 0) && <tr><td colSpan={6} className="py-5 text-center text-[10px] text-gray-500">No coach-attributed player errors. Automatic evidence is shown in the map table without assigning blame.</td></tr>}
                     </tbody>
                   </table>
                 </div>
@@ -739,7 +796,7 @@ export default function MapBestStats({ data, theme, onUpsert, onRemove }: Compon
 
                 <div className="space-y-2 pt-1 font-mono text-xs">
                   {Object.entries(throwStats.reasonFrequency).length === 0 ? (
-                    <p className="text-[10px] text-gray-500 text-center py-2">No throws or tactical errors logged yet.</p>
+                    <p className="text-[10px] text-gray-500 text-center py-2">No automatic costly-loss pattern or coach-confirmed throw is available yet.</p>
                   ) : (
                     Object.entries(throwStats.reasonFrequency)
                       .sort((a, b) => (b[1] as number) - (a[1] as number))
@@ -775,7 +832,7 @@ export default function MapBestStats({ data, theme, onUpsert, onRemove }: Compon
               Tactical Loss & Discipline Diagnostics
             </h5>
             <p className="text-[10.5px] text-gray-300 leading-relaxed">
-              These insights are updated dynamically by analyzing standard round loss properties. When logging rounds, make sure to check the "Throw" tick and designate the overpeeker or lost post-plant clutch reason to produce hyper-accurate diagnostics reports.
+              Economy mismatches, failed post-pistol conversions, full-buy losses and complete-event man-advantage collapses are calculated automatically. Overpeeking, the responsible player, and tactical intent remain coach-confirmed because screenshots cannot prove them reliably.
             </p>
           </div>
         </div>

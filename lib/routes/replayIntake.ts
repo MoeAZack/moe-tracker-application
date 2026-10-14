@@ -610,7 +610,7 @@ export function registerReplayDeviceUploadRoute(app: Express) {
       const { db, device } = authenticated; if (device.owner.role !== 'coach') return res.status(403).json({ error: 'Team screenshot summaries require a coach-owned device.' });
       const matchId = String(req.params.matchId || ''); const body = req.body;
       if (!matchId || body?.schemaVersion !== 1 || body?.match?.id !== matchId || !Array.isArray(body?.playerStats) || body.playerStats.length > 20 || Buffer.byteLength(JSON.stringify(body)) > 128 * 1024) return res.status(400).json({ error: 'Screenshot summary is invalid.' });
-      const allowedMatch = ['id', 'date', 'type', 'opponent', 'map', 'attW', 'attL', 'defW', 'defL', 'ourScore', 'theirScore', 'pistolAtt', 'pistolDef', 'ecoAtt', 'ecoDef', 'bonusAtt', 'bonusDef', 'rosterContext', 'sourceMetadata'];
+      const allowedMatch = ['id', 'date', 'type', 'opponent', 'map', 'attW', 'attL', 'defW', 'defL', 'ourScore', 'theirScore', 'pistolAtt', 'pistolDef', 'ecoAtt', 'ecoDef', 'bonusAtt', 'bonusDef', 'rosterContext', 'roundAnalytics', 'sourceMetadata'];
       const safeMatch = Object.fromEntries(allowedMatch.filter(key => body.match[key] !== undefined).map(key => [key, structuredClone(body.match[key])]));
       const safeStats = body.playerStats.map((row: any) => {
         if (!row?.id || row.matchId !== matchId || !row.screenshotMetrics || row.screenshotMetrics.schemaVersion !== 1) throw Object.assign(new Error('Screenshot player summary is invalid.'), { status: 400 });

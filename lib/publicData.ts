@@ -1,3 +1,5 @@
+import { buildMapRoundIntelligence } from './mapRoundAnalytics';
+
 const PRIVATE_TOP_LEVEL_KEYS = new Set(['authKeys', 'allowedUsers', 'secretValues', '_storage']);
 const PRIVATE_SETTING_KEYS = new Set(['discordWebhook', 'gridApiKey', 'henrikApiKey']);
 
@@ -19,6 +21,13 @@ export function toPublicTrackerData(db: Record<string, any>, role: 'coach' | 'pl
   // hitchhike in the broad tracker payload, including for coaches.
   delete publicData.replayIntake;
   delete publicData.engineAdapters;
+  if (Array.isArray(publicData.matches) && Array.isArray(publicData.rounds)) {
+    publicData.matches = publicData.matches.map((match: any) => {
+      if (match.roundAnalytics?.schemaVersion === 1) return match;
+      const roundAnalytics = buildMapRoundIntelligence([match], publicData.rounds.filter((round: any) => round.matchId === match.id))[0];
+      return roundAnalytics ? { ...match, roundAnalytics } : match;
+    });
+  }
   if (Array.isArray(publicData.seasonArchives)) publicData.seasonArchives = publicData.seasonArchives.map((archive: any) => {
     const { accessIdentities: _privateAccessIdentities, engineAdapters: _privateEngineAdapters, replayIntake: _privateReplayIntake, ...safeArchive } = archive || {};
     return safeArchive;
@@ -44,7 +53,7 @@ export function toPublicTrackerData(db: Record<string, any>, role: 'coach' | 'pl
   return publicData;
 }
 
-const WEBSITE_MATCH_FIELDS = ['id', 'date', 'type', 'opponent', 'map', 'attW', 'attL', 'defW', 'defL', 'ourScore', 'theirScore', 'pistolAtt', 'pistolDef', 'ecoAtt', 'ecoDef', 'bonusAtt', 'bonusDef', 'rosterContext'] as const;
+const WEBSITE_MATCH_FIELDS = ['id', 'date', 'type', 'opponent', 'map', 'attW', 'attL', 'defW', 'defL', 'ourScore', 'theirScore', 'pistolAtt', 'pistolDef', 'ecoAtt', 'ecoDef', 'bonusAtt', 'bonusDef', 'rosterContext', 'roundAnalytics'] as const;
 const WEBSITE_STAT_FIELDS = ['id', 'matchId', 'player', 'playerId', 'displayNameSnapshot', 'appearanceType', 'agent', 'kills', 'deaths', 'assists', 'acs', 'adr', 'hs', 'headshots', 'headshotEligibleKills', 'fk', 'fd', 'plants', 'defuses', 'cl', 'clAtt', 'mk3', 'mk4', 'mk5', 'dTraded', 'kTraded', 'rating', 'screenshotMetrics'] as const;
 
 function selectFields(record: any, fields: readonly string[]) {
