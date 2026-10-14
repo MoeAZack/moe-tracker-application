@@ -10,6 +10,7 @@ permissions:
 
 jobs:
   linux-deps:
+    if: github.event_name == 'workflow_dispatch'
     # Offline dev sandboxes cannot reach npm or artifact storage, but can
     # fetch git refs. Publish a trimmed node_modules snapshot to a temporary
     # orphan branch (deleted after use) so tests and OCR backtests run there.
@@ -34,6 +35,7 @@ jobs:
           git push -f "https://x-access-token:${{ secrets.GITHUB_TOKEN }}@github.com/${GITHUB_REPOSITORY}.git" ci/deps-snapshot
 
   replay-toolchain:
+    if: github.event_name == 'workflow_dispatch'
     # Linux build of the same pinned vrfkit commit plus a pyarrow wheel, for
     # offline replay backtests in sandboxes without crates.io/PyPI access.
     runs-on: ubuntu-latest
@@ -132,6 +134,8 @@ jobs:
           if (-not $installer) { throw 'Installer was not created.' }
           (Get-FileHash $installer.FullName -Algorithm SHA256).Hash | Out-File -Encoding ascii "$($installer.FullName).sha256"
       - name: Publish installer parts to ci/dev-installer (temporary, for offline delivery)
+        # The repository is public: only publish delivery branches on an explicit manual run.
+        if: github.event_name == 'workflow_dispatch'
         shell: bash
         run: |
           set -e
