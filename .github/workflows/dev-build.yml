@@ -1,0 +1,70 @@
+name: Dev build (unsigned)
+
+on:
+  push:
+    branches: ['claude/**']
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  linux-deps:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+      - run: npm ci
+      - name: Snapshot node_modules for offline dev sandboxes
+        run: tar -czf node_modules-linux.tgz node_modules
+      - uses: actions/upload-artifact@v4
+        with:
+          name: node-modules-linux
+          path: node_modules-linux.tgz
+          retention-days: 3
+
+  verify:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+          cache: npm
+      - run: npm ci
+      - run: npm run check
+
+  windows-installer:
+    needs: verify
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+          cache: npm
+      - run: npm ci
+      - name: Build unsigned installer
+        shell: pwsh
+        env:
+          CSC_IDENTITY_AUTO_DISCOVERY: 'false'
+        run: |
+          npm run build
+          npx electron-builder --win nsis --publish never
+      - name: Hash installer
+        shell: pwsh
+        run: |
+          $installer = Get-ChildItem release\Moe-Tracker-Application-*-Setup.exe | Select-Object -First 1
+          if (-not $installer) { throw 'Installer was not created.' }
+          (Get-FileHash $installer.FullName -Algorithm SHA256).Hash | Out-File -Encoding ascii "$($installer.FullName).sha256"
+      - uses: actions/upload-artifact@v4
+        with:
+          name: unsigned-windows-installer
+          path: |
+            release/Moe-Tracker-Application-*-Setup.exe
+            release/Moe-Tracker-Application-*-Setup.exe.sha256
+            release/latest.yml
+          retention-days: 7
