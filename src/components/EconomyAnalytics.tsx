@@ -4,6 +4,7 @@ import { Coins, TrendingUp, Shield, Swords } from 'lucide-react';
 import { knownResult, knownRoundSide } from '../../lib/analyticsEvidence';
 import ReplayMatchLog from './ReplayMatchLog';
 import { buildPlayerScreenshotMetrics, combineStoredScreenshotMetrics, deriveSpecialRoundConversions } from '../../lib/scrimRoundAnalytics';
+import { percentageBarClass, percentageTextClass } from '../utils/percentageColor';
 
 interface Props {
   data: TrackerData;
@@ -14,12 +15,12 @@ const pct = (won: number, total: number) => (total > 0 ? Math.round((won / total
 
 function Bar({ label, won, total }: { label: string; won: number; total: number }) {
   const p = pct(won, total);
-  const color = p >= 55 ? 'bg-emerald-500' : p >= 45 ? 'bg-amber-500' : 'bg-rose-500';
+  const color = total > 0 ? percentageBarClass(p) : percentageBarClass(null);
   return (
     <div className="space-y-1">
       <div className="flex justify-between text-xs font-mono">
         <span className="text-gray-300">{label}</span>
-        <span className="text-gray-500">{won}/{total} · <span className="text-white font-bold">{total > 0 ? `${p}%` : 'Unknown'}</span></span>
+        <span className="text-gray-500">{won}/{total} · <span className={`font-bold ${percentageTextClass(total > 0 ? p : null)}`}>{total > 0 ? `${p}%` : 'Unknown'}</span></span>
       </div>
       <div className="h-2 rounded-full bg-white/5 overflow-hidden">
         <div className={`h-full ${color} rounded-full transition-all`} style={{ width: `${total > 0 ? p : 0}%` }} />
@@ -34,11 +35,11 @@ function StatCard({ icon, title, attW, attT, defW, defT }: { icon: React.ReactNo
     <div className="rounded-xl border border-white/10 bg-white/[0.03] p-4 space-y-3">
       <div className="flex items-center justify-between">
         <span className="text-[10px] uppercase font-bold tracking-widest text-gray-500 flex items-center gap-1.5">{icon}{title}</span>
-        <span className="text-lg font-black">{total > 0 ? `${pct(won, total)}%` : 'Unknown'}</span>
+        <span className={`text-lg font-black ${percentageTextClass(total > 0 ? pct(won, total) : null)}`}>{total > 0 ? `${pct(won, total)}%` : 'Unknown'}</span>
       </div>
       <div className="space-y-1.5 text-[11px] font-mono">
-        <div className="flex justify-between"><span className="text-amber-400">Attack</span><span>{attW}/{attT} · {attT > 0 ? `${pct(attW, attT)}%` : 'Unknown'}</span></div>
-        <div className="flex justify-between"><span className="text-cyan-400">Defense</span><span>{defW}/{defT} · {defT > 0 ? `${pct(defW, defT)}%` : 'Unknown'}</span></div>
+        <div className="flex justify-between"><span>Attack</span><span className={percentageTextClass(attT > 0 ? pct(attW, attT) : null)}>{attW}/{attT} · {attT > 0 ? `${pct(attW, attT)}%` : 'Unknown'}</span></div>
+        <div className="flex justify-between"><span>Defense</span><span className={percentageTextClass(defT > 0 ? pct(defW, defT) : null)}>{defW}/{defT} · {defT > 0 ? `${pct(defW, defT)}%` : 'Unknown'}</span></div>
       </div>
     </div>
   );
@@ -111,7 +112,7 @@ export default function EconomyAnalytics({ data, theme }: Props) {
 
       <ReplayMatchLog data={data} theme={theme} title="Economy evidence by match" description="Round results are included immediately; buy-type metrics stay unknown until the replay or coach provides them." />
 
-      {screenshotPlayers.length > 0 && <section className={`rounded-xl border ${theme.border} ${theme.cardBg} p-5`} aria-labelledby="screenshot-player-metrics"><div className="flex flex-wrap items-end justify-between gap-2"><div><h3 id="screenshot-player-metrics" className="text-xs uppercase font-bold tracking-widest text-gray-500">Screenshot-derived player metrics</h3><p className="mt-1 text-xs text-gray-500">Confirmed round screens only. Weapon means equipped weapon, not a proven purchase.</p></div><span className="text-[10px] text-gray-500">KAST uses only fully covered rounds</span></div><div className="mt-4 overflow-x-auto"><table className="w-full min-w-[760px] text-left text-xs"><thead className="text-[10px] uppercase tracking-wider text-gray-500"><tr><th className="pb-2">Player</th><th className="pb-2">Rounds</th><th className="pb-2">Openings</th><th className="pb-2">Multi-kills</th><th className="pb-2">Low-buy wins</th><th className="pb-2">Full-buy losses</th><th className="pb-2">Anti-eco losses</th><th className="pb-2">Top weapon</th><th className="pb-2">KAST</th></tr></thead><tbody>{screenshotPlayers.map(player => { const weapon = player.weapons[0]; return <tr key={player.identity} className="border-t border-white/5"><td className="py-3 font-semibold">{player.displayName}</td><td>{player.coveredRounds}</td><td>{player.firstKills}–{player.firstDeaths}</td><td>{player.multikills.two}×2K · {player.multikills.three}×3K · {player.multikills.four}×4K · {player.multikills.ace} ace</td><td>{player.lowBudgetWins}</td><td>{player.highBudgetLosses}</td><td>{player.antiEcoLosses}</td><td>{weapon ? `${weapon.weapon} · ${weapon.wins}/${weapon.rounds}` : 'Unknown'}</td><td>{player.kast?.covered ? `${Math.round(player.kast.successful / player.kast.covered * 100)}% (${player.kast.covered})` : 'Unknown'}</td></tr>; })}</tbody></table></div></section>}
+      {screenshotPlayers.length > 0 && <section className={`rounded-xl border ${theme.border} ${theme.cardBg} p-5`} aria-labelledby="screenshot-player-metrics"><div className="flex flex-wrap items-end justify-between gap-2"><div><h3 id="screenshot-player-metrics" className="text-xs uppercase font-bold tracking-widest text-gray-500">Screenshot-derived player metrics</h3><p className="mt-1 text-xs text-gray-500">Confirmed round screens only. Weapon means equipped weapon, not a proven purchase.</p></div><span className="text-[10px] text-gray-500">KAST uses only fully covered rounds</span></div><div className="mt-4 overflow-x-auto"><table className="w-full min-w-[760px] text-left text-xs"><thead className="text-[10px] uppercase tracking-wider text-gray-500"><tr><th className="pb-2">Player</th><th className="pb-2">Rounds</th><th className="pb-2">Openings</th><th className="pb-2">Multi-kills</th><th className="pb-2">Low-buy wins</th><th className="pb-2">Full-buy losses</th><th className="pb-2">Anti-eco losses</th><th className="pb-2">Top weapon</th><th className="pb-2">KAST</th></tr></thead><tbody>{screenshotPlayers.map(player => { const weapon = player.weapons[0]; const kast = player.kast?.covered ? Math.round(player.kast.successful / player.kast.covered * 100) : null; return <tr key={player.identity} className="border-t border-white/5"><td className="py-3 font-semibold">{player.displayName}</td><td>{player.coveredRounds}</td><td>{player.firstKills}–{player.firstDeaths}</td><td>{player.multikills.two}×2K · {player.multikills.three}×3K · {player.multikills.four}×4K · {player.multikills.ace} ace</td><td>{player.lowBudgetWins}</td><td>{player.highBudgetLosses}</td><td>{player.antiEcoLosses}</td><td>{weapon ? `${weapon.weapon} · ${weapon.wins}/${weapon.rounds}` : 'Unknown'}</td><td className={percentageTextClass(kast)}>{kast === null ? 'Unknown' : `${kast}% (${player.kast!.covered})`}</td></tr>; })}</tbody></table></div></section>}
 
       {matches.length === 0 ? (
         <p className="text-sm text-gray-500 font-mono italic">Log some matches to see economy conversions.</p>

@@ -4,6 +4,7 @@ import RosterContextSelector from './RosterContextSelector';
 import { reconcileAppearanceMap } from '../utils/lineupContext';
 import { activeTryoutPhase, newWorkspaceMatchContext } from '../utils/tryoutWorkspace';
 import { prepareLiveFinalStat, reconcileStatTotals } from '../../lib/entryEngine';
+import { percentageTextClass } from '../utils/percentageColor';
 import { 
   Zap, Swords, Compass, Users, Activity, Play, Plus, Trash2, 
   CheckCircle2, AlertTriangle, Shield, Award, Sparkles, Trophy, 
@@ -1407,7 +1408,7 @@ export default function LiveLogger({ data, theme, onSaveMatch, onSaveRounds, onR
                     <p className="text-gray-500 text-[9px] uppercase">Primary IGL</p>
                     <p className="text-white font-black mt-0.5">
                       {statsSummary.primW}W - {statsSummary.primL}L
-                      <span className="text-violet-400 block text-[9px] font-bold">
+                      <span className={`${percentageTextClass(statsSummary.primW + statsSummary.primL > 0 ? Math.round(statsSummary.primW / (statsSummary.primW + statsSummary.primL) * 100) : null)} block text-[9px] font-bold`}>
                         {statsSummary.primW + statsSummary.primL > 0 
                           ? `${((statsSummary.primW / (statsSummary.primW + statsSummary.primL)) * 100).toFixed(0)}% Winrate`
                           : 'No rounds yet'}
@@ -1419,7 +1420,7 @@ export default function LiveLogger({ data, theme, onSaveMatch, onSaveRounds, onR
                     <p className="text-gray-500 text-[9px] uppercase">Secondary IGL</p>
                     <p className="text-white font-black mt-0.5">
                       {statsSummary.secW}W - {statsSummary.secL}L
-                      <span className="text-amber-400 block text-[9px] font-bold">
+                      <span className={`${percentageTextClass(statsSummary.secW + statsSummary.secL > 0 ? Math.round(statsSummary.secW / (statsSummary.secW + statsSummary.secL) * 100) : null)} block text-[9px] font-bold`}>
                         {statsSummary.secW + statsSummary.secL > 0 
                           ? `${((statsSummary.secW / (statsSummary.secW + statsSummary.secL)) * 100).toFixed(0)}% Winrate`
                           : 'No rounds yet'}
@@ -1431,7 +1432,7 @@ export default function LiveLogger({ data, theme, onSaveMatch, onSaveRounds, onR
                     <p className="text-gray-500 text-[9px] uppercase">Mid-Round Strat Pivots (2nd IGL ticked)</p>
                     <p className="text-white font-black mt-0.5">
                       {statsSummary.midIglW}W - {statsSummary.midIglL}L
-                      <span className="text-rose-400 block text-[9px] font-bold">
+                      <span className={`${percentageTextClass(statsSummary.midIglW + statsSummary.midIglL > 0 ? Math.round(statsSummary.midIglW / (statsSummary.midIglW + statsSummary.midIglL) * 100) : null)} block text-[9px] font-bold`}>
                         {statsSummary.midIglW + statsSummary.midIglL > 0 
                           ? `${((statsSummary.midIglW / (statsSummary.midIglW + statsSummary.midIglL)) * 100).toFixed(0)}% Winrate on adjustment`
                           : 'No mid-round adjustments ticked'}

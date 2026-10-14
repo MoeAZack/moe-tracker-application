@@ -3,6 +3,7 @@ import { TrackerData, Strat } from '../types';
 import { Sparkles, Brain, Zap, UserCheck, Check, Trash2, Loader2, Target, Users, ArrowUpRight, Compass, Swords, ClipboardList, Send, AlertTriangle, Activity } from 'lucide-react';
 import { apiFetch } from '../utils/api';
 import { addPlayerEvidence, emptyPlayerEvidence, headshotRate, untradedRate } from '../../lib/analyticsEvidence';
+import { percentageBarClass, percentageSurfaceClass, percentageTextClass } from '../utils/percentageColor';
 
 interface ComponentProps {
   data: TrackerData;
@@ -961,7 +962,7 @@ export default function AITacticalHub({ data, theme, onUpsert, onRemove }: Compo
                   {data.strats.map((strat: Strat) => {
                     const stats = strategyStats[strat.name] || { won: 0, total: 0 };
                     const winrate = stats.total > 0 ? Math.round((stats.won / stats.total) * 100) : 0;
-                    const performanceColor = winrate >= 60 ? 'text-green-400 bg-green-500/5 border-green-500/10' : winrate >= 45 ? 'text-yellow-400 bg-yellow-500/5 border-yellow-500/10' : stats.total === 0 ? 'text-gray-500 bg-transparent border-transparent' : 'text-red-400 bg-red-500/5 border-red-500/10';
+                    const performanceColor = percentageSurfaceClass(stats.total > 0 ? winrate : null);
 
                     return (
                       <div key={strat.id} className="p-4 rounded-xl border border-white/5 bg-black/25 hover:border-white/10 transition-all flex flex-col md:flex-row justify-between items-start md:items-center gap-4">
@@ -980,12 +981,12 @@ export default function AITacticalHub({ data, theme, onUpsert, onRemove }: Compo
                           <div className="flex items-center gap-3">
                             <div className="text-right">
                               <span className="text-[9px] uppercase font-bold text-gray-400 font-mono block">Scrim Winrate</span>
-                              <span className="text-xs font-black font-mono text-white">
+                              <span className={`text-xs font-black font-mono ${percentageTextClass(stats.total > 0 ? winrate : null)}`}>
                                 {stats.total > 0 ? `${winrate}%` : '-'}
                               </span>
                             </div>
                             <div className="w-16 h-1.5 bg-white/5 rounded-full overflow-hidden">
-                              <div className="h-full bg-red-500" style={{ width: `${winrate}%` }} />
+                              <div className={`h-full ${percentageBarClass(stats.total > 0 ? winrate : null)}`} style={{ width: `${winrate}%` }} />
                             </div>
                             <span className="text-[9px] font-mono text-gray-500">({stats.total} rounds)</span>
                           </div>
@@ -1071,11 +1072,11 @@ export default function AITacticalHub({ data, theme, onUpsert, onRemove }: Compo
                       <div className="flex justify-between items-end">
                         <div className="space-y-0.5">
                           <span className="text-[9px] text-gray-500 font-mono block">Previous Period</span>
-                          <span className="text-sm font-black font-mono text-gray-400">{prevClutchRate}% <span className="text-[10px] text-gray-500">({prev.clutchesWon}/{prev.clutchesAttempted})</span></span>
+                          <span className={`text-sm font-black font-mono ${percentageTextClass(prev.clutchesAttempted > 0 ? prevClutchRate : null)}`}>{prevClutchRate}% <span className="text-[10px] text-gray-500">({prev.clutchesWon}/{prev.clutchesAttempted})</span></span>
                         </div>
                         <div className="text-right space-y-0.5">
                           <span className="text-[9px] text-[#ff4655] font-mono block font-black">Current Period</span>
-                          <span className="text-xl font-black font-mono text-white">{currClutchRate}% <span className="text-[10px] text-gray-400">({curr.clutchesWon}/{curr.clutchesAttempted})</span></span>
+                          <span className={`text-xl font-black font-mono ${percentageTextClass(curr.clutchesAttempted > 0 ? currClutchRate : null)}`}>{currClutchRate}% <span className="text-[10px] text-gray-400">({curr.clutchesWon}/{curr.clutchesAttempted})</span></span>
                         </div>
                       </div>
                       <div className="flex items-center gap-1.5 text-[10px] font-mono mt-1">
@@ -1096,11 +1097,11 @@ export default function AITacticalHub({ data, theme, onUpsert, onRemove }: Compo
                       <div className="flex justify-between items-end">
                         <div className="space-y-0.5">
                           <span className="text-[9px] text-gray-500 font-mono block">Previous Period</span>
-                          <span className="text-sm font-black font-mono text-gray-400">{prevUntradedRate === null ? 'N/A' : `${prevUntradedRate}%`} <span className="text-[10px] text-gray-500">({prev.tradeKnownDeaths} deaths with trade data)</span></span>
+                          <span className={`text-sm font-black font-mono ${percentageTextClass(prevUntradedRate, true)}`}>{prevUntradedRate === null ? 'N/A' : `${prevUntradedRate}%`} <span className="text-[10px] text-gray-500">({prev.tradeKnownDeaths} deaths with trade data)</span></span>
                         </div>
                         <div className="text-right space-y-0.5">
                           <span className="text-[9px] text-[#ff4655] font-mono block font-black">Current Period</span>
-                          <span className="text-xl font-black font-mono text-white">{currUntradedRate === null ? 'N/A' : `${currUntradedRate}%`} <span className="text-[10px] text-gray-400">({curr.tradeKnownDeaths} deaths with trade data)</span></span>
+                          <span className={`text-xl font-black font-mono ${percentageTextClass(currUntradedRate, true)}`}>{currUntradedRate === null ? 'N/A' : `${currUntradedRate}%`} <span className="text-[10px] text-gray-400">({curr.tradeKnownDeaths} deaths with trade data)</span></span>
                         </div>
                       </div>
                       <div className="flex items-center gap-1.5 text-[10px] font-mono mt-1">
@@ -1238,7 +1239,7 @@ export default function AITacticalHub({ data, theme, onUpsert, onRemove }: Compo
                           return <td key={p2} className="py-3 px-3 text-center text-gray-500 italic bg-black/10">insufficient</td>;
                         }
                         const wr = Math.round((stats.won / stats.total) * 100);
-                        const heatmapBg = wr >= 62 ? 'bg-green-500/25 text-green-300' : wr >= 53 ? 'bg-green-500/10 text-green-400' : wr >= 45 ? 'bg-yellow-500/10 text-yellow-400' : 'bg-red-500/20 text-red-400';
+                        const heatmapBg = percentageSurfaceClass(wr);
 
                         return (
                           <td key={p2} className={`py-3 px-3 text-center font-bold font-mono transition-all ${heatmapBg}`} title={`${stats.won}/${stats.total} rounds won together`}>
@@ -1278,7 +1279,7 @@ export default function AITacticalHub({ data, theme, onUpsert, onRemove }: Compo
                         <div className="space-y-1">
                           <span className="text-[9px] uppercase font-mono font-bold text-gray-400 block">First Blood Win Rate</span>
                           <div className="flex items-center gap-2">
-                            <span className={`text-xs font-mono font-black ${fbWr >= 60 ? 'text-green-400' : fbWr >= 45 ? 'text-yellow-400' : est.fbTotal === 0 ? 'text-gray-500' : 'text-red-400'}`}>
+                            <span className={`text-xs font-mono font-black ${percentageTextClass(est.fbTotal > 0 ? fbWr : null)}`}>
                               {est.fbTotal > 0 ? `${fbWr}%` : 'N/A'}
                             </span>
                             <span className="text-[9px] font-mono text-gray-500">({est.fbWon}/{est.fbTotal})</span>
@@ -1288,7 +1289,7 @@ export default function AITacticalHub({ data, theme, onUpsert, onRemove }: Compo
                         <div className="space-y-1">
                           <span className="text-[9px] uppercase font-mono font-bold text-gray-400 block">First Death Recovery</span>
                           <div className="flex items-center gap-2">
-                            <span className={`text-xs font-mono font-black ${fdWr >= 45 ? 'text-green-400' : fdWr >= 35 ? 'text-yellow-400' : est.fdTotal === 0 ? 'text-gray-500' : 'text-red-400'}`}>
+                            <span className={`text-xs font-mono font-black ${percentageTextClass(est.fdTotal > 0 ? fdWr : null)}`}>
                               {est.fdTotal > 0 ? `${fdWr}%` : 'N/A'}
                             </span>
                             <span className="text-[9px] font-mono text-gray-500">({est.fdWon}/{est.fdTotal})</span>
@@ -1377,7 +1378,7 @@ export default function AITacticalHub({ data, theme, onUpsert, onRemove }: Compo
 
                       <div className="text-right">
                         <span className="text-[9px] uppercase font-black text-violet-400 tracking-wider font-mono">Compatibility Score</span>
-                        <h4 className="text-2xl font-black font-mono text-white mt-0.5">{simReport.score}%</h4>
+                        <h4 className={`text-2xl font-black font-mono mt-0.5 ${percentageTextClass(simReport.score)}`}>{simReport.score}%</h4>
                       </div>
                     </div>
 
