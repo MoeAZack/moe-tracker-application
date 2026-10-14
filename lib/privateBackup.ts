@@ -69,6 +69,8 @@ function decryptState(envelopeText: string, key: Buffer | null) {
   }
 }
 
+const isAutomaticReason = (reason: unknown) => /^(scheduled|desktop-daily)/.test(String(reason || ''));
+
 /** Keep the newest N automatic backups; never touch pre-restore/pre-import safety copies. */
 async function pruneAutomaticBackups(keep: number) {
   if (!Number.isInteger(keep) || keep < 1) return;
@@ -79,7 +81,7 @@ async function pruneAutomaticBackups(keep: number) {
     const dir = path.join(backupRoot(), entry.name);
     try {
       const manifest = JSON.parse(await fs.readFile(path.join(dir, 'manifest.json'), 'utf8'));
-      if (manifest?.format === PRIVATE_BACKUP_FORMAT && String(manifest.reason || '').startsWith('scheduled')) automatic.push({ dir, createdAt: Date.parse(manifest.createdAt) || 0 });
+      if (manifest?.format === PRIVATE_BACKUP_FORMAT && isAutomaticReason(manifest.reason)) automatic.push({ dir, createdAt: Date.parse(manifest.createdAt) || 0 });
     } catch { /* unrelated or incomplete folder */ }
   }
   automatic.sort((a, b) => b.createdAt - a.createdAt);
@@ -120,7 +122,7 @@ export async function createPrivateBackup(options: { reason?: string; directory?
   };
   const manifestText = JSON.stringify(manifest, null, 2);
   await atomicWrite(path.join(directory, 'manifest.json'), manifestText);
-  if (String(manifest.reason).startsWith('scheduled')) await pruneAutomaticBackups(Number(process.env.PRIVATE_BACKUP_KEEP || 0)).catch(() => {});
+  if (isAutomaticReason(manifest.reason)) await pruneAutomaticBackups(Number(process.env.PRIVATE_BACKUP_KEEP || 0)).catch(() => {});
   return { id, directory, manifest };
 }
 
