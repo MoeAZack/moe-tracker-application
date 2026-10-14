@@ -119,6 +119,25 @@ describe('private replay intake', () => {
     expect(device.tokenHash).toBe(crypto.createHash('sha256').update(body.credential.token).digest('hex')); expect(JSON.stringify(stored)).not.toContain(body.credential.token);
   });
 
+  it('synchronizes complete screenshot match and player fields', async () => {
+    const coach = await login(adminKey);
+    const enrollment = await (await jsonRequest('/api/replay-intake/devices/enroll', coach, { name: 'Coach screenshot PC' })).json();
+    const metric = { schemaVersion: 1, coveredRounds: 18, wins: 13, losses: 5, firstKills: 3, firstDeaths: 2, multikills: { two: 1, three: 0, four: 0, ace: 0 }, lowBudgetWins: 1, highBudgetLosses: 2, antiEcoLosses: 0, kast: { successful: 0, covered: 0 }, weapons: [] };
+    const response = await fetch(`${origin}/api/replay-intake/screenshot-summaries/match-screen`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', 'X-Device-Id': enrollment.device.id, 'X-Device-Token': enrollment.credential.token },
+      body: JSON.stringify({
+        schemaVersion: 1,
+        match: { id: 'match-screen', date: '2026-10-14', map: 'Ascent', ourScore: 13, theirScore: 5, pistolAtt: 'W', bonusDef: 'L', sourceMetadata: { method: 'screenshot', capturedAt: '2026-10-14T12:00:00.000Z' } },
+        playerStats: [{ id: 'stat-screen', matchId: 'match-screen', player: 'RAF BLACK', agent: 'Omen', kills: 16, deaths: 11, assists: 10, fk: 3, fd: 2, plants: 1, defuses: 0, screenshotMetrics: metric, sourceMetadata: { method: 'screenshot', capturedAt: '2026-10-14T12:00:00.000Z' } }],
+      }),
+    });
+    expect(response.status).toBe(201);
+    const stored = JSON.parse(await fs.readFile(dbPath, 'utf8'));
+    expect(stored.matches[0]).toMatchObject({ id: 'match-screen', pistolAtt: 'W', bonusDef: 'L', sourceMetadata: { method: 'screenshot' } });
+    expect(stored.playerStats[0]).toMatchObject({ player: 'RAF BLACK', fk: 3, fd: 2, plants: 1, defuses: 0, screenshotMetrics: { coveredRounds: 18 } });
+  });
+
   it('pairs a device with a short-lived one-time code and stores only credential hashes', async () => {
     const coach = await login(adminKey); const issued = await jsonRequest('/api/replay-intake/pairing-codes', coach, {}); expect(issued.status).toBe(201); const pairing = await issued.json(); expect(pairing.code).toMatch(/^[A-Z2-9]{10}$/);
     const claimed = await jsonRequest('/api/replay-intake/pair', undefined, { code: pairing.code, deviceName: 'Coach Laptop' }); expect(claimed.status).toBe(201); const enrollment = await claimed.json();

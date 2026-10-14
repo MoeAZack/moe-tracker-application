@@ -6,7 +6,7 @@ import * as schemas from '../../schemas';
 import { toPublicTrackerData, toWebsiteTrackerData } from '../publicData';
 import { preserveExistingRosterContext, validateAndNormalizeLineup } from '../matchContext';
 import { applyImmutableEntryMetadata, applyScreenshotReviewConfirmation, reconcileStatTotals } from '../entryEngine';
-import { buildPlayerScreenshotMetrics } from '../scrimRoundAnalytics';
+import { buildPlayerScreenshotMetrics, screenshotPlayerIdentity } from '../scrimRoundAnalytics';
 
 // Core data + match logging: full payload, reset, settings, generic upsert/remove,
 // and match/round/veto saves. Protected routes (registered after the auth middleware).
@@ -278,7 +278,7 @@ export function registerDataRoutes(app: Express, options: { websiteSummaryOnly?:
       db.playerStats = db.playerStats.map((stat: any) => {
         if (stat.matchId !== matchId) return stat;
         const displayName = stat.displayNameSnapshot || stat.player || '';
-        const identity = stat.playerId || `name:${String(displayName).trim().toLocaleLowerCase()}`;
+        const identity = screenshotPlayerIdentity(stat.playerId, displayName);
         const metric = byIdentity.get(identity);
         const { screenshotMetrics: _old, ...clean } = stat;
         if (!metric) return clean;
