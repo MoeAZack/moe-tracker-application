@@ -33,6 +33,10 @@ let runtime;
 let updateController;
 let quitting = false;
 
+// Keep Windows taskbar/notification identity aligned with the owl-branded
+// executable instead of inheriting an older Electron/VALORANT-style cache.
+if (process.platform === 'win32') app.setAppUserModelId('com.moezack.moetracker.owl');
+
 const json = async (file, fallback = null) => {
   try { return JSON.parse(await fsp.readFile(file, 'utf8')); }
   catch (error) { if (error.code === 'ENOENT') return fallback; throw error; }
@@ -459,6 +463,7 @@ async function desktopStatus() {
     cloudUrl: runtime.config.cloudUrl,
     folders: runtime.paths,
     replayCount: replays.length,
+    replays,
     pendingScoreboards: pendingScoreboards.length,
     latestReplay: replays[0] || null,
     collector,
@@ -587,6 +592,13 @@ ipcMain.handle('desktop:start-scrim-capture', async (_event, input = {}) => {
     child.on('exit', code => code === 0 ? resolve() : reject(new Error(stderr.trim() || 'Windows did not start the capture helper.')));
   });
   return { started: true, message: `Capture started for ${roundCount} rounds. Approve Windows elevation, then return to VALORANT before the countdown ends.` };
+});
+ipcMain.handle('desktop:delete-replay', async (_event, replayPath) => {
+  const requested = path.resolve(String(replayPath || ''));
+  const record = (await replayInventory()).find(item => path.resolve(item.path) === requested);
+  if (!record || path.extname(record.path).toLowerCase() !== '.vrf') throw new Error('That replay is no longer in a configured replay folder.');
+  await shell.trashItem(record.path);
+  return { deleted: true, message: `${record.name} was moved to the Recycle Bin.` };
 });
 ipcMain.handle('desktop:get-integration-secret-status', async () => ({
   encryptionAvailable: safeStorage.isEncryptionAvailable(),

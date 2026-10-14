@@ -1,5 +1,5 @@
 import React, { useEffect, useState } from 'react';
-import { AlertTriangle, CheckCircle2, Cloud, FolderOpen, Image, LoaderCircle, Play, ScanLine, WifiOff } from 'lucide-react';
+import { AlertTriangle, CheckCircle2, Cloud, FolderOpen, Image, LoaderCircle, Play, ScanLine, Trash2, WifiOff } from 'lucide-react';
 
 export default function DesktopCommandCenter({ onOpenReplay, onOpenCapture }: { onOpenReplay?: () => void; onOpenCapture?: () => void }) {
   const bridge = typeof window === 'undefined' ? undefined : window.moeDesktop;
@@ -23,6 +23,7 @@ export default function DesktopCommandCenter({ onOpenReplay, onOpenCapture }: { 
   };
   const mb = status?.latestReplay ? Math.round(status.latestReplay.size / 1024 / 1024) : 0;
   const pendingScoreboards = Number(status?.pendingScoreboards || 0);
+  const replays = status?.replays || [];
   const hasAttention = pendingScoreboards > 0 || Number(status?.sync?.pending || 0) > 0;
   return <section className="desktop-intake overflow-hidden rounded-2xl" aria-labelledby="desktop-intake-title">
     <header className="desktop-intake-header">
@@ -38,7 +39,7 @@ export default function DesktopCommandCenter({ onOpenReplay, onOpenCapture }: { 
       </div>
     </header>
 
-    <div className="grid gap-3 p-4 xl:grid-cols-[minmax(0,1.1fr)_minmax(340px,.9fr)]">
+    <div className="grid items-start gap-3 p-4 xl:grid-cols-[minmax(0,1.1fr)_minmax(340px,.9fr)]">
       <article className={`desktop-next-action ${pendingScoreboards ? 'desktop-next-action-review' : ''}`}>
         <div className="flex min-w-0 items-start gap-3">
           <span className="desktop-action-icon">{pendingScoreboards ? <ScanLine className="h-5 w-5" /> : <Play className="h-5 w-5" />}</span>
@@ -52,6 +53,7 @@ export default function DesktopCommandCenter({ onOpenReplay, onOpenCapture }: { 
             </div>
           </div>
         </div>
+          {replays.length > 0 && <div className="desktop-replay-list mt-5 border-t border-white/10 pt-3"><div className="mb-2 flex items-center justify-between gap-2"><p className="text-[10px] font-semibold uppercase tracking-[0.16em] text-slate-400">Replay files on this PC</p><span className="text-[10px] text-slate-500">{replays.length} total</span></div><ul className="max-h-48 space-y-1 overflow-y-auto pr-1">{replays.map((replay: any) => <li key={replay.path} className="flex min-w-0 items-center gap-2 rounded-lg border border-white/[0.07] bg-black/10 px-3 py-2"><span className="min-w-0 flex-1"><span className="block truncate text-xs font-medium text-slate-200">{replay.name}</span><span className="text-[10px] text-slate-500">{Math.max(1, Math.round(replay.size / 1024 / 1024))} MB</span></span><button type="button" aria-label={`Delete replay ${replay.name}`} disabled={!!busy} onClick={() => { if (window.confirm(`Move ${replay.name} to the Recycle Bin?`)) void run('delete-replay', () => bridge.deleteReplay(replay.path)); }} className="inline-flex h-9 w-9 shrink-0 items-center justify-center rounded-lg border border-rose-300/15 text-rose-300 hover:border-rose-300/35 hover:bg-rose-300/10 disabled:opacity-40"><Trash2 className="h-4 w-4" /></button></li>)}</ul></div>}
       </article>
 
       <aside className="desktop-capture-card" aria-label="Screenshot capture workflow">

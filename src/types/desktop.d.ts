@@ -8,6 +8,7 @@ type DesktopStatus = {
   startWithWindows: boolean;
   cloudUrl: string;
   replayCount: number;
+  replays: Array<{ name: string; path: string; size: number; modifiedAt: string }>;
   pendingScoreboards: number;
   latestReplay: null | { name: string; path: string; size: number; modifiedAt: string };
   localService: 'online' | 'offline';
@@ -28,6 +29,7 @@ declare global {
       downloadUpdate(): Promise<DesktopStatus['update']>;
       installUpdate(): Promise<{ installing: boolean }>;
       processMatch(): Promise<{ state: string; message: string; items?: any[] }>;
+      deleteReplay(replayPath: string): Promise<{ deleted: boolean; message: string }>;
       syncNow(): Promise<{ state: string; message: string }>;
       pairDevice(input: { server: string; code: string }): Promise<{ paired: boolean; server: string; device: any }>;
       setSyncMode(mode: 'offline-first' | 'connected'): Promise<{ mode: 'offline-first' | 'connected' }>;
