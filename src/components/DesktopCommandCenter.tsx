@@ -39,8 +39,8 @@ export default function DesktopCommandCenter({ onOpenReplay, onOpenCapture }: { 
       </div>
     </header>
 
-    <div className="grid items-start gap-3 p-4 xl:grid-cols-[minmax(0,1.1fr)_minmax(340px,.9fr)]">
-      <article className={`desktop-next-action ${pendingScoreboards ? 'desktop-next-action-review' : ''}`}>
+    <div className="grid items-stretch gap-3 p-4 xl:grid-cols-2">
+      <article className={`desktop-next-action flex h-full min-w-0 flex-col ${pendingScoreboards ? 'desktop-next-action-review' : ''}`}>
         <div className="flex min-w-0 items-start gap-3">
           <span className="desktop-action-icon">{pendingScoreboards ? <ScanLine className="h-5 w-5" /> : <Play className="h-5 w-5" />}</span>
           <div className="min-w-0 flex-1">
@@ -53,10 +53,10 @@ export default function DesktopCommandCenter({ onOpenReplay, onOpenCapture }: { 
             </div>
           </div>
         </div>
-          {replays.length > 0 && <div className="desktop-replay-list mt-5 border-t border-white/10 pt-3"><div className="mb-2 flex items-center justify-between gap-2"><p className="text-[10px] font-semibold uppercase tracking-[0.16em] text-slate-400">Replay files on this PC</p><span className="text-[10px] text-slate-500">{replays.length} total</span></div><ul className="max-h-48 space-y-1 overflow-y-auto pr-1">{replays.map((replay: any) => <li key={replay.path} className="flex min-w-0 items-center gap-2 rounded-lg border border-white/[0.07] bg-black/10 px-3 py-2"><span className="min-w-0 flex-1"><span className="block truncate text-xs font-medium text-slate-200">{replay.name}</span><span className="text-[10px] text-slate-500">{Math.max(1, Math.round(replay.size / 1024 / 1024))} MB</span></span><button type="button" aria-label={`Delete replay ${replay.name}`} disabled={!!busy} onClick={() => { if (window.confirm(`Move ${replay.name} to the Recycle Bin?`)) void run('delete-replay', () => bridge.deleteReplay(replay.path)); }} className="inline-flex h-9 w-9 shrink-0 items-center justify-center rounded-lg border border-rose-300/15 text-rose-300 hover:border-rose-300/35 hover:bg-rose-300/10 disabled:opacity-40"><Trash2 className="h-4 w-4" /></button></li>)}</ul></div>}
+          {replays.length > 0 && <div className="desktop-replay-list mt-5 border-t border-white/10 pt-3"><div className="mb-2 flex items-center justify-between gap-2"><p className="text-[10px] font-semibold uppercase tracking-[0.16em] text-slate-400">Replay files on this PC</p><span className="text-[10px] text-slate-500">{replays.length} total</span></div><ul className="max-h-36 space-y-1 overflow-y-auto pr-1">{replays.map((replay: any) => <li key={replay.path} className="flex min-w-0 items-center gap-2 rounded-lg border border-white/[0.07] bg-black/10 px-3 py-2"><span className="min-w-0 flex-1"><span className="block truncate text-xs font-medium text-slate-200">{replay.name}</span><span className="text-[10px] text-slate-500">{Math.max(1, Math.round(replay.size / 1024 / 1024))} MB</span></span><button type="button" aria-label={`Delete replay ${replay.name}`} disabled={!!busy} onClick={() => { if (window.confirm(`Move ${replay.name} to the Recycle Bin?`)) void run('delete-replay', () => bridge.deleteReplay(replay.path)); }} className="inline-flex h-9 w-9 shrink-0 items-center justify-center rounded-lg border border-rose-300/15 text-rose-300 hover:border-rose-300/35 hover:bg-rose-300/10 disabled:opacity-40"><Trash2 className="h-4 w-4" /></button></li>)}</ul></div>}
       </article>
 
-      <aside className="desktop-capture-card" aria-label="Screenshot capture workflow">
+      <aside className="desktop-capture-card flex h-full min-w-0 flex-col" aria-label="Screenshot capture workflow">
         <div className="flex items-center justify-between gap-3"><span className="flex items-center gap-2 text-sm font-semibold text-white"><Image className="h-4 w-4 text-fuchsia-300" />Screenshot capture</span><span className="text-2xl font-semibold tabular-nums text-white">{pendingScoreboards}</span></div>
         <ol className="mt-4 space-y-2 text-xs text-slate-300">
           <li><span>1</span>Open the completed match Timeline</li>
