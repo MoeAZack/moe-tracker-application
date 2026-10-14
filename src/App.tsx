@@ -2,10 +2,11 @@ import React, { useState, useEffect, useMemo, Suspense, lazy } from 'react';
 import { TrackerData, Settings, MatchStatsUpdate, ScreenshotReviewDraft } from './types';
 import LoginScreen from './components/LoginScreen';
 import Logo from './components/Logo';
-import StorageIndicator from './components/StorageIndicator';
+import TeamSyncIndicator from './components/TeamSyncIndicator';
 import { apiFetch } from './utils/api';
 import { filterAnalyticsHistory } from './utils/historyFilter';
 import { filterTryoutWorkspace, activeTryoutPhase } from './utils/tryoutWorkspace';
+import { reportDesktopDiagnostic } from './utils/desktopDiagnostics';
 
 // Heavy route views are code-split so the initial bundle only loads the shell + login.
 const Dashboard = lazy(() => import('./components/Dashboard'));
@@ -34,6 +35,13 @@ import {
 } from 'lucide-react';
 
 export default function App() {
+  useEffect(() => {
+    if (!window.moeDesktop) return;
+    const onError = (event: ErrorEvent) => { void reportDesktopDiagnostic('renderer-error', event.error || event.message); };
+    const onRejection = (event: PromiseRejectionEvent) => { void reportDesktopDiagnostic('renderer-unhandled-rejection', event.reason); };
+    window.addEventListener('error', onError); window.addEventListener('unhandledrejection', onRejection);
+    return () => { window.removeEventListener('error', onError); window.removeEventListener('unhandledrejection', onRejection); };
+  }, []);
   const desktopMode = Boolean(window.moeDesktop);
   const [key, setKey] = useState<string | null>(desktopMode ? null : localStorage.getItem('team_tracker_key'));
   const [role, setRole] = useState<string | null>(desktopMode ? null : localStorage.getItem('team_tracker_role'));
@@ -51,6 +59,15 @@ export default function App() {
 
   // Scrim Auto-Import modal
   const [scrimOpen, setScrimOpen] = useState(false);
+
+  useEffect(() => {
+    if (!window.moeDesktop?.onCaptureReady) return;
+    return window.moeDesktop.onCaptureReady(() => {
+      setActiveTab('dashboard');
+      setMobileMenuOpen(false);
+      setScrimOpen(true);
+    });
+  }, []);
 
   useEffect(() => {
     if (!window.moeDesktop) return;
@@ -262,10 +279,18 @@ export default function App() {
       if (!res.ok) throw new Error('Failed to update round log sheets.');
       const resJson = await res.json();
       const savedRows: any[] = resJson.rows || [];
-      setData((prev) => prev ? {
-        ...prev,
-        rounds: [...(prev.rounds || []).filter((r) => r.matchId !== matchId), ...savedRows]
-      } : prev);
+      if (resJson.screenshotSummary && window.moeDesktop) await window.moeDesktop.queueScreenshotSummary(resJson.screenshotSummary);
+      setData((prev) => {
+        if (!prev) return prev;
+        const summarizedStats: any[] = resJson.screenshotSummary?.playerStats || [];
+        return {
+          ...prev,
+          rounds: [...(prev.rounds || []).filter((r) => r.matchId !== matchId), ...savedRows],
+          playerStats: summarizedStats.length
+            ? [...(prev.playerStats || []).filter((stat) => stat.matchId !== matchId), ...summarizedStats]
+            : prev.playerStats,
+        };
+      });
     } catch (err: any) {
       alert(err.message || 'Error saving rounds.');
       throw err;
@@ -373,11 +398,11 @@ export default function App() {
       {/* Sidebar Navigation */}
       <aside className="liquid-chrome app-sidebar hidden lg:flex w-72 flex-col p-6 shrink-0 min-h-screen justify-between">
         <div className="space-y-8">
-          <div className="flex items-center gap-3">
-            <Logo size={42} className="shrink-0 drop-shadow-[0_0_10px_rgba(92,232,244,0.2)]" />
-            <div>
-              <span className="text-xl font-black tracking-tighter uppercase italic block truncate max-w-[170px]">{appTitle}</span>
-              <span className="text-[9px] font-mono text-gray-500 tracking-widest uppercase block -mt-1">SCRIM ENGINE v2</span>
+          <div className="flex min-w-0 items-center gap-2.5">
+            <Logo size={52} className="shrink-0 drop-shadow-[0_0_12px_rgba(92,232,244,0.28)]" />
+            <div className="min-w-0 flex-1">
+              <span className="block whitespace-nowrap text-[18px] font-black uppercase italic leading-tight tracking-[-0.045em]">MOE TRACKER</span>
+              <span className="text-[9px] font-mono text-gray-500 tracking-widest uppercase block -mt-1">SCRIM ENGINE · v{__APP_VERSION__}</span>
             </div>
           </div>
           
@@ -472,11 +497,11 @@ export default function App() {
       {/* Header for Mobile */}
       <div className="flex-1 flex flex-col min-h-screen overflow-x-hidden">
         <header className="liquid-chrome lg:hidden sticky top-0 z-50 px-4 py-3 flex justify-between items-center border-x-0 border-t-0 rounded-none">
-          <div className="flex items-center gap-2">
-            <Logo size={34} className="shrink-0" />
-            <div>
-              <span className="text-base font-black tracking-tighter uppercase italic block truncate max-w-[150px]">{appTitle}</span>
-              <span className="text-[8px] font-mono text-gray-500 tracking-widest block -mt-1 font-bold">SCRIM ENGINE</span>
+          <div className="flex min-w-0 items-center gap-2">
+            <Logo size={40} className="shrink-0" />
+            <div className="min-w-0">
+              <span className="block whitespace-nowrap text-base font-black uppercase italic leading-tight tracking-[-0.04em]">MOE TRACKER</span>
+              <span className="text-[8px] font-mono text-gray-500 tracking-widest block -mt-1 font-bold">SCRIM ENGINE · v{__APP_VERSION__}</span>
             </div>
           </div>
 
@@ -554,7 +579,7 @@ export default function App() {
           </nav>
         )}
 
-        <div className="aurora-utility-bar"><span className="aurora-eyebrow">{data && activeTryoutPhase(data) ? `Tryouts · ${activeTryoutPhase(data)?.name}` : 'Team workspace'}</span><StorageIndicator /></div>
+        <div className="aurora-utility-bar"><div className="aurora-utility-context"><span className="aurora-eyebrow">{data && activeTryoutPhase(data) ? `Tryouts · ${activeTryoutPhase(data)?.name}` : 'Team workspace'}</span><span className="aurora-version-badge" title="Installed MoeTracker version">v{__APP_VERSION__}</span></div>{data && <TeamSyncIndicator teamName={data.settings.teamName || 'MoeTracker team'} role={role} desktopMode={desktopMode} />}</div>
         {data && ['dashboard', 'analysis', 'economy', 'maps', 'players'].includes(activeTab) && (data.tryoutBatches || []).some(batch => batch.status === 'archived') && <label className="mx-auto flex max-w-7xl w-full flex-wrap items-center gap-2 px-6 text-sm text-slate-300">Analytics history<select aria-label="Analytics phase" className="ui-field min-h-11 px-3" value={historicalTryoutId} onChange={event => setHistoricalTryoutId(event.target.value)}><option value="">Current workspace</option>{data.tryoutBatches.filter(batch => batch.status === 'archived').map(batch => <option key={batch.id} value={batch.id}>Archived tryouts · {batch.name}</option>)}</select>{historicalTryoutId && <span className="text-xs text-cyan-300">Viewing archived results only; new entries still use the current workspace.</span>}</label>}
 
         {/* Main Workspace Frame */}
@@ -575,7 +600,7 @@ export default function App() {
               </div>
             }>
             {activeTab === 'dashboard' && analyticsData && (
-              <Dashboard data={analyticsData} theme={theme} role={role} username={username} summaryMode={!desktopMode} onOpenMatch={(matchId) => { setReviewMatchId(matchId); setActiveTab('vod'); }} onOpenReplay={() => setActiveTab('replays')} />
+              <Dashboard data={analyticsData} theme={theme} role={role} username={username} summaryMode={!desktopMode} onOpenMatch={(matchId) => { setReviewMatchId(matchId); setActiveTab('vod'); }} onOpenReplay={() => setActiveTab('replays')} onOpenCapture={() => setScrimOpen(true)} />
             )}
             {activeTab === 'calendar' && data && (
               <CalendarGoals data={data} theme={theme} onUpsert={handleUpsert} onRemove={handleRemove} />

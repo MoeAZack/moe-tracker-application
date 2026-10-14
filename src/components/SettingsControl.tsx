@@ -2,6 +2,9 @@ import React, { useState, useEffect, useMemo } from 'react';
 import { TrackerData, Settings } from '../types';
 import { Settings as SettingsIcon, Save, Info, Key, Sliders, Plus, Trash2, Eye, EyeOff, UserCheck, UserMinus, ShieldAlert, Database, Download, Upload, Code, Copy, Check, FileCode, HardDrive } from 'lucide-react';
 import { apiFetch } from '../utils/api';
+import StorageIndicator from './StorageIndicator';
+import DesktopDeviceSettings from './DesktopDeviceSettings';
+import DesktopIntegrationSecrets from './DesktopIntegrationSecrets';
 
 interface ComponentProps {
   data: TrackerData;
@@ -323,7 +326,7 @@ export default function SettingsControl({ data, theme, onSaveSettings, onRefresh
             { id: 'pool', label: 'Rosters & Map Pools', icon: Sliders },
             { id: 'weights', label: 'Calculator Weights & Stats', icon: Key },
             { id: 'access-control', label: 'Access Control & Keys', icon: UserCheck },
-            { id: 'backup-import', label: 'Backup & Database Sync', icon: Database }
+            { id: 'backup-import', label: 'Device, Sync & Storage', icon: Database }
           ].map(sb => {
             const Icon = sb.icon;
             return (
@@ -386,47 +389,7 @@ export default function SettingsControl({ data, theme, onSaveSettings, onRefresh
                     <Key className="w-3.5 h-3.5 text-[#ff4655]" /> External API & Webhook Endpoints
                   </h5>
 
-                  <div className="space-y-1.5">
-                    <label className="text-[10px] uppercase font-black text-gray-500 font-mono block">Legacy ranked provider</label>
-                    <input
-                      type="password"
-                      placeholder="Disabled — eligibility and consent gates unavailable"
-                      value=""
-                      disabled
-                      className="w-full p-2.5 bg-black/25 text-white border border-white/10 rounded text-xs font-mono"
-                    />
-                    <p className="text-[9px] text-gray-500 leading-relaxed font-mono">
-                      A key alone does not make ranked sync eligible. This path remains disabled until provider capability, versioned player consent and exact account identity are persisted.
-                    </p>
-                  </div>
-
-                  <div className="space-y-1.5">
-                    <label className="text-[10px] uppercase font-black text-[#ff4655] font-mono block">Official GRID.gg API Key</label>
-                    <input
-                      type="password"
-                      placeholder="Managed in deployment environment"
-                      value=""
-                      disabled
-                      className="w-full p-2.5 bg-black/25 text-white border border-rose-500/30 focus:border-rose-500 rounded text-xs font-mono"
-                    />
-                    <p className="text-[9px] text-gray-400 leading-relaxed font-mono">
-                      Configure GRID_API_KEY through Google Secret Manager / Cloud Run.
-                    </p>
-                  </div>
-
-                  <div className="space-y-1.5">
-                    <label className="text-[10px] uppercase font-black text-gray-500 font-mono block">Discord Webhook Notification URL</label>
-                    <input
-                      type="text"
-                      placeholder="Managed in deployment environment"
-                      value=""
-                      disabled
-                      className="w-full p-2.5 bg-black/25 text-white border border-white/10 rounded text-xs font-mono"
-                    />
-                    <p className="text-[9px] text-gray-500 leading-relaxed font-mono">
-                      Configure DISCORD_WEBHOOK_URL through Google Secret Manager / Cloud Run.
-                    </p>
-                  </div>
+                  <DesktopIntegrationSecrets />
                 </div>
 
                 <div className="space-y-4 pt-4 border-t border-white/5 font-mono text-xs text-left">
@@ -940,10 +903,13 @@ export default function SettingsControl({ data, theme, onSaveSettings, onRefresh
               <div className="space-y-6 text-left">
                 <div className="border-b border-white/10 pb-2">
                   <h4 className="text-xs uppercase font-black tracking-widest text-[#ff4655] font-mono">
-                    Database Backup & Migration Suite
+                    Device, Sync, Storage &amp; Backup
                   </h4>
-                  <p className="text-[11px] text-gray-400 mt-1">Export, back up, or restore your entire team’s database locally using a structured JSON file.</p>
+                  <p className="text-[11px] text-gray-400 mt-1">Manage this PC, team synchronization, support files, updates, storage, and database backups.</p>
                 </div>
+
+                <StorageIndicator expanded />
+                <DesktopDeviceSettings />
 
                 <div className="grid grid-cols-1 md:grid-cols-2 gap-6 pt-2">
                   {/* Backup Card */}

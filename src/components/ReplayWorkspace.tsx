@@ -16,6 +16,7 @@ import {
 import { apiFetch } from "../utils/api";
 import type { TrackerData } from "../types";
 import StorageIndicator from "./StorageIndicator";
+import { reportDesktopDiagnostic } from "../utils/desktopDiagnostics";
 import ScoreboardCrop from './ScoreboardCrop';
 import type { ScoreboardSelection } from '../../lib/localOcrEngine';
 
@@ -802,8 +803,10 @@ export default function ReplayWorkspace({
         );
       return true;
     } catch (cause: any) {
-      if (screenshotGuard.current.isCurrent(request))
-        announce("", cause.message || "The scoreboard could not be queued.");
+      if (screenshotGuard.current.isCurrent(request)) {
+        const code = await reportDesktopDiagnostic("scoreboard-ocr", cause);
+        announce("", `${cause.message || "The scoreboard could not be queued."}${code ? ` Error code: ${code}` : ""}`);
+      }
       return false;
     } finally {
       if (screenshotGuard.current.isCurrent(request)) setScreenshotBusy(false);
@@ -823,7 +826,8 @@ export default function ReplayWorkspace({
         const file = new File([new Uint8Array(loaded.bytes)], loaded.name, { type: loaded.mediaType, lastModified: Date.parse(pending.modifiedAt) });
         if (await submitScoreboardFirst(file, true)) await window.moeDesktop!.completeScoreboard(pending.id);
       } catch (cause: any) {
-        announce("", cause.message || "The watched scoreboard could not be processed.");
+        const code = await reportDesktopDiagnostic("scoreboard-inbox", cause);
+        announce("", `${cause.message || "The watched scoreboard could not be processed."}${code ? ` Error code: ${code}` : ""}`);
       } finally {
         folderScoreboardBusy.current = false;
       }

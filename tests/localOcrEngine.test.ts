@@ -51,6 +51,12 @@ function acceptedTestProfile(): LocalOcrProfile {
 }
 
 describe('local screenshot OCR engine foundation', () => {
+  it('accepts the native 1920x1080 capture-helper scoreboard geometry', () => {
+    const profile = createValorantEndScreenProfile(1920, 1080);
+    expect(profile).toMatchObject({ id: 'valorant-post-match-scoreboard-v1', version: 2, status: 'accepted', dimensions: { width: 1920, height: 1080 } });
+    expect(profile.regions).toHaveLength(73);
+    expect(profile.regions.find(region => region.id === 'player.9.name')?.rectangle.top).toBeGreaterThan(700);
+  });
   it('ships no crop geometry and fails closed for missing or unvalidated injected profiles', async () => {
     let called = false;
     const adapter: LocalOcrAdapter = {
@@ -281,8 +287,8 @@ describe('local screenshot OCR engine foundation', () => {
     expect(joined.some(region => region.id === 'player.0.kills')).toBe(false);
 
     const fixed = createValorantEndScreenProfile(1839, 821);
-    expect(browserRecognitionRegions(fixed)).toHaveLength(73);
-    expect(browserRecognitionRegions(fixed).map(region => region.id)).toContain('player.0.kills');
+    expect(browserRecognitionRegions(fixed)).toHaveLength(53);
+    expect(browserRecognitionRegions(fixed).map(region => region.id)).toContain('player.0.kda');
   });
 
   it('applies valid joined K/D/A recognition and leaves malformed joined rows null', () => {

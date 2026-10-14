@@ -15,6 +15,7 @@ export type LocalOcrRegionKind = 'text' | 'integer';
 export interface LocalOcrRegion {
   id: string;
   kind: LocalOcrRegionKind;
+  layout?: 'line' | 'block';
   rectangle: { left: number; top: number; width: number; height: number };
 }
 
@@ -44,8 +45,28 @@ export const LOCAL_OCR_PROFILE_LIMITS = Object.freeze({
 });
 const VALORANT_END_SCREEN_REFERENCE = Object.freeze({ width: 1839, height: 821 });
 const VALORANT_PLAYER_TABLE_REFERENCE = Object.freeze({ width: 1016, height: 405 });
+const VALORANT_FULL_HD_REFERENCE = Object.freeze({ width: 1920, height: 1080 });
 
 export interface ScoreboardSelection { names: { left: number; top: number; width: number; height: number }; kda: { left: number; top: number; width: number; height: number } }
+
+/** Calibrated text columns on the 1920x1080 TIMELINE round detail screen. */
+export function createValorantRoundSummaryProfile(width: number, height: number): LocalOcrProfile {
+  if (!Number.isInteger(width) || !Number.isInteger(height) || width <= 0 || height <= 0 || width / height < 1.72 || width / height > 1.82) throw Object.assign(new Error('Round extraction requires a full 16:9 VALORANT capture.'), { status: 422 });
+  const sx = width / 1920; const sy = height / 1080;
+  const box = (left: number, top: number, regionWidth: number, regionHeight: number) => ({ left: Math.round(left * sx), top: Math.round(top * sy), width: Math.max(1, Math.round(regionWidth * sx)), height: Math.max(1, Math.round(regionHeight * sy)) });
+  return createImmutableLocalOcrProfile({ id: 'valorant-round-summary-v1', version: 1, status: 'accepted', dimensions: { width, height }, regions: [
+    { id: 'round.result', kind: 'text', layout: 'line', rectangle: box(1325, 414, 400, 40) },
+    { id: 'averages.ourLoadout', kind: 'integer', layout: 'block', rectangle: box(408, 860, 42, 21) },
+    { id: 'averages.enemyLoadout', kind: 'integer', layout: 'block', rectangle: box(448, 860, 44, 21) },
+    { id: 'averages.ourBank', kind: 'integer', layout: 'block', rectangle: box(408, 880, 42, 21) },
+    { id: 'averages.enemyBank', kind: 'integer', layout: 'block', rectangle: box(448, 880, 44, 21) },
+    { id: 'players.names', kind: 'text', layout: 'block', rectangle: box(1260, 468, 210, 427) },
+    { id: 'players.kills', kind: 'text', layout: 'block', rectangle: box(1482, 468, 34, 427) },
+    { id: 'players.assists', kind: 'text', layout: 'block', rectangle: box(1525, 468, 34, 427) },
+    { id: 'players.economy', kind: 'text', layout: 'block', rectangle: box(1568, 468, 58, 427) },
+    { id: 'players.equipment', kind: 'text', layout: 'block', rectangle: box(1632, 468, 96, 427) },
+  ] });
+}
 /** User-selected columns, normalized to the image; header and portraits are excluded. */
 export function createSelectedScoreboardProfile(width: number, height: number, selection: ScoreboardSelection): LocalOcrProfile {
   const regions: LocalOcrRegion[] = [];
@@ -72,6 +93,30 @@ export function createValorantEndScreenProfile(width: number, height: number): L
     throw Object.assign(new Error('The scoreboard image dimensions are invalid.'), { status: 422 });
   }
   const aspect = width / height;
+  // Native 16:9 captures from the standalone helper include the entire client
+  // window. Keep this calibrated separately from the older cropped end screen.
+  if (aspect >= 1.72 && aspect <= 1.82) {
+    const sx = width / VALORANT_FULL_HD_REFERENCE.width; const sy = height / VALORANT_FULL_HD_REFERENCE.height;
+    const rectangle = (left: number, top: number, regionWidth: number, regionHeight: number) => ({ left: Math.round(left * sx), top: Math.round(top * sy), width: Math.max(1, Math.round(regionWidth * sx)), height: Math.max(1, Math.round(regionHeight * sy)) });
+    const regions: LocalOcrRegion[] = [
+      { id: 'map', kind: 'text', rectangle: rectangle(1624, 178, 155, 38) },
+      { id: 'score.left', kind: 'integer', rectangle: rectangle(34, 151, 50, 65) },
+      { id: 'score.right', kind: 'integer', rectangle: rectangle(261, 151, 48, 65) },
+    ];
+    const metricGeometry: Record<LocalOcrMetric, [number, number]> = {
+      kills: [927, 34], deaths: [963, 34], assists: [999, 36],
+      fk: [1148, 70], plants: [1358, 66], defuses: [1564, 66],
+    };
+    for (let row = 0; row < 10; row += 1) {
+      const top = 321 + row * 48;
+      regions.push({ id: `player.${row}.name`, kind: 'text', rectangle: rectangle(445, top, 425, 45) });
+      for (const metric of METRICS) {
+        const [left, regionWidth] = metricGeometry[metric];
+        regions.push({ id: `player.${row}.${metric}`, kind: 'integer', rectangle: rectangle(left, top, regionWidth, 45) });
+      }
+    }
+    return createImmutableLocalOcrProfile({ id: 'valorant-post-match-scoreboard-v1', version: 2, status: 'accepted', dimensions: { width, height }, regions });
+  }
   if (aspect >= 2.35 && aspect <= 2.75) {
     const sx = width / VALORANT_PLAYER_TABLE_REFERENCE.width; const sy = height / VALORANT_PLAYER_TABLE_REFERENCE.height;
     const rectangle = (left: number, top: number, regionWidth: number, regionHeight: number) => ({ left: Math.round(left * sx), top: Math.round(top * sy), width: Math.max(1, Math.round(regionWidth * sx)), height: Math.max(1, Math.round(regionHeight * sy)) });
@@ -147,6 +192,9 @@ const CROPPED_REGION_KINDS = new Map<string, LocalOcrRegionKind>(Array.from({ le
   [`player.${row}.name`, 'text'] as [string, LocalOcrRegionKind],
   ...(['kills', 'deaths', 'assists'] as const).map(metric => [`player.${row}.${metric}`, 'integer'] as [string, LocalOcrRegionKind]),
 ]).flat());
+const ROUND_REGION_KINDS = new Map<string, LocalOcrRegionKind>([
+  ['round.result', 'text'], ['averages.ourLoadout', 'integer'], ['averages.enemyLoadout', 'integer'], ['averages.ourBank', 'integer'], ['averages.enemyBank', 'integer'], ['players.names', 'text'], ['players.kills', 'text'], ['players.assists', 'text'], ['players.economy', 'text'], ['players.equipment', 'text'],
+]);
 
 function isFiniteInteger(value: number): boolean {
   return Number.isFinite(value) && Number.isInteger(value);
@@ -177,7 +225,7 @@ function acceptedProfile(
   if (profile.dimensions.width !== dimensions.width || profile.dimensions.height !== dimensions.height) {
     return fail('The accepted local OCR crop profile does not match the supplied image dimensions.');
   }
-  const expectedRegions = profile.id === 'valorant-player-table-v1' ? CROPPED_REGION_KINDS : EXPECTED_REGION_KINDS;
+  const expectedRegions = profile.id === 'valorant-player-table-v1' ? CROPPED_REGION_KINDS : profile.id === 'valorant-round-summary-v1' ? ROUND_REGION_KINDS : EXPECTED_REGION_KINDS;
   if (!Array.isArray(profile.regions) || profile.regions.length !== expectedRegions.size) {
     return fail(`The local OCR crop profile must contain exactly ${expectedRegions.size} regions.`);
   }
@@ -228,14 +276,16 @@ export function parseStrictKda(raw: string | undefined): { kills: number; deaths
 
 type BrowserRecognitionRegion = LocalOcrRegion & { recognitionKind?: 'kda' };
 export function browserRecognitionRegions(profile: LocalOcrProfile): BrowserRecognitionRegion[] {
-  if (profile.id !== 'valorant-player-table-v1') return profile.regions.map(region => ({ ...region, rectangle: { ...region.rectangle } }));
+  if (profile.id !== 'valorant-player-table-v1' && profile.id !== 'valorant-post-match-scoreboard-v1') return profile.regions.map(region => ({ ...region, rectangle: { ...region.rectangle } }));
   const byId = new Map(profile.regions.map(region => [region.id, region]));
-  const output: BrowserRecognitionRegion[] = [];
+  const output: BrowserRecognitionRegion[] = profile.id === 'valorant-post-match-scoreboard-v1'
+    ? profile.regions.filter(region => !/^player\.\d+\.(kills|deaths|assists)$/.test(region.id)).map(region => ({ ...region, rectangle: { ...region.rectangle } }))
+    : [];
   for (let row = 0; row < 10; row += 1) {
     const name = byId.get(`player.${row}.name`); const kills = byId.get(`player.${row}.kills`);
     const deaths = byId.get(`player.${row}.deaths`); const assists = byId.get(`player.${row}.assists`);
     if (!name || !kills || !deaths || !assists) continue;
-    output.push({ ...name, rectangle: { ...name.rectangle } });
+    if (profile.id === 'valorant-player-table-v1') output.push({ ...name, rectangle: { ...name.rectangle } });
     const left = Math.min(kills.rectangle.left, deaths.rectangle.left, assists.rectangle.left);
     const top = Math.min(kills.rectangle.top, deaths.rectangle.top, assists.rectangle.top);
     const right = Math.max(kills.rectangle.left + kills.rectangle.width, deaths.rectangle.left + deaths.rectangle.width, assists.rectangle.left + assists.rectangle.width);
@@ -382,6 +432,25 @@ export function preprocessNumericGrayscale(
   return { width, height, data: output, inverted: darkBackground, low, high };
 }
 
+/** Isolate the teal/red average values from the dark VALORANT timeline. */
+export function preprocessTeamColorNumber(
+  image: { width: number; height: number; data: Uint8ClampedArray },
+  rectangle: LocalOcrRegion['rectangle'],
+  team: 'ours' | 'theirs',
+) {
+  const { left, top, width, height } = rectangle;
+  const output = new Uint8ClampedArray(width * height * 4);
+  for (let y = 0; y < height; y += 1) for (let x = 0; x < width; x += 1) {
+    const source = ((top + y) * image.width + left + x) * 4;
+    const r = image.data[source], g = image.data[source + 1], b = image.data[source + 2];
+    const primary = team === 'ours' ? g : r;
+    const value = primary > 70 ? Math.max(0, 255 - (primary - 55) * 2) : 255;
+    const target = (y * width + x) * 4;
+    output[target] = output[target + 1] = output[target + 2] = value; output[target + 3] = 255;
+  }
+  return { width, height, data: output };
+}
+
 /** Split a thresholded, black-on-white K/D/A row without assuming fixed columns. */
 export function segmentKdaNumberRectangles(image: { width: number; height: number; data: Uint8ClampedArray }): KdaNumberRectangle[] | null {
   if (!Number.isInteger(image.width) || !Number.isInteger(image.height) || image.width < 5 || image.height < 5 || image.data.length !== image.width * image.height * 4) return null;
@@ -461,12 +530,20 @@ export async function createBrowserLocalTesseractAdapter(): Promise<LocalOcrAdap
       sourceContext.drawImage(image, 0, 0, source.width, source.height);
       const sourcePixels = sourceContext.getImageData(0, 0, source.width, source.height);
       for (const region of browserRecognitionRegions(immutableProfile)) {
-        const processed = preprocessRegionPixels(sourcePixels, region.rectangle);
+        const processed = region.id.startsWith('averages.')
+          ? preprocessTeamColorNumber(sourcePixels, region.rectangle, region.id.includes('.our') ? 'ours' : 'theirs')
+          : preprocessRegionPixels(sourcePixels, region.rectangle);
         const rawCrop = document.createElement('canvas'); rawCrop.width = processed.width; rawCrop.height = processed.height;
         const rawContext = rawCrop.getContext('2d');
         if (!rawContext) throw new Error('Canvas preprocessing is unavailable.');
         rawContext.putImageData(new ImageData(processed.data, processed.width, processed.height), 0, 0);
         let recognitionImage = rawCrop;
+        if (region.layout === 'block') {
+          const scale = region.id.startsWith('averages.') ? 5 : 3; const padding = 16;
+          const enlarged = document.createElement('canvas'); enlarged.width = processed.width * scale + padding * 2; enlarged.height = processed.height * scale + padding * 2;
+          const enlargedContext = enlarged.getContext('2d'); if (!enlargedContext) throw new Error('Canvas preprocessing is unavailable.');
+          enlargedContext.fillStyle = '#fff'; enlargedContext.fillRect(0, 0, enlarged.width, enlarged.height); enlargedContext.imageSmoothingEnabled = false; enlargedContext.drawImage(rawCrop, padding, padding, processed.width * scale, processed.height * scale); recognitionImage = enlarged;
+        }
         if (region.recognitionKind === 'kda') {
           const segmented = segmentKdaNumberRectangles(processed);
           if (segmented) {
@@ -503,7 +580,8 @@ export async function createBrowserLocalTesseractAdapter(): Promise<LocalOcrAdap
           paddedContext.drawImage(rawCrop, padding, padding, processed.width * scale, processed.height * scale); recognitionImage = padded;
         }
         await worker.setParameters({
-          tessedit_pageseg_mode: tesseract.PSM.SINGLE_LINE,
+          tessedit_pageseg_mode: region.layout === 'block' ? tesseract.PSM.SINGLE_BLOCK : tesseract.PSM.SINGLE_LINE,
+          preserve_interword_spaces: region.layout === 'block' ? '1' : '0',
           ...(region.recognitionKind === 'kda' ? { tessedit_char_whitelist: '' }
             : region.kind === 'integer' ? { tessedit_char_whitelist: '0123456789' } : { tessedit_char_whitelist: '' }),
         });

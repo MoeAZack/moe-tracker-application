@@ -1,20 +1,17 @@
 import React, { useEffect, useState } from 'react';
-import { CheckCircle2, Cloud, Download, FileWarning, FolderOpen, HardDrive, Image, LoaderCircle, Play, Power, RefreshCw, WifiOff } from 'lucide-react';
+import { AlertTriangle, CheckCircle2, Cloud, FolderOpen, Image, LoaderCircle, Play, ScanLine, WifiOff } from 'lucide-react';
 
-export default function DesktopCommandCenter({ onOpenReplay }: { onOpenReplay?: () => void }) {
+export default function DesktopCommandCenter({ onOpenReplay, onOpenCapture }: { onOpenReplay?: () => void; onOpenCapture?: () => void }) {
   const bridge = typeof window === 'undefined' ? undefined : window.moeDesktop;
   const [status, setStatus] = useState<any>(null);
   const [busy, setBusy] = useState('');
   const [notice, setNotice] = useState('');
-  const [packagePreview, setPackagePreview] = useState<any>(null);
-  const [packagePassword, setPackagePassword] = useState('');
-  const [pairServer, setPairServer] = useState('https://moetracker-site.pages.dev');
-  const [pairCode, setPairCode] = useState('');
-  const [retentionDays, setRetentionDays] = useState(30);
+  const [captureRounds, setCaptureRounds] = useState(24);
+  const [captureTemplate, setCaptureTemplate] = useState<'without-performance' | 'with-performance'>('without-performance');
   const refresh = async () => bridge && setStatus(await bridge.getStatus());
   useEffect(() => {
     let active = true;
-    const update = () => bridge?.getStatus().then(value => { if (active) { setStatus(value); setRetentionDays(value.retentionDays || 30); } }).catch(error => { if (active) setNotice(error.message); });
+    const update = () => bridge?.getStatus().then(value => { if (active) setStatus(value); }).catch(error => { if (active) setNotice(error.message); });
     void update(); const interval = window.setInterval(update, 5_000);
     return () => { active = false; window.clearInterval(interval); };
   }, []);
@@ -22,47 +19,57 @@ export default function DesktopCommandCenter({ onOpenReplay }: { onOpenReplay?: 
   const run = async (name: string, task: () => Promise<any>) => {
     setBusy(name); setNotice('');
     try { const result = await task(); setNotice(result.message || (result.path ? `Saved to ${result.path}` : 'Done.')); await refresh(); }
-    catch (error: any) { setNotice(error.message || 'Action failed.'); }
+    catch (error: any) { const message = error.message || 'Action failed.'; const diagnostic = await bridge.reportDiagnostic({ action: name, message }).catch(() => null); setNotice(`${message}${diagnostic?.code ? ` Error code: ${diagnostic.code}` : ''}`); }
     finally { setBusy(''); }
   };
   const mb = status?.latestReplay ? Math.round(status.latestReplay.size / 1024 / 1024) : 0;
-  const previewPackage = async () => { setBusy('preview'); setNotice(''); try { const result = await bridge.previewTeamPackage({ password: packagePassword }); if (!result.canceled) { setPackagePassword(''); setPackagePreview(result.preview); const additions = (Object.values(result.preview.collections || {}) as any[]).reduce((sum: number, item: any) => sum + Number(item.additions || 0), 0) + Number(result.preview.acceptedReplays?.additions || 0); setNotice(`Preview ready: ${additions} additions, ${result.preview.conflicts?.length || 0} conflicts.`); } } catch (error: any) { setNotice(error.message || 'Preview failed.'); } finally { setBusy(''); } };
-  const exportPackage = () => run('export', async () => { const result = await bridge.exportTeamPackage({ password: packagePassword }); setPackagePassword(''); return { ...result, message: `${result.encrypted ? 'Encrypted p' : 'P'}ackage saved to ${result.path}` }; });
-  const pair = () => run('pair', async () => { const result = await bridge.pairDevice({ server: pairServer, code: pairCode }); setPairCode(''); return { ...result, message: `Paired with ${result.server}.` }; });
-  const updateAction = () => run('update', async () => {
-    const current = status?.update?.state;
-    if (current === 'available') return bridge.downloadUpdate();
-    if (current === 'downloaded') return bridge.installUpdate();
-    return bridge.checkForUpdates();
-  });
-  const updateLabel = status?.update?.state === 'available' ? `Download ${status.update.version || 'update'}` : status?.update?.state === 'downloaded' ? 'Restart and update' : status?.update?.state === 'downloading' ? `Downloading ${status.update.percent || 0}%` : status?.update?.state === 'checking' ? 'Checking for updates' : 'Check for updates';
-  return <section className="liquid-panel overflow-hidden rounded-2xl" aria-label="Desktop match intake">
-    <div className="flex flex-wrap items-start justify-between gap-4 border-b border-white/10 px-5 py-4">
-      <div><div className="flex items-center gap-2 text-sm font-semibold text-white"><HardDrive className="h-4 w-4 text-cyan-300" />This PC</div><p className="mt-1 text-xs text-slate-400">Local evidence workspace · {status?.deviceName || 'loading device'}</p></div>
-      <div className="flex flex-wrap gap-2 text-[10px] font-semibold"><span className="rounded-full border border-emerald-300/20 bg-emerald-300/10 px-2.5 py-1 text-emerald-200"><CheckCircle2 className="mr-1 inline h-3 w-3" />Local service online</span><span className="rounded-full border border-cyan-300/20 bg-cyan-300/10 px-2.5 py-1 text-cyan-200"><WifiOff className="mr-1 inline h-3 w-3" />Works offline</span></div>
-    </div>
-    <div className="grid gap-3 p-4 lg:grid-cols-[minmax(0,1.25fr)_minmax(320px,.75fr)]">
-      <div className="rounded-xl border border-cyan-300/15 bg-cyan-300/[0.045] p-4">
-        <p className="text-[10px] font-semibold uppercase tracking-[0.16em] text-cyan-300">Latest detected replay</p>
-        <p className="mt-2 truncate text-base font-semibold text-white">{status?.latestReplay?.name || 'Waiting for your next practice replay'}</p>
-        <p className="mt-1 text-xs text-slate-400">{status?.latestReplay ? `${mb} MB · ${status.replayCount} replay${status.replayCount === 1 ? '' : 's'} available locally` : 'VALORANT Demos and Moe Tracker Replays are watched automatically.'}</p>
-        <button type="button" disabled={!!busy} onClick={() => run('process', bridge.processMatch)} className="ui-button ui-button-primary mt-4 min-h-11 px-5 text-sm disabled:opacity-60">{busy === 'process' ? <LoaderCircle className="h-4 w-4 animate-spin" /> : <Play className="h-4 w-4" />}Process latest match</button>
-        {!!status?.pendingScoreboards && <button type="button" onClick={onOpenReplay} className="ui-button mt-2 min-h-10 px-4 text-xs text-fuchsia-200"><Image className="h-4 w-4" />{status.pendingScoreboards} new scoreboard{status.pendingScoreboards === 1 ? '' : 's'} · Review locally</button>}
+  const pendingScoreboards = Number(status?.pendingScoreboards || 0);
+  const hasAttention = pendingScoreboards > 0 || Number(status?.sync?.pending || 0) > 0;
+  return <section className="desktop-intake overflow-hidden rounded-2xl" aria-labelledby="desktop-intake-title">
+    <header className="desktop-intake-header">
+      <div className="min-w-0">
+        <p className="desktop-intake-eyebrow">Match intake</p>
+        <h2 id="desktop-intake-title" className="mt-1 text-lg font-semibold text-white">Ready for the next review</h2>
+        <p className="mt-1 truncate text-xs text-slate-400">{status?.deviceName || 'Loading this PC'} · MoeTracker v{status?.appVersion || __APP_VERSION__} · evidence stays available offline</p>
       </div>
-      <div className="grid grid-cols-2 gap-2">
-        <button type="button" onClick={() => run('screenshots', () => bridge.openFolder('screenshots'))} className="ui-button min-h-20 flex-col text-xs"><Image className="h-5 w-5 text-fuchsia-300" />Scoreboards</button>
-        <button type="button" onClick={() => run('replays', () => bridge.openFolder('replays'))} className="ui-button min-h-20 flex-col text-xs"><FolderOpen className="h-5 w-5 text-cyan-300" />Replay inbox</button>
-        <button type="button" disabled={!!busy} onClick={exportPackage} className="ui-button min-h-20 flex-col text-xs disabled:opacity-60"><HardDrive className="h-5 w-5 text-amber-300" />Portable export</button>
-        <button type="button" disabled={!!busy} onClick={() => run('sync', bridge.syncNow)} className="ui-button min-h-20 flex-col text-xs disabled:opacity-60"><Cloud className="h-5 w-5 text-emerald-300" />Sync now</button>
-        <button type="button" disabled={!!busy} onClick={() => run('startup', async () => { const result = await bridge.setStartWithWindows(!status?.startWithWindows); await refresh(); return { ...result, message: result.startWithWindows ? 'Moe Tracker will start with Windows.' : 'Start with Windows is off.' }; })} className="ui-button min-h-20 flex-col text-xs disabled:opacity-60"><Power className="h-5 w-5 text-sky-300" />Start with Windows: {status?.startWithWindows ? 'On' : 'Off'}</button>
-        <button type="button" disabled={!!busy} onClick={() => run('logs', () => bridge.openFolder('logs'))} className="ui-button min-h-20 flex-col text-xs disabled:opacity-60"><FileWarning className="h-5 w-5 text-rose-300" />Local crash logs</button>
-        <button type="button" disabled={!!busy} onClick={previewPackage} className="ui-button min-h-20 flex-col text-xs disabled:opacity-60"><Download className="h-5 w-5 text-violet-300" />Import package</button>
-        <button type="button" disabled={!!busy || ['disabled', 'checking', 'downloading'].includes(status?.update?.state)} onClick={updateAction} title={status?.update?.message} className="ui-button min-h-20 flex-col text-xs disabled:opacity-60">{busy === 'update' || ['checking', 'downloading'].includes(status?.update?.state) ? <LoaderCircle className="h-5 w-5 animate-spin text-blue-300" /> : <RefreshCw className="h-5 w-5 text-blue-300" />}{updateLabel}</button>
-        {packagePreview && <button type="button" disabled={!!busy} onClick={() => run('import', async () => { const result = await bridge.importTeamPackage(); setPackagePreview(null); return result; })} className="ui-button ui-button-primary min-h-20 flex-col text-xs disabled:opacity-60"><CheckCircle2 className="h-5 w-5" />Apply preview</button>}
+      <div className="flex flex-wrap items-center gap-2 text-[10px] font-semibold">
+        <span className="desktop-status desktop-status-online"><CheckCircle2 className="h-3 w-3" />Service online</span>
+        <span className="desktop-status"><WifiOff className="h-3 w-3" />Offline ready</span>
+        {status?.sync?.paired && <span className="desktop-status"><Cloud className="h-3 w-3" />Team linked</span>}
       </div>
+    </header>
+
+    <div className="grid gap-3 p-4 xl:grid-cols-[minmax(0,1.45fr)_minmax(290px,.55fr)]">
+      <article className={`desktop-next-action ${pendingScoreboards ? 'desktop-next-action-review' : ''}`}>
+        <div className="flex min-w-0 items-start gap-3">
+          <span className="desktop-action-icon">{pendingScoreboards ? <ScanLine className="h-5 w-5" /> : <Play className="h-5 w-5" />}</span>
+          <div className="min-w-0 flex-1">
+            <p className="desktop-intake-eyebrow">{pendingScoreboards ? 'Action needed' : 'Latest replay'}</p>
+            <h3 className="mt-1 truncate text-xl font-semibold text-white">{pendingScoreboards ? `${pendingScoreboards} captured match${pendingScoreboards === 1 ? '' : 'es'} ready to review` : status?.latestReplay?.name || 'Waiting for match evidence'}</h3>
+            <p className="mt-2 max-w-2xl text-sm leading-6 text-slate-300">{pendingScoreboards ? 'Confirm the detected players, score, and rounds. Accepted data will feed player, economy, and map metrics.' : status?.latestReplay ? `${mb} MB · ${status.replayCount} replay${status.replayCount === 1 ? '' : 's'} available on this PC.` : 'Finish a match and Moe Tracker will detect replay or scoreboard evidence here.'}</p>
+            <div className="mt-5 flex flex-wrap gap-2">
+              {pendingScoreboards ? <button type="button" onClick={onOpenCapture || onOpenReplay} className="ui-button ui-button-primary min-h-11 px-5 text-sm"><Image className="h-4 w-4" />Review captured match</button> : <button type="button" disabled={!!busy || !status?.latestReplay} onClick={() => run('process', bridge.processMatch)} className="ui-button ui-button-primary min-h-11 px-5 text-sm disabled:opacity-50">{busy === 'process' ? <LoaderCircle className="h-4 w-4 animate-spin" /> : <Play className="h-4 w-4" />}Process latest replay</button>}
+              {pendingScoreboards > 0 && status?.latestReplay && <button type="button" disabled={!!busy} onClick={() => run('process', bridge.processMatch)} className="ui-button min-h-11 px-4 text-xs disabled:opacity-50"><Play className="h-4 w-4" />Process replay instead</button>}
+            </div>
+          </div>
+        </div>
+      </article>
+
+      <aside className="desktop-capture-card" aria-label="Screenshot capture workflow">
+        <div className="flex items-center justify-between gap-3"><span className="flex items-center gap-2 text-sm font-semibold text-white"><Image className="h-4 w-4 text-fuchsia-300" />Screenshot capture</span><span className="text-2xl font-semibold tabular-nums text-white">{pendingScoreboards}</span></div>
+        <ol className="mt-4 space-y-2 text-xs text-slate-300">
+          <li><span>1</span>Open the completed match Timeline</li>
+          <li><span>2</span>Start capture and return to VALORANT</li>
+          <li><span>3</span>Review uncertain fields, then accept</li>
+        </ol>
+        <div className="mt-4 grid grid-cols-[minmax(0,1fr)_minmax(0,1.45fr)] gap-2"><label className="text-[10px] text-slate-400">Rounds<input aria-label="Numbered rounds shown in Timeline" type="number" min={1} max={32} value={captureRounds} onChange={event => setCaptureRounds(Number(event.target.value))} className="ui-field mt-1 h-10 w-full px-2 text-center text-sm text-white" /></label><label className="text-[10px] text-slate-400">Report layout<select aria-label="Post-match report layout" value={captureTemplate} onChange={event => setCaptureTemplate(event.target.value as typeof captureTemplate)} className="ui-field mt-1 h-10 w-full px-2 text-xs text-white"><option value="without-performance">Standard</option><option value="with-performance">Has Performance tab</option></select></label></div>
+        <button type="button" disabled={!!busy || !Number.isInteger(captureRounds) || captureRounds < 1 || captureRounds > 32} onClick={() => run('capture', () => bridge.startScrimCapture({ roundCount: captureRounds, template: captureTemplate }))} className="ui-button ui-button-primary mt-3 flex min-h-11 w-full items-center justify-center gap-2 px-4 text-xs disabled:opacity-50"><Image className="h-4 w-4" />Start post-match capture</button>
+        <button type="button" onClick={() => run('screenshots', () => bridge.openFolder('screenshots'))} className="capture-folder-button"><span><FolderOpen className="h-4 w-4" />Open capture folder</span></button>
+      </aside>
     </div>
-    <div className="mx-4 mb-4 grid gap-2 rounded-xl border border-amber-300/15 bg-amber-300/[0.045] p-3 sm:grid-cols-[minmax(0,1fr)_minmax(220px,.6fr)] sm:items-center"><div><p className="text-xs font-semibold text-white">Optional portable-package password</p><p className="mt-1 text-[10px] text-slate-400">Use 8–256 characters. Encryption and decryption happen only on this PC; the password is never saved or sent to the team server.</p></div><input aria-label="Portable package password" type="password" autoComplete="new-password" minLength={8} maxLength={256} value={packagePassword} onChange={event => setPackagePassword(event.target.value)} placeholder="Leave blank for an unencrypted package" className="ui-field min-h-11 px-3 text-sm" /></div>
-    {!status?.sync?.paired && <div className="mx-4 mb-4 rounded-xl border border-violet-300/15 bg-violet-300/[0.045] p-4"><div className="flex items-center gap-2 text-sm font-semibold text-white"><Cloud className="h-4 w-4 text-violet-300" />Pair this device</div><p className="mt-1 text-xs text-slate-400">Enter the short code created by your coach or player account. The device credential is encrypted for this Windows user.</p><div className="mt-3 grid gap-2 sm:grid-cols-[minmax(0,1fr)_180px_auto]"><input aria-label="Team server" className="ui-field min-h-11 px-3 text-sm" value={pairServer} onChange={event => setPairServer(event.target.value)} /><input aria-label="Pairing code" className="ui-field min-h-11 px-3 font-mono text-sm uppercase tracking-widest" maxLength={10} value={pairCode} onChange={event => setPairCode(event.target.value.toUpperCase())} placeholder="PAIRING CODE" /><button type="button" disabled={!!busy || pairCode.length !== 10} onClick={pair} className="ui-button ui-button-primary min-h-11 px-4 text-sm disabled:opacity-60">Pair</button></div></div>}
-    <div className="flex flex-wrap items-center justify-between gap-3 border-t border-white/10 px-5 py-3 text-[11px] text-slate-400"><label className="inline-flex items-center gap-2">Raw replay retention<input aria-label="Raw replay retention days" type="number" min={1} max={365} value={retentionDays} onChange={event => setRetentionDays(Number(event.target.value))} onBlur={() => run('retention', () => bridge.setRetentionDays(retentionDays))} className="ui-field h-9 w-20 px-2 text-center" />days</label>{status?.sync?.paired && <button type="button" disabled={!!busy} onClick={() => run('mode', () => bridge.setSyncMode(status.mode === 'connected' ? 'offline-first' : 'connected'))} className="ui-button min-h-9 px-3 text-xs">{status.mode === 'connected' ? 'Use offline mode' : 'Enable connected sync'}</button>}<button type="button" onClick={() => run('folder', bridge.chooseReplayFolder)} className="inline-flex items-center gap-1 text-cyan-300 hover:text-cyan-200"><RefreshCw className="h-3 w-3" />Add another replay folder</button>{notice && <span className="basis-full text-cyan-100">{notice}</span>}</div>
+
+    {hasAttention && <div className="mx-4 mb-4 flex flex-wrap items-center gap-x-4 gap-y-2 rounded-xl border border-amber-300/20 bg-amber-300/[0.06] px-4 py-3 text-xs text-amber-100" role="status"><AlertTriangle className="h-4 w-4 shrink-0 text-amber-300" />{pendingScoreboards > 0 && <span>{pendingScoreboards} capture{pendingScoreboards === 1 ? '' : 's'} awaiting review</span>}{Number(status?.sync?.pending || 0) > 0 && <span>{status.sync.pending} change{status.sync.pending === 1 ? '' : 's'} waiting to sync · open Settings to manage sync</span>}</div>}
+
+    {notice && <div className="mx-4 mb-4 rounded-lg border border-cyan-300/15 bg-cyan-300/[0.05] px-4 py-3 text-xs text-cyan-100" role="status">{notice}</div>}
   </section>;
 }

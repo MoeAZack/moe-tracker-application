@@ -16,3 +16,5 @@ cloudflare/build/
 cloudflare/replay-build*/
 public/ocr-test-scoreboard.png
 *.moetracker
+/data/
+/eng.traineddata

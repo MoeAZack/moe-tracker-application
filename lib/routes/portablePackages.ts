@@ -11,6 +11,18 @@ export function registerPortablePackageRoutes(app: Express) {
       const conflicts: Array<{ collection: string; id: string }> = []; let applied = 0;
       const merge = (collection: string, rows: any[]) => { db[collection] ||= []; const byId = new Map(db[collection].map((row: any) => [row.id, row])); for (const row of rows) { if (!row?.id) continue; const current = byId.get(row.id); if (!current) { db[collection].push(structuredClone(row)); byId.set(row.id, row); applied += 1; } else if (JSON.stringify(current) !== JSON.stringify(row)) conflicts.push({ collection, id: row.id }); } };
       for (const item of items) {
+        if (item?.kind === 'accepted-screenshot-summary' && item.match?.id && item.match.id === item.screenshot?.matchId) {
+          merge('matches', [item.match]); db.engineAdapters.screenshot ||= {}; const current = db.engineAdapters.screenshot[item.match.id];
+          if (!current || Number(item.screenshot.revision || 0) > Number(current.revision || 0)) {
+            db.playerStats ||= [];
+            for (const incoming of Array.isArray(item.playerStats) ? item.playerStats : []) {
+              const existing = db.playerStats.find((row: any) => row.id === incoming.id && row.matchId === item.match.id);
+              if (existing) existing.screenshotMetrics = structuredClone(incoming.screenshotMetrics); else db.playerStats.push(structuredClone(incoming));
+            }
+            db.engineAdapters.screenshot[item.match.id] = structuredClone(item.screenshot); applied += 1;
+          }
+          continue;
+        }
         if (item?.kind !== 'accepted-match' || !item.match?.id || item.match.id !== item.replay?.matchId) continue;
         merge('matches', [item.match]); merge('playerStats', Array.isArray(item.playerStats) ? item.playerStats : []); merge('rounds', Array.isArray(item.rounds) ? item.rounds : []);
         const current = db.engineAdapters.replay[item.match.id]; if (!current) { db.engineAdapters.replay[item.match.id] = structuredClone(item.replay); applied += 1; } else if (JSON.stringify(current) !== JSON.stringify(item.replay)) conflicts.push({ collection: 'acceptedReplays', id: item.match.id });

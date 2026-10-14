@@ -587,10 +587,36 @@ export function registerReplayDeviceUploadRoute(app: Express) {
     try {
       const authenticated = await authenticateDevice(req); if (!authenticated) return res.status(401).json({ error: 'Device credential is invalid, expired, or revoked.' });
       const sinceRaw = String(req.query.since || ''); const since = sinceRaw && Number.isFinite(Date.parse(sinceRaw)) ? Date.parse(sinceRaw) : 0; const db = authenticated.db;
-      const accepted = Object.values(db.engineAdapters?.replay || {}).filter((record: any) => record?.status === 'accepted' && Date.parse(record.updatedAt || record.acceptedAt || 0) > since).sort((left: any, right: any) => String(left.updatedAt || left.acceptedAt).localeCompare(String(right.updatedAt || right.acceptedAt))).slice(0, 100) as any[];
-      const items = accepted.map(record => { const matchId = String(record.matchId); const updatedAt = String(record.updatedAt || record.acceptedAt); return { id: `accepted:${matchId}:${record.revision || 1}`, kind: 'accepted-match', updatedAt, revision: Number(record.revision || 1), replaySha256: record.provenance?.replaySha256 || null, match: (db.matches || []).find((item: any) => item.id === matchId) || null, playerStats: (db.playerStats || []).filter((item: any) => item.matchId === matchId), rounds: (db.rounds || []).filter((item: any) => item.matchId === matchId), replay: record } });
+      const accepted = Object.values(db.engineAdapters?.replay || {}).filter((record: any) => record?.status === 'accepted' && Date.parse(record.updatedAt || record.acceptedAt || 0) > since).map((record: any) => { const matchId = String(record.matchId); const updatedAt = String(record.updatedAt || record.acceptedAt); return { id: `accepted:${matchId}:${record.revision || 1}`, kind: 'accepted-match', updatedAt, revision: Number(record.revision || 1), replaySha256: record.provenance?.replaySha256 || null, match: (db.matches || []).find((item: any) => item.id === matchId) || null, playerStats: (db.playerStats || []).filter((item: any) => item.matchId === matchId), rounds: (db.rounds || []).filter((item: any) => item.matchId === matchId), replay: record }; });
+      const screenshotItems = Object.values(db.engineAdapters?.screenshot || {}).filter((record: any) => record?.status === 'accepted' && Date.parse(record.updatedAt || 0) > since).map((record: any) => { const matchId = String(record.matchId); return { id: `accepted-screenshot:${matchId}:${record.revision || 1}`, kind: 'accepted-screenshot-summary', updatedAt: String(record.updatedAt), revision: Number(record.revision || 1), match: (db.matches || []).find((item: any) => item.id === matchId) || null, playerStats: (db.playerStats || []).filter((item: any) => item.matchId === matchId && item.screenshotMetrics), screenshot: record }; });
+      const items = [...accepted, ...screenshotItems].sort((left: any, right: any) => left.updatedAt.localeCompare(right.updatedAt)).slice(0, 100);
       res.json({ items, cursor: items.length ? items[items.length - 1].updatedAt : (sinceRaw || null), hasMore: accepted.length === 100 });
     } catch (error: any) { res.status(error?.status || 400).json({ error: error?.message || 'Device synchronization is unavailable.' }); }
+  });
+  app.post('/api/replay-intake/screenshot-summaries/:matchId', async (req, res) => {
+    try {
+      const authenticated = await authenticateDevice(req); if (!authenticated) return res.status(401).json({ error: 'Device credential is invalid, expired, or revoked.' });
+      const { db, device } = authenticated; if (device.owner.role !== 'coach') return res.status(403).json({ error: 'Team screenshot summaries require a coach-owned device.' });
+      const matchId = String(req.params.matchId || ''); const body = req.body;
+      if (!matchId || body?.schemaVersion !== 1 || body?.match?.id !== matchId || !Array.isArray(body?.playerStats) || body.playerStats.length > 20 || Buffer.byteLength(JSON.stringify(body)) > 128 * 1024) return res.status(400).json({ error: 'Screenshot summary is invalid.' });
+      const allowedMatch = ['id', 'date', 'type', 'opponent', 'map', 'attW', 'attL', 'defW', 'defL', 'ourScore', 'theirScore', 'rosterContext'];
+      const safeMatch = Object.fromEntries(allowedMatch.filter(key => body.match[key] !== undefined).map(key => [key, structuredClone(body.match[key])]));
+      const safeStats = body.playerStats.map((row: any) => {
+        if (!row?.id || row.matchId !== matchId || !row.screenshotMetrics || row.screenshotMetrics.schemaVersion !== 1) throw Object.assign(new Error('Screenshot player summary is invalid.'), { status: 400 });
+        const allowed = ['id', 'matchId', 'player', 'playerId', 'displayNameSnapshot', 'appearanceType', 'agent', 'kills', 'deaths', 'assists', 'screenshotMetrics'];
+        return Object.fromEntries(allowed.filter(key => row[key] !== undefined).map(key => [key, structuredClone(row[key])]));
+      });
+      const digest = contentHash({ match: safeMatch, playerStats: safeStats }); db.engineAdapters ||= {}; db.engineAdapters.screenshot ||= {};
+      const existingRecord = db.engineAdapters.screenshot[matchId];
+      if (existingRecord?.digest === digest) return res.json({ accepted: true, idempotent: true, revision: existingRecord.revision });
+      const existingMatch = (db.matches || []).find((item: any) => item.id === matchId); if (!existingMatch) (db.matches ||= []).push(safeMatch);
+      for (const incoming of safeStats) {
+        const existing = (db.playerStats || []).find((item: any) => item.id === incoming.id && item.matchId === matchId);
+        if (existing) existing.screenshotMetrics = incoming.screenshotMetrics; else (db.playerStats ||= []).push(incoming);
+      }
+      const updatedAt = new Date().toISOString(); db.engineAdapters.screenshot[matchId] = { schemaVersion: 1, status: 'accepted', matchId, digest, revision: Number(existingRecord?.revision || 0) + 1, updatedAt, sourceDeviceId: device.id };
+      device.lastSeenAt = updatedAt; await saveDB(db); res.status(existingRecord ? 200 : 201).json({ accepted: true, idempotent: false, revision: db.engineAdapters.screenshot[matchId].revision });
+    } catch (error: any) { res.status(error?.status || 400).json({ error: error?.message || 'Screenshot summary could not be synchronized.' }); }
   });
   app.post('/api/replay-intake/evidence/:sha256', async (req, res) => {
     let releaseReservation: (() => void) | null = null;
@@ -763,7 +789,12 @@ export async function registerReplayDeviceRoutes(app: Express) {
       if (!originalName || source.size > MAX_REPLAY_BYTES) return res.status(400).json({ error: 'Local evidence source is invalid.' });
       const db = await readDB(); const store = replayStore(db); const existing = store.blobs[expectedHash];
       const incomingEvidenceHash = contentHash(validated.retained); const priorEvidenceHash = retainedEvidenceHash(store, expectedHash, existing);
-      if (existing && priorEvidenceHash && priorEvidenceHash !== incomingEvidenceHash) return res.status(409).json({ error: 'This replay hash already has conflicting evidence.' });
+      // Desktop reprocessing can legitimately produce a different envelope
+      // after an app/parser migration. Preserve the already-reviewed local
+      // record instead of replacing trusted evidence or blocking the user.
+      if (existing && priorEvidenceHash && priorEvidenceHash !== incomingEvidenceHash) {
+        return res.json({ sha256: expectedHash, parserStatus: existing.parserStatus, reviewStatus: existing.reviewStatus, matchId: existing.matchId, idempotent: true, existingEvidencePreserved: true });
+      }
       if (existing && priorEvidenceHash === incomingEvidenceHash) {
         existing.evidenceHash ||= incomingEvidenceHash;
         await saveDB(db);

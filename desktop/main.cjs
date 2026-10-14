@@ -7,11 +7,13 @@ const http = require('node:http');
 const net = require('node:net');
 const path = require('node:path');
 const { evidenceCandidates } = require('./evidence-handoff.cjs');
-const { scoreboardInventory, readScoreboardRecord } = require('./scoreboard-inbox.cjs');
+const { scoreboardInventory, readScoreboardRecord, readCaptureSession } = require('./scoreboard-inbox.cjs');
 const { MAX_ENVELOPE_BYTES, encryptPortablePackage, decryptPortablePackage } = require('./portable-crypto.cjs');
 const { appendLocalCrashEvent } = require('./local-crash-log.cjs');
 const { createUpdateController } = require('./update-controller.cjs');
 const { createUpdateHealth } = require('./update-health.cjs');
+const { createSupportBundle } = require('./support-bundle.cjs');
+const { collectChildOutput, collectJson } = require('./collector-command.cjs');
 
 let mainWindow;
 let tray;
@@ -21,6 +23,8 @@ let collectorImportPromise;
 let collectorImportTimer;
 let syncTimer;
 let syncPromise;
+let captureInboxTimer;
+let lastNotifiedCaptureId = null;
 let runtime;
 let updateController;
 let quitting = false;
@@ -98,6 +102,15 @@ function crashLogDirectory() {
   return runtime?.paths.logs || path.join(app.getPath('userData'), 'Local Workspace', 'Logs');
 }
 
+function scoreboardRoots() {
+  return [runtime.paths.screenshots, path.join(process.env.LOCALAPPDATA || '', 'MoeTracker', 'Scoreboards')];
+}
+
+async function allPendingScoreboards() {
+  const lists = await Promise.all(scoreboardRoots().map(root => scoreboardInventory(root, runtime.config.processedScoreboardIds || [])));
+  return lists.flat().sort((left, right) => left.modifiedAt.localeCompare(right.modifiedAt));
+}
+
 function recordLocalCrash(type, error, details = {}) {
   return appendLocalCrashEvent(crashLogDirectory(), type, error, details).catch(logError => console.error(`[crash-log] ${logError.message}`));
 }
@@ -143,33 +156,61 @@ function waitForHealth(port, timeoutMs = 20_000) {
 
 async function startLocalServer() {
   const entry = path.join(applicationCodeRoot(), 'build', 'server.cjs');
-  serverProcess = runNode(entry, [], { env: {
+  const integrationEnvironment = {};
+  if (safeStorage.isEncryptionAvailable()) {
+    for (const [key, encrypted] of Object.entries(runtime.config.integrationSecrets || {})) {
+      try { integrationEnvironment[key] = safeStorage.decryptString(Buffer.from(String(encrypted), 'base64')); }
+      catch (error) { void recordLocalCrash('local-integration-secret-decrypt-failed', error, { key }); }
+    }
+  }
+  const child = runNode(entry, [], { env: {
     NODE_ENV: 'production', HOST: '127.0.0.1', PORT: String(runtime.port),
     DB_PATH: runtime.paths.database,
     PRIVATE_BACKUP_DIR: runtime.paths.backups,
     ADMIN_PASSWORD: runtime.config.adminPassword,
     JWT_SECRET: runtime.config.jwtSecret,
     APP_DESKTOP: 'true',
+    ...integrationEnvironment,
   }});
-  serverProcess.stderr.on('data', value => console.error(`[local-service] ${String(value).trim()}`));
-  serverProcess.on('exit', (code, signal) => { if (!quitting) void recordLocalCrash('local-service-exit', new Error('The local service exited unexpectedly.'), { code, signal }); });
+  serverProcess = child;
+  child.stderr.on('data', value => console.error(`[local-service] ${String(value).trim()}`));
+  child.on('exit', (code, signal) => { if (!quitting && serverProcess === child) void recordLocalCrash('local-service-exit', new Error('The local service exited unexpectedly.'), { code, signal }); });
   await waitForHealth(runtime.port);
+}
+
+async function restartLocalServer() {
+  const previous = serverProcess; serverProcess = null;
+  if (previous) {
+    await new Promise(resolve => {
+      const timer = setTimeout(resolve, 3_000);
+      previous.once('exit', () => { clearTimeout(timer); resolve(); });
+      previous.kill();
+    });
+  }
+  runtime.session = null; runtime.coachSession = null;
+  await startLocalServer();
 }
 
 async function collectorCommand(args) {
   const script = path.join(applicationRoot(), 'scripts', 'replay-collector.mjs');
-  return new Promise((resolve, reject) => {
-    const child = runNode(script, args);
-    let stdout = ''; let stderr = '';
-    child.stdout.on('data', value => { stdout += value; });
-    child.stderr.on('data', value => { stderr += value; });
-    child.on('exit', code => code === 0 ? resolve(stdout.trim()) : reject(new Error(stderr.trim() || `Collector exited with code ${code}.`)));
-  });
+  return collectChildOutput(runNode(script, args));
 }
+
+const collectorJsonCommand = args => collectJson(collectorCommand, args);
 
 async function configureCollector() {
   const folders = [runtime.paths.valorantReplays, runtime.paths.replays, ...(runtime.config.extraReplayFolders || [])];
-  await collectorCommand(['configure', '--device-id', runtime.config.deviceId, '--managed-replay-path', runtime.paths.replays, '--scoreboard-folder', runtime.paths.screenshots, '--retention-days', String(runtime.config.retentionDays || 30), '--stable-seconds', '10', '--scan-seconds', '5', '--enable-auto-process', '--disable-auto-upload']);
+  const collectorRoot = runtime.paths.collector;
+  const knownRuntime = {
+    binaryPath: path.join(collectorRoot, 'runtime', 'vrfkit-v0.2.5', 'vrfkit.exe'),
+    pythonPath: path.join(process.env.LOCALAPPDATA || '', 'Programs', 'Python', 'Python312', 'python.exe'),
+    normalizerPath: path.join(collectorRoot, 'app', 'normalize-vrfkit-export.py'),
+  };
+  if (!fs.existsSync(knownRuntime.normalizerPath)) knownRuntime.normalizerPath = path.join(applicationRoot(), 'scripts', 'normalize-vrfkit-export.py');
+  const runtimeArgs = Object.values(knownRuntime).every(file => path.isAbsolute(file) && fs.existsSync(file))
+    ? ['--vrfkit-binary', knownRuntime.binaryPath, '--python', knownRuntime.pythonPath, '--normalizer', knownRuntime.normalizerPath]
+    : [];
+  await collectorCommand(['configure', '--device-id', runtime.config.deviceId, '--managed-replay-path', runtime.paths.replays, '--scoreboard-folder', runtime.paths.screenshots, '--retention-days', String(runtime.config.retentionDays || 30), '--stable-seconds', '10', '--scan-seconds', '5', '--enable-auto-process', '--disable-auto-upload', ...runtimeArgs]);
   for (const folder of folders) await collectorCommand(['configure', '--add-path', folder]);
 }
 
@@ -234,6 +275,12 @@ async function enqueueSyncEvidence(evidence) {
   if (!state.completed.includes(id) && !state.outbox.some(item => item.id === id)) state.outbox.push({ id, kind: 'replay-evidence', sha256: evidence.source.sha256, evidence, createdAt: new Date().toISOString(), attempts: 0, lastError: null });
   await atomicJson(runtime.paths.syncState, state);
 }
+async function enqueueScreenshotSummary(summary) {
+  if (!summary?.match?.id || summary.schemaVersion !== 1) throw new Error('Screenshot summary is invalid.');
+  const state = await syncState(); const digest = crypto.createHash('sha256').update(canonical(summary)).digest('hex'); const id = `screenshot-summary:${summary.match.id}:${digest}`;
+  if (!state.completed.includes(id) && !state.outbox.some(item => item.id === id)) state.outbox.push({ id, kind: 'screenshot-summary', matchId: summary.match.id, summary, createdAt: new Date().toISOString(), attempts: 0, lastError: null });
+  await atomicJson(runtime.paths.syncState, state); return { queued: true, id };
+}
 function safeCloudUrl(value) {
   const parsed = new URL(String(value || '').trim()); const local = ['localhost', '127.0.0.1', '::1'].includes(parsed.hostname);
   if (parsed.username || parsed.password || (parsed.protocol !== 'https:' && !(local && parsed.protocol === 'http:'))) throw new Error('Team server must use HTTPS.');
@@ -264,7 +311,10 @@ async function syncOnce() {
   let uploaded = 0;
   for (const item of [...state.outbox]) {
     try {
-      const response = await fetch(`${pairing.server}/api/replay-intake/evidence/${item.sha256}`, { method: 'POST', redirect: 'error', headers: { 'content-type': 'application/json', 'x-device-id': pairing.deviceId, 'x-device-token': pairing.token }, body: JSON.stringify(evidenceForPairedDevice(item.evidence, pairing.deviceId)) });
+      const screenshotSummary = item.kind === 'screenshot-summary';
+      const endpoint = screenshotSummary ? `${pairing.server}/api/replay-intake/screenshot-summaries/${encodeURIComponent(item.matchId)}` : `${pairing.server}/api/replay-intake/evidence/${item.sha256}`;
+      const payload = screenshotSummary ? item.summary : evidenceForPairedDevice(item.evidence, pairing.deviceId);
+      const response = await fetch(endpoint, { method: 'POST', redirect: 'error', headers: { 'content-type': 'application/json', 'x-device-id': pairing.deviceId, 'x-device-token': pairing.token }, body: JSON.stringify(payload) });
       const result = await response.json().catch(() => ({})); if (!response.ok) throw new Error(result.error || `Sync failed with HTTP ${response.status}.`);
       state.outbox = state.outbox.filter(entry => entry.id !== item.id); state.completed = [...new Set([item.id, ...state.completed])].slice(0, 1000); uploaded += 1; await atomicJson(runtime.paths.syncState, state);
     } catch (error) {
@@ -310,11 +360,12 @@ async function replayInventory() {
 
 async function desktopStatus() {
   const replays = await replayInventory();
-  const pendingScoreboards = await scoreboardInventory(runtime.paths.screenshots, runtime.config.processedScoreboardIds || []);
+  const pendingScoreboards = await allPendingScoreboards();
   const localSync = await syncState();
   let collector = null;
-  try { collector = JSON.parse(await collectorCommand(['status'])); } catch (error) { collector = { error: error.message }; }
+  try { collector = await collectorJsonCommand(['status']); } catch (error) { collector = { error: error.message }; }
   return {
+    appVersion: app.getVersion(),
     mode: runtime.config.mode,
     deviceName: runtime.config.deviceName,
     retentionDays: runtime.config.retentionDays,
@@ -354,6 +405,17 @@ async function showMainWindow() {
   window.show(); window.focus();
 }
 
+async function notifyLatestCapture() {
+  const captures = (await allPendingScoreboards()).filter(record => record.capture);
+  const latest = captures.at(-1);
+  if (!latest || latest.id === lastNotifiedCaptureId) return;
+  lastNotifiedCaptureId = latest.id;
+  const window = await createWindow();
+  if (window.isMinimized()) window.restore();
+  window.show(); window.focus();
+  window.webContents.send('desktop:capture-ready', { id: latest.id, captureId: latest.capture.captureId });
+}
+
 function createTray() {
   tray = new Tray(path.join(__dirname, 'assets', 'app-icon.ico'));
   tray.setToolTip('Moe Tracker — replay watcher active');
@@ -375,10 +437,15 @@ ipcMain.handle('desktop:download-update', () => updateController?.download() || 
 ipcMain.handle('desktop:install-update', () => updateController?.install() || Promise.reject(new Error('Update service is not ready.')));
 ipcMain.handle('desktop:process-match', async () => {
   await configureCollector();
-  let first = JSON.parse((await collectorCommand(['scan'])) || '[]');
-  if (first.some(item => item.status === 'observing')) { await new Promise(resolve => setTimeout(resolve, 11_000)); first = JSON.parse((await collectorCommand(['scan'])) || '[]'); }
+  let first = await collectorJsonCommand(['scan']);
+  if (first.some(item => item.status === 'observing')) { await new Promise(resolve => setTimeout(resolve, 11_000)); first = await collectorJsonCommand(['scan']); }
   if (first.some(item => item.status === 'observing' || item.status === 'locked')) return { state: 'waiting', message: 'VALORANT is still finishing the replay. Moe Tracker will keep watching it automatically.', items: first };
-  const processed = JSON.parse(await collectorCommand(['process-latest']));
+  let processed;
+  try { processed = await collectorJsonCommand(['process-latest']); }
+  catch (error) {
+    if (/Local (binaryPath|pythonPath|normalizerPath) is not configured/.test(String(error?.message || ''))) throw new Error('The verified replay parser is not installed on this PC. Screenshot capture still works; install or repair the replay parser from Settings before processing replay files.');
+    throw error;
+  }
   const imported = await importEvidenceFile(processed.evidencePath);
   return { state: 'review-ready', message: imported.idempotent ? 'This replay was already in the local review inbox.' : 'Replay parsed locally. The coach review draft is ready.', items: first, processed, imported };
 });
@@ -387,19 +454,70 @@ ipcMain.handle('desktop:pair-device', (_event, input) => pairDevice(input || {})
 ipcMain.handle('desktop:set-sync-mode', async (_event, mode) => { if (!['offline-first', 'connected'].includes(mode)) throw new Error('Unknown synchronization mode.'); if (mode === 'connected' && !runtime.config.cloudPairing) throw new Error('Pair this device before enabling connected sync.'); runtime.config.mode = mode; await atomicJson(runtime.paths.config, runtime.config); return { mode }; });
 ipcMain.handle('desktop:set-retention-days', async (_event, value) => { const days = Number(value); if (!Number.isInteger(days) || days < 1 || days > 365) throw new Error('Retention must be between 1 and 365 days.'); runtime.config.retentionDays = days; await atomicJson(runtime.paths.config, runtime.config); await configureCollector(); return { retentionDays: days }; });
 ipcMain.handle('desktop:set-start-with-windows', async (_event, enabled) => { runtime.config.startWithWindows = enabled === true; await atomicJson(runtime.paths.config, runtime.config); applyLoginPreference(); return { startWithWindows: runtime.config.startWithWindows }; });
-ipcMain.handle('desktop:list-scoreboards', async () => (await scoreboardInventory(runtime.paths.screenshots, runtime.config.processedScoreboardIds || [])).map(({ file: _privatePath, ...record }) => record));
+ipcMain.handle('desktop:list-scoreboards', async () => (await allPendingScoreboards()).map(({ file: _privatePath, capture: privateCapture, ...record }) => ({ ...record, capture: privateCapture ? { captureId: privateCapture.captureId, template: privateCapture.template, requestedRounds: privateCapture.requestedRounds } : null })));
 ipcMain.handle('desktop:read-scoreboard', async (_event, id) => {
   if (!/^[a-f0-9]{64}$/.test(String(id || ''))) throw new Error('Unknown scoreboard image.');
-  const record = (await scoreboardInventory(runtime.paths.screenshots, runtime.config.processedScoreboardIds || [])).find(item => item.id === id);
+  const record = (await allPendingScoreboards()).find(item => item.id === id);
   if (!record) throw new Error('The scoreboard image is no longer pending.');
   return readScoreboardRecord(record);
 });
+ipcMain.handle('desktop:read-capture-session', async (_event, id) => {
+  if (!/^[a-f0-9]{64}$/.test(String(id || ''))) throw new Error('Unknown capture session.');
+  const record = (await allPendingScoreboards()).find(item => item.id === id);
+  if (!record) throw new Error('The capture session is no longer pending.');
+  const session = await readCaptureSession(record);
+  return {
+    id: record.id,
+    captureId: String(session.manifest.captureId || record.capture?.captureId || ''),
+    template: String(session.manifest.template || record.capture?.template || ''),
+    requestedRounds: Number(session.manifest.requestedRounds || 0),
+    captures: session.captures.map(item => ({ kind: item.kind, round: item.round, name: item.file, mediaType: item.mediaType, base64: item.bytes.toString('base64') })),
+  };
+});
 ipcMain.handle('desktop:complete-scoreboard', async (_event, id) => {
   if (!/^[a-f0-9]{64}$/.test(String(id || ''))) throw new Error('Unknown scoreboard image.');
-  const record = (await scoreboardInventory(runtime.paths.screenshots, runtime.config.processedScoreboardIds || [])).find(item => item.id === id);
+  const record = (await allPendingScoreboards()).find(item => item.id === id);
   if (!record) throw new Error('The scoreboard image is no longer pending.');
   runtime.config.processedScoreboardIds = [...new Set([...(runtime.config.processedScoreboardIds || []), id])].slice(-1000);
   await atomicJson(runtime.paths.config, runtime.config); return { completed: true };
+});
+ipcMain.handle('desktop:start-scrim-capture', async (_event, input = {}) => {
+  const roundCount = Number(input.roundCount);
+  const template = String(input.template || 'without-performance');
+  if (!Number.isInteger(roundCount) || roundCount < 1 || roundCount > 32) throw new Error('Round count must be between 1 and 32.');
+  if (!['without-performance', 'with-performance'].includes(template)) throw new Error('Unknown capture layout.');
+  const launcher = path.join(applicationRoot(), 'scripts', 'start-scrim-capture.cmd');
+  if (!path.isAbsolute(launcher) || !fs.existsSync(launcher)) throw new Error('The built-in capture helper is missing. Reinstall Moe Tracker.');
+  const command = "$process = Start-Process -FilePath $env:MOE_CAPTURE_LAUNCHER -Verb RunAs -ArgumentList @($env:MOE_CAPTURE_ROUNDS, 'elevated', $env:MOE_CAPTURE_TEMPLATE) -PassThru; if (-not $process) { exit 1 }";
+  await new Promise((resolve, reject) => {
+    const child = spawn('powershell.exe', ['-NoProfile', '-NonInteractive', '-ExecutionPolicy', 'Bypass', '-Command', command], {
+      windowsHide: true,
+      env: { ...process.env, MOE_CAPTURE_LAUNCHER: launcher, MOE_CAPTURE_ROUNDS: String(roundCount), MOE_CAPTURE_TEMPLATE: template },
+      stdio: ['ignore', 'ignore', 'pipe'],
+    });
+    let stderr = '';
+    child.stderr.on('data', value => { stderr += String(value); });
+    child.on('error', reject);
+    child.on('exit', code => code === 0 ? resolve() : reject(new Error(stderr.trim() || 'Windows did not start the capture helper.')));
+  });
+  return { started: true, message: `Capture started for ${roundCount} rounds. Approve Windows elevation, then return to VALORANT before the countdown ends.` };
+});
+ipcMain.handle('desktop:get-integration-secret-status', async () => ({
+  encryptionAvailable: safeStorage.isEncryptionAvailable(),
+  configured: Object.fromEntries(['GEMINI_API_KEY', 'GRID_API_KEY', 'DISCORD_WEBHOOK_URL'].map(key => [key, !!runtime.config.integrationSecrets?.[key]])),
+  scope: 'local-device',
+}));
+ipcMain.handle('desktop:set-integration-secret', async (_event, input = {}) => {
+  const key = String(input.key || ''); const value = String(input.value || '').trim();
+  if (!['GEMINI_API_KEY', 'GRID_API_KEY', 'DISCORD_WEBHOOK_URL'].includes(key)) throw new Error('Unknown integration secret.');
+  if (!safeStorage.isEncryptionAvailable()) throw new Error('Windows credential encryption is unavailable for this user.');
+  if (key === 'DISCORD_WEBHOOK_URL' && value && !/^https:\/\/(?:canary\.|ptb\.)?discord(?:app)?\.com\/api\/webhooks\//i.test(value)) throw new Error('Enter a valid Discord webhook URL.');
+  runtime.config.integrationSecrets ||= {};
+  if (value) runtime.config.integrationSecrets[key] = safeStorage.encryptString(value).toString('base64');
+  else delete runtime.config.integrationSecrets[key];
+  await atomicJson(runtime.paths.config, runtime.config);
+  await restartLocalServer();
+  return { configured: !!value };
 });
 ipcMain.handle('desktop:open-folder', async (_event, kind) => {
   const allowed = { replays: runtime.paths.replays, screenshots: runtime.paths.screenshots, exports: runtime.paths.exports, backups: runtime.paths.backups, logs: runtime.paths.logs };
@@ -409,6 +527,22 @@ ipcMain.handle('desktop:open-folder', async (_event, kind) => {
   if (error) throw new Error(error);
   return { opened: true, path: allowed[kind] };
 });
+ipcMain.handle('desktop:report-diagnostic', async (_event, input = {}) => {
+  const code = `MT-${new Date().toISOString().slice(0, 10).replace(/-/g, '')}-${crypto.randomBytes(3).toString('hex').toUpperCase()}`;
+  await recordLocalCrash('reported-action-error', new Error(String(input.message || 'Unknown desktop action error')), { code, action: String(input.action || 'unknown').slice(0, 100) });
+  return { code };
+});
+ipcMain.handle('desktop:export-support-bundle', async () => {
+  const timestamp = new Date().toISOString().replace(/[:.]/g, '-');
+  const target = path.join(runtime.paths.exports, `MoeTracker-Support-${timestamp}.zip`);
+  const result = await createSupportBundle({
+    target, logs: runtime.paths.logs,
+    captureRoots: [runtime.paths.screenshots, path.join(process.env.LOCALAPPDATA || '', 'MoeTracker', 'Scoreboards')],
+    summary: { schemaVersion: 1, createdAt: new Date().toISOString(), appVersion: app.getVersion(), platform: process.platform, architecture: process.arch, windowsRelease: require('node:os').release(), deviceName: runtime.config.deviceName, mode: runtime.config.mode, paired: !!runtime.config.cloudPairing, update: updateController?.getState() || null },
+  });
+  return { ...result, message: `Support bundle saved to ${result.path}` };
+});
+ipcMain.handle('desktop:queue-screenshot-summary', (_event, input) => enqueueScreenshotSummary(input));
 ipcMain.handle('desktop:choose-replay-folder', async () => {
   const result = await dialog.showOpenDialog(mainWindow, { properties: ['openDirectory'], title: 'Choose an additional replay folder' });
   if (result.canceled || !result.filePaths[0]) return { canceled: true };
@@ -464,6 +598,8 @@ if (singleInstanceLock) app.whenReady().then(async () => {
   updateController = createUpdateController({ autoUpdater, enabled: updatesEnabled, currentVersion: app.getVersion(), updateHealth });
   updateController.start();
   await startLocalServer(); await startCollector(); await createWindow(); createTray();
+  captureInboxTimer = setInterval(() => { void notifyLatestCapture().catch(error => recordLocalCrash('capture-inbox-watch-failed', error)); }, 2_000); captureInboxTimer.unref?.();
+  setTimeout(() => void notifyLatestCapture().catch(error => recordLocalCrash('capture-inbox-watch-failed', error)), 750);
   if (healthState.state === 'verifying') await updateHealth.confirmHealthy(app.getVersion());
   collectorImportTimer = setInterval(() => { void autoImportProcessedEvidence().catch(error => console.warn(`[collector-import] ${error.message}`)); }, 5_000); collectorImportTimer.unref?.();
   setTimeout(() => void autoImportProcessedEvidence().catch(error => console.warn(`[collector-import] ${error.message}`)), 1_000);
@@ -473,5 +609,5 @@ if (singleInstanceLock) app.whenReady().then(async () => {
   app.on('activate', () => { void showMainWindow().catch(error => recordLocalCrash('open-window-failed', error)); });
 }).catch(error => { dialog.showErrorBox('Moe Tracker could not start', error.message); app.quit(); });
 
-app.on('before-quit', () => { quitting = true; updateController?.stop(); if (collectorImportTimer) clearInterval(collectorImportTimer); if (syncTimer) clearInterval(syncTimer); tray?.destroy(); collectorProcess?.kill(); serverProcess?.kill(); });
+app.on('before-quit', () => { quitting = true; updateController?.stop(); if (collectorImportTimer) clearInterval(collectorImportTimer); if (syncTimer) clearInterval(syncTimer); if (captureInboxTimer) clearInterval(captureInboxTimer); tray?.destroy(); collectorProcess?.kill(); serverProcess?.kill(); });
 app.on('window-all-closed', () => { /* The tray keeps replay watching and synchronization alive. */ });
