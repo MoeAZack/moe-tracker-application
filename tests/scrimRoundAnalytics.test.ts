@@ -17,6 +17,11 @@ describe('scrim screenshot analytics', () => {
   it('derives weapon, opening, multikill, KAST and low-budget wins from confirmed evidence', () => {
     expect(buildPlayerScreenshotMetrics([round()] as any)).toEqual([expect.objectContaining({ identity: 'p1', coveredRounds: 1, wins: 1, firstKills: 1, lowBudgetWins: 1, multikills: { two: 1, three: 0, four: 0, ace: 0 }, kast: { successful: 1, covered: 1 }, weapons: [{ weapon: 'Sheriff', rounds: 1, wins: 1, kills: 2, deaths: 0 }] })]);
   });
+  it('uses the cumulative scoreboard assist delta instead of counting an old assist every round', () => {
+    const first = round({ roundNo: 1, screenshotEvidence: { ...round().screenshotEvidence, players: [{ playerId: 'p1', displayName: 'Alpha', team: 'ours', assists: 1, survived: false }], events: [{ sequence: 1, killerPlayerId: 'x1', victimPlayerId: 'p1' }] } });
+    const second = round({ id: 'r2', roundNo: 2, screenshotEvidence: { ...round().screenshotEvidence, players: [{ playerId: 'p1', displayName: 'Alpha', team: 'ours', assists: 1, survived: false }], events: [{ sequence: 1, killerPlayerId: 'x1', victimPlayerId: 'p1' }] } });
+    expect(buildPlayerScreenshotMetrics([first, second] as any)[0].kast).toEqual({ successful: 1, covered: 2 });
+  });
   it('detects full-buy and anti-eco losses without counting review-required evidence', () => {
     const loss = round({ result: 'L', screenshotEvidence: { ...round().screenshotEvidence, ourAverageLoadout: 4300, enemyAverageLoadout: 1700 } });
     const ignored = round({ id: 'r2', screenshotEvidence: { ...round().screenshotEvidence, reviewStatus: 'review-required' } });
