@@ -599,11 +599,11 @@ export function registerReplayDeviceUploadRoute(app: Express) {
       const { db, device } = authenticated; if (device.owner.role !== 'coach') return res.status(403).json({ error: 'Team screenshot summaries require a coach-owned device.' });
       const matchId = String(req.params.matchId || ''); const body = req.body;
       if (!matchId || body?.schemaVersion !== 1 || body?.match?.id !== matchId || !Array.isArray(body?.playerStats) || body.playerStats.length > 20 || Buffer.byteLength(JSON.stringify(body)) > 128 * 1024) return res.status(400).json({ error: 'Screenshot summary is invalid.' });
-      const allowedMatch = ['id', 'date', 'type', 'opponent', 'map', 'attW', 'attL', 'defW', 'defL', 'ourScore', 'theirScore', 'rosterContext'];
+      const allowedMatch = ['id', 'date', 'type', 'opponent', 'map', 'attW', 'attL', 'defW', 'defL', 'ourScore', 'theirScore', 'pistolAtt', 'pistolDef', 'ecoAtt', 'ecoDef', 'bonusAtt', 'bonusDef', 'rosterContext', 'sourceMetadata'];
       const safeMatch = Object.fromEntries(allowedMatch.filter(key => body.match[key] !== undefined).map(key => [key, structuredClone(body.match[key])]));
       const safeStats = body.playerStats.map((row: any) => {
         if (!row?.id || row.matchId !== matchId || !row.screenshotMetrics || row.screenshotMetrics.schemaVersion !== 1) throw Object.assign(new Error('Screenshot player summary is invalid.'), { status: 400 });
-        const allowed = ['id', 'matchId', 'player', 'playerId', 'displayNameSnapshot', 'appearanceType', 'agent', 'kills', 'deaths', 'assists', 'screenshotMetrics'];
+        const allowed = ['id', 'matchId', 'player', 'playerId', 'displayNameSnapshot', 'appearanceType', 'agent', 'kills', 'deaths', 'assists', 'acs', 'adr', 'hs', 'headshots', 'headshotEligibleKills', 'orbPoints', 'fk', 'fd', 'plants', 'defuses', 'screenshotMetrics', 'sourceMetadata'];
         return Object.fromEntries(allowed.filter(key => row[key] !== undefined).map(key => [key, structuredClone(row[key])]));
       });
       const digest = contentHash({ match: safeMatch, playerStats: safeStats }); db.engineAdapters ||= {}; db.engineAdapters.screenshot ||= {};
@@ -612,7 +612,7 @@ export function registerReplayDeviceUploadRoute(app: Express) {
       const existingMatch = (db.matches || []).find((item: any) => item.id === matchId); if (!existingMatch) (db.matches ||= []).push(safeMatch);
       for (const incoming of safeStats) {
         const existing = (db.playerStats || []).find((item: any) => item.id === incoming.id && item.matchId === matchId);
-        if (existing) existing.screenshotMetrics = incoming.screenshotMetrics; else (db.playerStats ||= []).push(incoming);
+        if (existing) Object.assign(existing, incoming); else (db.playerStats ||= []).push(incoming);
       }
       const updatedAt = new Date().toISOString(); db.engineAdapters.screenshot[matchId] = { schemaVersion: 1, status: 'accepted', matchId, digest, revision: Number(existingRecord?.revision || 0) + 1, updatedAt, sourceDeviceId: device.id };
       device.lastSeenAt = updatedAt; await saveDB(db); res.status(existingRecord ? 200 : 201).json({ accepted: true, idempotent: false, revision: db.engineAdapters.screenshot[matchId].revision });

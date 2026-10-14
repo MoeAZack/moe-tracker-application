@@ -1,5 +1,13 @@
 import type { EconomyClass, PlayerScreenshotMetrics, Round } from '../src/types';
 import { knownResult } from './analyticsEvidence';
+import { normalizeCaptureName } from './scrimCaptureImport';
+
+export function screenshotPlayerIdentity(playerId: unknown, displayName: unknown): string {
+  const supplied = typeof playerId === 'string' ? playerId.trim() : '';
+  if (supplied && !supplied.toLocaleLowerCase().startsWith('name:')) return supplied;
+  const name = supplied ? supplied.slice(5) : displayName;
+  return `name:${normalizeCaptureName(name)}`;
+}
 
 export function classifyAverageLoadout(value: unknown): EconomyClass {
   if (typeof value !== 'number' || !Number.isFinite(value) || value < 0) return 'unknown';
@@ -95,19 +103,21 @@ export function buildPlayerScreenshotMetrics(rounds: readonly Round[]) {
     const deaths = new Map<string, number>();
     const weaponKills = new Map<string, Map<string, number>>();
     for (const event of eventsComplete ? events : []) {
-      if (event.killerPlayerId) kills.set(event.killerPlayerId, (kills.get(event.killerPlayerId) || 0) + 1);
-      if (event.victimPlayerId) deaths.set(event.victimPlayerId, (deaths.get(event.victimPlayerId) || 0) + 1);
+      const killerId = event.killerPlayerId ? screenshotPlayerIdentity(event.killerPlayerId, '') : null;
+      const victimId = event.victimPlayerId ? screenshotPlayerIdentity(event.victimPlayerId, '') : null;
+      if (killerId) kills.set(killerId, (kills.get(killerId) || 0) + 1);
+      if (victimId) deaths.set(victimId, (deaths.get(victimId) || 0) + 1);
       const weapon = event.weapon?.trim();
-      if (weapon && event.killerPlayerId) {
-        const byWeapon = weaponKills.get(event.killerPlayerId) || new Map<string, number>();
-        byWeapon.set(weapon, (byWeapon.get(weapon) || 0) + 1); weaponKills.set(event.killerPlayerId, byWeapon);
+      if (weapon && killerId) {
+        const byWeapon = weaponKills.get(killerId) || new Map<string, number>();
+        byWeapon.set(weapon, (byWeapon.get(weapon) || 0) + 1); weaponKills.set(killerId, byWeapon);
       }
     }
     const seenOurPlayers = new Set<string>();
     for (const observation of ours) {
-      const normalizedName = observation.displayName.trim().toLocaleLowerCase();
+      const normalizedName = normalizeCaptureName(observation.displayName);
       if (!observation.playerId && !normalizedName) continue;
-      const identity = observation.playerId || `name:${normalizedName}`;
+      const identity = screenshotPlayerIdentity(observation.playerId, observation.displayName);
       if (seenOurPlayers.has(identity)) continue;
       seenOurPlayers.add(identity);
       const metric = players.get(identity) || empty(identity, observation.displayName);
@@ -117,9 +127,11 @@ export function buildPlayerScreenshotMetrics(rounds: readonly Round[]) {
       if (result === 'win' && (ourEconomy === 'eco' || ourEconomy === 'low')) metric.lowBudgetWins += 1;
       if (result === 'loss' && ourEconomy === 'full') metric.highBudgetLosses += 1;
       if (result === 'loss' && ourEconomy === 'full' && (enemyEconomy === 'eco' || enemyEconomy === 'low')) metric.antiEcoLosses += 1;
-      const playerId = typeof observation.playerId === 'string' && observation.playerId.length > 0 ? observation.playerId : null;
-      if (playerId && first?.killerPlayerId === playerId) metric.firstKills += 1;
-      if (playerId && first?.victimPlayerId === playerId) metric.firstDeaths += 1;
+      const playerId = typeof observation.playerId === 'string' && observation.playerId.length > 0 ? screenshotPlayerIdentity(observation.playerId, observation.displayName) : null;
+      const firstKillerId = first?.killerPlayerId ? screenshotPlayerIdentity(first.killerPlayerId, '') : null;
+      const firstVictimId = first?.victimPlayerId ? screenshotPlayerIdentity(first.victimPlayerId, '') : null;
+      if (playerId && firstKillerId === playerId) metric.firstKills += 1;
+      if (playerId && firstVictimId === playerId) metric.firstDeaths += 1;
       const roundKills = playerId && eventsComplete ? kills.get(playerId) : undefined;
       if (roundKills === 2) metric.multikills.two += 1;
       else if (roundKills === 3) metric.multikills.three += 1;
@@ -158,7 +170,7 @@ export function combineStoredScreenshotMetrics(rows: ReadonlyArray<{ playerId?: 
     const source = row.screenshotMetrics;
     if (!source) continue;
     const displayName = row.displayNameSnapshot || row.player || 'Unknown player';
-    const identity = row.playerId || `name:${displayName.trim().toLocaleLowerCase()}`;
+    const identity = screenshotPlayerIdentity(row.playerId, displayName);
     const target = combined.get(identity) || empty(identity, displayName);
     combined.set(identity, target);
     for (const field of ['coveredRounds', 'wins', 'losses', 'firstKills', 'firstDeaths', 'lowBudgetWins', 'highBudgetLosses', 'antiEcoLosses'] as const) target[field] += source[field] || 0;

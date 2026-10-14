@@ -34,6 +34,12 @@ describe('scrim screenshot analytics', () => {
     const duplicate = round({ id: 'different-row-id' });
     expect(buildPlayerScreenshotMetrics([round(), duplicate] as any)[0]).toMatchObject({ coveredRounds: 1, wins: 1, firstKills: 1 });
   });
+  it('uses the same identity for names with spaces in rounds and stored scoreboards', () => {
+    const spaced = round({ screenshotEvidence: { ...round().screenshotEvidence, players: [{ playerId: 'name:rafblack', displayName: 'RAF BLACK', team: 'ours', equippedWeapon: 'Vandal', kills: 1, assists: 0, survived: true }] } });
+    const metric = buildPlayerScreenshotMetrics([spaced] as any)[0];
+    expect(metric.identity).toBe('name:rafblack');
+    expect(combineStoredScreenshotMetrics([{ player: 'RAF BLACK', screenshotMetrics: metric } as any])[0].identity).toBe('name:rafblack');
+  });
   it('attributes kills to the event weapon while keeping equipped-round results separate', () => {
     const mixedWeapon = round({ screenshotEvidence: { ...round().screenshotEvidence, events: [
       { sequence: 1, killerPlayerId: 'p1', victimPlayerId: 'x1', weapon: 'Classic' },

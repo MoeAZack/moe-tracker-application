@@ -14,6 +14,7 @@ const { createUpdateController } = require('./update-controller.cjs');
 const { createUpdateHealth } = require('./update-health.cjs');
 const { createSupportBundle } = require('./support-bundle.cjs');
 const { collectChildOutput, collectJson } = require('./collector-command.cjs');
+const { canonical, refreshScreenshotOutboxFromData } = require('./sync-outbox.cjs');
 
 let mainWindow;
 let tray;
@@ -278,6 +279,7 @@ async function enqueueSyncEvidence(evidence) {
 async function enqueueScreenshotSummary(summary) {
   if (!summary?.match?.id || summary.schemaVersion !== 1) throw new Error('Screenshot summary is invalid.');
   const state = await syncState(); const digest = crypto.createHash('sha256').update(canonical(summary)).digest('hex'); const id = `screenshot-summary:${summary.match.id}:${digest}`;
+  state.outbox = state.outbox.filter(item => item.kind !== 'screenshot-summary' || item.matchId !== summary.match.id);
   if (!state.completed.includes(id) && !state.outbox.some(item => item.id === id)) state.outbox.push({ id, kind: 'screenshot-summary', matchId: summary.match.id, summary, createdAt: new Date().toISOString(), attempts: 0, lastError: null });
   await atomicJson(runtime.paths.syncState, state); return { queued: true, id };
 }
@@ -286,7 +288,6 @@ function safeCloudUrl(value) {
   if (parsed.username || parsed.password || (parsed.protocol !== 'https:' && !(local && parsed.protocol === 'http:'))) throw new Error('Team server must use HTTPS.');
   return parsed.origin;
 }
-function canonical(value) { return JSON.stringify(value, (_key, nested) => nested && typeof nested === 'object' && !Array.isArray(nested) ? Object.fromEntries(Object.entries(nested).sort(([left], [right]) => left.localeCompare(right))) : nested); }
 function evidenceForPairedDevice(evidence, deviceId) {
   const copy = structuredClone(evidence); copy.source.deviceId = deviceId; delete copy.evidenceSha256;
   copy.evidenceSha256 = crypto.createHash('sha256').update(canonical(copy)).digest('hex'); return copy;
@@ -307,6 +308,11 @@ async function pairDevice({ server, code }) {
 }
 async function syncOnce() {
   const pairing = cloudCredential(); const state = await syncState();
+  try {
+    const session = await bootstrapCoachSession();
+    const response = await fetch(`http://127.0.0.1:${runtime.port}/api/data`, { headers: { authorization: `Bearer ${session.key}` } });
+    if (response.ok) { refreshScreenshotOutboxFromData(state, await response.json()); await atomicJson(runtime.paths.syncState, state); }
+  } catch (error) { console.warn(`[sync] Local screenshot queue refresh failed: ${error.message}`); }
   if (!pairing || runtime.config.mode !== 'connected') return { state: 'local-only', message: `${state.outbox.length} change${state.outbox.length === 1 ? '' : 's'} safely queued. ${pairing ? 'Connected sync is paused.' : 'Pair this device to synchronize.'}`, pending: state.outbox.length };
   let uploaded = 0;
   for (const item of [...state.outbox]) {
@@ -604,7 +610,7 @@ if (singleInstanceLock) app.whenReady().then(async () => {
   collectorImportTimer = setInterval(() => { void autoImportProcessedEvidence().catch(error => console.warn(`[collector-import] ${error.message}`)); }, 5_000); collectorImportTimer.unref?.();
   setTimeout(() => void autoImportProcessedEvidence().catch(error => console.warn(`[collector-import] ${error.message}`)), 1_000);
   syncTimer = setInterval(() => { if (runtime.config.cloudPairing && runtime.config.mode === 'connected') void syncNow().catch(error => console.warn(`[sync] ${error.message}`)); }, 60_000); syncTimer.unref?.();
-  if (runtime.config.cloudPairing && runtime.config.mode === 'connected') setTimeout(() => void syncNow().catch(error => console.warn(`[sync] ${error.message}`)), 5_000);
+  setTimeout(() => void syncNow().catch(error => console.warn(`[sync] ${error.message}`)), 5_000);
   setTimeout(() => void createRecoveryBackup().catch(error => console.warn(`[backup] ${error.message}`)), 8_000);
   app.on('activate', () => { void showMainWindow().catch(error => recordLocalCrash('open-window-failed', error)); });
 }).catch(error => { dialog.showErrorBox('Moe Tracker could not start', error.message); app.quit(); });

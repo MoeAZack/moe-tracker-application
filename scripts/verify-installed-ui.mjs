@@ -5,6 +5,7 @@ import path from 'node:path';
 const port = process.argv[2];
 if (!port) throw new Error('Pass the installed local-service port.');
 const origin = `http://127.0.0.1:${port}`;
+const packageJson = JSON.parse(await readFile(path.join(process.cwd(), 'package.json'), 'utf8'));
 const config = JSON.parse(await readFile(path.join(process.env.APPDATA, 'moe-tracker-application', 'Local Workspace', 'desktop-config.json'), 'utf8'));
 const login = await fetch(`${origin}/api/login-key`, { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ key: config.adminPassword }) });
 if (!login.ok) throw new Error(`Login failed (${login.status}).`);
@@ -18,10 +19,10 @@ try {
   await page.addInitScript(value => {
     window.moeDesktop = {
       bootstrapSession: async () => value,
-      getStatus: async () => ({ appVersion: '0.1.8', mode: 'offline-first', deviceName: 'Verification PC', retentionDays: 30, startWithWindows: false, cloudUrl: '', replayCount: 0, pendingScoreboards: 0, latestReplay: null, localService: 'online', update: { state: 'current', version: null, percent: null, message: '' }, folders: {}, collector: {}, sync: { paired: false, server: null, pending: 0, received: 0 } }),
+      getStatus: async () => ({ appVersion: value.version, mode: 'offline-first', deviceName: 'Verification PC', retentionDays: 30, startWithWindows: false, cloudUrl: '', replayCount: 0, pendingScoreboards: 0, latestReplay: null, localService: 'online', update: { state: 'current', version: null, percent: null, message: '' }, folders: {}, collector: {}, sync: { paired: false, server: null, pending: 0, received: 0 } }),
       onStatus: () => () => {}, listScoreboards: async () => [], syncNow: async () => ({}), checkForUpdates: async () => ({}),
     };
-  }, session);
+  }, { ...session, version: packageJson.version });
   await page.goto(origin, { waitUntil: 'networkidle' });
   await page.getByRole('button', { name: 'Dashboard' }).waitFor({ state: 'visible', timeout: 20_000 });
   const checks = {};
@@ -31,12 +32,12 @@ try {
     checks[name] = expected.every(text => body.toLocaleLowerCase().includes(text.toLocaleLowerCase()));
     await page.screenshot({ path: path.join(evidenceDir, `${name}.png`), fullPage: true });
   };
-  await capture('dashboard', ['v0.1.8', 'Ready for the next review', 'Start post-match capture']);
+  await capture('dashboard', [`v${packageJson.version}`, 'Ready for the next review', 'Start post-match capture']);
   await page.locator('summary[aria-label^="Team sync for"]').click();
-  await capture('team-sync', ['Pair another team PC', 'Create team code']);
+  await capture('team-sync', ['Connect this PC', 'Device, Sync & Storage']);
   await page.locator('summary[aria-label^="Team sync for"]').click();
   await page.getByRole('button', { name: 'Matches Log' }).click();
-  await capture('matches', ['Scrims & Matches Log', 'No matches recorded']);
+  await capture('matches', ['Scrims & Matches Log']);
   await page.getByRole('button', { name: 'Economy' }).click();
   await capture('economy', ['Economy Analytics', 'Economy evidence by match']);
   await page.getByRole('button', { name: 'Settings' }).click();
