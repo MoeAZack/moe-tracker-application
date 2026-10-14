@@ -29,7 +29,9 @@ export default function RosterManager({ data, theme, onRefresh }: Props) {
   const [newSeasonName, setNewSeasonName] = useState('');
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  const [collapsed, setCollapsed] = useState(() => typeof window !== 'undefined' && window.localStorage.getItem('moe.roster-manager.collapsed') === 'true');
+  const [collapsed, setCollapsed] = useState(() => typeof window !== 'undefined'
+    ? window.localStorage.getItem('moe.roster-manager.collapsed') !== 'false'
+    : false);
   useEffect(() => { window.localStorage.setItem('moe.roster-manager.collapsed', String(collapsed)); }, [collapsed]);
 
   const mutate = async (route: string, body: unknown) => {

@@ -198,6 +198,27 @@ describe('explicit match statistics save contract', () => {
     expect(JSON.parse(await fs.readFile(dbPath, 'utf8')).playerStats).toHaveLength(5);
   });
 
+  it('materializes first deaths from complete opening evidence without requiring every later kill', async () => {
+    const seeded: any = fixture();
+    seeded.playerStats = [{ id: 'stat-alpha', matchId: 'match-1', playerId: 'player-alpha', player: 'Alpha', kills: 10, deaths: 10, fd: null }];
+    await fs.writeFile(dbPath, JSON.stringify(seeded));
+    const token = await login(adminKey);
+    const response = await fetch(`${origin}/api/save-rounds`, {
+      method: 'POST', headers: { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' },
+      body: JSON.stringify({ matchId: 'match-1', rows: [{
+        roundNo: 1, side: 'Attack', result: 'L',
+        screenshotEvidence: {
+          schemaVersion: 1, reviewStatus: 'confirmed', confidence: 'high',
+          openingEventComplete: true, eventsComplete: false,
+          players: [{ playerId: 'player-alpha', displayName: 'Alpha', team: 'ours' }],
+          events: [{ sequence: 1, killerPlayerId: 'name:enemy', victimPlayerId: 'player-alpha', killerTeam: 'theirs', victimTeam: 'ours' }],
+        },
+      }] }),
+    });
+    expect(response.status).toBe(200);
+    expect((await response.json()).playerStats[0].fd).toBe(1);
+  });
+
   it('rejects negative, fractional, and out-of-range metrics without writing', async () => {
     const token = await login(adminKey);
     const invalidBodies = [

@@ -107,6 +107,7 @@ export async function extractCaptureSession(input: {
     const eventClassification = await classifyValorantRoundEvents(image, eventPlayers);
     parsed.evidence.events = enrichScreenshotEvents(eventClassification.events, parsed.eventDetails);
     parsed.evidence.objectives = enrichObjectiveRows(eventClassification.objectives || [], parsed.eventDetails);
+    parsed.evidence.openingEventComplete = eventClassification.openingComplete;
     parsed.evidence.eventsComplete = eventClassification.complete;
     if (!eventClassification.complete) parsed.issues = [...new Set([...parsed.issues, 'event-log'])];
     parsed.evidence.extractionIssues = parsed.issues;
@@ -157,7 +158,9 @@ export async function extractCaptureSession(input: {
       : 'review-required';
   }
   const firstDeaths = new Map<string, number>();
-  const firstDeathCoverageComplete = extractedRounds.length > 0 && extractedRounds.every(round => round.screenshotEvidence?.eventsComplete === true);
+  // FK/FD only needs the earliest kill row. Do not throw away a valid opening
+  // because a later trade or cleanup kill was unreadable.
+  const firstDeathCoverageComplete = extractedRounds.length > 0 && extractedRounds.every(round => round.screenshotEvidence?.openingEventComplete === true);
   for (const round of extractedRounds) {
     const first = round.screenshotEvidence?.events?.[0];
     if (first?.victimTeam === 'ours' && first.victimPlayerId) firstDeaths.set(first.victimPlayerId, (firstDeaths.get(first.victimPlayerId) || 0) + 1);

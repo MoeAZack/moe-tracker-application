@@ -98,7 +98,11 @@ export function buildPlayerScreenshotMetrics(rounds: readonly Round[]) {
     const events = [...(evidence.events || [])].sort((a, b) => a.sequence - b.sequence);
     const eventsComplete = evidence.eventsComplete === true
       && events.every((event, index) => event.sequence === index + 1);
-    const first = eventsComplete ? events[0] : undefined;
+    const openingComplete = (evidence.openingEventComplete === true || (evidence.openingEventComplete === undefined && eventsComplete))
+      && events[0]?.sequence === 1
+      && !!events[0].killerPlayerId
+      && !!events[0].victimPlayerId;
+    const first = openingComplete ? events[0] : undefined;
     const kills = new Map<string, number>();
     const deaths = new Map<string, number>();
     const weaponKills = new Map<string, Map<string, number>>();
@@ -162,6 +166,45 @@ export function buildPlayerScreenshotMetrics(rounds: readonly Round[]) {
     }
   }
   return [...players.values()].map(metric => ({ ...metric, weapons: metric.weapons.sort((a, b) => b.rounds - a.rounds || a.weapon.localeCompare(b.weapon)) }));
+}
+
+/**
+ * Fill scoreboard FD totals when every played round has a securely resolved
+ * opening event. Legacy captures predate openingEventComplete; source row zero
+ * is their conservative proof that no earlier kill row was skipped.
+ */
+export function materializeFirstDeathsFromRoundEvidence(
+  data: { matches?: any[]; rounds?: any[]; playerStats?: any[] },
+  options: { overwrite?: boolean; matchId?: string } = {},
+) {
+  let changed = 0;
+  for (const match of data.matches || []) {
+    if (options.matchId && match.id !== options.matchId) continue;
+    const rounds = (data.rounds || []).filter(round => round.matchId === match.id).sort((a, b) => Number(a.roundNo) - Number(b.roundNo));
+    const expectedRounds = Number.isInteger(match.ourScore) && Number.isInteger(match.theirScore) ? Number(match.ourScore) + Number(match.theirScore) : null;
+    if (!rounds.length || (expectedRounds !== null && rounds.length !== expectedRounds)) continue;
+    const firstDeaths = new Map<string, number>();
+    let complete = true;
+    for (const round of rounds) {
+      const evidence = round.screenshotEvidence;
+      const first = [...(evidence?.events || [])].sort((a: any, b: any) => Number(a.sequence) - Number(b.sequence))[0];
+      const legacyOpening = evidence?.openingEventComplete === undefined
+        && (evidence?.eventsComplete === true || first?.sourceRow === 0);
+      if (!(evidence?.openingEventComplete === true || legacyOpening)
+        || first?.sequence !== 1 || !first.killerPlayerId || !first.victimPlayerId || !first.killerTeam || !first.victimTeam) {
+        complete = false; break;
+      }
+      if (first.victimTeam === 'ours') firstDeaths.set(first.victimPlayerId, (firstDeaths.get(first.victimPlayerId) || 0) + 1);
+    }
+    if (!complete) continue;
+    for (const stat of data.playerStats || []) {
+      if (stat.matchId !== match.id || (!options.overwrite && stat.fd !== null && stat.fd !== undefined)) continue;
+      const identity = screenshotPlayerIdentity(stat.playerId, stat.displayNameSnapshot || stat.player || '');
+      stat.fd = firstDeaths.get(identity) || 0;
+      changed += 1;
+    }
+  }
+  return changed;
 }
 
 export function combineStoredScreenshotMetrics(rows: ReadonlyArray<{ playerId?: string | null; player?: string; displayNameSnapshot?: string; screenshotMetrics?: PlayerScreenshotMetrics }>) {

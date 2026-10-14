@@ -104,7 +104,11 @@ describe('central analytics history filtering', () => {
 
   it('routes Solo Tracker through the same filtered analytics data', () => {
     const app = fs.readFileSync('src/App.tsx', 'utf8');
+    const rosterManager = fs.readFileSync('src/components/RosterManager.tsx', 'utf8');
     expect(app).toMatch(/<PlayerSoloTracker data=\{analyticsData\}/);
+    expect(app).toMatch(/role=\{role\}/);
+    expect(app).toMatch(/onRefresh=\{fetchDatabase\}/);
+    expect(rosterManager).toMatch(/getItem\('moe\.roster-manager\.collapsed'\) !== 'false'/);
   });
 });
 
