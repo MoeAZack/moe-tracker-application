@@ -1,5 +1,6 @@
 import type { ScreenshotKillEvent, ScreenshotPlayerRoundEvidence } from '../src/types';
 import { createValorantAgentRegionClassifier } from './localAgentClassifier';
+import { createValorantWeaponRegionClassifier } from './localWeaponClassifier';
 
 type ImageLike = CanvasImageSource & { naturalWidth?: number; naturalHeight?: number };
 
@@ -55,6 +56,7 @@ export async function classifyValorantRoundEvents(image: ImageLike, players: rea
   if (!context) throw new Error('Round event portrait matching is unavailable.');
   context.drawImage(image, 0, 0, width, height);
   const classifyAgent = await createValorantAgentRegionClassifier(image);
+  const classifyWeapon = await createValorantWeaponRegionClassifier(image);
   const rowTop = (row: number) => Math.round((470 + row * 42.4) * sy);
   const table = players.map((_player, row) => portraitPixels(source, Math.round(1222 * sx), rowTop(row), Math.round(38 * sx), Math.round(42 * sy)));
   const tableColours = players.map((_player, row) => context.getImageData(Math.round(1450 * sx), rowTop(row) + Math.round(20 * sy), 1, 1).data);
@@ -123,11 +125,12 @@ export async function classifyValorantRoundEvents(image: ImageLike, players: rea
     if (!killerPlayer || !victimPlayer) hadPartialEvent = true;
     events.push({
       sequence: events.length + 1,
+      sourceRow: row,
       killerPlayerId: killerPlayer ? killerPlayer.playerId || `name:${killerPlayer.displayName.trim().toLocaleLowerCase()}` : null,
       victimPlayerId: victimPlayer ? victimPlayer.playerId || `name:${victimPlayer.displayName.trim().toLocaleLowerCase()}` : null,
       killerTeam: killerPlayer?.team || killerTeam,
       victimTeam: victimPlayer?.team || (killerTeam === 'ours' ? 'theirs' : killerTeam === 'theirs' ? 'ours' : null),
-      weapon: null,
+      weapon: classifyWeapon({ left: Math.round(468 * sx), top: top + Math.round(5 * sy), width: Math.round(132 * sx), height: Math.round(31 * sy) }),
     });
   }
   return { events, complete: events.length > 0 && !hadPartialEvent };

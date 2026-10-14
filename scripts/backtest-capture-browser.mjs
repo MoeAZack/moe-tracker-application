@@ -15,6 +15,8 @@ const names = await readdir(folder);
 const rounds = names.filter(name => /^round-\d+\.png$/i.test(name)).sort().map(name => ({ round: Number(name.match(/\d+/)?.[0]), name, base64: null }));
 const payload = {
   scoreboard: (await readFile(path.join(folder, 'scoreboard.png'))).toString('base64'),
+  performance: names.includes('performance.png') ? (await readFile(path.join(folder, 'performance.png'))).toString('base64') : null,
+  headToHead: names.includes('head-to-head.png') ? (await readFile(path.join(folder, 'head-to-head.png'))).toString('base64') : null,
   rounds: await Promise.all(rounds.map(async item => ({ ...item, base64: (await readFile(path.join(folder, item.name))).toString('base64') }))),
 };
 const browser = await chromium.launch({ executablePath: 'C:/Program Files/Google/Chrome/Application/chrome.exe', headless: true });

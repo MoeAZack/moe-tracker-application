@@ -54,8 +54,8 @@ export function createValorantRoundSummaryProfile(width: number, height: number)
   if (!Number.isInteger(width) || !Number.isInteger(height) || width <= 0 || height <= 0 || width / height < 1.72 || width / height > 1.82) throw Object.assign(new Error('Round extraction requires a full 16:9 VALORANT capture.'), { status: 422 });
   const sx = width / 1920; const sy = height / 1080;
   const box = (left: number, top: number, regionWidth: number, regionHeight: number) => ({ left: Math.round(left * sx), top: Math.round(top * sy), width: Math.max(1, Math.round(regionWidth * sx)), height: Math.max(1, Math.round(regionHeight * sy)) });
-  return createImmutableLocalOcrProfile({ id: 'valorant-round-summary-v1', version: 1, status: 'accepted', dimensions: { width, height }, regions: [
-    { id: 'round.result', kind: 'text', layout: 'line', rectangle: box(1325, 414, 400, 40) },
+  const regions: LocalOcrRegion[] = [
+    { id: 'round.result', kind: 'text', layout: 'line', rectangle: box(1208, 414, 520, 40) },
     { id: 'averages.ourLoadout', kind: 'integer', layout: 'block', rectangle: box(408, 860, 42, 21) },
     { id: 'averages.enemyLoadout', kind: 'integer', layout: 'block', rectangle: box(448, 860, 44, 21) },
     { id: 'averages.ourBank', kind: 'integer', layout: 'block', rectangle: box(408, 880, 42, 21) },
@@ -63,9 +63,45 @@ export function createValorantRoundSummaryProfile(width: number, height: number)
     { id: 'players.names', kind: 'text', layout: 'block', rectangle: box(1260, 468, 210, 427) },
     { id: 'players.kills', kind: 'text', layout: 'block', rectangle: box(1482, 468, 34, 427) },
     { id: 'players.assists', kind: 'text', layout: 'block', rectangle: box(1525, 468, 34, 427) },
-    { id: 'players.economy', kind: 'text', layout: 'block', rectangle: box(1568, 468, 58, 427) },
-    { id: 'players.equipment', kind: 'text', layout: 'block', rectangle: box(1632, 468, 96, 427) },
+  ];
+  for (let row = 0; row < 10; row += 1) {
+    const top = 470 + row * 42.4;
+    regions.push({ id: `player.${row}.loadout`, kind: 'integer', layout: 'line', rectangle: box(1572, top, 54, 20) });
+    regions.push({ id: `player.${row}.bank`, kind: 'integer', layout: 'line', rectangle: box(1572, top + 19, 54, 20) });
+    regions.push({ id: `player.${row}.weapon`, kind: 'text', layout: 'line', rectangle: box(1632, top, 96, 20) });
+    regions.push({ id: `player.${row}.armor`, kind: 'text', layout: 'line', rectangle: box(1632, top + 19, 96, 20) });
+  }
+  for (let row = 0; row < 11; row += 1) {
+    const top = 470 + row * 42.4;
+    regions.push({ id: `event.${row}.timestamp`, kind: 'text', layout: 'line', rectangle: box(405, top, 46, 38) });
+    regions.push({ id: `event.${row}.distance`, kind: 'integer', layout: 'line', rectangle: box(600, top, 56, 38) });
+  }
+  return createImmutableLocalOcrProfile({ id: 'valorant-round-summary-v1', version: 4, status: 'accepted', dimensions: { width, height }, regions });
+}
+
+export function createValorantPerformanceProfile(width: number, height: number): LocalOcrProfile {
+  if (width / height < 1.72 || width / height > 1.82) throw Object.assign(new Error('Performance extraction requires a full 16:9 VALORANT capture.'), { status: 422 });
+  const sx = width / 1920; const sy = height / 1080;
+  const box = (left: number, top: number, regionWidth: number, regionHeight: number) => ({ left: Math.round(left * sx), top: Math.round(top * sy), width: Math.round(regionWidth * sx), height: Math.round(regionHeight * sy) });
+  return createImmutableLocalOcrProfile({ id: 'valorant-performance-v1', version: 1, status: 'accepted', dimensions: { width, height }, regions: [
+    { id: 'performance.score', kind: 'integer', layout: 'line', rectangle: box(690, 485, 245, 165) },
+    { id: 'performance.accolades', kind: 'text', layout: 'block', rectangle: box(1355, 685, 400, 155) },
   ] });
+}
+
+export function createValorantHeadToHeadProfile(width: number, height: number): LocalOcrProfile {
+  if (width / height < 1.72 || width / height > 1.82) throw Object.assign(new Error('Head-to-head extraction requires a full 16:9 VALORANT capture.'), { status: 422 });
+  const sx = width / 1920; const sy = height / 1080;
+  const box = (left: number, top: number, regionWidth: number, regionHeight: number) => ({ left: Math.round(left * sx), top: Math.round(top * sy), width: Math.round(regionWidth * sx), height: Math.round(regionHeight * sy) });
+  const regions: LocalOcrRegion[] = [];
+  for (let row = 0; row < 5; row += 1) {
+    const top = 323 + row * 51.4;
+    regions.push({ id: `h2h.${row}.kills`, kind: 'integer', layout: 'line', rectangle: box(598, top, 42, 48) });
+    regions.push({ id: `h2h.${row}.deaths`, kind: 'integer', layout: 'line', rectangle: box(710, top, 44, 48) });
+    regions.push({ id: `h2h.${row}.assists`, kind: 'integer', layout: 'line', rectangle: box(822, top, 44, 48) });
+    regions.push({ id: `h2h.${row}.opponent`, kind: 'text', layout: 'line', rectangle: box(1125, top, 400, 48) });
+  }
+  return createImmutableLocalOcrProfile({ id: 'valorant-head-to-head-v1', version: 2, status: 'accepted', dimensions: { width, height }, regions });
 }
 /** User-selected columns, normalized to the image; header and portraits are excluded. */
 export function createSelectedScoreboardProfile(width: number, height: number, selection: ScoreboardSelection): LocalOcrProfile {
@@ -193,8 +229,25 @@ const CROPPED_REGION_KINDS = new Map<string, LocalOcrRegionKind>(Array.from({ le
   ...(['kills', 'deaths', 'assists'] as const).map(metric => [`player.${row}.${metric}`, 'integer'] as [string, LocalOcrRegionKind]),
 ]).flat());
 const ROUND_REGION_KINDS = new Map<string, LocalOcrRegionKind>([
-  ['round.result', 'text'], ['averages.ourLoadout', 'integer'], ['averages.enemyLoadout', 'integer'], ['averages.ourBank', 'integer'], ['averages.enemyBank', 'integer'], ['players.names', 'text'], ['players.kills', 'text'], ['players.assists', 'text'], ['players.economy', 'text'], ['players.equipment', 'text'],
+  ['round.result', 'text'], ['averages.ourLoadout', 'integer'], ['averages.enemyLoadout', 'integer'], ['averages.ourBank', 'integer'], ['averages.enemyBank', 'integer'], ['players.names', 'text'], ['players.kills', 'text'], ['players.assists', 'text'],
+  ...Array.from({ length: 10 }, (_, row) => [
+    [`player.${row}.loadout`, 'integer'] as [string, LocalOcrRegionKind],
+    [`player.${row}.bank`, 'integer'] as [string, LocalOcrRegionKind],
+    [`player.${row}.weapon`, 'text'] as [string, LocalOcrRegionKind],
+    [`player.${row}.armor`, 'text'] as [string, LocalOcrRegionKind],
+  ]).flat(),
+  ...Array.from({ length: 11 }, (_, row) => [
+    [`event.${row}.timestamp`, 'text'] as [string, LocalOcrRegionKind],
+    [`event.${row}.distance`, 'integer'] as [string, LocalOcrRegionKind],
+  ]).flat(),
 ]);
+const PERFORMANCE_REGION_KINDS = new Map<string, LocalOcrRegionKind>([['performance.score', 'integer'], ['performance.accolades', 'text']]);
+const HEAD_TO_HEAD_REGION_KINDS = new Map<string, LocalOcrRegionKind>(Array.from({ length: 5 }, (_, row) => [
+  [`h2h.${row}.kills`, 'integer'] as [string, LocalOcrRegionKind],
+  [`h2h.${row}.deaths`, 'integer'] as [string, LocalOcrRegionKind],
+  [`h2h.${row}.assists`, 'integer'] as [string, LocalOcrRegionKind],
+  [`h2h.${row}.opponent`, 'text'] as [string, LocalOcrRegionKind],
+]).flat());
 
 function isFiniteInteger(value: number): boolean {
   return Number.isFinite(value) && Number.isInteger(value);
@@ -225,7 +278,10 @@ function acceptedProfile(
   if (profile.dimensions.width !== dimensions.width || profile.dimensions.height !== dimensions.height) {
     return fail('The accepted local OCR crop profile does not match the supplied image dimensions.');
   }
-  const expectedRegions = profile.id === 'valorant-player-table-v1' ? CROPPED_REGION_KINDS : profile.id === 'valorant-round-summary-v1' ? ROUND_REGION_KINDS : EXPECTED_REGION_KINDS;
+  const expectedRegions = profile.id === 'valorant-player-table-v1' ? CROPPED_REGION_KINDS
+    : profile.id === 'valorant-round-summary-v1' ? ROUND_REGION_KINDS
+      : profile.id === 'valorant-performance-v1' ? PERFORMANCE_REGION_KINDS
+        : profile.id === 'valorant-head-to-head-v1' ? HEAD_TO_HEAD_REGION_KINDS : EXPECTED_REGION_KINDS;
   if (!Array.isArray(profile.regions) || profile.regions.length !== expectedRegions.size) {
     return fail(`The local OCR crop profile must contain exactly ${expectedRegions.size} regions.`);
   }
@@ -274,9 +330,9 @@ export function parseStrictKda(raw: string | undefined): { kills: number; deaths
   return { kills, deaths, assists };
 }
 
-type BrowserRecognitionRegion = LocalOcrRegion & { recognitionKind?: 'kda' };
+type BrowserRecognitionRegion = LocalOcrRegion & { recognitionKind?: 'kda' | 'timestamp' };
 export function browserRecognitionRegions(profile: LocalOcrProfile): BrowserRecognitionRegion[] {
-  if (profile.id !== 'valorant-player-table-v1' && profile.id !== 'valorant-post-match-scoreboard-v1') return profile.regions.map(region => ({ ...region, rectangle: { ...region.rectangle } }));
+  if (profile.id !== 'valorant-player-table-v1' && profile.id !== 'valorant-post-match-scoreboard-v1') return profile.regions.map(region => ({ ...region, ...(region.id.endsWith('.timestamp') ? { recognitionKind: 'timestamp' as const } : {}), rectangle: { ...region.rectangle } }));
   const byId = new Map(profile.regions.map(region => [region.id, region]));
   const output: BrowserRecognitionRegion[] = profile.id === 'valorant-post-match-scoreboard-v1'
     ? profile.regions.filter(region => !/^player\.\d+\.(kills|deaths|assists)$/.test(region.id)).map(region => ({ ...region, rectangle: { ...region.rectangle } }))
@@ -303,6 +359,7 @@ export function parseLocalScoreboardRecognitions(
   const players = Array.from({ length: 10 }, (_, row) => {
     const joinedRaw = byId.get(`player.${row}.kda`)?.text || '';
     const rawMetrics = { ...Object.fromEntries(METRICS.map(metric => [metric, byId.get(`player.${row}.${metric}`)?.text || ''])), kda: joinedRaw };
+    const rawConfidence = { ...Object.fromEntries(METRICS.map(metric => [metric, byId.get(`player.${row}.${metric}`)?.confidence ?? null])), kda: byId.get(`player.${row}.kda`)?.confidence ?? null, name: byId.get(`player.${row}.name`)?.confidence ?? null };
     const parsedMetrics = Object.fromEntries(METRICS.map(metric => [metric, strictInteger(rawMetrics[metric], MAX_BY_METRIC[metric])])) as Record<LocalOcrMetric, number | null>;
     const joinedKda = parseStrictKda(joinedRaw);
     if (joinedKda) Object.assign(parsedMetrics, joinedKda);
@@ -315,6 +372,7 @@ export function parseLocalScoreboardRecognitions(
       hs: null,
       fd: null,
       rawMetrics,
+      rawConfidence,
     };
   });
   return buildScreenshotReviewDraft({
@@ -538,8 +596,10 @@ export async function createBrowserLocalTesseractAdapter(): Promise<LocalOcrAdap
         if (!rawContext) throw new Error('Canvas preprocessing is unavailable.');
         rawContext.putImageData(new ImageData(processed.data, processed.width, processed.height), 0, 0);
         let recognitionImage = rawCrop;
-        if (region.layout === 'block') {
-          const scale = region.id.startsWith('averages.') ? 5 : 3; const padding = 16;
+        const smallRoundCell = immutableProfile.id === 'valorant-round-summary-v1' && region.id.startsWith('player.');
+        const smallHeadToHeadCell = immutableProfile.id === 'valorant-head-to-head-v1';
+        if (region.layout === 'block' || region.id.startsWith('event.') || smallRoundCell || smallHeadToHeadCell) {
+          const scale = region.id.startsWith('averages.') || region.id.startsWith('event.') || smallRoundCell || smallHeadToHeadCell ? 5 : 3; const padding = 16;
           const enlarged = document.createElement('canvas'); enlarged.width = processed.width * scale + padding * 2; enlarged.height = processed.height * scale + padding * 2;
           const enlargedContext = enlarged.getContext('2d'); if (!enlargedContext) throw new Error('Canvas preprocessing is unavailable.');
           enlargedContext.fillStyle = '#fff'; enlargedContext.fillRect(0, 0, enlarged.width, enlarged.height); enlargedContext.imageSmoothingEnabled = false; enlargedContext.drawImage(rawCrop, padding, padding, processed.width * scale, processed.height * scale); recognitionImage = enlarged;
@@ -582,7 +642,8 @@ export async function createBrowserLocalTesseractAdapter(): Promise<LocalOcrAdap
         await worker.setParameters({
           tessedit_pageseg_mode: region.layout === 'block' ? tesseract.PSM.SINGLE_BLOCK : tesseract.PSM.SINGLE_LINE,
           preserve_interword_spaces: region.layout === 'block' ? '1' : '0',
-          ...(region.recognitionKind === 'kda' ? { tessedit_char_whitelist: '' }
+          ...(region.recognitionKind === 'timestamp' ? { tessedit_char_whitelist: '0123456789:.' }
+            : region.recognitionKind === 'kda' ? { tessedit_char_whitelist: '' }
             : region.kind === 'integer' ? { tessedit_char_whitelist: '0123456789' } : { tessedit_char_whitelist: '' }),
         });
         const result = await worker.recognize(recognitionImage);

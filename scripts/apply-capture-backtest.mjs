@@ -41,7 +41,7 @@ const teamBuy = (evidence, team) => {
   const full = values.filter(value => value === 'Full').length; const low = values.filter(value => value === 'Low').length; const eco = values.filter(value => value === 'Eco').length;
   return full >= 3 ? 'Full' : full + low >= 3 ? (full ? 'Half' : 'Low') : eco >= 3 ? 'Eco' : '';
 };
-const rows = result.rounds.map(round => ({ roundNo: round.roundNo, side: round.roundNo <= 12 ? 'Att' : 'Def', result: round.result, winBy: '', buy: teamBuy(round.screenshotEvidence, 'ours'), enemyBuy: teamBuy(round.screenshotEvidence, 'theirs'), screenshotEvidence: { ...round.screenshotEvidence, reviewStatus: 'confirmed' } }));
+const rows = result.rounds.filter(round => !round.extractionIssues?.includes('round-number-mismatch')).map(round => ({ roundNo: round.roundNo, side: round.roundNo <= 12 ? 'Att' : 'Def', result: round.result, winBy: round.winBy || '', buy: teamBuy(round.screenshotEvidence, 'ours'), enemyBuy: teamBuy(round.screenshotEvidence, 'theirs'), screenshotEvidence: round.screenshotEvidence }));
 const roundsResponse = await fetch(`${origin}/api/save-rounds`, { method: 'POST', headers, body: JSON.stringify({ matchId, rows }) });
 const roundsSaved = await roundsResponse.json();
 if (!roundsResponse.ok) throw new Error(roundsSaved.error || `Save rounds failed (${roundsResponse.status}).`);

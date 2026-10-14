@@ -16,6 +16,7 @@ import { buildScreenshotReviewDraft } from '../entryEngine';
 import { localScreenshotSubmissionSchema } from '../../schemas';
 import { pairReplayScreenshots, pruneScreenshotPairings, screenshotAdmission, screenshotPairingPublic, screenshotRecordId, validatePairingImage, type ScreenshotPairing } from '../replayScreenshotPairing';
 import { cancelRawReplayUpload, deleteRawReplayObject, downloadRawReplayObject, initiateRawReplayUpload, verifyRawReplayObject, type RawReplayObject } from '../gcsReplayTemp';
+import { clientIp, requestRateLimit } from '../utils';
 
 const REPLAY_TYPE = 'application/vnd.valorant.replay';
 const MAX_REPLAY_BYTES = Number(process.env.REPLAY_MAX_BYTES || 2 * 1024 * 1024 * 1024);
@@ -570,6 +571,8 @@ export function registerReplayDeviceUploadRoute(app: Express) {
   if (process.env.CLOUDFLARE_WORKER !== 'true') void recoverRawSessions().catch(error => console.error('[replay-raw] session recovery failed:', error?.message || error));
   app.post('/api/replay-intake/pair', async (req, res) => {
     try {
+      const retryAfter = requestRateLimit(`device-pair:${clientIp(req)}`, 10, 10 * 60 * 1000);
+      if (retryAfter) { res.setHeader('Retry-After', String(retryAfter)); return res.status(429).json({ error: 'Too many pairing attempts. Try again later.' }); }
       const code = String(req.body?.code || '').trim().toUpperCase(); const name = cleanDeviceName(req.body?.deviceName);
       if (!/^[A-Z2-9]{10}$/.test(code) || !name) return res.status(400).json({ error: 'Pairing code or device name is invalid.' });
       const db = await readDB(); const store = replayStore(db); const now = Date.now();

@@ -219,6 +219,8 @@ export interface PlayerStats {
   fk?: number | null;
   fd?: number | null;
   rating?: string | number | null;
+  performanceScore?: number | null;
+  headToHead?: Array<{ opponent: string | null; kills: number; deaths: number; assists: number }>;
   plants?: number;
   defuses?: number;
   cl?: number;
@@ -243,6 +245,10 @@ export type EconomyClass = 'eco' | 'low' | 'half' | 'full' | 'unknown';
 
 export interface ScreenshotKillEvent {
   sequence: number;
+  /** Zero-based visual row in the VALORANT event log. */
+  sourceRow?: number | null;
+  /** Seconds elapsed in the round, when the event clock was legible. */
+  occurredAtSeconds?: number | null;
   killerPlayerId?: string | null;
   victimPlayerId?: string | null;
   killerTeam?: 'ours' | 'theirs' | null;
@@ -270,6 +276,10 @@ export interface RoundScreenshotEvidence {
   reviewStatus: 'review-required' | 'confirmed';
   confidence: EvidenceConfidence;
   sourceImage?: string;
+  displayedRoundNo?: number | null;
+  /** OCR confidence retained per crop so the review screen can target weak fields. */
+  fieldConfidence?: Record<string, number | null>;
+  extractionIssues?: string[];
   ourAverageLoadout?: number | null;
   enemyAverageLoadout?: number | null;
   ourAverageBank?: number | null;
@@ -339,6 +349,9 @@ export interface ScreenshotReviewDraft {
     plants: number | null;
     defuses: number | null;
     rawMetrics?: Record<string, string>;
+    rawConfidence?: Record<string, number | null>;
+    performanceScore?: number | null;
+    headToHead?: Array<{ opponent: string | null; kills: number; deaths: number; assists: number }>;
   }>;
   rounds: Array<{ roundNo: number; result: 'W' | 'L'; winBy: string | null }>;
 }

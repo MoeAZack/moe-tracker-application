@@ -10,7 +10,7 @@ type DesktopStatus = {
   replayCount: number;
   pendingScoreboards: number;
   latestReplay: null | { name: string; path: string; size: number; modifiedAt: string };
-  localService: 'online';
+  localService: 'online' | 'offline';
   update: { state: 'disabled' | 'current' | 'checking' | 'available' | 'downloading' | 'downloaded' | 'error'; version: string | null; percent: number | null; message: string };
   folders: { replays: string; screenshots: string; exports: string; backups: string; logs: string; valorantReplays: string };
   collector: any;

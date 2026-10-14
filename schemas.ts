@@ -73,6 +73,8 @@ const playerStatSchema = looseObject.extend({
     const parsed = Number(trimmed);
     return Number.isFinite(parsed) ? parsed : value;
   }, z.number().finite().min(0).max(10).nullable().optional()),
+  performanceScore: unknownInt(1000),
+  headToHead: z.array(z.object({ opponent: z.string().max(200).nullable(), kills: z.number().int().min(0).max(100), deaths: z.number().int().min(0).max(100), assists: z.number().int().min(0).max(100) }).strict()).max(5).optional(),
   rowOperation: z.literal('create').optional(),
   sourceMetadata: sourceMetadataSchema.optional(),
 });
