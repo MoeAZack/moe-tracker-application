@@ -133,14 +133,23 @@ jobs:
           $installer = Get-ChildItem release\Moe-Tracker-Application-*-Setup.exe | Select-Object -First 1
           if (-not $installer) { throw 'Installer was not created.' }
           (Get-FileHash $installer.FullName -Algorithm SHA256).Hash | Out-File -Encoding ascii "$($installer.FullName).sha256"
-      - name: Publish installer parts to ci/dev-installer (temporary, for offline delivery)
-        # The repository is public: only publish delivery branches on an explicit manual run.
-        if: github.event_name == 'workflow_dispatch'
+      - name: Publish encrypted installer parts to ci/dev-installer (offline delivery)
+        # The repository is public, so only ciphertext is published: a random
+        # AES-256 key encrypts the installer and is itself encrypted to the
+        # delivery public key; the private key never leaves the delivery sandbox.
+        if: github.event_name == 'workflow_dispatch' || startsWith(github.ref_name, 'claude/deliver')
         shell: bash
         run: |
           set -e
-          mkdir -p /tmp/inst && cp release/Moe-Tracker-Application-*-Setup.exe release/Moe-Tracker-Application-*-Setup.exe.sha256 /tmp/inst/
-          cd /tmp/inst && exe=$(ls *-Setup.exe) && split -b 24m "$exe" "$exe.part-" && rm "$exe" && sha256sum * > SHA256SUMS
+          mkdir -p /tmp/inst && cd /tmp/inst
+          src=$(ls "$GITHUB_WORKSPACE"/release/Moe-Tracker-Application-*-Setup.exe)
+          exe=$(basename "$src")
+          sha256sum "$src" | cut -d' ' -f1 > "$exe.sha256"
+          openssl rand -out key.bin 32
+          openssl enc -aes-256-cbc -pbkdf2 -iter 200000 -salt -in "$src" -out "$exe.enc" -pass file:key.bin
+          openssl pkeyutl -encrypt -pubin -inkey "$GITHUB_WORKSPACE/.github/delivery-public-key.pem" -pkeyopt rsa_padding_mode:oaep -in key.bin -out key.bin.rsa
+          rm key.bin
+          split -b 24m "$exe.enc" "$exe.enc.part-" && rm "$exe.enc" && sha256sum * > SHA256SUMS
           git init -q -b ci/dev-installer && git add -A
           git -c user.name=ci -c user.email=ci@users.noreply.github.com commit -q -m "unsigned dev installer for ${GITHUB_SHA}"
           git push -f "https://x-access-token:${{ secrets.GITHUB_TOKEN }}@github.com/${GITHUB_REPOSITORY}.git" ci/dev-installer
