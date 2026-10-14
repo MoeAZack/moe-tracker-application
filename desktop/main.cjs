@@ -15,6 +15,7 @@ const { createUpdateHealth } = require('./update-health.cjs');
 const { createSupportBundle } = require('./support-bundle.cjs');
 const { collectChildOutput, collectJson } = require('./collector-command.cjs');
 const { canonical, refreshScreenshotOutboxFromData } = require('./sync-outbox.cjs');
+const { hasRecentRecoveryBackup } = require('./recovery-backup.cjs');
 
 let mainWindow;
 let tray;
@@ -26,6 +27,7 @@ let syncTimer;
 let syncPromise;
 let captureInboxTimer;
 let lastNotifiedCaptureId = null;
+let syncStateMutation = Promise.resolve();
 let runtime;
 let updateController;
 let quitting = false;
@@ -37,7 +39,7 @@ const json = async (file, fallback = null) => {
 
 async function atomicJson(file, value) {
   await fsp.mkdir(path.dirname(file), { recursive: true });
-  const temp = `${file}.${process.pid}.tmp`;
+  const temp = `${file}.${process.pid}.${crypto.randomBytes(8).toString('hex')}.tmp`;
   await fsp.writeFile(temp, JSON.stringify(value, null, 2), 'utf8');
   await fsp.rename(temp, file);
 }
@@ -63,12 +65,29 @@ function appPaths() {
     replays: path.join(documents, 'Replays'),
     screenshots: path.join(documents, 'Scoreboards'),
     exports: path.join(documents, 'Exports'),
-    backups: path.join(documents, 'Backups'),
+    backups: path.join(local, 'Backups'),
     logs: path.join(local, 'Logs'),
     valorantReplays: path.join(process.env.LOCALAPPDATA || '', 'VALORANT', 'Saved', 'Demos'),
     collector: path.join(process.env.LOCALAPPDATA || '', 'MoeTracker', 'ReplayCollector'),
   };
 }
+
+const CONFIG_SECRETS = [['adminPassword', 'adminCredential', 32], ['jwtSecret', 'jwtCredential', 48]];
+function protectConfigSecrets(config) {
+  if (!safeStorage.isEncryptionAvailable()) return config;
+  for (const [plain, encrypted, bytes] of CONFIG_SECRETS) {
+    if (!config[plain] && config[encrypted]) config[plain] = safeStorage.decryptString(Buffer.from(config[encrypted], 'base64'));
+    if (!config[plain]) config[plain] = crypto.randomBytes(bytes).toString('base64url');
+    if (!config[encrypted]) config[encrypted] = safeStorage.encryptString(config[plain]).toString('base64');
+  }
+  return config;
+}
+function persistedConfig(config) {
+  const copy = { ...config };
+  if (safeStorage.isEncryptionAvailable()) for (const [plain] of CONFIG_SECRETS) delete copy[plain];
+  return copy;
+}
+async function saveRuntimeConfig() { await atomicJson(runtime.paths.config, persistedConfig(runtime.config)); }
 
 async function ensureRuntime() {
   const paths = appPaths();
@@ -83,17 +102,15 @@ async function ensureRuntime() {
       retentionDays: 30,
       mode: 'offline-first',
       cloudUrl: 'https://moetracker-site.pages.dev',
-      adminPassword: crypto.randomBytes(32).toString('base64url'),
-      jwtSecret: crypto.randomBytes(48).toString('base64url'),
       extraReplayFolders: [],
       createdAt: new Date().toISOString(),
     };
-    await atomicJson(paths.config, config);
   }
+  protectConfigSecrets(config);
   if (!config.deviceId) {
     config.deviceId = `desktop-${crypto.randomUUID()}`;
-    await atomicJson(paths.config, config);
   }
+  await atomicJson(paths.config, persistedConfig(config));
   if (!await json(paths.syncState, null)) await atomicJson(paths.syncState, { schemaVersion: 1, outbox: [], inbox: [], completed: [] });
   runtime = { paths, config, port: await freePort(), session: null, coachSession: null };
   return runtime;
@@ -177,6 +194,13 @@ async function startLocalServer() {
   child.stderr.on('data', value => console.error(`[local-service] ${String(value).trim()}`));
   child.on('exit', (code, signal) => { if (!quitting && serverProcess === child) void recordLocalCrash('local-service-exit', new Error('The local service exited unexpectedly.'), { code, signal }); });
   await waitForHealth(runtime.port);
+}
+
+async function localServiceStatus() {
+  try {
+    const response = await fetch(`http://127.0.0.1:${runtime.port}/api/health`, { signal: AbortSignal.timeout(1_500) });
+    return response.ok ? 'online' : 'offline';
+  } catch { return 'offline'; }
 }
 
 async function restartLocalServer() {
@@ -264,24 +288,35 @@ async function autoImportProcessedEvidence() {
       imported += 1;
     }
     runtime.config.importedEvidenceIds = [...importedIds].slice(-1000);
-    await atomicJson(runtime.paths.config, runtime.config);
+    await saveRuntimeConfig();
     return { imported };
   })().finally(() => { collectorImportPromise = null; });
   return collectorImportPromise;
 }
 
 async function syncState() { return json(runtime.paths.syncState, { schemaVersion: 1, outbox: [], inbox: [], completed: [] }); }
+async function mutateSyncState(mutator) {
+  const operation = syncStateMutation.then(async () => {
+    const state = await syncState();
+    await mutator(state);
+    await atomicJson(runtime.paths.syncState, state);
+    return state;
+  });
+  syncStateMutation = operation.catch(() => undefined);
+  return operation;
+}
 async function enqueueSyncEvidence(evidence) {
-  const state = await syncState(); const id = `replay:${evidence.source.sha256}:${evidence.evidenceSha256}`;
-  if (!state.completed.includes(id) && !state.outbox.some(item => item.id === id)) state.outbox.push({ id, kind: 'replay-evidence', sha256: evidence.source.sha256, evidence, createdAt: new Date().toISOString(), attempts: 0, lastError: null });
-  await atomicJson(runtime.paths.syncState, state);
+  const id = `replay:${evidence.source.sha256}:${evidence.evidenceSha256}`;
+  await mutateSyncState(state => { if (!state.completed.includes(id) && !state.outbox.some(item => item.id === id)) state.outbox.push({ id, kind: 'replay-evidence', sha256: evidence.source.sha256, evidence, createdAt: new Date().toISOString(), attempts: 0, lastError: null }); });
 }
 async function enqueueScreenshotSummary(summary) {
   if (!summary?.match?.id || summary.schemaVersion !== 1) throw new Error('Screenshot summary is invalid.');
-  const state = await syncState(); const digest = crypto.createHash('sha256').update(canonical(summary)).digest('hex'); const id = `screenshot-summary:${summary.match.id}:${digest}`;
-  state.outbox = state.outbox.filter(item => item.kind !== 'screenshot-summary' || item.matchId !== summary.match.id);
-  if (!state.completed.includes(id) && !state.outbox.some(item => item.id === id)) state.outbox.push({ id, kind: 'screenshot-summary', matchId: summary.match.id, summary, createdAt: new Date().toISOString(), attempts: 0, lastError: null });
-  await atomicJson(runtime.paths.syncState, state); return { queued: true, id };
+  const digest = crypto.createHash('sha256').update(canonical(summary)).digest('hex'); const id = `screenshot-summary:${summary.match.id}:${digest}`;
+  await mutateSyncState(state => {
+    state.outbox = state.outbox.filter(item => item.kind !== 'screenshot-summary' || item.matchId !== summary.match.id);
+    if (!state.completed.includes(id) && !state.outbox.some(item => item.id === id)) state.outbox.push({ id, kind: 'screenshot-summary', matchId: summary.match.id, summary, createdAt: new Date().toISOString(), attempts: 0, lastError: null });
+  });
+  return { queued: true, id };
 }
 function safeCloudUrl(value) {
   const parsed = new URL(String(value || '').trim()); const local = ['localhost', '127.0.0.1', '::1'].includes(parsed.hostname);
@@ -302,17 +337,19 @@ async function pairDevice({ server, code }) {
   const response = await fetch(`${endpoint}/api/replay-intake/pair`, { method: 'POST', redirect: 'error', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ code: String(code).trim().toUpperCase(), deviceName: runtime.config.deviceName }) });
   const result = await response.json().catch(() => ({})); if (!response.ok) throw new Error(result.error || 'Device pairing failed.');
   runtime.config.cloudPairing = { server: endpoint, deviceId: result.device.id, owner: result.device.owner, credential: safeStorage.encryptString(result.credential.token).toString('base64'), pairedAt: new Date().toISOString() };
-  runtime.config.identity = result.identity; runtime.config.role = result.identity?.role || result.device.owner.role; runtime.config.mode = 'connected'; runtime.session = null; await atomicJson(runtime.paths.config, runtime.config);
+  runtime.config.identity = result.identity; runtime.config.role = result.identity?.role || result.device.owner.role; runtime.config.mode = 'connected'; runtime.session = null; await saveRuntimeConfig();
   setTimeout(() => mainWindow?.reload(), 500);
   return { paired: true, server: endpoint, device: result.device };
 }
 async function syncOnce() {
-  const pairing = cloudCredential(); const state = await syncState();
+  const pairing = cloudCredential(); let state;
   try {
     const session = await bootstrapCoachSession();
     const response = await fetch(`http://127.0.0.1:${runtime.port}/api/data`, { headers: { authorization: `Bearer ${session.key}` } });
-    if (response.ok) { refreshScreenshotOutboxFromData(state, await response.json()); await atomicJson(runtime.paths.syncState, state); }
+    const data = response.ok ? await response.json() : null;
+    state = await mutateSyncState(current => { if (data) refreshScreenshotOutboxFromData(current, data); });
   } catch (error) { console.warn(`[sync] Local screenshot queue refresh failed: ${error.message}`); }
+  state ||= await syncState();
   if (!pairing || runtime.config.mode !== 'connected') return { state: 'local-only', message: `${state.outbox.length} change${state.outbox.length === 1 ? '' : 's'} safely queued. ${pairing ? 'Connected sync is paused.' : 'Pair this device to synchronize.'}`, pending: state.outbox.length };
   let uploaded = 0;
   for (const item of [...state.outbox]) {
@@ -322,22 +359,25 @@ async function syncOnce() {
       const payload = screenshotSummary ? item.summary : evidenceForPairedDevice(item.evidence, pairing.deviceId);
       const response = await fetch(endpoint, { method: 'POST', redirect: 'error', headers: { 'content-type': 'application/json', 'x-device-id': pairing.deviceId, 'x-device-token': pairing.token }, body: JSON.stringify(payload) });
       const result = await response.json().catch(() => ({})); if (!response.ok) throw new Error(result.error || `Sync failed with HTTP ${response.status}.`);
-      state.outbox = state.outbox.filter(entry => entry.id !== item.id); state.completed = [...new Set([item.id, ...state.completed])].slice(0, 1000); uploaded += 1; await atomicJson(runtime.paths.syncState, state);
+      state = await mutateSyncState(current => { current.outbox = current.outbox.filter(entry => entry.id !== item.id); current.completed = [...new Set([item.id, ...current.completed])].slice(0, 1000); }); uploaded += 1;
     } catch (error) {
-      const pending = state.outbox.find(entry => entry.id === item.id); if (pending) { pending.attempts += 1; pending.lastError = String(error?.message || error).slice(0, 300); pending.lastAttemptAt = new Date().toISOString(); }
-      await atomicJson(runtime.paths.syncState, state); return { state: 'attention', message: `${uploaded} uploaded; ${state.outbox.length} remain safely queued. ${String(error?.message || error)}`, uploaded, pending: state.outbox.length };
+      state = await mutateSyncState(current => { const pending = current.outbox.find(entry => entry.id === item.id); if (pending) { pending.attempts += 1; pending.lastError = String(error?.message || error).slice(0, 300); pending.lastAttemptAt = new Date().toISOString(); } });
+      return { state: 'attention', message: `${uploaded} uploaded; ${state.outbox.length} remain safely queued. ${String(error?.message || error)}`, uploaded, pending: state.outbox.length };
     }
   }
   const inboxResponse = await fetch(`${pairing.server}/api/replay-intake/device-sync${state.cursor ? `?since=${encodeURIComponent(state.cursor)}` : ''}`, { redirect: 'error', headers: { 'x-device-id': pairing.deviceId, 'x-device-token': pairing.token } });
   const inboxResult = await inboxResponse.json().catch(() => ({}));
   if (!inboxResponse.ok) return { state: 'attention', message: `${uploaded} uploaded; shared updates could not be downloaded. ${inboxResult.error || `HTTP ${inboxResponse.status}`}`, uploaded, pending: state.outbox.length };
   const received = (inboxResult.items || []).filter(item => !state.inbox.some(existing => existing.id === item.id));
+  let applyResult = null;
   if (received.length) {
     const session = await bootstrapCoachSession(); const applyResponse = await fetch(`http://127.0.0.1:${runtime.port}/api/desktop/sync-inbox`, { method: 'POST', headers: { authorization: `Bearer ${session.key}`, 'content-type': 'application/json' }, body: JSON.stringify({ items: received }) });
-    const applied = await applyResponse.json().catch(() => ({})); if (!applyResponse.ok) throw new Error(applied.error || 'Downloaded team updates could not be applied.');
-    const receivedAt = new Date().toISOString(); for (const item of received) state.inbox.push({ ...item, receivedAt, applyResult: applied }); state.inbox = state.inbox.slice(-500);
+    applyResult = await applyResponse.json().catch(() => ({})); if (!applyResponse.ok) throw new Error(applyResult.error || 'Downloaded team updates could not be applied.');
   }
-  if (inboxResult.cursor) state.cursor = inboxResult.cursor; await atomicJson(runtime.paths.syncState, state);
+  state = await mutateSyncState(current => {
+    if (received.length) { const receivedAt = new Date().toISOString(); for (const item of received) if (!current.inbox.some(existing => existing.id === item.id)) current.inbox.push({ ...item, receivedAt, applyResult }); current.inbox = current.inbox.slice(-500); }
+    if (inboxResult.cursor) current.cursor = inboxResult.cursor;
+  });
   return { state: 'synced', message: `${uploaded} uploaded; ${received.length} shared update${received.length === 1 ? '' : 's'} received.`, uploaded, downloaded: received.length, pending: state.outbox.length };
 }
 async function syncNow() {
@@ -345,9 +385,11 @@ async function syncNow() {
   syncPromise = syncOnce().finally(() => { syncPromise = null; }); return syncPromise;
 }
 async function createRecoveryBackup() {
-  const last = Date.parse(runtime.config.lastBackupAt || ''); if (Number.isFinite(last) && Date.now() - last < 24 * 60 * 60 * 1000) return { skipped: true };
+  const cutoff = Date.now() - 24 * 60 * 60 * 1000;
+  const last = Date.parse(runtime.config.lastBackupAt || '');
+  if (Number.isFinite(last) && last >= cutoff && await hasRecentRecoveryBackup(runtime.paths.backups, cutoff)) return { skipped: true };
   const session = await bootstrapCoachSession(); const response = await fetch(`http://127.0.0.1:${runtime.port}/api/desktop/backup`, { method: 'POST', headers: { authorization: `Bearer ${session.key}` } }); const result = await response.json().catch(() => ({}));
-  if (!response.ok) throw new Error(result.error || 'Automatic recovery backup failed.'); runtime.config.lastBackupAt = new Date().toISOString(); await atomicJson(runtime.paths.config, runtime.config); return result;
+  if (!response.ok) throw new Error(result.error || 'Automatic recovery backup failed.'); runtime.config.lastBackupAt = new Date().toISOString(); await saveRuntimeConfig(); return result;
 }
 
 async function replayInventory() {
@@ -383,7 +425,7 @@ async function desktopStatus() {
     latestReplay: replays[0] || null,
     collector,
     sync: { paired: !!runtime.config.cloudPairing, server: runtime.config.cloudPairing?.server || null, pending: localSync.outbox.length, received: localSync.inbox.length },
-    localService: 'online',
+    localService: await localServiceStatus(),
     update: updateController?.getState() || { state: app.isPackaged ? 'current' : 'disabled', version: null, percent: null, message: app.isPackaged ? 'Update service is starting.' : 'Updates are available in installed builds.' },
   };
 }
@@ -457,9 +499,9 @@ ipcMain.handle('desktop:process-match', async () => {
 });
 ipcMain.handle('desktop:sync-now', syncNow);
 ipcMain.handle('desktop:pair-device', (_event, input) => pairDevice(input || {}));
-ipcMain.handle('desktop:set-sync-mode', async (_event, mode) => { if (!['offline-first', 'connected'].includes(mode)) throw new Error('Unknown synchronization mode.'); if (mode === 'connected' && !runtime.config.cloudPairing) throw new Error('Pair this device before enabling connected sync.'); runtime.config.mode = mode; await atomicJson(runtime.paths.config, runtime.config); return { mode }; });
-ipcMain.handle('desktop:set-retention-days', async (_event, value) => { const days = Number(value); if (!Number.isInteger(days) || days < 1 || days > 365) throw new Error('Retention must be between 1 and 365 days.'); runtime.config.retentionDays = days; await atomicJson(runtime.paths.config, runtime.config); await configureCollector(); return { retentionDays: days }; });
-ipcMain.handle('desktop:set-start-with-windows', async (_event, enabled) => { runtime.config.startWithWindows = enabled === true; await atomicJson(runtime.paths.config, runtime.config); applyLoginPreference(); return { startWithWindows: runtime.config.startWithWindows }; });
+ipcMain.handle('desktop:set-sync-mode', async (_event, mode) => { if (!['offline-first', 'connected'].includes(mode)) throw new Error('Unknown synchronization mode.'); if (mode === 'connected' && !runtime.config.cloudPairing) throw new Error('Pair this device before enabling connected sync.'); runtime.config.mode = mode; await saveRuntimeConfig(); return { mode }; });
+ipcMain.handle('desktop:set-retention-days', async (_event, value) => { const days = Number(value); if (!Number.isInteger(days) || days < 1 || days > 365) throw new Error('Retention must be between 1 and 365 days.'); runtime.config.retentionDays = days; await saveRuntimeConfig(); await configureCollector(); return { retentionDays: days }; });
+ipcMain.handle('desktop:set-start-with-windows', async (_event, enabled) => { runtime.config.startWithWindows = enabled === true; await saveRuntimeConfig(); applyLoginPreference(); return { startWithWindows: runtime.config.startWithWindows }; });
 ipcMain.handle('desktop:list-scoreboards', async () => (await allPendingScoreboards()).map(({ file: _privatePath, capture: privateCapture, ...record }) => ({ ...record, capture: privateCapture ? { captureId: privateCapture.captureId, template: privateCapture.template, requestedRounds: privateCapture.requestedRounds } : null })));
 ipcMain.handle('desktop:read-scoreboard', async (_event, id) => {
   if (!/^[a-f0-9]{64}$/.test(String(id || ''))) throw new Error('Unknown scoreboard image.');
@@ -485,7 +527,7 @@ ipcMain.handle('desktop:complete-scoreboard', async (_event, id) => {
   const record = (await allPendingScoreboards()).find(item => item.id === id);
   if (!record) throw new Error('The scoreboard image is no longer pending.');
   runtime.config.processedScoreboardIds = [...new Set([...(runtime.config.processedScoreboardIds || []), id])].slice(-1000);
-  await atomicJson(runtime.paths.config, runtime.config); return { completed: true };
+  await saveRuntimeConfig(); return { completed: true };
 });
 ipcMain.handle('desktop:start-scrim-capture', async (_event, input = {}) => {
   const roundCount = Number(input.roundCount);
@@ -521,7 +563,7 @@ ipcMain.handle('desktop:set-integration-secret', async (_event, input = {}) => {
   runtime.config.integrationSecrets ||= {};
   if (value) runtime.config.integrationSecrets[key] = safeStorage.encryptString(value).toString('base64');
   else delete runtime.config.integrationSecrets[key];
-  await atomicJson(runtime.paths.config, runtime.config);
+  await saveRuntimeConfig();
   await restartLocalServer();
   return { configured: !!value };
 });
@@ -553,7 +595,7 @@ ipcMain.handle('desktop:choose-replay-folder', async () => {
   const result = await dialog.showOpenDialog(mainWindow, { properties: ['openDirectory'], title: 'Choose an additional replay folder' });
   if (result.canceled || !result.filePaths[0]) return { canceled: true };
   runtime.config.extraReplayFolders = [...new Set([...(runtime.config.extraReplayFolders || []), result.filePaths[0]])];
-  await atomicJson(runtime.paths.config, runtime.config); await configureCollector();
+  await saveRuntimeConfig(); await configureCollector();
   return { canceled: false, path: result.filePaths[0] };
 });
 ipcMain.handle('desktop:export-team-package', async (_event, input = {}) => {

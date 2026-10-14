@@ -246,6 +246,29 @@ function Save-ValorantCapture([hashtable]$window, [string]$path) {
   }
 }
 
+function Get-RoundHeaderFingerprint([hashtable]$window, [string]$path) {
+  $bitmap = [System.Drawing.Bitmap]::FromFile($path)
+  try {
+    $left = [Math]::Round(1200 * $window.ViewWidth / $referenceWidth)
+    $top = [Math]::Round(405 * $window.ViewHeight / $referenceHeight)
+    $width = [Math]::Round(540 * $window.ViewWidth / $referenceWidth)
+    $height = [Math]::Round(60 * $window.ViewHeight / $referenceHeight)
+    $crop = $bitmap.Clone((New-Object System.Drawing.Rectangle($left, $top, $width, $height)), $bitmap.PixelFormat)
+    try {
+      $stream = New-Object System.IO.MemoryStream
+      try {
+        $crop.Save($stream, [System.Drawing.Imaging.ImageFormat]::Png)
+        $sha = [System.Security.Cryptography.SHA256]::Create()
+        try { return [Convert]::ToHexString($sha.ComputeHash($stream.ToArray())) }
+        finally { $sha.Dispose() }
+      }
+      finally { $stream.Dispose() }
+    }
+    finally { $crop.Dispose() }
+  }
+  finally { $bitmap.Dispose() }
+}
+
 $diagnosticLog = Join-Path ([Environment]::GetFolderPath('LocalApplicationData')) 'MoeTracker\scrim-capture-last-run.log'
 [void][System.IO.Directory]::CreateDirectory((Split-Path $diagnosticLog -Parent))
 Start-Transcript -LiteralPath $diagnosticLog -Force | Out-Null
@@ -310,26 +333,56 @@ try {
   # normalize to the far-left edge before capturing numbered rounds.
   Invoke-TimelineScroll $window 120
   $firstPassEnd = [Math]::Min($RoundCount, 24)
+  $previousRoundFingerprint = $null
+  $detectedRoundCount = 0
   for ($round = 1; $round -le $firstPassEnd; $round++) {
     Invoke-ValorantClick $window (Get-RoundTargetX $round 1) $roundY
     Start-Sleep -Milliseconds $RoundDelayMs
     $fileName = "round-$('{0:d2}' -f $round).png"
-    Save-ValorantCapture $window (Join-Path $captureFolder $fileName)
+    $roundPath = Join-Path $captureFolder $fileName
+    Save-ValorantCapture $window $roundPath
+    $fingerprint = Get-RoundHeaderFingerprint $window $roundPath
+    if ($previousRoundFingerprint -and $fingerprint -eq $previousRoundFingerprint) {
+      # One retry handles a late UI response. A second identical header means
+      # this tile does not exist (or the click failed), so never invent a round.
+      Invoke-ValorantClick $window (Get-RoundTargetX $round 1) $roundY
+      Start-Sleep -Milliseconds ([Math]::Max($RoundDelayMs, 1000))
+      Save-ValorantCapture $window $roundPath
+      $fingerprint = Get-RoundHeaderFingerprint $window $roundPath
+    }
+    if ($previousRoundFingerprint -and $fingerprint -eq $previousRoundFingerprint) {
+      Remove-Item -LiteralPath $roundPath -Force
+      $manifest.timelineStopReason = "Round $round did not change the displayed round after retry."
+      break
+    }
     $manifest.captures += @{ kind = 'round'; round = $round; file = $fileName }
+    $previousRoundFingerprint = $fingerprint
+    $detectedRoundCount = $round
   }
 
-  if ($RoundCount -gt 24) {
+  if ($RoundCount -gt 24 -and $detectedRoundCount -eq 24) {
     Invoke-TimelineScroll $window -120
     $tailFirstVisibleRound = $RoundCount - 23
     for ($round = 25; $round -le $RoundCount; $round++) {
       Invoke-ValorantClick $window (Get-RoundTargetX $round $tailFirstVisibleRound) $roundY
       Start-Sleep -Milliseconds $RoundDelayMs
       $fileName = "round-$('{0:d2}' -f $round).png"
-      Save-ValorantCapture $window (Join-Path $captureFolder $fileName)
+      $roundPath = Join-Path $captureFolder $fileName
+      Save-ValorantCapture $window $roundPath
+      $fingerprint = Get-RoundHeaderFingerprint $window $roundPath
+      if ($previousRoundFingerprint -and $fingerprint -eq $previousRoundFingerprint) {
+        Remove-Item -LiteralPath $roundPath -Force
+        $manifest.timelineStopReason = "Round $round did not change the displayed round after scrolling."
+        break
+      }
       $manifest.captures += @{ kind = 'round'; round = $round; file = $fileName }
+      $previousRoundFingerprint = $fingerprint
+      $detectedRoundCount = $round
     }
     $manifest.timelineTailStatus = 'captured-after-scroll'
   }
+
+  $manifest.detectedRounds = $detectedRoundCount
 
   $manifest.status = 'complete'
   $manifest.completedAt = (Get-Date).ToUniversalTime().ToString('o')

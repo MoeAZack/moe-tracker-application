@@ -1,0 +1,82 @@
+[
+  {
+    "name": "Odin",
+    "file": "Odin.png"
+  },
+  {
+    "name": "Ares",
+    "file": "Ares.png"
+  },
+  {
+    "name": "Vandal",
+    "file": "Vandal.png"
+  },
+  {
+    "name": "Warden",
+    "file": "Warden.png"
+  },
+  {
+    "name": "Bulldog",
+    "file": "Bulldog.png"
+  },
+  {
+    "name": "Phantom",
+    "file": "Phantom.png"
+  },
+  {
+    "name": "Judge",
+    "file": "Judge.png"
+  },
+  {
+    "name": "Bucky",
+    "file": "Bucky.png"
+  },
+  {
+    "name": "Frenzy",
+    "file": "Frenzy.png"
+  },
+  {
+    "name": "Classic",
+    "file": "Classic.png"
+  },
+  {
+    "name": "Bandit",
+    "file": "Bandit.png"
+  },
+  {
+    "name": "Ghost",
+    "file": "Ghost.png"
+  },
+  {
+    "name": "Sheriff",
+    "file": "Sheriff.png"
+  },
+  {
+    "name": "Shorty",
+    "file": "Shorty.png"
+  },
+  {
+    "name": "Operator",
+    "file": "Operator.png"
+  },
+  {
+    "name": "Guardian",
+    "file": "Guardian.png"
+  },
+  {
+    "name": "Outlaw",
+    "file": "Outlaw.png"
+  },
+  {
+    "name": "Marshal",
+    "file": "Marshal.png"
+  },
+  {
+    "name": "Spectre",
+    "file": "Spectre.png"
+  },
+  {
+    "name": "Stinger",
+    "file": "Stinger.png"
+  }
+]

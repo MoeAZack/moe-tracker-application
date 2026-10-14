@@ -1,0 +1,20 @@
+{
+  "schemaVersion": 1,
+  "sessions": [
+    {
+      "captureId": "Scrim-20261014-153331",
+      "resolution": "1920x1080",
+      "map": "Ascent",
+      "score": [13, 9],
+      "roundCount": 22,
+      "players": [
+        { "name": "Yehia", "agent": "Cypher", "kda": [24, 11, 12] },
+        { "name": "Kiddouk", "agent": "Jett", "kda": [21, 16, 4] },
+        { "name": "John Kramer", "agent": "Phoenix", "kda": [19, 15, 9] },
+        { "name": "RAF BLACK", "agent": "Omen", "kda": [16, 13, 9] },
+        { "name": "GLS Block", "agent": "Sova", "kda": [10, 14, 10] }
+      ],
+      "notes": "Manually labelled against all 22 timeline tiles. Displayed-round verification guards against stale/repeated clicks."
+    }
+  ]
+}

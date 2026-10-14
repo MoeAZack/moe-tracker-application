@@ -31,9 +31,9 @@ const LOGIN_MAX_FAILS = 5;
 const LOGIN_LOCK_MS = 10 * 60 * 1000;
 
 export function clientIp(req: any): string {
-  const fwd = req.headers['x-forwarded-for'];
-  if (typeof fwd === 'string' && fwd.length) return fwd.split(',')[0].trim();
-  return req.ip || req.socket?.remoteAddress || 'unknown';
+  const cloudflare = req.headers?.['cf-connecting-ip'];
+  if (process.env.CLOUDFLARE_WORKER === 'true' && typeof cloudflare === 'string' && cloudflare.length) return cloudflare.trim();
+  return req.socket?.remoteAddress || req.ip || 'unknown';
 }
 export function loginLockRemaining(ip: string): number {
   const rec = loginAttempts.get(ip);
@@ -51,6 +51,18 @@ export function loginRecordFail(ip: string) {
 }
 export function loginRecordSuccess(ip: string) {
   loginAttempts.delete(ip);
+}
+
+const requestWindows = new Map<string, { count: number; resetAt: number }>();
+export function requestRateLimit(key: string, maximum: number, windowMs: number, now = Date.now()): number {
+  const current = requestWindows.get(key);
+  if (!current || current.resetAt <= now) {
+    requestWindows.set(key, { count: 1, resetAt: now + windowMs });
+    return 0;
+  }
+  if (current.count >= maximum) return Math.max(1, Math.ceil((current.resetAt - now) / 1000));
+  current.count += 1;
+  return 0;
 }
 
 // Minimal in-memory TTL cache for slow third-party calls (VLR scraper, etc.).

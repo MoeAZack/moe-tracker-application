@@ -7,6 +7,15 @@ interface ComponentProps {
   theme: any;
 }
 
+export function compositionMatchOutcome(match: any): 'win' | 'loss' | null {
+  const direct = [match.ourScore, match.theirScore];
+  if (direct.every(value => typeof value === 'number' && Number.isFinite(value)) && direct[0] !== direct[1]) return direct[0] > direct[1] ? 'win' : 'loss';
+  const halves = [match.attW, match.attL, match.defW, match.defL];
+  if (!halves.every(value => typeof value === 'number' && Number.isFinite(value))) return null;
+  const ours = match.attW + match.defW; const theirs = match.attL + match.defL;
+  return ours === theirs ? null : ours > theirs ? 'win' : 'loss';
+}
+
 export default function TeamCompositions({ data, theme }: ComponentProps) {
   const isLight = data.settings.theme === 'daylight';
   const matches = data.matches || [];
@@ -25,6 +34,8 @@ export default function TeamCompositions({ data, theme }: ComponentProps) {
 
     matches.forEach((m) => {
       if (!comps[m.map]) return;
+      const outcome = compositionMatchOutcome(m);
+      if (!outcome) return;
 
       // Find the 5 players stats for this match
       const mStats = playerStats.filter(ps => ps.matchId === m.id);
@@ -39,8 +50,7 @@ export default function TeamCompositions({ data, theme }: ComponentProps) {
         comps[m.map][compKey] = { wins: 0, losses: 0, agents };
       }
 
-      const won = (m.attW + m.defW) > (m.attL + m.defL);
-      if (won) comps[m.map][compKey].wins++;
+      if (outcome === 'win') comps[m.map][compKey].wins++;
       else comps[m.map][compKey].losses++;
     });
 
@@ -62,16 +72,17 @@ export default function TeamCompositions({ data, theme }: ComponentProps) {
 
       const s = stats[ps.agent];
       s.played++;
-      const won = (match.attW + match.defW) > (match.attL + match.defL);
-      if (won) s.wins++;
-      else s.losses++;
+      const outcome = compositionMatchOutcome(match);
+      if (outcome === 'win') s.wins++;
+      else if (outcome === 'loss') s.losses++;
     });
 
     const totalMatches = matches.length;
 
     return Object.entries(stats)
       .map(([agentName, s]) => {
-        const wr = s.played > 0 ? (s.wins / s.played) * 100 : 0;
+        const decided = s.wins + s.losses;
+        const wr = decided > 0 ? (s.wins / decided) * 100 : 0;
         const pickRate = totalMatches > 0 ? (s.played / (totalMatches * 5)) * 100 : 0; // Out of total individual slot fills (5 slots per match)
         return {
           agent: agentName,

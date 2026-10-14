@@ -200,6 +200,7 @@ export function buildScreenshotReviewDraft(raw: any, options: ScreenshotOptions)
         fk: nullable(player.fk), fd: nullable(player.fd),
         plants: nullable(player.plants), defuses: nullable(player.defuses),
         ...(player.rawMetrics ? { rawMetrics: structuredClone(player.rawMetrics) } : {}),
+        ...(player.rawConfidence ? { rawConfidence: structuredClone(player.rawConfidence) } : {}),
       };
     }),
     rounds: (options.rounds || []).map(round => ({
