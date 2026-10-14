@@ -318,6 +318,38 @@ export function createRosterPlayer(db: any, displayName: string, idFactory = def
   return player;
 }
 
+function normalizedPlayerName(value: unknown) {
+  return String(value || '').trim().toLocaleLowerCase('en');
+}
+
+/** Promote an observed scoreboard name to a stable identity without losing its earlier rows. */
+export function ensureObservedRosterPlayer(db: any, displayName: string, idFactory = defaultId, clock = defaultClock) {
+  ensureRoster(db);
+  const normalized = normalizedPlayerName(displayName);
+  let player = db.rosterPlayers.find((entry: any) => !entry.retiredAt && normalizedPlayerName(entry.displayName) === normalized);
+  if (!player) player = createRosterPlayer(db, displayName, idFactory, clock);
+  for (const stat of db.playerStats || []) {
+    if (!stat.playerId && normalizedPlayerName(stat.displayNameSnapshot || stat.player) === normalized) {
+      stat.playerId = player.id;
+      stat.displayNameSnapshot = player.displayName;
+    }
+  }
+  return player;
+}
+
+export function setObservedRosterStatus(db: any, input: { playerId?: string; displayName: string; status: 'core' | 'standIn' | 'tryout' }, idFactory = defaultId, clock = defaultClock) {
+  ensureRoster(db);
+  const player = input.playerId ? playerById(db, input.playerId) : ensureObservedRosterPlayer(db, input.displayName, idFactory, clock);
+  if (player.retiredAt) fail('Archived players cannot be assigned to the active roster.', 409);
+  player.rosterStatus = input.status;
+  if (input.status === 'core') addCoreMembership(db, player.id, undefined, idFactory, clock);
+  else endCoreMembership(db, player.id, clock);
+  const activeBatch = db.tryoutBatches.find((batch: any) => batch.status === 'active' && batch.id === db.settings?.activeTryoutBatchId)
+    || db.tryoutBatches.find((batch: any) => batch.status === 'active');
+  if (input.status === 'tryout' && activeBatch && !activeBatch.candidatePlayerIds.includes(player.id)) activeBatch.candidatePlayerIds.push(player.id);
+  return { player, status: input.status };
+}
+
 export function retireRosterPlayer(db: any, playerId: string, clock = defaultClock) {
   ensureRoster(db);
   const player = playerById(db, playerId);

@@ -16,15 +16,27 @@ const baseData: any = {
 };
 
 describe('player overview archive action', () => {
-  it('shows coach archive action only for active stable identities and hides retired evidence', () => {
+  it('shows coach status and archive controls for active evidence and hides retired evidence', () => {
     const html = renderToStaticMarkup(<PlayerSoloTracker data={baseData} theme={{ cardBg: '', border: '' }} role="coach" onSyncSoloQ={async () => null} onRefresh={async () => {}} />);
-    expect(html).toContain('Archive player');
+    expect(html).toContain('Archive');
+    expect(html).toContain('Core');
+    expect(html).toContain('Stand-in');
+    expect(html).toContain('Tryout');
     expect(html).toContain('Active');
     expect(html).not.toContain('Retired');
   });
 
+  it('includes unmatched observed names with immediate classification and archive controls', () => {
+    const data = { ...baseData, rosterPlayers: [], playerStats: [{ id: 'legacy', matchId: 'm1', player: 'New Tryout', kills: 12, deaths: 9, assists: 4 }] };
+    const html = renderToStaticMarkup(<PlayerSoloTracker data={data} theme={{ cardBg: '', border: '' }} role="coach" onSyncSoloQ={async () => null} onRefresh={async () => {}} />);
+    expect(html).toContain('New Tryout');
+    expect(html).toContain('Tryout');
+    expect(html).toContain('Archive');
+    expect(html).not.toContain('Resolve identity');
+  });
+
   it('does not expose roster mutation to players', () => {
     const html = renderToStaticMarkup(<PlayerSoloTracker data={baseData} theme={{ cardBg: '', border: '' }} role="player" onSyncSoloQ={async () => null} onRefresh={async () => {}} />);
-    expect(html).not.toContain('Archive player');
+    expect(html).not.toContain('Archive');
   });
 });

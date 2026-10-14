@@ -25,6 +25,7 @@ export interface RosterPlayer {
   id: string;
   displayName: string;
   createdAt: string;
+  rosterStatus?: AppearanceType;
   retiredAt?: string;
 }
 
