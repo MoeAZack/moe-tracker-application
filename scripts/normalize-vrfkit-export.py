@@ -44,6 +44,74 @@ MAP_NAMES = {
 }
 
 
+# VALORANT character class codenames -> agent display names. A codename not
+# listed here is reported as unavailable (with the raw codename) rather than
+# guessed; new agents are added after review.
+AGENT_CODENAMES = {
+    "Clay": "Raze", "Pandemic": "Viper", "Wraith": "Omen", "Hunter": "Sova", "Thorne": "Sage",
+    "Phoenix": "Phoenix", "Wushu": "Jett", "Gumshoe": "Cypher", "Sarge": "Brimstone", "Breach": "Breach",
+    "Vampire": "Reyna", "Killjoy": "Killjoy", "Guide": "Skye", "Stealth": "Yoru", "Rift": "Astra",
+    "Grenadier": "KAY/O", "Deadeye": "Chamber", "Sprinter": "Neon", "BountyHunter": "Fade", "Mage": "Harbor",
+    "AggroBot": "Gekko", "Cable": "Deadlock", "Sequoia": "Iso", "Smonk": "Clove", "Nox": "Vyse",
+    "Cashew": "Tejo", "Terra": "Waylay",
+}
+CHARACTER_CLASS = re.compile(r"^/Game/Characters/([A-Za-z0-9_]+)/")
+
+
+def character_agents(export, pawns):
+    """Agent per character pawn from the actor class path opened for that pawn."""
+    try:
+        table = pq.read_table(export / "actors.parquet", columns=["actor_net_guid", "event", "class_path"])
+    except Exception:
+        return {}
+    agents = {}
+    for row in table.to_pylist():
+        guid = row.get("actor_net_guid")
+        if guid not in pawns or guid in agents or row.get("event") != "open":
+            continue
+        matched = CHARACTER_CLASS.match(str(row.get("class_path") or ""))
+        if matched:
+            agents[guid] = matched.group(1)
+    return agents
+
+
+class PositionIndex:
+    """Nearest-in-time position lookup per character pawn from movement.parquet."""
+
+    def __init__(self, export, pawns):
+        self.samples = defaultdict(lambda: ([], []))
+        try:
+            table = pq.read_table(export / "movement.parquet", columns=["time_ms", "character_net_guid", "pos_x", "pos_y", "pos_z"])
+        except Exception:
+            return
+        columns = table.to_pydict()
+        for time, guid, x, y, z in zip(columns["time_ms"], columns["character_net_guid"], columns["pos_x"], columns["pos_y"], columns["pos_z"]):
+            if guid in pawns:
+                times, points = self.samples[guid]
+                times.append(time)
+                points.append((x, y, z))
+        for guid, (times, points) in list(self.samples.items()):
+            order = sorted(range(len(times)), key=times.__getitem__)
+            self.samples[guid] = ([times[i] for i in order], [points[i] for i in order])
+
+    def at(self, guids, time_ms, tolerance_ms=1000):
+        best = None
+        for guid in guids or []:
+            times, points = self.samples.get(guid, ([], []))
+            if not times:
+                continue
+            index = bisect_right(times, time_ms)
+            for candidate in (index - 1, index):
+                if 0 <= candidate < len(times):
+                    gap = abs(times[candidate] - time_ms)
+                    if gap <= tolerance_ms and (best is None or gap < best[0]):
+                        best = (gap, points[candidate])
+        if best is None:
+            return None
+        x, y, z = best[1]
+        return {"x": round(x, 1), "y": round(y, 1), "z": round(z, 1)}
+
+
 def sha256(path: Path) -> str:
     digest = hashlib.sha256()
     with path.open("rb") as stream:
@@ -407,6 +475,36 @@ def build(args):
                 first_bloods[first["killerPlayerId"]] += 1
                 first_deaths[first["victimPlayerId"]] += 1
 
+    # Pawns per player (a reconnect can give one player several pawns).
+    player_pawns = defaultdict(set)
+    for pawn, owner in pawn_to_player.items():
+        player_pawns[owner].add(pawn)
+    for item in manifest_players:
+        primary = item.get("character_net_guid")
+        owner = pawn_to_player.get(primary)
+        if owner:
+            for extra in item.get("character_net_guids") or []:
+                if isinstance(extra, int):
+                    player_pawns[owner].add(extra)
+    all_pawns = {pawn for pawns in player_pawns.values() for pawn in pawns}
+    pawn_codenames = character_agents(export, all_pawns)
+    positions = PositionIndex(export, all_pawns)
+    for round_record in rounds:
+        for event in round_record.get("events") or []:
+            if event.get("kind") != "player-elimination" or not isinstance(event.get("timestampMs"), int):
+                continue
+            killer = positions.at(player_pawns.get(event.get("killerPlayerId")), event["timestampMs"])
+            victim = positions.at(player_pawns.get(event.get("victimPlayerId")), event["timestampMs"])
+            if killer:
+                event["killerPosition"] = killer
+            if victim:
+                event["victimPosition"] = victim
+    for observation in observations:
+        if observation.get("signal") in ("plant", "defuse") and isinstance(observation.get("occurredAtMs"), int):
+            where = positions.at(player_pawns.get(observation.get("playerId")), observation["occurredAtMs"])
+            if where:
+                observation["position"] = where
+
     players = []
     unavailable = set()
     for identity in identities:
@@ -424,6 +522,12 @@ def build(args):
         row["firstDeaths"] = value(elimination_complete, first_deaths[player_id], "events.parquet first valid characterDeath per round")
         row["plants"] = value(objective_complete["plant"], Counter(objective_rows["plant"])[player_id], "BombPlantedRPC.BombPlanter")
         row["defuses"] = value(objective_complete["defuse"], Counter(objective_rows["defuse"])[player_id], "BombDefusedRPC.DefusingCharacter")
+        codenames = sorted({pawn_codenames[pawn] for pawn in player_pawns.get(player_id, ()) if pawn in pawn_codenames})
+        agent_name = AGENT_CODENAMES.get(codenames[0]) if len(codenames) == 1 else None
+        row["agent"] = value(agent_name is not None, agent_name, "actors.parquet character class codename")
+        row["agent"]["codename"] = codenames[0] if len(codenames) == 1 else None
+        if agent_name is None:
+            unavailable.add("players.agent")
         for metric in ("firstBloods", "firstDeaths", "plants", "defuses"):
             if row[metric]["status"] == "unavailable":
                 unavailable.add(f"players.{metric}")

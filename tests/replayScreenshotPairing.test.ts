@@ -54,6 +54,18 @@ describe('strict screenshot pairing', () => {
     if (mismatch === 'raw-mode') store.blobs[hash].ingestionMode = 'coach-raw';
     pairReplayScreenshots(store); expect(store.screenshots.screenshot).toMatchObject({ status: 'pending', suggestions: [] });
   });
+  it('uses replay and portrait agents to separate identical K/D/A lines', () => {
+    const agents = ['Cypher', 'Neon', 'Sova', 'Omen', 'Phoenix', 'Jett', 'Sage', 'Raze', 'Viper', 'Fade'];
+    const store = storeFixture(); const stats = store.screenshots.screenshot.draft.stats; const b = store.parserJobs.job.result.scoreboard;
+    stats.forEach((row: any, i: number) => { row.agent = agents[i]; }); b.players.forEach((row: any, i: number) => { row.agent = available(agents[i]); });
+    stats[1] = { ...stats[1], kills: stats[0].kills, deaths: stats[0].deaths, assists: stats[0].assists };
+    b.players[1].kills.value = b.players[0].kills.value; b.players[1].deaths.value = b.players[0].deaths.value; b.players[1].assists.value = b.players[0].assists.value;
+    pairReplayScreenshots(store);
+    expect(store.screenshots.screenshot.status).toBe('linked');
+    expect(store.screenshots.screenshot.suggestions.find((row: any) => row.parserPlayerId === 'parser-1').displayName).toBe('Screenshot player 1');
+    b.players[1].agent = available('Cypher'); pairReplayScreenshots(store);
+    expect(store.screenshots.screenshot.status).not.toBe('linked');
+  });
   it('rejects duplicate KDA and missing rows instead of assigning names by position', () => {
     const store = storeFixture(); store.screenshots.screenshot.draft.stats[1] = { ...store.screenshots.screenshot.draft.stats[0], extractedName: 'Different name' };
     pairReplayScreenshots(store); expect(store.screenshots.screenshot.status).toBe('ambiguous');
