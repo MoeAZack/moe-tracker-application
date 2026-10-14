@@ -15,9 +15,9 @@ send the visible MT-... error code if one appears.
 
 CURRENT BUILD
 
-Version: 0.1.8
+Version: 0.1.9
 Installer SHA-256:
-20454B500870CC9EA7EC6A0F1CEA5B20934F56F098ED1354D584CD502BC93B9D
+6E366AD803B1A069572D114EAA4A505444B4178CF29B597FE0552968A4D98B8F
 
 This test installer is not yet signed with a public code-signing certificate,
 so Windows may show a reputation warning. Public distribution should use the

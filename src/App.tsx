@@ -282,13 +282,20 @@ export default function App() {
       if (resJson.screenshotSummary && window.moeDesktop) await window.moeDesktop.queueScreenshotSummary(resJson.screenshotSummary);
       setData((prev) => {
         if (!prev) return prev;
+        const completeMatchStats: any[] = resJson.playerStats || [];
         const summarizedStats: any[] = resJson.screenshotSummary?.playerStats || [];
         return {
           ...prev,
           rounds: [...(prev.rounds || []).filter((r) => r.matchId !== matchId), ...savedRows],
-          playerStats: summarizedStats.length
-            ? [...(prev.playerStats || []).filter((stat) => stat.matchId !== matchId), ...summarizedStats]
-            : prev.playerStats,
+          playerStats: completeMatchStats.length
+            ? [...(prev.playerStats || []).filter((stat) => stat.matchId !== matchId), ...completeMatchStats]
+            : summarizedStats.length
+              ? (prev.playerStats || []).map(stat => {
+                  if (stat.matchId !== matchId) return stat;
+                  const summary = summarizedStats.find(item => item.id === stat.id);
+                  return summary ? { ...stat, ...summary } : stat;
+                })
+              : prev.playerStats,
         };
       });
     } catch (err: any) {
