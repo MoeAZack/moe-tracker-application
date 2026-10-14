@@ -7,6 +7,7 @@ import { toPublicTrackerData, toWebsiteTrackerData } from '../publicData';
 import { preserveExistingRosterContext, validateAndNormalizeLineup } from '../matchContext';
 import { applyImmutableEntryMetadata, applyScreenshotReviewConfirmation, reconcileStatTotals } from '../entryEngine';
 import { buildPlayerScreenshotMetrics, screenshotPlayerIdentity } from '../scrimRoundAnalytics';
+import { buildMapRoundIntelligence } from '../mapRoundAnalytics';
 
 // Core data + match logging: full payload, reset, settings, generic upsert/remove,
 // and match/round/veto saves. Protected routes (registered after the auth middleware).
@@ -271,6 +272,9 @@ export function registerDataRoutes(app: Express, options: { websiteSummaryOnly?:
         db.rounds.push(r);
       });
 
+      const match = db.matches.find((item: any) => item.id === matchId) || null;
+      if (match) match.roundAnalytics = buildMapRoundIntelligence([match], db.rounds.filter((round: any) => round.matchId === matchId))[0] || undefined;
+
       // Materialize accepted screenshot summaries onto each match/player row. The
       // website receives these small aggregates, never the raw round screenshots.
       const derived = buildPlayerScreenshotMetrics(db.rounds.filter((round: any) => round.matchId === matchId));
@@ -287,7 +291,6 @@ export function registerDataRoutes(app: Express, options: { websiteSummaryOnly?:
       });
 
       await saveDB(db);
-      const match = db.matches.find((item: any) => item.id === matchId) || null;
       const matchStats = db.playerStats.filter((item: any) => item.matchId === matchId);
       const summarizedStats = matchStats.filter((item: any) => item.screenshotMetrics);
       res.json({

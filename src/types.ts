@@ -164,6 +164,8 @@ export interface Match {
   sourceMetadata?: EntrySourceMetadata;
   corrections?: EntryCorrectionMetadata[];
   reviewConfirmation?: ScreenshotReviewConfirmation;
+  /** Team-only round conversion summary synchronized without raw screenshot evidence. */
+  roundAnalytics?: Record<string, unknown>;
 }
 
 export type EntrySourceMethod = 'manual' | 'screenshot' | 'live-logger' | 'provider-import' | 'unknown';
