@@ -19,6 +19,35 @@ Owner-authorized 2026-10-12, Africa/Cairo. Scope: docs/ROADMAP.md and its nine s
 5. Owner clarification on 2026-10-12: the deployed app is a development environment, not in use; current data/state is disposable. Routine resets, migrations, rebuilding and deployment are authorized without preserving this development state or requesting approval. Keep independent review, role-boundary tests and verification of both Cloud Run/Firebase addresses. Do not build elaborate legacy migration/rollback machinery as a prerequisite to features. Record deployment evidence and recovery limitations honestly. The shipped roster-reset feature must still archive first and support restoration for future real usage.
 6. Advance the roadmap and concise status promptly. Do not claim completion from code, a mock, a configured key, a parse-success message or green CI without relevant acceptance evidence.
 
+## Owner keyword — `ready roadmap`
+
+When the owner sends the standalone phrase `ready roadmap` (case-insensitive), it
+is an instruction to begin work immediately, not a request for a status summary.
+
+1. Read `docs/ROADMAP.md`, `docs/SAAS-COACHING-ROADMAP.md`, current Git state,
+   and any active implementation work.
+2. Select the smallest numbered unchecked work item whose dependencies and
+   external requirements are satisfied. Prefer the earliest milestone in the
+   published delivery order; do not choose a more interesting later feature.
+3. Implement exactly one bounded roadmap point autonomously. Include its data
+   contract, migration, authorization, UI/API integration, and tests when those
+   are part of that point's acceptance criteria.
+4. Run targeted tests while iterating and the full required gate once on the
+   final head. For a user-facing desktop change, build and locally verify the
+   next installer when release acceptance requires it.
+5. Update the roadmap checkbox/status only after its stated acceptance evidence
+   exists, then commit and push the completed slice to Git.
+6. Report the selected roadmap ID, result, tests, commit, limitations, and next
+   ready ID. Do not automatically begin a second roadmap point from the same
+   keyword invocation.
+
+If the selected point is blocked by credentials, payment, an unavailable
+physical device, a protected external confirmation, or a material product
+choice, record the blocker and take the next ready point in the same earliest
+milestone. Never interpret this keyword as authority for paid services,
+credential disclosure, public production publishing, live-game assistance, or
+another materially broader action.
+
 ## Boundaries and external gates
 
 - Current development data may be reset or replaced as needed for this build. This does not remove the product requirement that owner/coach roster resets archive first, nor permit exposing authentication, secrets or private samples.
