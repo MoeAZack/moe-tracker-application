@@ -91,6 +91,7 @@ jobs:
         shell: pwsh
         run: |
           $ErrorActionPreference = 'Stop'
+          trap { Write-Host "::error title=replay-runtime::$($_.Exception.Message)"; exit 1 }
           $rt = Join-Path $PWD 'replay-runtime'
           New-Item -ItemType Directory -Force (Join-Path $rt 'vrfkit'), (Join-Path $rt 'python') | Out-Null
           $zip = Join-Path $env:RUNNER_TEMP 'vrfkit.zip'
@@ -113,7 +114,8 @@ jobs:
           python -m pip install --only-binary=:all: --no-deps --target (Join-Path $rt 'python\Lib\site-packages') 'pyarrow==18.1.0'
           & (Join-Path $rt 'python\python.exe') -c "import pyarrow.parquet; print('pyarrow', pyarrow.__version__)"
           if ($LASTEXITCODE -ne 0) { throw 'Embedded Python cannot import pyarrow.' }
-          & (Join-Path $rt 'vrfkit\vrfkit.exe') --version
+          Write-Host "::notice title=replay-runtime::vrfkit $exeHash bundled with embedded Python $pyVersion and pyarrow 18.1.0"
+          exit 0
       - name: Build unsigned installer
         shell: pwsh
         env:

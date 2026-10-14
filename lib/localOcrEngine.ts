@@ -167,7 +167,7 @@ export function measureScoreDigitBoxes(pixels: { width: number; height: number; 
   }
   if (start >= 0) clusters.push([start, previous]);
   if (clusters.length !== 2) return null;
-  const box = ([from, to]: [number, number]) => ({ left: Math.max(0, Math.round(from / sx) - 6), width: Math.round((to - from) / sx) + 12 });
+  const box = ([from, to]: [number, number]) => ({ left: Math.max(0, Math.round(from / sx) - 8), width: Math.round((to - from) / sx) + 18 });
   return { left: box(clusters[0]), right: box(clusters[1]) };
 }
 
@@ -183,7 +183,9 @@ export function createValorantEndScreenProfile(width: number, height: number, la
     const rectangle = (left: number, top: number, regionWidth: number, regionHeight: number) => ({ left: Math.round(left * sx), top: Math.round(top * sy), width: Math.max(1, Math.round(regionWidth * sx)), height: Math.max(1, Math.round(regionHeight * sy)) });
     const regions: LocalOcrRegion[] = [
       { id: 'map', kind: 'text', rectangle: rectangle(1624, 178, 155, 38) },
-      { id: 'score.left', kind: 'integer', rectangle: scoreBoxes ? rectangle(scoreBoxes.left.left, 151, scoreBoxes.left.width, 65) : rectangle(34, 151, 50, 65) },
+      // The left score is always left-aligned at x~40, so the calibrated box
+      // fits one and two digits; only the right score moves with the word.
+      { id: 'score.left', kind: 'integer', rectangle: rectangle(34, 151, 50, 65) },
       { id: 'score.right', kind: 'integer', rectangle: scoreBoxes ? rectangle(scoreBoxes.right.left, 151, scoreBoxes.right.width, 65) : rectangle(261, 151, 48, 65) },
     ];
     const competitive = layout === 'competitive';
