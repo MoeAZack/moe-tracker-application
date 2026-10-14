@@ -178,3 +178,26 @@ export function reconcileCapturedRoundNumbers<R extends CapturedRoundLike>(
   }
   return { rounds: output, rekeyed, duplicates, missing };
 }
+
+/**
+ * Only attackers plant and only defenders defuse, so every readable
+ * Planted/Defused row tells us which side our team played that round. Votes
+ * are mapped back to the first-half side (regulation halves swap at 13,
+ * overtime alternates every round) and accepted only when they agree.
+ */
+export function inferStartingSide(rounds: ReadonlyArray<{ roundNo: number; screenshotEvidence?: { objectives?: ReadonlyArray<{ type: 'plant' | 'defuse' | null; team?: 'ours' | 'theirs' | null }> } | any }>) {
+  let attackFirst = 0; let defenseFirst = 0;
+  for (const round of rounds) {
+    for (const objective of round.screenshotEvidence?.objectives || []) {
+      if (!objective.type || !objective.team) continue;
+      const oursAttacking = (objective.type === 'plant') === (objective.team === 'ours');
+      const sameAsFirstHalf = round.roundNo <= 12 || (round.roundNo > 24 && round.roundNo % 2 === 1);
+      const firstHalfAttack = sameAsFirstHalf ? oursAttacking : !oursAttacking;
+      if (firstHalfAttack) attackFirst += 1; else defenseFirst += 1;
+    }
+  }
+  const votes = attackFirst + defenseFirst;
+  const leading = Math.max(attackFirst, defenseFirst);
+  const firstHalf: 'Att' | 'Def' | null = votes >= 2 && leading / votes >= 0.8 ? (attackFirst > defenseFirst ? 'Att' : 'Def') : null;
+  return { firstHalf, votes, attackFirst, defenseFirst };
+}

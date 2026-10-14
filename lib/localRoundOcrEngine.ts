@@ -13,7 +13,7 @@ export interface LocalRoundDraft {
   result: 'W' | 'L' | null;
   winBy: string | null;
   displayedRoundNo: number | null;
-  eventDetails: Array<{ sourceRow: number; occurredAtSeconds: number | null; distanceMeters: number | null }>;
+  eventDetails: Array<{ sourceRow: number; occurredAtSeconds: number | null; distanceMeters: number | null; objective: 'plant' | 'defuse' | null }>;
   evidence: RoundScreenshotEvidence;
   issues: string[];
 }
@@ -77,6 +77,14 @@ export function snapToKnownName(raw: string | null, names: readonly string[]): s
   return raw.trim();
 }
 
+/** "Planted" / "Defused" (tolerates common OCR damage such as "Plant ed", "Defuscd"). */
+export function parseObjectiveLabel(text: string): 'plant' | 'defuse' | null {
+  const compact = text.toLocaleLowerCase().replace(/[^a-z]/g, '');
+  if (/pl[a-z]?nt/.test(compact)) return 'plant';
+  if (/def[a-z]?s/.test(compact)) return 'defuse';
+  return null;
+}
+
 export function parseLocalRoundRecognitions(recognitions: readonly LocalOcrRecognition[], sourceImage?: string): LocalRoundDraft {
   const byId = new Map(recognitions.map(item => [item.regionId, item]));
   const resultText = byId.get('round.result')?.text || '';
@@ -129,6 +137,7 @@ export function parseLocalRoundRecognitions(recognitions: readonly LocalOcrRecog
       sourceRow,
       occurredAtSeconds: parseTimestamp(byId.get(`event.${sourceRow}.timestamp`)?.text || ''),
       distanceMeters: parseDistance(byId.get(`event.${sourceRow}.distance`)?.text || ''),
+      objective: parseObjectiveLabel(byId.get(`event.${sourceRow}.label`)?.text || ''),
     })),
     issues,
     evidence: {

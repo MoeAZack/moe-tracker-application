@@ -260,6 +260,15 @@ export interface ScreenshotKillEvent {
   tradedWithinSeconds?: number | null;
 }
 
+/** A "Planted"/"Defused" row in the round event log. */
+export interface ScreenshotObjectiveEvent {
+  type: 'plant' | 'defuse' | null;
+  sourceRow?: number | null;
+  playerId?: string | null;
+  team?: 'ours' | 'theirs' | null;
+  occurredAtSeconds?: number | null;
+}
+
 export interface ScreenshotPlayerRoundEvidence {
   playerId?: string | null;
   displayName: string;
@@ -290,6 +299,8 @@ export interface RoundScreenshotEvidence {
   /** True only when review confirmed that the event list covers the whole round. */
   eventsComplete?: boolean;
   events?: ScreenshotKillEvent[];
+  /** Spike plant/defuse rows: actor, time and (implicitly) which side attacked. */
+  objectives?: ScreenshotObjectiveEvent[];
 }
 
 export interface PlayerScreenshotMetrics {

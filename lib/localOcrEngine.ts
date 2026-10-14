@@ -76,8 +76,10 @@ export function createValorantRoundSummaryProfile(width: number, height: number)
     regions.push({ id: `event.${row}.timestamp`, kind: 'text', layout: 'line', rectangle: box(405, top, 46, 38) });
     // Digits end at x<=637; the 'm' unit (640-647) and the victim portrait (655+) are excluded.
     regions.push({ id: `event.${row}.distance`, kind: 'integer', layout: 'line', rectangle: box(596, top, 42, 38) });
+    // "Planted" / "Defused" label on objective rows (kill rows show distance here).
+    regions.push({ id: `event.${row}.label`, kind: 'text', layout: 'line', rectangle: box(588, top, 74, 38) });
   }
-  return createImmutableLocalOcrProfile({ id: 'valorant-round-summary-v1', version: 5, status: 'accepted', dimensions: { width, height }, regions });
+  return createImmutableLocalOcrProfile({ id: 'valorant-round-summary-v1', version: 6, status: 'accepted', dimensions: { width, height }, regions });
 }
 
 export function createValorantPerformanceProfile(width: number, height: number): LocalOcrProfile {
@@ -304,6 +306,7 @@ const ROUND_REGION_KINDS = new Map<string, LocalOcrRegionKind>([
   ...Array.from({ length: 11 }, (_, row) => [
     [`event.${row}.timestamp`, 'text'] as [string, LocalOcrRegionKind],
     [`event.${row}.distance`, 'integer'] as [string, LocalOcrRegionKind],
+    [`event.${row}.label`, 'text'] as [string, LocalOcrRegionKind],
   ]).flat(),
 ]);
 const PERFORMANCE_REGION_KINDS = new Map<string, LocalOcrRegionKind>([['performance.score', 'integer'], ['performance.accolades', 'text']]);

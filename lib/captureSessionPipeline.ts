@@ -9,9 +9,9 @@ import type { LocalOcrAdapter } from './localOcrEngine';
 import { measureScoreDigitBoxes, createValorantEndScreenProfile, createValorantHeadToHeadProfile, createValorantPerformanceProfile, createValorantRoundSummaryProfile, extractLocalScoreboardDraft } from './localOcrEngine';
 import { parseLocalRoundRecognitions } from './localRoundOcrEngine';
 import { classifyValorantRoundEvents } from './localRoundEventClassifier';
-import { canonicalScoreboardName, cleanCaptureDisplayName, cleanCaptureMap, inferAlliedScoreboardNames, normalizeCaptureName, reconcileCapturedRoundNumbers, scoreFromCompleteRounds } from './scrimCaptureImport';
+import { canonicalScoreboardName, cleanCaptureDisplayName, cleanCaptureMap, inferAlliedScoreboardNames, normalizeCaptureName, inferStartingSide, reconcileCapturedRoundNumbers, scoreFromCompleteRounds } from './scrimCaptureImport';
 import { classifyValorantScoreboardAgents } from './localAgentClassifier';
-import { addSurvivalEvidence, canonicalizeRoundIdentities, enrichScreenshotEvents } from './screenshotEvidence';
+import { addSurvivalEvidence, canonicalizeRoundIdentities, enrichObjectiveRows, enrichScreenshotEvents } from './screenshotEvidence';
 import { parseLocalHeadToHeadRecognitions, parseLocalPerformanceRecognitions } from './localPerformanceOcrEngine';
 import { matchExtractedRosterName } from './entryEngine';
 
@@ -106,6 +106,7 @@ export async function extractCaptureSession(input: {
     }
     const eventClassification = await classifyValorantRoundEvents(image, eventPlayers);
     parsed.evidence.events = enrichScreenshotEvents(eventClassification.events, parsed.eventDetails);
+    parsed.evidence.objectives = enrichObjectiveRows(eventClassification.objectives || [], parsed.eventDetails);
     parsed.evidence.eventsComplete = eventClassification.complete;
     if (!eventClassification.complete) parsed.issues = [...new Set([...parsed.issues, 'event-log'])];
     parsed.evidence.extractionIssues = parsed.issues;
@@ -143,11 +144,13 @@ export async function extractCaptureSession(input: {
     const canonical = canonicalizeRoundIdentities({
       players: round.screenshotEvidence.players,
       events: round.screenshotEvidence.events || [],
+      objectives: round.screenshotEvidence.objectives || [],
       resolve: canonicalIdentity,
       extraRawNames: restoredRawNames,
     });
     round.screenshotEvidence.players = canonical.players;
     round.screenshotEvidence.events = canonical.events;
+    round.screenshotEvidence.objectives = canonical.objectives;
     round.screenshotEvidence.players = addSurvivalEvidence(round.screenshotEvidence.players, round.screenshotEvidence.events, round.screenshotEvidence.eventsComplete === true);
     round.screenshotEvidence.reviewStatus = round.screenshotEvidence.confidence === 'high' && round.extractionIssues.every(issue => INFORMATIONAL_ROUND_ISSUES.has(issue))
       ? 'confirmed'
@@ -163,5 +166,6 @@ export async function extractCaptureSession(input: {
     const identity = canonicalIdentity(player.extractedName).playerId;
     player.fd = firstDeathCoverageComplete ? (firstDeaths.get(identity) || 0) : null;
   }
-  return { draft, meta, players: resolvedPlayers, rounds: extractedRounds, performance, headToHead, reconciled, scoreboardLayout, sourceMetadata: draft.sourceMetadata };
+  const startingSide = inferStartingSide(extractedRounds);
+  return { draft, meta, startingSide, players: resolvedPlayers, rounds: extractedRounds, performance, headToHead, reconciled, scoreboardLayout, sourceMetadata: draft.sourceMetadata };
 }
