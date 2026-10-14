@@ -22,6 +22,7 @@ describe('player overview archive action', () => {
     expect(html).toContain('Core');
     expect(html).toContain('Stand-in');
     expect(html).toContain('Tryout');
+    expect(html).toContain('Team record');
     expect(html).toContain('Active');
     expect(html).not.toContain('Retired');
   });
