@@ -5,7 +5,7 @@ import { parseLocalRoundRecognitions } from '../lib/localRoundOcrEngine';
 describe('local round screenshot extraction contract', () => {
   it('uses calibrated text and numeric regions for a native 16:9 capture', () => {
     const profile = createValorantRoundSummaryProfile(1920, 1080);
-    expect(profile.version).toBe(5); expect(profile.regions).toHaveLength(70); expect(profile.regions.filter(region => region.layout === 'block')).toHaveLength(7);
+    expect(profile.version).toBe(6); expect(profile.regions).toHaveLength(81); expect(profile.regions.filter(region => region.layout === 'block')).toHaveLength(7);
   });
   it('creates review-required evidence and reports missing columns', () => {
     const draft = parseLocalRoundRecognitions([
@@ -25,7 +25,7 @@ describe('local round screenshot extraction contract', () => {
       { regionId: 'event.0.distance', text: '44m', confidence: 81 },
     ]);
     expect(draft).toMatchObject({ result: 'L', winBy: 'Elimination', displayedRoundNo: 1, issues: [], evidence: { reviewStatus: 'review-required', confidence: 'high', displayedRoundNo: 1 } });
-    expect(draft.eventDetails[0]).toEqual({ sourceRow: 0, occurredAtSeconds: 4, distanceMeters: 44 });
+    expect(draft.eventDetails[0]).toEqual({ sourceRow: 0, occurredAtSeconds: 4, distanceMeters: 44, objective: null });
     expect(draft.evidence.players[0]).toMatchObject({ displayName: 'Player 1', team: 'ours', equippedWeapon: 'Classic', armor: 'None' });
     expect(draft.evidence.players).toHaveLength(10);
   });

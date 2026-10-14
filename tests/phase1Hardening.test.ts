@@ -131,3 +131,23 @@ describe('equipment OCR snapping', () => {
     expect(snapToKnownName('xq', VALORANT_WEAPON_NAMES)).toBe('xq');
   });
 });
+
+import { inferStartingSide } from '../lib/scrimCaptureImport';
+import { parseObjectiveLabel } from '../lib/localRoundOcrEngine';
+describe('starting side from spike plants and defuses', () => {
+  const round = (roundNo: number, type: 'plant' | 'defuse', team: 'ours' | 'theirs') => ({ roundNo, screenshotEvidence: { objectives: [{ type, team }] } });
+  it('reads attackers from plants across halves and overtime', () => {
+    expect(inferStartingSide([round(2, 'plant', 'ours'), round(5, 'defuse', 'theirs'), round(14, 'plant', 'theirs'), round(25, 'plant', 'ours')])).toMatchObject({ firstHalf: 'Att', votes: 4 });
+    expect(inferStartingSide([round(3, 'plant', 'theirs'), round(15, 'plant', 'ours')])).toMatchObject({ firstHalf: 'Def' });
+  });
+  it('refuses to guess when evidence conflicts or is thin', () => {
+    expect(inferStartingSide([round(2, 'plant', 'ours'), round(3, 'plant', 'theirs')]).firstHalf).toBeNull();
+    expect(inferStartingSide([round(2, 'plant', 'ours')]).firstHalf).toBeNull();
+  });
+  it('parses damaged objective labels', () => {
+    expect(parseObjectiveLabel('Planted')).toBe('plant');
+    expect(parseObjectiveLabel('Plant ed')).toBe('plant');
+    expect(parseObjectiveLabel('Defuscd')).toBe('defuse');
+    expect(parseObjectiveLabel('18')).toBeNull();
+  });
+});

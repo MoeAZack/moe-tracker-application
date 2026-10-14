@@ -1,4 +1,4 @@
-import type { ScreenshotKillEvent, ScreenshotPlayerRoundEvidence } from '../src/types';
+import type { ScreenshotKillEvent, ScreenshotObjectiveEvent, ScreenshotPlayerRoundEvidence } from '../src/types';
 
 export interface ScreenshotEventDetail {
   sourceRow: number;
@@ -50,9 +50,10 @@ export function rawEventIdentity(displayName: string): string {
 export function canonicalizeRoundIdentities<P extends ScreenshotPlayerRoundEvidence>(input: {
   players: readonly P[];
   events: readonly ScreenshotKillEvent[];
+  objectives?: readonly ScreenshotObjectiveEvent[];
   resolve: (rawName: string) => { displayName: string; playerId: string };
   extraRawNames?: readonly string[];
-}): { players: P[]; events: ScreenshotKillEvent[] } {
+}): { players: P[]; events: ScreenshotKillEvent[]; objectives: ScreenshotObjectiveEvent[] } {
   const identities = new Map<string, string>();
   for (const rawName of input.extraRawNames || []) identities.set(rawEventIdentity(rawName), input.resolve(rawName).playerId);
   const players = input.players.map(player => {
@@ -63,7 +64,8 @@ export function canonicalizeRoundIdentities<P extends ScreenshotPlayerRoundEvide
   });
   const remap = (id: string | null | undefined) => (id ? identities.get(id) || id : null);
   const events = input.events.map(event => ({ ...event, killerPlayerId: remap(event.killerPlayerId), victimPlayerId: remap(event.victimPlayerId) }));
-  return { players, events };
+  const objectives = (input.objectives || []).map(objective => ({ ...objective, playerId: remap(objective.playerId) }));
+  return { players, events, objectives };
 }
 
 /** Survival is exact only when every elimination identity was resolved. */
@@ -147,4 +149,19 @@ export function findDuplicateScoreboardMatch(
   const signature = allied.join('|');
   for (const [matchId, lines] of byMatch) if (lines.sort().join('|') === signature) return matchId;
   return null;
+}
+
+/** Attach the OCR'd time and Planted/Defused label to classified objective rows. */
+export function enrichObjectiveRows(
+  rows: ReadonlyArray<{ sourceRow: number; playerId: string | null; team: 'ours' | 'theirs' | null }>,
+  details: ReadonlyArray<{ sourceRow: number; occurredAtSeconds: number | null; objective?: 'plant' | 'defuse' | null }>,
+): ScreenshotObjectiveEvent[] {
+  const byRow = new Map(details.map(detail => [detail.sourceRow, detail]));
+  return rows.map(row => ({
+    type: byRow.get(row.sourceRow)?.objective ?? null,
+    sourceRow: row.sourceRow,
+    playerId: row.playerId,
+    team: row.team,
+    occurredAtSeconds: byRow.get(row.sourceRow)?.occurredAtSeconds ?? null,
+  }));
 }

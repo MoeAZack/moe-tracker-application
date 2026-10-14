@@ -56,6 +56,7 @@ export default function ScrimImport({ data, theme, onSaveMatch, onSaveRounds, on
   const [rounds, setRounds] = useState<any[]>([]);
   const [sourceMetadata, setSourceMetadata] = useState<EntrySourceMetadata | undefined>();
   const [alliedSideConfirmed, setAlliedSideConfirmed] = useState(false);
+  const [sideInference, setSideInference] = useState<{ firstHalf: 'Att' | 'Def' | null; votes: number } | null>(null);
   const autoLoadStarted = useRef(false);
   const roundsComplete = rounds.every(round => round.result === 'W' || round.result === 'L');
   const duplicateOf = findDuplicateScoreboardMatch(players, data.playerStats || []);
@@ -125,7 +126,8 @@ export default function ScrimImport({ data, theme, onSaveMatch, onSaveRounds, on
         progress: setCaptureProgress,
       });
       const { draft, players: resolvedPlayers, rounds: extractedRounds } = extracted;
-      setMeta(current => ({ ...current, ...extracted.meta }));
+      setMeta(current => ({ ...current, ...extracted.meta, ...(extracted.startingSide.firstHalf ? { firstHalf: extracted.startingSide.firstHalf } : {}) }));
+      setSideInference(extracted.startingSide);
       setPlayers(resolvedPlayers);
       setRounds(extractedRounds);
       setSourceMetadata(draft.sourceMetadata);
@@ -302,6 +304,11 @@ export default function ScrimImport({ data, theme, onSaveMatch, onSaveRounds, on
                 <option value="Def">Started Defense</option>
               </select>
             </div>
+            {sideInference && <p className={`text-[11px] ${sideInference.firstHalf ? 'text-cyan-200/80' : 'text-amber-300/80'}`}>
+              {sideInference.firstHalf
+                ? `Starting side detected from ${sideInference.votes} spike plant/defuse rows (only attackers plant). Change it if this looks wrong.`
+                : sideInference.votes ? 'Plant/defuse rows disagree about the starting side; choose it manually.' : 'No readable plant/defuse rows; choose the starting side manually.'}
+            </p>}
 
             {/* Players */}
             <div>

@@ -46,10 +46,12 @@ const colourError = (left: Uint8ClampedArray, right: Uint8ClampedArray) =>
  * Read the ordered kill feed by matching its portraits to the ten labelled
  * portraits in the same round screenshot. This avoids guessing names with OCR.
  */
+export interface ObjectiveRow { sourceRow: number; playerId: string | null; team: 'ours' | 'theirs' | null }
+
 export async function classifyValorantRoundEvents(image: ImageLike, players: readonly (ScreenshotPlayerRoundEvidence & { agent?: string | null })[]) {
   const width = Number(image.naturalWidth || (image as any).width);
   const height = Number(image.naturalHeight || (image as any).height);
-  if (width / height < 1.72 || width / height > 1.82 || players.length !== 10) return { events: [] as ScreenshotKillEvent[], complete: false, unidentifiedKillRows: 0, possiblyTruncated: false };
+  if (width / height < 1.72 || width / height > 1.82 || players.length !== 10) return { events: [] as ScreenshotKillEvent[], objectives: [] as ObjectiveRow[], complete: false, unidentifiedKillRows: 0, possiblyTruncated: false };
   const sx = width / 1920; const sy = height / 1080;
   const source = document.createElement('canvas'); source.width = width; source.height = height;
   const context = source.getContext('2d', { willReadFrequently: true });
@@ -78,6 +80,7 @@ export async function classifyValorantRoundEvents(image: ImageLike, players: rea
     return best && best.error <= 10_000 && (!next || next.error / Math.max(1, best.error) >= 1.025) ? best.index : null;
   };
   const events: ScreenshotKillEvent[] = [];
+  const objectives: ObjectiveRow[] = [];
   let hadPartialEvent = false;
   let unidentifiedKillRows = 0;
   let lastRowWasEvent = false;
@@ -88,7 +91,28 @@ export async function classifyValorantRoundEvents(image: ImageLike, players: rea
     // The thin victim stripe changes brightness with the selected round and
     // can disappear in compressed captures. A real portrait is the reliable
     // fallback; plant/defuse rows have a flat victim area and remain excluded.
-    if (!hasVictimStripe(top) && pixelVariance(victimPortrait) < 180) continue;
+    if (!hasVictimStripe(top) && pixelVariance(victimPortrait) < 180) {
+      // No victim: a spike plant/defuse row when an actor portrait is present.
+      if (pixelVariance(killerPortrait) >= 180) {
+        const rowColour = context.getImageData(Math.round(452 * sx), top + Math.round(20 * sy), 1, 1).data;
+        const delta = rowColour[0] - rowColour[1];
+        const actorTeam = delta >= 10 ? 'theirs' : delta <= -10 ? 'ours' : null;
+        const candidates = players.map((_player, index) => index).filter(index => !actorTeam || players[index].team === actorTeam);
+        const actorAgent = classifyAgent(
+          { left: Math.round(368 * sx), top, width: Math.round(36 * sx), height: Math.round(42 * sy) },
+          [rowColour[0], rowColour[1], rowColour[2]],
+        );
+        const byAgent = actorAgent ? candidates.filter(index => players[index].agent === actorAgent) : [];
+        const actor = byAgent.length === 1 ? byAgent[0] : match(killerPortrait, candidates);
+        const actorPlayer = actor === null ? null : players[actor];
+        objectives.push({
+          sourceRow: row,
+          playerId: actorPlayer ? actorPlayer.playerId || `name:${actorPlayer.displayName.trim().toLocaleLowerCase()}` : null,
+          team: actorPlayer?.team || actorTeam,
+        });
+      }
+      continue;
+    }
     // Sample the narrow gap between the timestamp and weapon. The weapon
     // silhouette starts around x=460 and is bright enough to erase the
     // green/red team tint used to resolve mirrored agent compositions.
@@ -143,6 +167,7 @@ export async function classifyValorantRoundEvents(image: ImageLike, players: rea
   // (revives plus plant/defuse rows can exceed the visible rows).
   return {
     events,
+    objectives,
     complete: events.length > 0 && !hadPartialEvent && unidentifiedKillRows === 0 && !lastRowWasEvent,
     unidentifiedKillRows,
     possiblyTruncated: lastRowWasEvent,
