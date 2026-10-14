@@ -1,6 +1,7 @@
 import React, { useMemo } from 'react';
 import { TrackerData } from '../types';
 import { Award, Layers, Users } from 'lucide-react';
+import { percentageTextClass } from '../utils/percentageColor';
 
 interface ComponentProps {
   data: TrackerData;
@@ -128,7 +129,7 @@ export default function TeamCompositions({ data, theme }: ComponentProps) {
                       <span className="text-emerald-400 font-bold">{ap.wins}W</span> - <span className="text-rose-400 font-bold">{ap.losses}L</span>
                     </td>
                     <td className="py-2.5 px-3 text-center font-black text-sm">
-                      <span className={ap.winRate >= 50 ? theme.text : 'text-gray-400'}>{ap.winRate}%</span>
+                      <span className={percentageTextClass(ap.winRate)}>{ap.winRate}%</span>
                     </td>
                     <td className="py-2.5 px-3 text-center text-gray-400">{ap.pickRate}%</td>
                   </tr>
@@ -173,7 +174,7 @@ export default function TeamCompositions({ data, theme }: ComponentProps) {
                           </div>
                           <div className="text-right text-[10px] shrink-0">
                             <span className="text-emerald-400 font-bold">{c.wins}W</span> - <span className="text-rose-400 font-bold">{c.losses}L</span> 
-                            <p className="text-gray-400 font-bold text-[9px]">{wr}% WR ({total} games)</p>
+                            <p className={`${percentageTextClass(wr)} font-bold text-[9px]`}>{wr}% WR ({total} games)</p>
                           </div>
                         </div>
                       );

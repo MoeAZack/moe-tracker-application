@@ -6,6 +6,7 @@ import { classifyAverageLoadout, classifyTeamEquipment } from '../../lib/scrimRo
 import ReplayMatchLog from './ReplayMatchLog';
 import MapRoundIntelligencePanel from './MapRoundIntelligencePanel';
 import { buildMapRoundIntelligence } from '../../lib/mapRoundAnalytics';
+import { percentageTextClass } from '../utils/percentageColor';
 
 interface ComponentProps {
   data: TrackerData;
@@ -37,6 +38,7 @@ export default function MapBestStats({ data, theme, onUpsert, onRemove }: Compon
   const stratRunsList = data.stratRuns || [];
   const roundIntelligenceByMap = useMemo(() => new Map(buildMapRoundIntelligence(matches, data.rounds || []).map(row => [row.map, row])), [matches, data.rounds]);
   const conversionText = (value?: { won: number; total: number }) => value?.total ? `${value.won}/${value.total} · ${Math.round(value.won / value.total * 100)}%` : '—';
+  const conversionPercentage = (value?: { won: number; total: number }) => value?.total ? Math.round(value.won / value.total * 100) : null;
 
   // --- MAP STATS CALCULATOR ---
   const mapStatsTable = useMemo(() => {
@@ -538,12 +540,12 @@ export default function MapBestStats({ data, theme, onUpsert, onRemove }: Compon
                         <span className="text-emerald-400 font-bold">{s.actualWon}</span> / <span className="text-rose-400 font-bold">{s.actualLost}</span> / {s.actualDrawn}
                       </td>
                       <td className="py-3.5 px-3 text-center font-black text-sm">
-                        <span className={Number(winrate) >= 50 ? theme.text : 'text-gray-400'}>{winrate}%</span>
+                        <span className={weightedPlayed > 0 ? percentageTextClass(Number(winrate)) : 'text-slate-500'}>{weightedPlayed > 0 ? `${winrate}%` : '—'}</span>
                       </td>
-                      <td className="border-l border-white/5 py-3.5 px-3 text-center text-amber-500 font-bold">{attWr}%</td><td className="py-3.5 px-3 text-center text-cyan-400 font-bold">{defWr}%</td>
-                      <td className={`border-l border-white/5 py-3.5 px-3 text-center ${roundIntel?.pistolBySide.attack.total ? 'text-amber-300' : 'text-slate-600'}`}>{conversionText(roundIntel?.pistolBySide.attack)}</td><td className={`py-3.5 px-3 text-center ${roundIntel?.pistolBySide.defense.total ? 'text-cyan-300' : 'text-slate-600'}`}>{conversionText(roundIntel?.pistolBySide.defense)}</td>
-                      <td className={`py-3.5 px-3 text-center ${roundIntel?.postPistolBySide.attack.total ? 'text-amber-300' : 'text-slate-600'}`}>{conversionText(roundIntel?.postPistolBySide.attack)}</td><td className={`py-3.5 px-3 text-center ${roundIntel?.postPistolBySide.defense.total ? 'text-cyan-300' : 'text-slate-600'}`}>{conversionText(roundIntel?.postPistolBySide.defense)}</td>
-                      <td className={`py-3.5 px-3 text-center ${roundIntel?.earnedBonusBySide.attack.total ? 'text-amber-300' : 'text-slate-600'}`}>{conversionText(roundIntel?.earnedBonusBySide.attack)}</td><td className={`py-3.5 px-3 text-center ${roundIntel?.earnedBonusBySide.defense.total ? 'text-cyan-300' : 'text-slate-600'}`}>{conversionText(roundIntel?.earnedBonusBySide.defense)}</td>
+                      <td className={`border-l border-white/5 py-3.5 px-3 text-center font-bold ${(s.attW + s.attL) > 0 ? percentageTextClass(Number(attWr)) : 'text-slate-500'}`}>{(s.attW + s.attL) > 0 ? `${attWr}%` : '—'}</td><td className={`py-3.5 px-3 text-center font-bold ${(s.defW + s.defL) > 0 ? percentageTextClass(Number(defWr)) : 'text-slate-500'}`}>{(s.defW + s.defL) > 0 ? `${defWr}%` : '—'}</td>
+                      <td className={`border-l border-white/5 py-3.5 px-3 text-center ${percentageTextClass(conversionPercentage(roundIntel?.pistolBySide.attack))}`}>{conversionText(roundIntel?.pistolBySide.attack)}</td><td className={`py-3.5 px-3 text-center ${percentageTextClass(conversionPercentage(roundIntel?.pistolBySide.defense))}`}>{conversionText(roundIntel?.pistolBySide.defense)}</td>
+                      <td className={`py-3.5 px-3 text-center ${percentageTextClass(conversionPercentage(roundIntel?.postPistolBySide.attack))}`}>{conversionText(roundIntel?.postPistolBySide.attack)}</td><td className={`py-3.5 px-3 text-center ${percentageTextClass(conversionPercentage(roundIntel?.postPistolBySide.defense))}`}>{conversionText(roundIntel?.postPistolBySide.defense)}</td>
+                      <td className={`py-3.5 px-3 text-center ${percentageTextClass(conversionPercentage(roundIntel?.earnedBonusBySide.attack))}`}>{conversionText(roundIntel?.earnedBonusBySide.attack)}</td><td className={`py-3.5 px-3 text-center ${percentageTextClass(conversionPercentage(roundIntel?.earnedBonusBySide.defense))}`}>{conversionText(roundIntel?.earnedBonusBySide.defense)}</td>
                       <td className={`border-l border-white/5 py-3.5 px-3 text-center font-bold ${Number(kd) >= 1 ? 'text-emerald-400' : 'text-rose-400'}`}>{kd}</td>
                     </tr>
                   );
@@ -594,11 +596,11 @@ export default function MapBestStats({ data, theme, onUpsert, onRemove }: Compon
                       <td className="py-3.5 px-4 text-center font-black text-sm text-[#ff4655]">{cm.score}</td>
                       <td className="py-3.5 px-4 text-center text-gray-400">{cm.n > 0 ? cm.ci : 'N/A (unplayed)'}</td>
                       <td className="py-3.5 px-4 text-center text-gray-300 font-bold">{cm.n}</td>
-                      <td className="py-3.5 px-4 text-center font-bold">{cm.wr}%</td>
-                      <td className="py-3.5 px-4 text-center text-amber-500">{cm.attWr}%</td>
-                      <td className="py-3.5 px-4 text-center text-cyan-400">{cm.defWr}%</td>
-                      <td className="py-3.5 px-4 text-center text-emerald-400">{cm.pistolWr}%</td>
-                      <td className="py-3.5 px-4 text-center text-emerald-400/80">{cm.ecoWr}%</td>
+                      <td className={`py-3.5 px-4 text-center font-bold ${percentageTextClass(cm.wr)}`}>{cm.wr}%</td>
+                      <td className={`py-3.5 px-4 text-center ${percentageTextClass(cm.attWr)}`}>{cm.attWr}%</td>
+                      <td className={`py-3.5 px-4 text-center ${percentageTextClass(cm.defWr)}`}>{cm.defWr}%</td>
+                      <td className={`py-3.5 px-4 text-center ${percentageTextClass(cm.pistolWr)}`}>{cm.pistolWr}%</td>
+                      <td className={`py-3.5 px-4 text-center ${percentageTextClass(cm.ecoWr)}`}>{cm.ecoWr}%</td>
                       <td className="py-3.5 px-4 text-center font-bold text-gray-300">{cm.kd}</td>
                     </tr>
                   ))}
@@ -927,7 +929,7 @@ export default function MapBestStats({ data, theme, onUpsert, onRemove }: Compon
 
                     <div className="mt-5 pt-3 border-t border-white/5 flex justify-between items-center font-mono">
                       <div className="text-[10px] text-gray-400">
-                        Runs: <span className="text-emerald-400 font-bold">{sStats.wins}W</span> - <span className="text-rose-400 font-bold">{sStats.losses}L</span> ({winrate}% WR)
+                        Runs: <span className="text-emerald-400 font-bold">{sStats.wins}W</span> - <span className="text-rose-400 font-bold">{sStats.losses}L</span> (<span className={total > 0 ? percentageTextClass(Number(winrate)) : 'text-slate-500'}>{total > 0 ? `${winrate}% WR` : '—'}</span>)
                       </div>
 
                       <button
