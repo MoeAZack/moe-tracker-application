@@ -4,6 +4,15 @@ Status: approved product direction; implementation not started
 Roadmap owner: MoeTracker product owner  
 Last updated: 14 October 2026, Africa/Cairo
 
+## Autonomous start command
+
+The standalone owner command **`ready roadmap`** starts one autonomous roadmap
+slice. The agent selects the smallest dependency-ready unchecked ID from the
+earliest active milestone, implements and tests that single point, updates its
+status only with acceptance evidence, commits and pushes it, then stops with the
+next ready ID. The detailed execution and blocker rules are defined in
+[`AUTONOMY.md`](./AUTONOMY.md).
+
 ## Product position
 
 MoeTracker turns private post-match screens and available replay evidence into a
