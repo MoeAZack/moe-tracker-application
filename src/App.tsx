@@ -6,6 +6,7 @@ import TeamSyncIndicator from './components/TeamSyncIndicator';
 import { apiFetch } from './utils/api';
 import { filterAnalyticsHistory } from './utils/historyFilter';
 import { filterTryoutWorkspace, activeTryoutPhase } from './utils/tryoutWorkspace';
+import { filterActiveMapPool } from './utils/activeMapPool';
 import { reportDesktopDiagnostic } from './utils/desktopDiagnostics';
 
 // Heavy route views are code-split so the initial bundle only loads the shell + login.
@@ -170,7 +171,8 @@ export default function App() {
   // explicitly linked to an archived tryout batch by default.
   const [historicalTryoutId, setHistoricalTryoutId] = useState('');
   const workspaceData = useMemo(() => data ? filterTryoutWorkspace(data) : null, [data]);
-  const analyticsData = useMemo(() => data ? filterAnalyticsHistory(filterTryoutWorkspace(data, historicalTryoutId), 'all', !!historicalTryoutId) : null, [data, historicalTryoutId]);
+  const activeWorkspaceData = useMemo(() => workspaceData ? filterActiveMapPool(workspaceData) : null, [workspaceData]);
+  const analyticsData = useMemo(() => data ? filterActiveMapPool(filterAnalyticsHistory(filterTryoutWorkspace(data, historicalTryoutId), 'all', !!historicalTryoutId)) : null, [data, historicalTryoutId]);
 
   // --- MUTATION HELPERS ---
   // Client-side mirror of the server's sheet -> collection map.
@@ -614,7 +616,7 @@ export default function App() {
             )}
             {activeTab === 'matches' && data && desktopMode && (
               <MatchLogRounds 
-                data={workspaceData || data} 
+                data={activeWorkspaceData || data}
                 theme={theme} 
                 onSaveMatch={handleSaveMatch} 
                 onRemove={handleRemove} 
@@ -625,9 +627,9 @@ export default function App() {
                 onManualReplayDraftConsumed={() => setManualReplayDraft(null)}
               />
             )}
-            {activeTab === 'matches' && data && !desktopMode && <WebsiteMatchLog data={data} theme={theme} />}
+            {activeTab === 'matches' && analyticsData && !desktopMode && <WebsiteMatchLog data={analyticsData} theme={theme} />}
             {activeTab === 'replays' && data && (
-              <ReplayWorkspace data={workspaceData || data} role={role} onAccepted={fetchDatabase} onManualFallback={(item) => { setManualReplayDraft(item.draft as ScreenshotReviewDraft); setActiveTab('matches'); }} />
+              <ReplayWorkspace data={activeWorkspaceData || data} role={role} onAccepted={fetchDatabase} onManualFallback={(item) => { setManualReplayDraft(item.draft as ScreenshotReviewDraft); setActiveTab('matches'); }} />
             )}
             {activeTab === 'livelogger' && data && (
               <LiveLogger
@@ -641,10 +643,10 @@ export default function App() {
               />
             )}
             {activeTab === 'vod' && data && (
-              <VodReview data={workspaceData || data} theme={theme} role={role} onRefresh={fetchDatabase} initialMatchId={reviewMatchId} />
+              <VodReview data={activeWorkspaceData || data} theme={theme} role={role} onRefresh={fetchDatabase} initialMatchId={reviewMatchId} />
             )}
-            {activeTab === 'lineups' && data && (
-              <LineupLibrary data={data} theme={theme} role={role} onRefresh={fetchDatabase} />
+            {activeTab === 'lineups' && activeWorkspaceData && (
+              <LineupLibrary data={activeWorkspaceData} theme={theme} role={role} onRefresh={fetchDatabase} />
             )}
             {activeTab === 'economy' && analyticsData && (
               <EconomyAnalytics data={analyticsData} theme={theme} />

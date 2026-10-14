@@ -13,8 +13,11 @@ export interface MapRoundIntelligence {
   openingRounds: [Conversion, Conversion, Conversion];
   openingThree: Conversion;
   pistol: Conversion;
+  pistolBySide: { attack: Conversion; defense: Conversion };
   postPistol: Conversion;
+  postPistolBySide: { attack: Conversion; defense: Conversion };
   earnedBonus: Conversion;
+  earnedBonusBySide: { attack: Conversion; defense: Conversion };
   lowBuy: Conversion;
   lowBuyBySide: { attack: Conversion; defense: Conversion };
   fullBuyLosses: LossConversion;
@@ -73,7 +76,9 @@ export function buildMapRoundIntelligence(matches: readonly Match[], rounds: rea
       row = {
         schemaVersion: 1, map, matches: 0, coveredRounds: 0,
         openingRounds: [conversion(), conversion(), conversion()], openingThree: conversion(),
-        pistol: conversion(), postPistol: conversion(), earnedBonus: conversion(),
+        pistol: conversion(), pistolBySide: { attack: conversion(), defense: conversion() },
+        postPistol: conversion(), postPistolBySide: { attack: conversion(), defense: conversion() },
+        earnedBonus: conversion(), earnedBonusBySide: { attack: conversion(), defense: conversion() },
         lowBuy: conversion(), lowBuyBySide: { attack: conversion(), defense: conversion() },
         fullBuyLosses: losses(), antiEcoLosses: losses(), antiEcoBySide: { attack: losses(), defense: losses() },
         confirmedAntiEcoThrows: 0, latestOpening: null,
@@ -102,7 +107,10 @@ export function buildMapRoundIntelligence(matches: readonly Match[], rounds: rea
       row.matches += stored.matches || 1; row.coveredRounds += stored.coveredRounds || 0;
       row.openingRounds.forEach((target, index) => { target.won += stored.openingRounds?.[index]?.won || 0; target.total += stored.openingRounds?.[index]?.total || 0; });
       for (const key of ['openingThree', 'pistol', 'postPistol', 'earnedBonus', 'lowBuy'] as const) { row[key].won += stored[key]?.won || 0; row[key].total += stored[key]?.total || 0; }
-      for (const side of ['attack', 'defense'] as const) { row.lowBuyBySide[side].won += stored.lowBuyBySide?.[side]?.won || 0; row.lowBuyBySide[side].total += stored.lowBuyBySide?.[side]?.total || 0; row.antiEcoBySide[side].lost += stored.antiEcoBySide?.[side]?.lost || 0; row.antiEcoBySide[side].total += stored.antiEcoBySide?.[side]?.total || 0; }
+      for (const side of ['attack', 'defense'] as const) {
+        for (const key of ['pistolBySide', 'postPistolBySide', 'earnedBonusBySide', 'lowBuyBySide'] as const) { row[key][side].won += stored[key]?.[side]?.won || 0; row[key][side].total += stored[key]?.[side]?.total || 0; }
+        row.antiEcoBySide[side].lost += stored.antiEcoBySide?.[side]?.lost || 0; row.antiEcoBySide[side].total += stored.antiEcoBySide?.[side]?.total || 0;
+      }
       for (const key of ['fullBuyLosses', 'antiEcoLosses'] as const) { row[key].lost += stored[key]?.lost || 0; row[key].total += stored[key]?.total || 0; }
       row.confirmedAntiEcoThrows += stored.confirmedAntiEcoThrows || 0; row.latestOpening = stored.latestOpening || row.latestOpening;
       continue;
@@ -142,13 +150,16 @@ export function buildMapRoundIntelligence(matches: readonly Match[], rounds: rea
       const pistol = knownResult(numbered.get(start)?.result);
       const follow = knownResult(numbered.get(start + 1)?.result);
       const bonus = knownResult(numbered.get(start + 2)?.result);
+      const openingSide = String(numbered.get(start)?.side || '').toLocaleLowerCase().startsWith('att') ? 'attack'
+        : String(numbered.get(start)?.side || '').toLocaleLowerCase().startsWith('def') ? 'defense' : null;
       [pistol, follow, bonus].forEach((result, index) => addResult(row.openingRounds[index], result));
       const knownOpening = [pistol, follow, bonus].filter(Boolean);
       row.openingThree.total += knownOpening.length;
       row.openingThree.won += knownOpening.filter(result => result === 'win').length;
       addResult(row.pistol, pistol);
-      if (pistol === 'win') addResult(row.postPistol, follow);
-      if (pistol === 'win' && follow === 'win') addResult(row.earnedBonus, bonus);
+      if (openingSide) addResult(row.pistolBySide[openingSide], pistol);
+      if (pistol === 'win') { addResult(row.postPistol, follow); if (openingSide) addResult(row.postPistolBySide[openingSide], follow); }
+      if (pistol === 'win' && follow === 'win') { addResult(row.earnedBonus, bonus); if (openingSide) addResult(row.earnedBonusBySide[openingSide], bonus); }
     }
 
     row.latestOpening = {

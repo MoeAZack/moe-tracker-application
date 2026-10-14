@@ -5,6 +5,7 @@ import { knownResult, matchOutcome } from '../../lib/analyticsEvidence';
 import { classifyAverageLoadout, classifyTeamEquipment } from '../../lib/scrimRoundAnalytics';
 import ReplayMatchLog from './ReplayMatchLog';
 import MapRoundIntelligencePanel from './MapRoundIntelligencePanel';
+import { buildMapRoundIntelligence } from '../../lib/mapRoundAnalytics';
 
 interface ComponentProps {
   data: TrackerData;
@@ -34,6 +35,8 @@ export default function MapBestStats({ data, theme, onUpsert, onRemove }: Compon
   const maps = data.settings.maps || [];
   const stratsList = data.strats || [];
   const stratRunsList = data.stratRuns || [];
+  const roundIntelligenceByMap = useMemo(() => new Map(buildMapRoundIntelligence(matches, data.rounds || []).map(row => [row.map, row])), [matches, data.rounds]);
+  const conversionText = (value?: { won: number; total: number }) => value?.total ? `${value.won}/${value.total} · ${Math.round(value.won / value.total * 100)}%` : 'Unknown';
 
   // --- MAP STATS CALCULATOR ---
   const mapStatsTable = useMemo(() => {
@@ -498,7 +501,6 @@ export default function MapBestStats({ data, theme, onUpsert, onRemove }: Compon
       {/* VIEW: MAP POOL STATS */}
       {activeSubTab === 'stats' && (
         <div className="space-y-4">
-          <MapRoundIntelligencePanel data={data} />
           <div className={`p-5 rounded-xl border ${isLight ? 'bg-white border-slate-200 text-slate-800 shadow-sm' : 'bg-white/5 border-white/10'} space-y-4`}>
           <div className="flex items-center gap-2 mb-2">
             <Compass className={`w-5 h-5 ${theme.text}`} />
@@ -506,17 +508,14 @@ export default function MapBestStats({ data, theme, onUpsert, onRemove }: Compon
           </div>
 
           <div className="overflow-x-auto">
-            <table className="w-full text-left border-collapse font-mono text-xs">
+            <table className="w-full min-w-[1480px] text-left border-collapse font-mono text-xs">
               <thead>
+                <tr className="border-b border-white/10 text-[9px] uppercase tracking-widest text-gray-500"><th className="px-3 py-2" colSpan={4}>Map results</th><th className="border-l border-white/10 px-3 py-2 text-center" colSpan={2}>Side win rate</th><th className="border-l border-white/10 px-3 py-2 text-center" colSpan={4}>Opening conversions</th><th className="border-l border-white/10 px-3 py-2 text-center" colSpan={2}>Latest opening three</th><th className="border-l border-white/10 px-3 py-2 text-center">Combat</th></tr>
                 <tr className="border-b border-white/10 text-gray-500 uppercase font-bold">
-                  <th className="py-3 px-4">Map Name</th>
-                  <th className="py-3 px-4 text-center">Played</th>
-                  <th className="py-3 px-4 text-center">W / L / D</th>
-                  <th className="py-3 px-4 text-center">Win Rate %</th>
-                  <th className="py-3 px-4 text-center">ATT Win Rate</th>
-                  <th className="py-3 px-4 text-center">DEF Win Rate</th>
-                  <th className="py-3 px-4 text-center">Pistols Win Rate</th>
-                  <th className="py-3 px-4 text-center">Team K/D</th>
+                  <th className="py-3 px-3">Map</th><th className="py-3 px-3 text-center">Played</th><th className="py-3 px-3 text-center">W / L / D</th><th className="py-3 px-3 text-center">Win rate</th>
+                  <th className="border-l border-white/10 py-3 px-3 text-center">ATT</th><th className="py-3 px-3 text-center">DEF</th>
+                  <th className="border-l border-white/10 py-3 px-3 text-center">Pistol ATT</th><th className="py-3 px-3 text-center">Pistol DEF</th><th className="py-3 px-3 text-center">After pistol</th><th className="py-3 px-3 text-center">Earned bonus</th>
+                  <th className="border-l border-white/10 py-3 px-3 text-center">First half</th><th className="py-3 px-3 text-center">Second half</th><th className="border-l border-white/10 py-3 px-3 text-center">Team K/D</th>
                 </tr>
               </thead>
               <tbody className="divide-y divide-white/5">
@@ -526,23 +525,23 @@ export default function MapBestStats({ data, theme, onUpsert, onRemove }: Compon
                   const winrate = weightedPlayed > 0 ? ((s.won / weightedPlayed) * 100).toFixed(0) : '0';
                   const attWr = (s.attW + s.attL) > 0 ? ((s.attW / (s.attW + s.attL)) * 100).toFixed(0) : '0';
                   const defWr = (s.defW + s.defL) > 0 ? ((s.defW / (s.defW + s.defL)) * 100).toFixed(0) : '0';
-                  const pistolWr = (s.pistolW + s.pistolL) > 0 ? ((s.pistolW / (s.pistolW + s.pistolL)) * 100).toFixed(0) : '0';
                   const kd = s.deaths > 0 ? (s.kills / s.deaths).toFixed(2) : '-';
+                  const roundIntel = roundIntelligenceByMap.get(mName);
 
                   return (
                     <tr key={mName} className="hover:bg-white/5">
-                      <td className="py-3.5 px-4 font-bold text-white text-sm">{mName}</td>
-                      <td className="py-3.5 px-4 text-center font-bold text-gray-300">{played}</td>
-                      <td className="py-3.5 px-4 text-center text-gray-400">
+                      <td className="py-3.5 px-3 font-bold text-white text-sm">{mName}</td>
+                      <td className="py-3.5 px-3 text-center font-bold text-gray-300">{played}</td>
+                      <td className="py-3.5 px-3 text-center text-gray-400">
                         <span className="text-emerald-400 font-bold">{s.actualWon}</span> / <span className="text-rose-400 font-bold">{s.actualLost}</span> / {s.actualDrawn}
                       </td>
-                      <td className="py-3.5 px-4 text-center font-black text-sm">
+                      <td className="py-3.5 px-3 text-center font-black text-sm">
                         <span className={Number(winrate) >= 50 ? theme.text : 'text-gray-400'}>{winrate}%</span>
                       </td>
-                      <td className="py-3.5 px-4 text-center text-amber-500 font-bold">{attWr}%</td>
-                      <td className="py-3.5 px-4 text-center text-cyan-400 font-bold">{defWr}%</td>
-                      <td className="py-3.5 px-4 text-center text-emerald-400">{pistolWr}%</td>
-                      <td className={`py-3.5 px-4 text-center font-bold ${Number(kd) >= 1 ? 'text-emerald-400' : 'text-rose-400'}`}>{kd}</td>
+                      <td className="border-l border-white/5 py-3.5 px-3 text-center text-amber-500 font-bold">{attWr}%</td><td className="py-3.5 px-3 text-center text-cyan-400 font-bold">{defWr}%</td>
+                      <td className="border-l border-white/5 py-3.5 px-3 text-center text-amber-300">{conversionText(roundIntel?.pistolBySide.attack)}</td><td className="py-3.5 px-3 text-center text-cyan-300">{conversionText(roundIntel?.pistolBySide.defense)}</td><td className="py-3.5 px-3 text-center text-emerald-300">{conversionText(roundIntel?.postPistol)}</td><td className="py-3.5 px-3 text-center text-violet-300">{conversionText(roundIntel?.earnedBonus)}</td>
+                      <td className="border-l border-white/5 py-3.5 px-3 text-center font-bold text-amber-300">{roundIntel?.latestOpening?.firstHalf || 'Unknown'}</td><td className="py-3.5 px-3 text-center font-bold text-cyan-300">{roundIntel?.latestOpening?.secondHalf || 'Unknown'}</td>
+                      <td className={`border-l border-white/5 py-3.5 px-3 text-center font-bold ${Number(kd) >= 1 ? 'text-emerald-400' : 'text-rose-400'}`}>{kd}</td>
                     </tr>
                   );
                 })}
@@ -550,6 +549,7 @@ export default function MapBestStats({ data, theme, onUpsert, onRemove }: Compon
             </table>
           </div>
           </div>
+          <MapRoundIntelligencePanel data={data} />
         </div>
       )}
 
