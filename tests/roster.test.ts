@@ -16,6 +16,7 @@ import {
   restoreTryoutBatch,
   setTryoutAlias,
   setTryoutsMode,
+  setObservedRosterStatus,
 } from '../lib/roster';
 import { createSeed } from '../lib/seed';
 
@@ -118,6 +119,20 @@ describe('roster domain', () => {
     expect(db.engineAdapters.ranked.consents.consent.revokedAt).toBe(now());
     expect(db.playerStats).toContainEqual(expect.objectContaining({ id: 'historical', playerId: player.id }));
     expect(db.settings.players).toEqual([]);
+  });
+
+  it('turns an observed name into a stable classified player and links all earlier rows', () => {
+    const db: any = rosterDb();
+    db.playerStats.push({ id: 'stat-2', player: 'Legacy-Name', matchId: 'm2', kills: 11 });
+    const result = setObservedRosterStatus(db, { displayName: 'legacy-name', status: 'standIn' }, () => ids[0], now);
+    expect(result).toMatchObject({ status: 'standIn', player: { id: ids[0], displayName: 'legacy-name', rosterStatus: 'standIn' } });
+    expect(db.playerStats).toEqual(expect.arrayContaining([
+      expect.objectContaining({ id: 'stat-1', playerId: ids[0] }),
+      expect.objectContaining({ id: 'stat-2', playerId: ids[0] }),
+    ]));
+    expect(db.coreMemberships).toEqual([]);
+    setObservedRosterStatus(db, { playerId: ids[0], displayName: 'legacy-name', status: 'core' }, () => ids[1], now);
+    expect(db.coreMemberships).toHaveLength(1);
   });
 
   it('supports repeatable tryout phases without changing core membership or historical phases', () => {

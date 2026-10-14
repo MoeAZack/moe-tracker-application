@@ -41,6 +41,20 @@ export interface ObservedPlayerKd {
   identity: string; playerId: string | null; displayName: string; recordedRows: number; pairedSamples: number; kd: number | null;
 }
 
+export interface ObservedPlayerDashboard extends ObservedPlayerKd {
+  matches: number; wins: number; winRate: number | null; kills: number; deaths: number; assists: number;
+  mainAgent: string | null; avgAcs: number | null; avgAdr: number | null; avgHs: number | null;
+  firstKills: number | null; firstDeaths: number | null; kast: number | null;
+  recentForm: Array<'W' | 'L' | '—'>; status: 'core' | 'standIn' | 'tryout';
+  attackKd: number | null; defenseKd: number | null; plants: number; defuses: number; trades: number;
+  multikills: { two: number; three: number; four: number; ace: number };
+  lowBudgetWins: number; highBudgetLosses: number; antiEcoLosses: number;
+  agents: Array<{ name: string; matches: number; wins: number }>;
+  maps: Array<{ name: string; matches: number; wins: number }>;
+  weapons: Array<{ name: string; rounds: number; wins: number; kills: number; deaths: number }>;
+  evidence: { performanceRows: number; openingRows: number; screenshotRounds: number };
+}
+
 export function aggregateObservedPlayerKd(rows: readonly PlayerStats[]): ObservedPlayerKd[] {
   const groups = new Map<string, { playerId: string | null; displayName: string; rows: PlayerStats[] }>();
   rows.forEach((row, index) => {
@@ -55,6 +69,72 @@ export function aggregateObservedPlayerKd(rows: readonly PlayerStats[]): Observe
     const kills = paired.reduce((sum, row) => sum + Number(row.kills), 0);
     const deaths = paired.reduce((sum, row) => sum + Number(row.deaths), 0);
     return { identity, playerId: group.playerId, displayName: group.displayName, recordedRows: group.rows.length, pairedSamples: paired.length, kd: paired.length && deaths > 0 ? kills / deaths : null };
+  }).sort((a, b) => a.displayName.localeCompare(b.displayName, 'en') || a.identity.localeCompare(b.identity, 'en'));
+}
+
+const knownNumber = (value: unknown): value is number => typeof value === 'number' && Number.isFinite(value);
+const ratio = (numerator: number, denominator: number) => denominator > 0 ? numerator / denominator : null;
+const matchWon = (match: Match | undefined): boolean | null => {
+  if (!match) return null;
+  if (knownNumber(match.ourScore) && knownNumber(match.theirScore)) return match.ourScore > match.theirScore;
+  const won = (match.attW || 0) + (match.defW || 0); const lost = (match.attL || 0) + (match.defL || 0);
+  return won + lost > 0 ? won > lost : null;
+};
+
+export function aggregateObservedPlayerDashboard(data: Pick<TrackerData, 'playerStats' | 'matches' | 'rosterPlayers' | 'coreMemberships' | 'tryoutBatches'>): ObservedPlayerDashboard[] {
+  const matches = new Map((data.matches || []).map(match => [match.id, match]));
+  const playerById = new Map((data.rosterPlayers || []).map(player => [player.id, player]));
+  const activeCore = new Set((data.coreMemberships || []).filter(item => !item.endedAt).map(item => item.playerId));
+  const activeTryouts = new Set((data.tryoutBatches || []).filter(batch => batch.status === 'active').flatMap(batch => batch.candidatePlayerIds));
+  const groups = new Map<string, { playerId: string | null; displayName: string; rows: PlayerStats[] }>();
+  for (const row of data.playerStats || []) {
+    const displayName = row.displayNameSnapshot?.trim() || row.player?.trim() || 'Unknown player';
+    const identity = row.playerId?.trim() || `legacy:${displayName.toLocaleLowerCase('en')}`;
+    const group = groups.get(identity) || { playerId: row.playerId || null, displayName, rows: [] };
+    group.rows.push(row); groups.set(identity, group);
+  }
+  return [...groups.entries()].map(([identity, group]) => {
+    const rows = group.rows; const matchIds = [...new Set(rows.map(row => row.matchId))];
+    const outcomes = matchIds.map(id => matchWon(matches.get(id))); const wins = outcomes.filter(Boolean).length;
+    const paired = rows.filter(row => knownNumber(row.kills) && knownNumber(row.deaths));
+    const kills = rows.reduce((sum, row) => sum + (knownNumber(row.kills) ? row.kills : 0), 0);
+    const deaths = rows.reduce((sum, row) => sum + (knownNumber(row.deaths) ? row.deaths : 0), 0);
+    const assists = rows.reduce((sum, row) => sum + (knownNumber(row.assists) ? row.assists : 0), 0);
+    const average = (selector: (row: PlayerStats) => unknown) => { const found = rows.map(selector).filter(knownNumber); return found.length ? found.reduce((a, b) => a + b, 0) / found.length : null; };
+    const agentMap = new Map<string, { matches: Set<string>; wins: number }>();
+    const mapMap = new Map<string, { matches: Set<string>; wins: number }>();
+    for (const row of rows) {
+      const outcome = matchWon(matches.get(row.matchId)); const agent = row.agent?.trim(); const map = matches.get(row.matchId)?.map?.trim();
+      if (agent) { const item = agentMap.get(agent) || { matches: new Set(), wins: 0 }; if (!item.matches.has(row.matchId) && outcome) item.wins++; item.matches.add(row.matchId); agentMap.set(agent, item); }
+      if (map) { const item = mapMap.get(map) || { matches: new Set(), wins: 0 }; if (!item.matches.has(row.matchId) && outcome) item.wins++; item.matches.add(row.matchId); mapMap.set(map, item); }
+    }
+    const agents = [...agentMap].map(([name, item]) => ({ name, matches: item.matches.size, wins: item.wins })).sort((a, b) => b.matches - a.matches || a.name.localeCompare(b.name));
+    const maps = [...mapMap].map(([name, item]) => ({ name, matches: item.matches.size, wins: item.wins })).sort((a, b) => b.matches - a.matches || a.name.localeCompare(b.name));
+    const screenshot = rows.map(row => row.screenshotMetrics).filter(Boolean) as NonNullable<PlayerStats['screenshotMetrics']>[];
+    const weapons = new Map<string, { rounds: number; wins: number; kills: number; deaths: number }>();
+    for (const metric of screenshot) for (const weapon of metric.weapons || []) { const item = weapons.get(weapon.weapon) || { rounds: 0, wins: 0, kills: 0, deaths: 0 }; item.rounds += weapon.rounds; item.wins += weapon.wins; item.kills += weapon.kills; item.deaths += weapon.deaths; weapons.set(weapon.weapon, item); }
+    const attackKills = rows.reduce((sum, row) => sum + (knownNumber(row.kAtt) ? row.kAtt : 0), 0); const attackDeaths = rows.reduce((sum, row) => sum + (knownNumber(row.dAtt) ? row.dAtt : 0), 0);
+    const defenseKills = rows.reduce((sum, row) => sum + (knownNumber(row.kDef) ? row.kDef : 0), 0); const defenseDeaths = rows.reduce((sum, row) => sum + (knownNumber(row.dDef) ? row.dDef : 0), 0);
+    const firstKills = rows.some(row => knownNumber(row.fk)) ? rows.reduce((sum, row) => sum + (knownNumber(row.fk) ? row.fk : 0), 0) : screenshot.length ? screenshot.reduce((sum, item) => sum + item.firstKills, 0) : null;
+    const firstDeaths = rows.some(row => knownNumber(row.fd)) ? rows.reduce((sum, row) => sum + (knownNumber(row.fd) ? row.fd : 0), 0) : screenshot.length ? screenshot.reduce((sum, item) => sum + item.firstDeaths, 0) : null;
+    const kastSuccessful = screenshot.reduce((sum, item) => sum + (item.kast?.successful || 0), 0); const kastCovered = screenshot.reduce((sum, item) => sum + (item.kast?.covered || 0), 0);
+    const stored = group.playerId ? playerById.get(group.playerId) : undefined;
+    const status = (group.playerId && activeCore.has(group.playerId) ? 'core' : stored?.rosterStatus || (group.playerId && activeTryouts.has(group.playerId) ? 'tryout' : rows.find(row => row.appearanceType)?.appearanceType)) || 'tryout';
+    return {
+      identity, playerId: group.playerId, displayName: group.displayName, recordedRows: rows.length, pairedSamples: paired.length,
+      matches: matchIds.length, wins, winRate: outcomes.some(value => value !== null) ? wins / outcomes.filter(value => value !== null).length : null,
+      kills, deaths, assists, kd: paired.length ? ratio(kills, deaths) : null, mainAgent: agents[0]?.name || null,
+      avgAcs: average(row => row.acs), avgAdr: average(row => row.adr), avgHs: average(row => row.hs), firstKills, firstDeaths,
+      kast: kastCovered ? kastSuccessful / kastCovered : null,
+      recentForm: matchIds.sort((a, b) => String(matches.get(b)?.date || '').localeCompare(String(matches.get(a)?.date || ''))).slice(0, 5).map(id => { const won = matchWon(matches.get(id)); return won === null ? '—' : won ? 'W' : 'L'; }),
+      status, attackKd: rows.some(row => knownNumber(row.kAtt) && knownNumber(row.dAtt)) ? ratio(attackKills, attackDeaths) : null,
+      defenseKd: rows.some(row => knownNumber(row.kDef) && knownNumber(row.dDef)) ? ratio(defenseKills, defenseDeaths) : null,
+      plants: rows.reduce((sum, row) => sum + (knownNumber(row.plants) ? row.plants : 0), 0), defuses: rows.reduce((sum, row) => sum + (knownNumber(row.defuses) ? row.defuses : 0), 0), trades: rows.reduce((sum, row) => sum + (knownNumber(row.trades) ? row.trades : 0), 0),
+      multikills: { two: screenshot.reduce((sum, item) => sum + item.multikills.two, 0), three: screenshot.reduce((sum, item) => sum + item.multikills.three, 0), four: screenshot.reduce((sum, item) => sum + item.multikills.four, 0), ace: screenshot.reduce((sum, item) => sum + item.multikills.ace, 0) },
+      lowBudgetWins: screenshot.reduce((sum, item) => sum + item.lowBudgetWins, 0), highBudgetLosses: screenshot.reduce((sum, item) => sum + item.highBudgetLosses, 0), antiEcoLosses: screenshot.reduce((sum, item) => sum + item.antiEcoLosses, 0),
+      agents, maps, weapons: [...weapons].map(([name, item]) => ({ name, ...item })).sort((a, b) => b.rounds - a.rounds || a.name.localeCompare(b.name)),
+      evidence: { performanceRows: rows.filter(row => knownNumber(row.acs) || knownNumber(row.adr) || knownNumber(row.hs)).length, openingRows: rows.filter(row => knownNumber(row.fk) || knownNumber(row.fd)).length, screenshotRounds: screenshot.reduce((sum, item) => sum + item.coveredRounds, 0) },
+    };
   }).sort((a, b) => a.displayName.localeCompare(b.displayName, 'en') || a.identity.localeCompare(b.identity, 'en'));
 }
 

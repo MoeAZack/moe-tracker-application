@@ -121,6 +121,15 @@ const rosterName = z.string().trim().min(1).max(100);
 const rosterId = z.string().uuid();
 export const rosterPlayerCreateSchema = z.object({ displayName: rosterName });
 export const rosterPlayerIdSchema = z.object({ playerId: rosterId });
+export const observedRosterStatusSchema = z.object({
+  playerId: rosterId.optional(),
+  displayName: rosterName,
+  status: z.enum(['core', 'standIn', 'tryout']),
+}).strict();
+export const observedRosterArchiveSchema = z.object({
+  playerId: rosterId.optional(),
+  displayName: rosterName.optional(),
+}).strict().refine(value => Boolean(value.playerId || value.displayName), 'A player identity or observed name is required.');
 export const tryoutCreateSchema = z.object({ name: rosterName });
 export const tryoutCandidateSchema = z.object({ batchId: rosterId, playerId: rosterId });
 export const tryoutBatchIdSchema = z.object({ batchId: rosterId });

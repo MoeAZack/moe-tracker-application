@@ -9,6 +9,7 @@ import {
   archiveAndResetTryoutBatch,
   createRosterPlayer,
   createTryoutBatch,
+  ensureObservedRosterPlayer,
   endCoreMembership,
   promoteTryoutCandidate,
   removeTryoutAlias,
@@ -17,6 +18,7 @@ import {
   restoreSeasonArchive,
   setTryoutAlias,
   setTryoutsMode,
+  setObservedRosterStatus,
 } from '../roster';
 
 function requireCoach(req: Request, res: Response) {
@@ -46,8 +48,16 @@ export function registerRosterRoutes(app: Express) {
   });
 
   app.post('/api/roster/players/remove', (req, res) => {
-    const body = validate(schemas.rosterPlayerIdSchema, req.body, res); if (!body) return;
-    return mutate(req, res, db => retireRosterPlayer(db, body.playerId));
+    const body = validate(schemas.observedRosterArchiveSchema, req.body, res); if (!body) return;
+    return mutate(req, res, db => {
+      const playerId = body.playerId || ensureObservedRosterPlayer(db, body.displayName!).id;
+      return retireRosterPlayer(db, playerId);
+    });
+  });
+
+  app.post('/api/roster/players/status', (req, res) => {
+    const body = validate(schemas.observedRosterStatusSchema, req.body, res); if (!body) return;
+    return mutate(req, res, db => setObservedRosterStatus(db, body));
   });
 
   app.post('/api/roster/core/add', (req, res) => {
