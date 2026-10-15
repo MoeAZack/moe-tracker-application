@@ -127,17 +127,17 @@ export default function MapBestStats({ data, evidenceData = data, theme, onUpser
         s.defW += m.defW * weight;
         s.defL += m.defL * weight;
 
-        // Pistol splits
-        if (m.pistolAtt === 'W') s.pistolW += weight; else if (m.pistolAtt === 'L') s.pistolL += weight;
-        if (m.pistolDef === 'W') s.pistolW += weight; else if (m.pistolDef === 'L') s.pistolL += weight;
-
-        // Eco splits
-        if (m.ecoAtt === 'W') s.ecoW += weight; else if (m.ecoAtt === 'L') s.ecoL += weight;
-        if (m.ecoDef === 'W') s.ecoW += weight; else if (m.ecoDef === 'L') s.ecoL += weight;
-
-        // Bonus splits
-        if (m.bonusAtt === 'W') s.bonusW += weight; else if (m.bonusAtt === 'L') s.bonusL += weight;
-        if (m.bonusDef === 'W') s.bonusW += weight; else if (m.bonusDef === 'L') s.bonusL += weight;
+        // The same round-backed conversions power Economy, Map Analysis and
+        // exports. Legacy match labels without retained rounds stay unknown.
+        const canonical = buildMapRoundIntelligence([{ ...m, roundAnalytics: undefined }], (data.rounds || []).filter(round => round.matchId === m.id))[0];
+        if (canonical) {
+          s.pistolW += canonical.pistol.won * weight;
+          s.pistolL += (canonical.pistol.total - canonical.pistol.won) * weight;
+          s.ecoW += canonical.postPistol.won * weight;
+          s.ecoL += (canonical.postPistol.total - canonical.postPistol.won) * weight;
+          s.bonusW += canonical.earnedBonus.won * weight;
+          s.bonusL += (canonical.earnedBonus.total - canonical.earnedBonus.won) * weight;
+        }
 
         // Sum player kills/deaths on this match
         playerStats.forEach(ps => {
@@ -150,7 +150,7 @@ export default function MapBestStats({ data, evidenceData = data, theme, onUpser
     });
 
     return table;
-  }, [maps, matches, playerStats, data.settings.stats]);
+  }, [maps, matches, playerStats, data.rounds, data.settings.stats]);
 
   // --- BEST MAP CALCULATOR WEIGHTED ---
   const calculatedBestMaps = useMemo(() => {

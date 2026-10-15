@@ -3,7 +3,8 @@ import { TrackerData } from '../types';
 import { Coins, TrendingUp, Shield, Swords } from 'lucide-react';
 import { knownResult, knownRoundSide } from '../../lib/analyticsEvidence';
 import ReplayMatchLog from './ReplayMatchLog';
-import { buildPlayerScreenshotMetrics, combineStoredScreenshotMetrics, deriveSpecialRoundConversions } from '../../lib/scrimRoundAnalytics';
+import { buildPlayerScreenshotMetrics, combineStoredScreenshotMetrics } from '../../lib/scrimRoundAnalytics';
+import { buildMapRoundIntelligence } from '../../lib/mapRoundAnalytics';
 import { percentageBarClass, percentageTextClass } from '../utils/percentageColor';
 
 interface Props {
@@ -50,22 +51,15 @@ export default function EconomyAnalytics({ data, theme }: Props) {
   const rounds = data.rounds || [];
   const buyTypes = data.settings?.buyTypes || ['Full', 'Half', 'Force', 'Bonus', 'Eco'];
 
-  // Match-level special-round conversions (always available).
+  // Canonical round-backed conversions shared with Map Analysis and exports.
   const special = useMemo(() => {
-    const acc = deriveSpecialRoundConversions(rounds);
-    const matchesWithRounds = new Set(rounds.map((round: any) => round.matchId));
-    matches.forEach((m: any) => {
-      if (matchesWithRounds.has(m.id)) return;
-      const add = (kind: keyof typeof acc, side: 'att' | 'def', value: unknown) => {
-        const result = knownResult(value);
-        if (!result) return;
-        acc[kind][`${side}T`]++;
-        if (result === 'win') acc[kind][`${side}W`]++;
-      };
-      add('pistol', 'att', m.pistolAtt); add('pistol', 'def', m.pistolDef);
-      add('eco', 'att', m.ecoAtt); add('eco', 'def', m.ecoDef);
-      add('bonus', 'att', m.bonusAtt); add('bonus', 'def', m.bonusDef);
-    });
+    const acc = { pistol: { attW: 0, attT: 0, defW: 0, defT: 0 }, eco: { attW: 0, attT: 0, defW: 0, defT: 0 }, bonus: { attW: 0, attT: 0, defW: 0, defT: 0 } };
+    for (const row of buildMapRoundIntelligence(matches.map(match => ({ ...match, roundAnalytics: undefined })), rounds)) {
+      for (const [kind, source] of [['pistol', row.pistolBySide], ['eco', row.postPistolBySide], ['bonus', row.earnedBonusBySide]] as const) {
+        acc[kind].attW += source.attack.won; acc[kind].attT += source.attack.total;
+        acc[kind].defW += source.defense.won; acc[kind].defT += source.defense.total;
+      }
+    }
     return acc;
   }, [matches, rounds]);
 

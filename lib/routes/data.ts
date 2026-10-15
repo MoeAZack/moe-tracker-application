@@ -7,8 +7,8 @@ import { toPublicTrackerData, toWebsiteTrackerData } from '../publicData';
 import { preserveExistingRosterContext, validateAndNormalizeLineup } from '../matchContext';
 import { parseIdentitySnapshotCorrection, preserveIdentitySnapshot } from '../identitySnapshot';
 import { applyImmutableEntryMetadata, applyScreenshotReviewConfirmation, reconcileStatTotals } from '../entryEngine';
-import { buildPlayerScreenshotMetrics, materializeFirstDeathsFromRoundEvidence, materializeScreenshotMetricsFromRoundEvidence, screenshotPlayerIdentity } from '../scrimRoundAnalytics';
-import { buildMapRoundIntelligence } from '../mapRoundAnalytics';
+import { materializeFirstDeathsFromRoundEvidence } from '../scrimRoundAnalytics';
+import { recomputeAcceptedMatchAggregates } from '../aggregateVersioning';
 
 // Core data + match logging: full payload, reset, settings, generic upsert/remove,
 // and match/round/veto saves. Protected routes (registered after the auth middleware).
@@ -17,8 +17,6 @@ export function registerDataRoutes(app: Express, options: { websiteSummaryOnly?:
   app.get('/api/data', async (req, res) => {
     try {
       const db = await readDB();
-      materializeScreenshotMetricsFromRoundEvidence(db);
-      materializeFirstDeathsFromRoundEvidence(db);
       const role = (req as any).user?.role === 'coach' ? 'coach' : 'player';
       res.json(options.websiteSummaryOnly ? toWebsiteTrackerData(db, role) : toPublicTrackerData(db, role));
     } catch (err: any) {
@@ -29,8 +27,6 @@ export function registerDataRoutes(app: Express, options: { websiteSummaryOnly?:
   app.get('/api/website-summary', async (req, res) => {
     try {
       const db = await readDB();
-      materializeScreenshotMetricsFromRoundEvidence(db);
-      materializeFirstDeathsFromRoundEvidence(db);
       res.json(toWebsiteTrackerData(db, (req as any).user?.role === 'coach' ? 'coach' : 'player'));
     } catch (err: any) {
       res.status(500).json({ error: err.message });
@@ -299,22 +295,11 @@ export function registerDataRoutes(app: Express, options: { websiteSummaryOnly?:
       });
 
       const match = db.matches.find((item: any) => item.id === matchId) || null;
-      if (match) match.roundAnalytics = buildMapRoundIntelligence([match], db.rounds.filter((round: any) => round.matchId === matchId))[0] || undefined;
+      db.analyticsBuilds ||= {};
+      if (match) db.analyticsBuilds[matchId] = recomputeAcceptedMatchAggregates(db, matchId);
 
-      // Materialize accepted screenshot summaries onto each match/player row. The
-      // website receives these small aggregates, never the raw round screenshots.
-      const derived = buildPlayerScreenshotMetrics(db.rounds.filter((round: any) => round.matchId === matchId));
-      const byIdentity = new Map(derived.map(metric => [metric.identity, metric]));
-      db.playerStats = db.playerStats.map((stat: any) => {
-        if (stat.matchId !== matchId) return stat;
-        const displayName = stat.displayNameSnapshot || stat.player || '';
-        const identity = screenshotPlayerIdentity(stat.playerId, displayName);
-        const metric = byIdentity.get(identity);
-        const { screenshotMetrics: _old, ...clean } = stat;
-        if (!metric) return clean;
-        const { identity: _identity, displayName: _displayName, ...screenshotMetrics } = metric;
-        return { ...clean, screenshotMetrics };
-      });
+      // Materialized summaries come only from the versioned accepted-source
+      // adapter above. The website receives aggregates, never raw screenshots.
       materializeFirstDeathsFromRoundEvidence(db, { overwrite: true, matchId });
 
       await saveDB(db);

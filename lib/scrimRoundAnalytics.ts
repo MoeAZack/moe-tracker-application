@@ -2,6 +2,8 @@ import type { EconomyClass, PlayerScreenshotMetrics, Round } from '../src/types'
 import { knownResult } from './analyticsEvidence';
 import { normalizeCaptureName } from './scrimCaptureImport';
 
+export const PLAYER_SCREENSHOT_CALCULATION_VERSION = 'player-screenshot-metrics/v1' as const;
+
 export function screenshotPlayerIdentity(playerId: unknown, displayName: unknown): string {
   const supplied = typeof playerId === 'string' ? playerId.trim() : '';
   if (supplied && !supplied.toLocaleLowerCase().startsWith('name:')) return supplied;
@@ -73,7 +75,7 @@ export function deriveSpecialRoundConversions(rounds: readonly Round[]) {
 
 type Mutable = PlayerScreenshotMetrics & { identity: string; displayName: string };
 const empty = (identity: string, displayName: string): Mutable => ({
-  schemaVersion: 1, identity, displayName, coveredRounds: 0, wins: 0, losses: 0,
+  schemaVersion: 1, calculationVersion: PLAYER_SCREENSHOT_CALCULATION_VERSION, identity, displayName, coveredRounds: 0, wins: 0, losses: 0,
   firstKills: 0, firstDeaths: 0, multikills: { two: 0, three: 0, four: 0, ace: 0 },
   lowBudgetWins: 0, highBudgetLosses: 0, antiEcoLosses: 0,
   kast: { successful: 0, covered: 0 }, weapons: [],
@@ -234,13 +236,18 @@ export function materializeFirstDeathsFromRoundEvidence(
   return changed;
 }
 
-export function combineStoredScreenshotMetrics(rows: ReadonlyArray<{ playerId?: string | null; player?: string; displayNameSnapshot?: string; screenshotMetrics?: PlayerScreenshotMetrics }>) {
+export function combineStoredScreenshotMetrics(rows: ReadonlyArray<{ id?: string; playerId?: string | null; player?: string; displayNameSnapshot?: string; screenshotMetrics?: PlayerScreenshotMetrics }>) {
   const combined = new Map<string, Mutable>();
-  for (const row of rows) {
+  for (const [index, row] of rows.entries()) {
     const source = row.screenshotMetrics;
     if (!source) continue;
     const displayName = row.displayNameSnapshot || row.player || 'Unknown player';
-    const identity = screenshotPlayerIdentity(row.playerId, displayName);
+    // Historical labels are not identities. Two unlinked appearances with the
+    // same observed name must remain separate until a coach explicitly links
+    // each row to a stable roster player.
+    const identity = row.playerId
+      ? screenshotPlayerIdentity(row.playerId, displayName)
+      : `unlinked:${row.id?.trim() || index}`;
     const target = combined.get(identity) || empty(identity, displayName);
     combined.set(identity, target);
     for (const field of ['coveredRounds', 'wins', 'losses', 'firstKills', 'firstDeaths', 'lowBudgetWins', 'highBudgetLosses', 'antiEcoLosses'] as const) target[field] += source[field] || 0;
