@@ -103,7 +103,7 @@ export function toWebsiteTrackerData(db: Record<string, any>, role: 'coach' | 'p
     coreMemberships: structuredClone(safe.coreMemberships || []),
     tryoutBatches: structuredClone(safe.tryoutBatches || []),
     practiceBlocks: (safe.practiceBlocks || []).map(({ createdBy: _createdBy, updatedBy: _updatedBy, ...block }: any) => structuredClone(block)),
-    schedule: (safe.schedule || []).map((item: any) => selectFields(item, ['id', 'date', 'kind', 'primary', 'secondary', 'notes', 'attendance', 'calendarKey', 'startTime', 'attendanceEnabled', 'requiredPlayerIds', 'attendanceCheckIns', 'source', 'sourceEventId'])),
+    schedule: (safe.schedule || []).map((item: any) => selectFields(item, ['id', 'date', 'kind', 'primary', 'secondary', 'notes', 'attendance', 'calendarKey', 'startTime', 'allDay', 'durationMinutes', 'repeatSeriesId', 'repeatIndex', 'repeatCount', 'attendanceEnabled', 'requiredPlayerIds', 'attendanceCheckIns', 'source', 'sourceEventId'])),
     attendanceCredits: structuredClone(safe.attendanceCredits || []),
     goals: (safe.goals || []).map((item: any) => selectFields(item, ['id', 'date', 'goal', 'notes', 'status', 'owner'])),
     matches: (safe.matches || []).map((item: any) => ({
