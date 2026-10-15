@@ -1,6 +1,7 @@
 # Identity snapshot policy
 
-Schema policy: `moetracker.identity-snapshot/v1`  
+Schema policy: `moetracker.identity-snapshot/v1`
+
 Roadmap: S0.5
 
 An accepted player appearance has two separate kinds of identity data:
