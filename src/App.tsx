@@ -3,10 +3,11 @@ import { TrackerData, Settings, MatchStatsUpdate, ScreenshotReviewDraft } from '
 import LoginScreen from './components/LoginScreen';
 import Logo from './components/Logo';
 import TeamSyncIndicator from './components/TeamSyncIndicator';
+import AnalyticsScopeControl from './components/AnalyticsScopeControl';
 import { apiFetch } from './utils/api';
 import { filterAnalyticsHistory } from './utils/historyFilter';
 import { filterTryoutWorkspace, activeTryoutPhase } from './utils/tryoutWorkspace';
-import { filterActiveMapPool } from './utils/activeMapPool';
+import { DEFAULT_ANALYTICS_MAP_SCOPE, projectAnalyticsMapScope, type AnalyticsMapScope } from './utils/activeMapPool';
 import { reportDesktopDiagnostic } from './utils/desktopDiagnostics';
 
 // Heavy route views are code-split so the initial bundle only loads the shell + login.
@@ -170,9 +171,11 @@ export default function App() {
   // Editing views keep complete history. Read-only analytics hide only history
   // explicitly linked to an archived tryout batch by default.
   const [historicalTryoutId, setHistoricalTryoutId] = useState('');
+  const [analyticsMapScope, setAnalyticsMapScope] = useState<AnalyticsMapScope>(DEFAULT_ANALYTICS_MAP_SCOPE);
   const workspaceData = useMemo(() => data ? filterTryoutWorkspace(data) : null, [data]);
-  const activeWorkspaceData = useMemo(() => workspaceData ? filterActiveMapPool(workspaceData) : null, [workspaceData]);
-  const analyticsData = useMemo(() => data ? filterActiveMapPool(filterAnalyticsHistory(filterTryoutWorkspace(data, historicalTryoutId), 'all', !!historicalTryoutId)) : null, [data, historicalTryoutId]);
+  const analyticsBaseData = useMemo(() => data ? filterAnalyticsHistory(filterTryoutWorkspace(data, historicalTryoutId), 'all', !!historicalTryoutId) : null, [data, historicalTryoutId]);
+  const analyticsProjection = useMemo(() => analyticsBaseData ? projectAnalyticsMapScope(analyticsBaseData, analyticsMapScope) : null, [analyticsBaseData, analyticsMapScope]);
+  const analyticsData = analyticsProjection?.data || null;
 
   // --- MUTATION HELPERS ---
   // Client-side mirror of the server's sheet -> collection map.
@@ -589,6 +592,7 @@ export default function App() {
         )}
 
         <div className="aurora-utility-bar"><div className="aurora-utility-context"><span className="aurora-eyebrow">{data && activeTryoutPhase(data) ? `Tryouts · ${activeTryoutPhase(data)?.name}` : 'Team workspace'}</span><span className="aurora-version-badge" title="Installed MoeTracker version">v{__APP_VERSION__}</span></div>{data && <TeamSyncIndicator teamName={data.settings.teamName || 'MoeTracker team'} role={role} desktopMode={desktopMode} />}</div>
+        {analyticsProjection && <AnalyticsScopeControl scope={analyticsMapScope} context={analyticsProjection.context} onChange={setAnalyticsMapScope} />}
         {data && ['dashboard', 'economy', 'maps', 'comps', 'roster'].includes(activeTab) && (data.tryoutBatches || []).some(batch => batch.status === 'archived') && <label className="mx-auto flex max-w-7xl w-full flex-wrap items-center gap-2 px-6 text-sm text-slate-300">Analytics history<select aria-label="Analytics phase" className="ui-field min-h-11 px-3" value={historicalTryoutId} onChange={event => setHistoricalTryoutId(event.target.value)}><option value="">Current workspace</option>{data.tryoutBatches.filter(batch => batch.status === 'archived').map(batch => <option key={batch.id} value={batch.id}>Archived tryouts · {batch.name}</option>)}</select>{historicalTryoutId && <span className="text-xs text-cyan-300">Viewing archived results only; new entries still use the current workspace.</span>}</label>}
 
         {/* Main Workspace Frame */}
@@ -616,7 +620,7 @@ export default function App() {
             )}
             {activeTab === 'matches' && data && desktopMode && (
               <MatchLogRounds 
-                data={activeWorkspaceData || data}
+                data={workspaceData || data}
                 theme={theme} 
                 onSaveMatch={handleSaveMatch} 
                 onRemove={handleRemove} 
@@ -627,9 +631,9 @@ export default function App() {
                 onManualReplayDraftConsumed={() => setManualReplayDraft(null)}
               />
             )}
-            {activeTab === 'matches' && analyticsData && !desktopMode && <WebsiteMatchLog data={analyticsData} theme={theme} />}
+            {activeTab === 'matches' && workspaceData && !desktopMode && <WebsiteMatchLog data={workspaceData} theme={theme} />}
             {activeTab === 'replays' && data && (
-              <ReplayWorkspace data={activeWorkspaceData || data} role={role} onAccepted={fetchDatabase} onManualFallback={(item) => { setManualReplayDraft(item.draft as ScreenshotReviewDraft); setActiveTab('matches'); }} />
+              <ReplayWorkspace data={workspaceData || data} role={role} onAccepted={fetchDatabase} onManualFallback={(item) => { setManualReplayDraft(item.draft as ScreenshotReviewDraft); setActiveTab('matches'); }} />
             )}
             {activeTab === 'livelogger' && data && (
               <LiveLogger
@@ -643,10 +647,10 @@ export default function App() {
               />
             )}
             {activeTab === 'vod' && data && (
-              <VodReview data={activeWorkspaceData || data} theme={theme} role={role} onRefresh={fetchDatabase} initialMatchId={reviewMatchId} />
+              <VodReview data={workspaceData || data} theme={theme} role={role} onRefresh={fetchDatabase} initialMatchId={reviewMatchId} />
             )}
-            {activeTab === 'lineups' && activeWorkspaceData && (
-              <LineupLibrary data={activeWorkspaceData} theme={theme} role={role} onRefresh={fetchDatabase} />
+            {activeTab === 'lineups' && workspaceData && (
+              <LineupLibrary data={workspaceData} theme={theme} role={role} onRefresh={fetchDatabase} />
             )}
             {activeTab === 'economy' && analyticsData && (
               <EconomyAnalytics data={analyticsData} theme={theme} />
@@ -655,7 +659,7 @@ export default function App() {
               <AITacticalHub data={analyticsData} theme={theme} onUpsert={handleUpsert} onRemove={handleRemove} />
             )}
             {activeTab === 'maps' && analyticsData && desktopMode && (
-              <MapBestStats data={analyticsData} theme={theme} onUpsert={handleUpsert} onRemove={handleRemove} />
+              <MapBestStats data={analyticsData} evidenceData={workspaceData || data} theme={theme} onUpsert={handleUpsert} onRemove={handleRemove} />
             )}
             {activeTab === 'maps' && analyticsData && !desktopMode && <WebsiteMapSummary data={analyticsData} theme={theme} />}
             {activeTab === 'comps' && analyticsData && (

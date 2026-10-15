@@ -10,17 +10,31 @@ import { percentageTextClass } from '../utils/percentageColor';
 
 interface ComponentProps {
   data: TrackerData;
+  evidenceData?: TrackerData;
   theme: any;
   onUpsert: (sheet: string, row: any) => Promise<any>;
   onRemove: (sheet: string, id: string) => Promise<any>;
 }
 
-export default function MapBestStats({ data, theme, onUpsert, onRemove }: ComponentProps) {
+export default function MapBestStats({ data, evidenceData = data, theme, onUpsert, onRemove }: ComponentProps) {
   const isLight = data.settings.theme === 'daylight';
   const [activeSubTab, setActiveSubTab] = useState<'stats' | 'calculator' | 'throws' | 'playbook'>('stats');
 
+  const libraryMaps = useMemo(() => {
+    const names = new Map<string, string>();
+    const add = (value: unknown) => {
+      const display = String(value ?? '').trim();
+      const key = display.toLowerCase();
+      if (key && !names.has(key)) names.set(key, display);
+    };
+    [...(evidenceData.settings.maps || []), ...(evidenceData.settings.inactiveMaps || [])].forEach(add);
+    (evidenceData.matches || []).forEach(match => add(match.map));
+    (evidenceData.strats || []).forEach(strat => add(strat.map));
+    return [...names.values()];
+  }, [evidenceData]);
+
   // --- PLAYBOOK STATE ---
-  const [selectedMap, setSelectedMap] = useState<string>(data.settings.maps[0] || 'Ascent');
+  const [selectedMap, setSelectedMap] = useState<string>(libraryMaps[0] || 'Ascent');
   const [selectedSide, setSelectedSide] = useState<string>('All');
   const [stratModalOpen, setStratModalOpen] = useState(false);
   const [editingStrat, setEditingStrat] = useState<Partial<Strat> | null>(null);
@@ -34,8 +48,8 @@ export default function MapBestStats({ data, theme, onUpsert, onRemove }: Compon
   const matches = data.matches || [];
   const playerStats = data.playerStats || [];
   const maps = data.settings.maps || [];
-  const stratsList = data.strats || [];
-  const stratRunsList = data.stratRuns || [];
+  const stratsList = evidenceData.strats || [];
+  const stratRunsList = evidenceData.stratRuns || [];
   const roundIntelligenceByMap = useMemo(() => new Map(buildMapRoundIntelligence(matches, data.rounds || []).map(row => [row.map, row])), [matches, data.rounds]);
   const conversionText = (value?: { won: number; total: number }) => value?.total ? `${value.won}/${value.total} · ${Math.round(value.won / value.total * 100)}%` : '—';
   const conversionPercentage = (value?: { won: number; total: number }) => value?.total ? Math.round(value.won / value.total * 100) : null;
@@ -374,7 +388,7 @@ export default function MapBestStats({ data, theme, onUpsert, onRemove }: Compon
   // --- PLAYBOOK STRAT COMPUTATION ---
   const filteredStrats = useMemo(() => {
     return stratsList.filter(s => {
-      const matchMap = s.map === selectedMap;
+      const matchMap = s.map.trim().toLowerCase() === selectedMap.trim().toLowerCase();
       const matchSide = selectedSide === 'All' || s.side === selectedSide;
       return matchMap && matchSide;
     });
@@ -855,7 +869,7 @@ export default function MapBestStats({ data, theme, onUpsert, onRemove }: Compon
                 onChange={e => setSelectedMap(e.target.value)}
                 className="w-full p-2 bg-black/20 text-white rounded border border-white/10 text-xs font-bold"
               >
-                {maps.map(m => <option key={m} value={m}>{m}</option>)}
+                {libraryMaps.map(m => <option key={m} value={m}>{m}</option>)}
               </select>
             </div>
 
@@ -977,7 +991,7 @@ export default function MapBestStats({ data, theme, onUpsert, onRemove }: Compon
                   onChange={e => setEditingStrat({ ...editingStrat, map: e.target.value })}
                   className="w-full p-2.5 bg-black/20 text-white rounded border border-white/10 text-xs font-bold"
                 >
-                  {maps.map(m => <option key={m} value={m}>{m}</option>)}
+                  {libraryMaps.map(m => <option key={m} value={m}>{m}</option>)}
                 </select>
               </div>
 
