@@ -48,14 +48,14 @@ describe('S0.5 identity snapshot policy', () => {
     expect(historicalPlayerLabel(legacy)).toBe('Legacy Alpha');
   });
 
-  it('never aggregates unlinked duplicate names as a proven identity', () => {
+  it('combines repeated unlinked appearances with the same normalized display name', () => {
     const rows: any[] = [
       { id: 'one', matchId: 'm1', player: 'Same Name', kills: 10, deaths: 5 },
       { id: 'two', matchId: 'm2', player: 'Same Name', kills: 1, deaths: 5 },
     ];
     const result = aggregateObservedPlayerKd(rows);
-    expect(result).toHaveLength(2);
-    expect(result.map(row => row.identity)).toEqual(['unlinked:one', 'unlinked:two']);
+    expect(result).toHaveLength(1);
+    expect(result[0]).toMatchObject({ identity: 'unlinked-name:same name', recordedRows: 2, pairedSamples: 2, kd: 1.1 });
   });
 
   it('keys same-name and renamed linked appearances by stable identity', () => {

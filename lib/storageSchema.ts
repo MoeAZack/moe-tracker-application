@@ -1,8 +1,9 @@
 import crypto from 'crypto';
 import { assertWorkspaceIdentityShape } from './evidenceReference';
 import { migrateAcceptedMatchAggregates } from './aggregateVersioning';
+import { materializeFirstDeathsFromRoundEvidence, materializeRoundOpeningsFromScreenshotEvidence } from './scrimRoundAnalytics';
 
-export const STORAGE_SCHEMA_VERSION = 3;
+export const STORAGE_SCHEMA_VERSION = 4;
 export const MAX_ENTITY_BYTES = 840 * 1024;
 export const MAX_DOCUMENT_BYTES = 900 * 1024;
 export const MAX_JSON_DATABASE_BYTES = 64 * 1024 * 1024;
@@ -75,6 +76,12 @@ export function ensureStorageSchema(input: any, now = new Date().toISOString()) 
   const ledger = Array.isArray(input._storage?.migrationLedger) ? input._storage.migrationLedger.filter((item: any) =>
     Number.isSafeInteger(item?.from) && Number.isSafeInteger(item?.to) && typeof item?.at === 'string') : [];
   if (declared < STORAGE_SCHEMA_VERSION) {
+    materializeRoundOpeningsFromScreenshotEvidence(input);
+    materializeFirstDeathsFromRoundEvidence(input, { overwrite: false });
+    for (const archive of Array.isArray(input.seasonArchives) ? input.seasonArchives : []) {
+      materializeRoundOpeningsFromScreenshotEvidence(archive);
+      materializeFirstDeathsFromRoundEvidence(archive, { overwrite: false });
+    }
     migrateAcceptedMatchAggregates(input);
     for (const archive of input.seasonArchives || []) migrateAcceptedMatchAggregates(archive);
     ledger.push({ from: declared, to: STORAGE_SCHEMA_VERSION, at: now });

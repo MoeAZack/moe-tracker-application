@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { buildPlayerScreenshotMetrics, classifyAverageLoadout, combineStoredScreenshotMetrics, deriveSpecialRoundConversions } from '../lib/scrimRoundAnalytics';
+import { buildPlayerScreenshotMetrics, classifyAverageLoadout, combineStoredScreenshotMetrics, deriveSpecialRoundConversions, materializeFirstDeathsFromRoundEvidence, materializeRoundOpeningsFromScreenshotEvidence } from '../lib/scrimRoundAnalytics';
 
 const round = (overrides: any = {}) => ({
   id: 'r1', matchId: 'm1', roundNo: 1, side: 'Attack', result: 'W',
@@ -48,6 +48,38 @@ describe('scrim screenshot analytics', () => {
       multikills: { two: 0, three: 0, four: 0, ace: 0 },
       kast: { successful: 0, covered: 0 },
     });
+  });
+  it('backfills scoreboard FD and round opening names from complete retained evidence', () => {
+    const evidenceRound = round({ screenshotEvidence: {
+      ...round().screenshotEvidence,
+      reviewStatus: 'review-required',
+      openingEventComplete: true,
+      players: [
+        { playerId: 'name:alpha', displayName: 'Alpha', team: 'ours' },
+        { playerId: 'name:enemy', displayName: 'Enemy One', team: 'theirs' },
+      ],
+      events: [{ sequence: 1, killerPlayerId: 'name:enemy', victimPlayerId: 'name:alpha', killerTeam: 'theirs', victimTeam: 'ours' }],
+    } });
+    const data: any = {
+      matches: [{ id: 'm1', ourScore: 0, theirScore: 1 }],
+      rounds: [evidenceRound],
+      playerStats: [{ matchId: 'm1', player: 'Alpha', fd: null }],
+    };
+    expect(materializeRoundOpeningsFromScreenshotEvidence(data)).toBe(2);
+    expect(data.rounds[0]).toMatchObject({ firstKillBy: 'Enemy One', firstDeathBy: 'Alpha' });
+    expect(materializeFirstDeathsFromRoundEvidence(data)).toBe(1);
+    expect(data.playerStats[0].fd).toBe(1);
+  });
+  it('does not replace coach-entered round openings or existing FD totals', () => {
+    const evidenceRound = round({ firstKillBy: 'Reviewed Killer', firstDeathBy: 'Reviewed Victim' });
+    const data: any = {
+      matches: [{ id: 'm1', ourScore: 1, theirScore: 0 }], rounds: [evidenceRound],
+      playerStats: [{ matchId: 'm1', playerId: 'p1', player: 'Alpha', fd: 7 }],
+    };
+    expect(materializeRoundOpeningsFromScreenshotEvidence(data)).toBe(0);
+    expect(materializeFirstDeathsFromRoundEvidence(data)).toBe(0);
+    expect(data.rounds[0]).toMatchObject({ firstKillBy: 'Reviewed Killer', firstDeathBy: 'Reviewed Victim' });
+    expect(data.playerStats[0].fd).toBe(7);
   });
   it('does not count the same match round twice', () => {
     const duplicate = round({ id: 'different-row-id' });
