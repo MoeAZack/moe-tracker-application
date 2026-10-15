@@ -1,4 +1,5 @@
 import crypto from 'crypto';
+import { assertWorkspaceIdentityShape } from './evidenceReference';
 
 export const STORAGE_SCHEMA_VERSION = 2;
 export const MAX_ENTITY_BYTES = 840 * 1024;
@@ -84,6 +85,7 @@ export function validateTrackerState(input: any, options: { jsonFile?: boolean }
   ensureStorageSchema(input);
   if ('settings' in input && (!input.settings || typeof input.settings !== 'object' || Array.isArray(input.settings))) throw storageError('settings must be an object.', 400);
   for (const key of CORE_ARRAYS) if (key in input && !Array.isArray(input[key])) throw storageError(`${key} must be an array.`, 400);
+  assertWorkspaceIdentityShape(input.workspace);
   for (const key of GROWTH_ARRAYS) {
     const collection = input[key];
     if (collection !== undefined && !Array.isArray(collection)) throw storageError(`${key} must be an array.`, 400);
