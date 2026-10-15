@@ -128,7 +128,9 @@ export function aggregateObservedPlayerDashboard(data: Pick<TrackerData, 'player
     const defenseKills = rows.reduce((sum, row) => sum + (knownNumber(row.kDef) ? row.kDef : 0), 0); const defenseDeaths = rows.reduce((sum, row) => sum + (knownNumber(row.dDef) ? row.dDef : 0), 0);
     const firstKills = rows.some(row => knownNumber(row.fk)) ? rows.reduce((sum, row) => sum + (knownNumber(row.fk) ? row.fk : 0), 0) : screenshot.length ? screenshot.reduce((sum, item) => sum + item.firstKills, 0) : null;
     const firstDeaths = rows.some(row => knownNumber(row.fd)) ? rows.reduce((sum, row) => sum + (knownNumber(row.fd) ? row.fd : 0), 0) : screenshot.length ? screenshot.reduce((sum, item) => sum + item.firstDeaths, 0) : null;
-    const kastSuccessful = screenshot.reduce((sum, item) => sum + (item.kast?.successful || 0), 0); const kastCovered = screenshot.reduce((sum, item) => sum + (item.kast?.covered || 0), 0);
+    const directKastRows = rows.filter(row => !row.screenshotMetrics && knownNumber(row.kastSuccessful) && knownNumber(row.kastCovered) && row.kastCovered > 0);
+    const kastSuccessful = screenshot.reduce((sum, item) => sum + (item.kast?.successful || 0), 0) + directKastRows.reduce((sum, row) => sum + row.kastSuccessful!, 0);
+    const kastCovered = screenshot.reduce((sum, item) => sum + (item.kast?.covered || 0), 0) + directKastRows.reduce((sum, row) => sum + row.kastCovered!, 0);
     const stored = group.playerId ? playerById.get(group.playerId) : undefined;
     const status = (group.playerId && activeCore.has(group.playerId) ? 'core' : stored?.rosterStatus || (group.playerId && activeTryouts.has(group.playerId) ? 'tryout' : rows.find(row => row.appearanceType)?.appearanceType)) || 'tryout';
     return {

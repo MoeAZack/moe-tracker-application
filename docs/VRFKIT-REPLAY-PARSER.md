@@ -1,20 +1,21 @@
 # Private vrfkit replay parser
 
-Status: implemented and locally validated; **not deployed and off by default**.
+Status: owned fork implemented and validated; bundled desktop deployment remains coach-review-only.
 
-MoeTracker accepts only the independently configured Windows x64 release of [vrfkit](https://github.com/yakisoba0728/vrfkit) pinned below:
+MoeTracker accepts only the Windows x64 release of the owned [MoeAZack/vrfkit](https://github.com/MoeAZack/vrfkit) fork pinned below. [yakisoba0728/vrfkit](https://github.com/yakisoba0728/vrfkit) remains the tracked upstream for reviewed updates, but the application never downloads an upstream artifact directly:
 
-- tag: `v0.2.5`
-- source commit: `c4d6cc0e5ec3904fdb64b350b2656b8e3ff33d53`
-- release ZIP SHA-256: `2cf8375191f7de8b8199f84a69e91a02e5e4d5b541c242e466c9d9aa24ef7494`
-- packaged `vrfkit.exe` SHA-256: `aa55fc410f1596a6ffedc7ab579341da6edb262197c64902e74b4eed485dc23f`
+- tag: `v0.2.6-moe.1`
+- source commit: `4bacfdc2b766caec02d830cc65f8c4e2ea9dc14c`
+- release ZIP SHA-256: `1708748fdb87adea30c91c0f53f0272c3ae54eba771ea7222904e71d89f9c543`
+- packaged `vrfkit.exe` SHA-256: `ea20f413ebe909ef45e49a6d2890f3d341aede69f22b42be8ea6acc357fc41a3`
+- supported replay patches: `11.06` through `13.08`
 - license: Apache-2.0
 
-The server re-hashes the executable before every job. A mismatched executable is never run.
+The canonical values live in `scripts/replay-runtime-pin.json`. The server and collector re-hash the executable and validate `build-info.json` before use. A mismatched executable is never run.
 
 ## Gated installation
 
-1. Download `vrfkit-v0.2.5-windows-x64.zip` and its `.zip.sha256` only from the official GitHub `v0.2.5` release. MoeTracker does not download or update parser binaries.
+1. Download `vrfkit-v0.2.6-moe.1-windows-x64.zip` and its `.zip.sha256` only from the owned GitHub `v0.2.6-moe.1` release. MoeTracker does not accept an unpinned parser update.
 2. Before extraction, run `Get-FileHash -Algorithm SHA256` on the ZIP and require the exact ZIP digest above. Also compare the official checksum-file text. Stop on any mismatch.
 3. Extract to a private, administrator-controlled tools directory. Require only `vrfkit.exe`, `build-info.json`, `LICENSE`, and `NOTICE.md`.
 4. Hash `vrfkit.exe` and require the exact executable digest above. Inspect `build-info.json` and require the exact tag, commit, executable digest, and `x86_64-pc-windows-msvc` target above.
@@ -44,17 +45,20 @@ Supported when the corresponding replay evidence is complete:
 - player K/D/A from final `BasicCombatStatsComponent` aggregates;
 - first blood/death and the round event timeline from cross-checked `characterDeath` events;
 - plants and defuses from authoritative objective events cross-checked to typed RPC player references;
+- ultimate-orb captures from paired typed `OrbPickedUpRPC` player/orb references;
+- ultimate uses from authoritative `bUltimateActive` transitions cross-checked to the same player's nearby `characterUltimateUsed` event;
+- KAST from complete round eliminations, monotonic round-scoped assist changes, survival, and traded-death evidence;
 - trades and clutch candidates derived by the review engine from complete life-state event order.
 
-Missing fields are `{ value: null, status: "unavailable" }`. Zero appears only when the complete evidence stream proves no event occurred for that player. The replay does not expose a verified player display-name field: `ProfileName` contains crosshair/profile labels, so player names remain unavailable and identities are replay-scoped pseudonyms until a coach reviews an independent roster/screenshot mapping.
+Missing fields are `{ value: null, status: "unavailable" }`. Zero appears only when the complete evidence stream proves no event occurred for that player. KAST stays unavailable if either the elimination or assist stream is incomplete. The replay does not expose a verified player display-name field: `ProfileName` contains crosshair/profile labels, so player names remain unavailable and identities are replay-scoped pseudonyms until the local post-match OCR pairing supplies a unique K/D/A-and-agent name match. Unique exact roster-name matches prefill the player and team overlay; ambiguous or duplicate matches remain unassigned for coach review.
 
-## Real replay validation (private, 12 Oct 2026 Cairo)
+## Real replay validation (private, 15 Oct 2026 Cairo)
 
-The pinned executable and full runner were exercised against the owner's original replay in place; the raw replay was not copied, uploaded, or committed. Private screenshot comparison confirmed:
+The owned 13.08 transform and exact release binary were exercised against the two 13.08 replays still retained locally; raw replays were not uploaded or committed. The strict fork audit recorded 2/2 passing files, 1,781,485/1,781,485 oracle blocks, 58,694 checkpoint blocks, 50,012 independently compared typed values with zero mismatches, and zero transform, framing, field, or array failures. Earlier private screenshot comparison also confirmed:
 
 - Haven, 22 played rounds, score 9–13;
 - ten complete K/D/A rows totaling 165 kills and 165 deaths;
 - 22 first-blood events, 18 plants, and 7 defuses;
 - all 22 opening events resolved; downstream output remained non-writable and review-required.
 
-The replay manifest duration is not silently replaced with the post-game UI duration; any difference stays visible for review. Player-name mapping remains the only scoreboard field unavailable from replay evidence itself.
+Both retained 13.08 samples produced complete orb and ultimate-use capabilities (17/30 and 15/22 total observations respectively). One sample also produced complete 24-round KAST; the other correctly kept KAST unavailable because its elimination stream was incomplete. The replay manifest duration is not silently replaced with the post-game UI duration; any difference stays visible for review. Player-name mapping remains the only scoreboard field unavailable from replay evidence itself and is supplied through the local OCR overlay.

@@ -217,8 +217,21 @@ describe('replay opening-duel review engine', () => {
     ];
     expect(buildReplayOpeningReviewDraft(replay).evidence.playerMetrics.find(metric => metric.playerId === 'a1')).toEqual({
       playerId: 'a1', kills: null, deaths: null, assists: 1, damage: 80, utilityCasts: 1, utilityEffects: null, ultimateUses: 1, plants: 1, defuses: null,
-      orbCaptures: null, headshotKills: null, eligibleHeadshotKills: null, headshotPercentage: null,
+      orbCaptures: null, kastSuccessful: null, kastCovered: null, kastRate: null, headshotKills: null, eligibleHeadshotKills: null, headshotPercentage: null,
     });
+  });
+
+  it('derives covered KAST rounds from kills, assists, survival and traded deaths', () => {
+    const replay = input([
+      { roundNumber: 1, sequenceCompleteFromStart: true, participantPlayerIds: identities.map(identity => identity.playerId), participantCoverage: completeParticipants, events: [event()] },
+      { roundNumber: 2, sequenceCompleteFromStart: true, participantPlayerIds: identities.map(identity => identity.playerId), participantCoverage: completeParticipants, events: [event({ eventId: 'r2', roundNumber: 2, killerPlayerId: 'b1', victimPlayerId: 'a1', killerTeamId: 'b', victimTeamId: 'a' })] },
+    ]);
+    replay.capabilities = [
+      { signal: 'eliminations', support: 'complete', grade: 'event-log' },
+      { signal: 'assists', support: 'complete', grade: 'event-log' },
+    ];
+    replay.observations = [{ observationId: 'assist-r2', roundNumber: 2, signal: 'assists', grade: 'event-log', explicitlyPresent: true, confidence: 1, playerId: 'a1' }];
+    expect(buildReplayOpeningReviewDraft(replay).evidence.playerMetrics.find(metric => metric.playerId === 'a1')).toMatchObject({ kastSuccessful: 2, kastCovered: 2, kastRate: 1 });
   });
 
   it('preserves tactical video/OCR/inference observations separately without promoting them to facts', () => {
