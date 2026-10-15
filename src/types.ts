@@ -136,6 +136,11 @@ export interface Schedule {
   notes?: string;
   attendance: Record<string, string>;
   startTime?: string;
+  allDay?: boolean;
+  durationMinutes?: number;
+  repeatSeriesId?: string;
+  repeatIndex?: number;
+  repeatCount?: number;
   attendanceEnabled?: boolean;
   requiredPlayerIds?: string[];
   attendanceCheckIns?: AttendanceCheckIn[];
