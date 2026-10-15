@@ -17,6 +17,7 @@ describe('attendance schedule UI', () => {
   it('shows the assigned player a live self-check-in without coach controls', () => {
     const html = renderToStaticMarkup(<CalendarGoals {...props} role="player" />);
     expect(html).toContain('Check in'); expect(html).toContain('Check-in open');
+    expect(html).toContain('Month'); expect(html).toContain('Day'); expect(html).toContain('12:00 PM–12:00 AM');
     expect(html).not.toContain('Give green dot'); expect(html).not.toContain('Correct…'); expect(html).not.toContain('ADD EVENT');
   });
 

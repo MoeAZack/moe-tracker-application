@@ -100,8 +100,10 @@ export function registerDataRoutes(app: Express, options: { websiteSummaryOnly?:
         const existing = row.id ? db.schedule.find((item: any) => item.id === row.id) : null;
         const activeIds = new Set((db.rosterPlayers || []).filter((player: any) => !player.retiredAt).map((player: any) => player.id));
         row.requiredPlayerIds = [...new Set((Array.isArray(row.requiredPlayerIds) ? row.requiredPlayerIds : []).filter((id: unknown) => typeof id === 'string' && activeIds.has(id)))];
-        row.attendanceEnabled = Boolean(row.attendanceEnabled && row.startTime && row.requiredPlayerIds.length);
-        row.startTime = typeof row.startTime === 'string' && /^\d{2}:\d{2}$/.test(row.startTime) ? row.startTime : '';
+        row.allDay = Boolean(row.allDay);
+        row.startTime = !row.allDay && typeof row.startTime === 'string' && /^\d{2}:\d{2}$/.test(row.startTime) ? row.startTime : '';
+        row.durationMinutes = row.allDay ? undefined : Math.min(720, Math.max(15, Math.round(Number(row.durationMinutes) || 60)));
+        row.attendanceEnabled = Boolean(!row.allDay && row.attendanceEnabled && row.startTime && row.requiredPlayerIds.length);
         row.source = existing?.source === 'pracc' ? 'pracc' : 'manual';
         row.attendanceCheckIns = Array.isArray(existing?.attendanceCheckIns) ? existing.attendanceCheckIns : [];
       }

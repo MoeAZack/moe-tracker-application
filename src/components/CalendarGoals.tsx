@@ -3,6 +3,7 @@ import { TrackerData, Schedule, Goal } from '../types';
 import { Calendar, ChevronLeft, ChevronRight, Plus, Edit2, Trash2, CalendarDays, ClipboardList, Clock, AlertCircle, CheckCircle2, ShieldCheck } from 'lucide-react';
 import { apiFetch } from '../utils/api';
 import { attendancePolicy, attendanceStatus, attendanceSummary, attendanceWindow } from '../../lib/attendance';
+import { repeatedHourlyScheduleRows } from '../../lib/schedule';
 
 interface ComponentProps {
   data: TrackerData;
@@ -24,6 +25,8 @@ export default function CalendarGoals({ data, theme, role, onUpsert, onRemove, o
   const [selectedDateStr, setSelectedDateStr] = useState<string>(() => cairoDate());
   const [scheduleModalOpen, setScheduleModalOpen] = useState(false);
   const [editingSchedule, setEditingSchedule] = useState<Partial<Schedule> | null>(null);
+  const [repeatHours, setRepeatHours] = useState(1);
+  const [calendarView, setCalendarView] = useState<'month' | 'day'>('month');
   const [now, setNow] = useState(() => new Date());
   const [attendanceBusy, setAttendanceBusy] = useState('');
   const [attendanceMessage, setAttendanceMessage] = useState('');
@@ -103,7 +106,8 @@ export default function CalendarGoals({ data, theme, role, onUpsert, onRemove, o
   }, [scheduleMap, selectedDateStr]);
 
   // --- CALENDAR MUTATIONS ---
-  const handleOpenAddSchedule = (dateStr: string) => {
+  const handleOpenAddSchedule = (dateStr: string, startTime = '15:00') => {
+    setAttendanceMessage('');
     setEditingSchedule({
       id: '',
       date: dateStr,
@@ -111,28 +115,49 @@ export default function CalendarGoals({ data, theme, role, onUpsert, onRemove, o
       primary: '',
       secondary: '',
       notes: '',
-      startTime: '15:00',
+      startTime,
+      allDay: false,
+      durationMinutes: 60,
       attendanceEnabled: false,
       requiredPlayerIds: [],
       attendance: {}
     });
+    setRepeatHours(1);
     setScheduleModalOpen(true);
   };
 
   const handleOpenEditSchedule = (sched: Schedule) => {
+    setAttendanceMessage('');
     setEditingSchedule({ ...sched });
+    setRepeatHours(1);
     setScheduleModalOpen(true);
+  };
+
+  const shiftSelectedDay = (days: number) => {
+    const next = new Date(`${selectedDateStr}T12:00:00`); next.setDate(next.getDate() + days);
+    const nextDate = `${next.getFullYear()}-${String(next.getMonth() + 1).padStart(2, '0')}-${String(next.getDate()).padStart(2, '0')}`;
+    setSelectedDateStr(nextDate); setCurrentDate(new Date(next.getFullYear(), next.getMonth(), 1));
   };
 
   const handleSaveSchedule = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!editingSchedule || !editingSchedule.primary) return;
+    if (!editingSchedule.allDay && !editingSchedule.startTime) { setAttendanceMessage('Choose a Cairo start time for an hourly event.'); return; }
     if (editingSchedule.attendanceEnabled && !(editingSchedule.requiredPlayerIds?.length)) { setAttendanceMessage('Select at least one player for attendance.'); return; }
     if (data.settings.confirmOnSave && !window.confirm('Save this schedule item?')) return;
-    
-    await onUpsert('Schedule', editingSchedule);
+    if (!editingSchedule.id && !editingSchedule.allDay && repeatHours > 1) {
+      const rows = repeatedHourlyScheduleRows(editingSchedule, repeatHours, globalThis.crypto?.randomUUID?.() || `repeat-${Date.now()}`);
+      for (const row of rows) await onUpsert('Schedule', row);
+    } else await onUpsert('Schedule', editingSchedule);
     setScheduleModalOpen(false);
     setEditingSchedule(null);
+  };
+
+  const duplicateNextHour = async (schedule: Schedule) => {
+    if (!schedule.startTime) return;
+    const hour = Number(schedule.startTime.slice(0, 2)); if (hour >= 23) { setAttendanceMessage('This is already the final hourly slot of the day.'); return; }
+    const copy = { ...schedule, id: '', startTime: `${String(hour + 1).padStart(2, '0')}:${schedule.startTime.slice(3, 5)}`, attendanceCheckIns: [], source: 'manual' as const, sourceEventId: undefined, repeatSeriesId: schedule.repeatSeriesId || (globalThis.crypto?.randomUUID?.() || `repeat-${Date.now()}`), repeatIndex: (schedule.repeatIndex || 1) + 1, repeatCount: Math.max(schedule.repeatCount || 1, (schedule.repeatIndex || 1) + 1) };
+    await onUpsert('Schedule', copy); setAttendanceMessage(`${schedule.primary} duplicated to ${copy.startTime}.`);
   };
 
   const handleDeleteSchedule = async (id: string) => {
@@ -251,8 +276,16 @@ export default function CalendarGoals({ data, theme, role, onUpsert, onRemove, o
               {attendanceMessage && <p role="status" className="mt-3 text-xs text-cyan-200">{attendanceMessage}</p>}
             </section>
           )}
+          <div className="flex flex-wrap items-center justify-between gap-3">
+            <div className="inline-flex rounded-xl border border-white/10 bg-white/5 p-1" role="group" aria-label="Calendar view">
+              <button type="button" aria-pressed={calendarView === 'month'} onClick={() => setCalendarView('month')} className={`min-h-10 rounded-lg px-4 text-[10px] font-black uppercase tracking-wider ${calendarView === 'month' ? 'bg-white/10 text-white shadow' : 'text-gray-400 hover:text-white'}`}><CalendarDays className="mr-1.5 inline h-3.5 w-3.5" /> Month</button>
+              <button type="button" aria-pressed={calendarView === 'day'} onClick={() => setCalendarView('day')} className={`min-h-10 rounded-lg px-4 text-[10px] font-black uppercase tracking-wider ${calendarView === 'day' ? 'bg-white/10 text-white shadow' : 'text-gray-400 hover:text-white'}`}><Clock className="mr-1.5 inline h-3.5 w-3.5" /> Day</button>
+            </div>
+            <p className="text-[10px] text-gray-500">Day timeline: 12:00 PM–12:00 AM · Cairo</p>
+          </div>
           <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
           {/* Calendar Grid Frame */}
+          {calendarView === 'month' ? (
           <div className={`lg:col-span-2 p-5 rounded-xl border ${isLight ? 'bg-white border-slate-200 text-slate-800 shadow-sm' : 'bg-white/5 border-white/10'} flex flex-col`}>
             {/* Calendar Controller Header */}
             <div className="flex justify-between items-center mb-5">
@@ -314,7 +347,7 @@ export default function CalendarGoals({ data, theme, role, onUpsert, onRemove, o
                             style={{ backgroundColor: cal.color + '22', borderLeft: `3px solid ${cal.color}` }}
                             className="text-[9px] px-1 py-0.5 rounded-sm truncate text-white uppercase font-black tracking-tighter"
                           >
-                            {s.primary}
+                            {s.allDay ? 'ALL DAY · ' : s.startTime ? `${s.startTime} · ` : ''}{s.primary}
                           </div>
                         );
                       })}
@@ -327,6 +360,26 @@ export default function CalendarGoals({ data, theme, role, onUpsert, onRemove, o
               })}
             </div>
           </div>
+          ) : (
+            <div className={`lg:col-span-2 overflow-hidden rounded-xl border ${isLight ? 'border-slate-200 bg-white text-slate-800 shadow-sm' : 'border-white/10 bg-white/5'}`}>
+              <div className="flex items-center justify-between border-b border-white/10 p-4">
+                <button type="button" aria-label="Previous day" onClick={() => shiftSelectedDay(-1)} className="ui-button min-h-10 px-3"><ChevronLeft className="h-4 w-4" /></button>
+                <div className="text-center"><h3 className="text-sm font-black uppercase tracking-wide">{new Intl.DateTimeFormat('en-GB', { timeZone: 'Africa/Cairo', weekday: 'long', day: 'numeric', month: 'long', year: 'numeric' }).format(new Date(`${selectedDateStr}T12:00:00`))}</h3><p className="mt-1 text-[9px] font-bold uppercase tracking-widest text-cyan-200">Hourly plan · Cairo time</p></div>
+                <button type="button" aria-label="Next day" onClick={() => shiftSelectedDay(1)} className="ui-button min-h-10 px-3"><ChevronRight className="h-4 w-4" /></button>
+              </div>
+              <div className="max-h-[720px] overflow-y-auto">
+                {selectedDaySchedules.filter(item => item.allDay).length > 0 && <div className="border-b border-white/10 bg-cyan-400/5 p-3"><p className="mb-2 text-[9px] font-black uppercase tracking-widest text-cyan-200">All-day main goals</p><div className="grid gap-2 sm:grid-cols-2">{selectedDaySchedules.filter(item => item.allDay).map(schedule => <button key={schedule.id} type="button" onClick={() => role === 'coach' ? handleOpenEditSchedule(schedule) : undefined} className="rounded-lg border border-cyan-400/20 bg-cyan-400/5 p-3 text-left"><span className="text-sm font-bold">{schedule.primary}</span>{schedule.secondary && <span className="mt-1 block text-[10px] text-gray-400">{schedule.secondary}</span>}</button>)}</div></div>}
+                {Array.from({ length: 12 }, (_, index) => index + 12).map(hour => {
+                  const events = selectedDaySchedules.filter(item => !item.allDay && Number(item.startTime?.slice(0, 2)) === hour).sort((left, right) => String(left.startTime).localeCompare(String(right.startTime)));
+                  const time = `${String(hour).padStart(2, '0')}:00`;
+                  const label = hour === 12 ? '12:00 pm' : `${hour - 12}:00 pm`;
+                  return <div key={hour} className="grid min-h-[76px] grid-cols-[5.5rem_1fr] border-b border-white/5 last:border-b-0"><div className="border-r border-white/5 p-3 text-right text-[10px] font-black text-gray-500">{label}</div><div className="space-y-2 p-2">{events.map(schedule => { const cal = calendars.find(item => item.key === schedule.calendarKey) || { color: '#ff4655', name: 'Schedule' }; return <button type="button" key={schedule.id} onClick={() => role === 'coach' ? handleOpenEditSchedule(schedule) : undefined} className="block w-full rounded-lg border p-3 text-left transition hover:bg-white/5" style={{ borderColor: `${cal.color}55`, backgroundColor: `${cal.color}12` }}><span className="text-[9px] font-black uppercase tracking-widest text-gray-400">{schedule.startTime} · {cal.name}{schedule.source === 'pracc' ? ' · Pracc' : ''}</span><span className="mt-1 block text-sm font-bold">{schedule.primary}</span>{schedule.secondary && <span className="mt-1 block text-[10px] text-gray-400">{schedule.secondary}</span>}</button>; })}{events.length === 0 && role === 'coach' && <button type="button" onClick={() => handleOpenAddSchedule(selectedDateStr, time)} className="flex min-h-11 w-full items-center justify-center gap-1 rounded-lg border border-dashed border-white/10 text-[10px] font-bold text-gray-500 hover:border-cyan-400/30 hover:text-cyan-200"><Plus className="h-3.5 w-3.5" /> Add at {label}</button>}</div></div>;
+                })}
+                <div className="grid grid-cols-[5.5rem_1fr] bg-black/10"><div className="border-r border-white/5 p-3 text-right text-[10px] font-black text-gray-500">12:00 am</div><div className="p-3 text-[10px] text-gray-600">End of day timeline</div></div>
+              </div>
+              {selectedDaySchedules.some(item => !item.allDay && (!item.startTime || Number(item.startTime.slice(0, 2)) < 12)) && <div className="border-t border-amber-400/15 bg-amber-400/5 p-3 text-[10px] text-amber-200">{selectedDaySchedules.filter(item => !item.allDay && (!item.startTime || Number(item.startTime.slice(0, 2)) < 12)).length} event(s) before 12:00 PM remain visible in Day Details.</div>}
+            </div>
+          )}
 
           {/* Day details side card */}
           <div className={`p-5 rounded-xl border ${isLight ? 'bg-white border-slate-200 text-slate-800 shadow-sm' : 'bg-white/5 border-white/10'} h-fit`}>
@@ -368,7 +421,7 @@ export default function CalendarGoals({ data, theme, role, onUpsert, onRemove, o
 
                       <div>
                         <h5 className="text-base font-black tracking-tight">{sched.primary}</h5>
-                        {sched.startTime && <p className="mt-1 flex items-center gap-1 text-[10px] font-bold text-cyan-200"><Clock className="h-3 w-3" /> {sched.startTime} Cairo {sched.source === 'pracc' ? '· Pracc' : ''}</p>}
+                        <p className="mt-1 flex items-center gap-1 text-[10px] font-bold text-cyan-200"><Clock className="h-3 w-3" /> {sched.allDay ? 'All day · Main goal' : `${sched.startTime || 'Time not set'} Cairo`} {sched.source === 'pracc' ? '· Pracc' : ''}</p>
                         {sched.secondary && (
                           <p className="text-xs text-gray-400 font-mono mt-0.5">{sched.secondary}</p>
                         )}
@@ -377,6 +430,8 @@ export default function CalendarGoals({ data, theme, role, onUpsert, onRemove, o
                       {sched.notes && (
                         <p className="text-xs text-gray-400 bg-black/10 p-2.5 rounded font-mono leading-relaxed">{sched.notes}</p>
                       )}
+
+                      {role === 'coach' && !sched.allDay && sched.startTime && <button type="button" onClick={() => void duplicateNextHour(sched)} className="ui-button min-h-9 px-3 text-[9px]"><Plus className="h-3.5 w-3.5" /> Duplicate next hour</button>}
 
                       {sched.attendanceEnabled && sched.startTime && <div>
                         <p className="mb-2 text-[10px] font-black uppercase tracking-widest text-gray-500">Attendance</p>
@@ -527,6 +582,11 @@ export default function CalendarGoals({ data, theme, role, onUpsert, onRemove, o
               </button>
             </div>
 
+            <div className="grid grid-cols-2 gap-2 rounded-xl border border-white/10 bg-black/10 p-1" role="group" aria-label="Event type">
+              <button type="button" aria-pressed={Boolean(editingSchedule.allDay)} onClick={() => setEditingSchedule({ ...editingSchedule, allDay: true, attendanceEnabled: false })} className={`min-h-12 rounded-lg px-3 text-xs font-bold ${editingSchedule.allDay ? 'bg-cyan-400/15 text-cyan-100' : 'text-gray-400 hover:text-white'}`}><CalendarDays className="mr-1.5 inline h-4 w-4" /> Full day · Main goal</button>
+              <button type="button" aria-pressed={!editingSchedule.allDay} onClick={() => setEditingSchedule({ ...editingSchedule, allDay: false, startTime: editingSchedule.startTime || '15:00' })} className={`min-h-12 rounded-lg px-3 text-xs font-bold ${!editingSchedule.allDay ? 'bg-cyan-400/15 text-cyan-100' : 'text-gray-400 hover:text-white'}`}><Clock className="mr-1.5 inline h-4 w-4" /> Hourly event</button>
+            </div>
+
             <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
               <div className="space-y-1">
                 <label className="text-[10px] uppercase font-black text-gray-400 font-mono">Date</label>
@@ -551,7 +611,7 @@ export default function CalendarGoals({ data, theme, role, onUpsert, onRemove, o
               </div>
             </div>
 
-            <div className="grid grid-cols-1 gap-4 md:grid-cols-2">
+            {!editingSchedule.allDay && <div className="grid grid-cols-1 gap-4 md:grid-cols-2">
               <div className="space-y-1">
                 <label className="text-[10px] uppercase font-black text-gray-400 font-mono">Start time · Cairo</label>
                 <input type="time" required value={editingSchedule.startTime || ''} onChange={event => setEditingSchedule({ ...editingSchedule, startTime: event.target.value })} className="w-full p-2.5 bg-black/20 rounded border border-white/10 text-xs font-mono" />
@@ -560,14 +620,24 @@ export default function CalendarGoals({ data, theme, role, onUpsert, onRemove, o
                 <input type="checkbox" checked={Boolean(editingSchedule.attendanceEnabled)} onChange={event => setEditingSchedule({ ...editingSchedule, attendanceEnabled: event.target.checked })} />
                 Require player check-in
               </label>
-            </div>
+            </div>}
+
+            {!editingSchedule.allDay && !editingSchedule.id && <div className="grid grid-cols-1 gap-4 md:grid-cols-2">
+              <label className="space-y-1 text-[10px] font-black uppercase text-gray-400">Block length
+                <select value={editingSchedule.durationMinutes || 60} onChange={event => setEditingSchedule({ ...editingSchedule, durationMinutes: Number(event.target.value) })} className="ui-field w-full p-2.5 text-xs"><option value={30}>30 minutes</option><option value={45}>45 minutes</option><option value={60}>1 hour</option><option value={90}>90 minutes</option><option value={120}>2 hours</option></select>
+              </label>
+              <label className="space-y-1 text-[10px] font-black uppercase text-gray-400">Repeat consecutive hourly slots
+                <input aria-label="Repeat hourly event count" type="number" min="1" max="12" value={repeatHours} onChange={event => setRepeatHours(Math.min(12, Math.max(1, Number(event.target.value) || 1)))} className="ui-field w-full p-2.5 text-xs" />
+              </label>
+              {repeatHours > 1 && <p className="md:col-span-2 rounded-lg border border-cyan-400/20 bg-cyan-400/5 p-3 text-[10px] text-cyan-100">This creates {repeatHours} copies one hour apart. Example: “Ascent map” at 15:00 × 4 creates 15:00, 16:00, 17:00 and 18:00 blocks.</p>}
+            </div>}
 
             <div className="space-y-1">
-              <label className="text-[10px] uppercase font-black text-gray-400 font-mono">Primary Topic / Map</label>
+              <label className="text-[10px] uppercase font-black text-gray-400 font-mono">{editingSchedule.allDay ? 'Main goal for the day' : 'Hourly activity / map'}</label>
               <input
                 type="text"
                 required
-                placeholder="e.g. Ascent, VOD Review"
+                placeholder={editingSchedule.allDay ? 'e.g. Clean communication and trading' : 'e.g. Ascent map, VOD review'}
                 value={editingSchedule.primary}
                 onChange={e => setEditingSchedule({ ...editingSchedule, primary: e.target.value })}
                 className="w-full p-2.5 bg-black/20 rounded border border-white/10 text-xs"
@@ -604,6 +674,8 @@ export default function CalendarGoals({ data, theme, role, onUpsert, onRemove, o
               {rosterPlayers.length === 0 && <p className="text-xs text-amber-300">Add players to the roster before enabling attendance.</p>}
               <p className="text-[9px] leading-relaxed text-gray-500">Check-in opens {policy.checkInOpenMinutes} minutes before the event. It is on time through {policy.graceMinutes} minutes after the start, then late until the {policy.checkInCloseMinutes}-minute close.</p>
             </div>}
+
+            {attendanceMessage && <p role="status" className="rounded-lg border border-cyan-400/20 bg-cyan-400/5 p-3 text-xs text-cyan-100">{attendanceMessage}</p>}
 
             <div className="pt-4 flex justify-end gap-2 border-t border-white/10">
               <button
