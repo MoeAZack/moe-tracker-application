@@ -17,20 +17,22 @@ export default function AnalyticsScopeControl({ scope, context, onChange }: {
     : '';
 
   return (
-    <section className="mx-auto w-full max-w-7xl px-4 sm:px-6" aria-label="Analytics map scope">
-      <div className="liquid-subtle flex flex-col gap-3 rounded-xl px-4 py-3 sm:flex-row sm:items-center sm:justify-between">
-        <fieldset className="flex flex-wrap items-center gap-2">
-          <legend className="mb-1 w-full text-[10px] font-bold uppercase tracking-widest text-gray-400 sm:mb-0 sm:mr-2 sm:w-auto">Analytics map scope</legend>
-          <label className={`ui-button min-h-11 cursor-pointer px-3 py-2 text-xs font-bold ${scope === 'all' ? 'text-white ring-1 ring-cyan-400/50' : 'text-gray-400'}`}>
+    <section className="liquid-subtle rounded-xl border border-cyan-400/20 p-4" aria-label="Analytics map scope">
+      <div className="grid gap-4 lg:grid-cols-[minmax(0,1fr)_minmax(18rem,1.1fr)] lg:items-end">
+        <fieldset className="min-w-0">
+          <legend className="mb-2 text-[10px] font-black uppercase tracking-widest text-cyan-300">Analytics map scope</legend>
+          <div className="grid gap-2 sm:grid-cols-2">
+          <label className={`ui-button flex min-h-11 cursor-pointer items-center justify-center px-3 py-2 text-center text-xs font-bold ${scope === 'all' ? 'text-white ring-1 ring-cyan-400/50' : 'text-gray-400'}`}>
             <input className="sr-only" type="radio" name="analytics-map-scope" value="all" checked={scope === 'all'} onChange={() => onChange('all')} />
             All recorded / practice maps
           </label>
-          <label className={`ui-button min-h-11 cursor-pointer px-3 py-2 text-xs font-bold ${scope === 'active' ? 'text-white ring-1 ring-cyan-400/50' : 'text-gray-400'}`}>
+          <label className={`ui-button flex min-h-11 cursor-pointer items-center justify-center px-3 py-2 text-center text-xs font-bold ${scope === 'active' ? 'text-white ring-1 ring-cyan-400/50' : 'text-gray-400'}`}>
             <input className="sr-only" type="radio" name="analytics-map-scope" value="active" checked={scope === 'active'} onChange={() => onChange('active')} />
             Configured active map pool
           </label>
+          </div>
         </fieldset>
-        <p className="max-w-xl text-xs leading-relaxed text-slate-300" role="status" aria-live="polite">
+        <p className="min-h-11 rounded-lg border border-white/10 bg-black/15 px-3 py-2 text-xs leading-relaxed text-slate-300" role="status" aria-live="polite">
           {scope === 'all'
             ? `Showing all ${context.sourceMatchCount} matches in this analytics phase. Practice and non-competitive maps are included.`
             : `${activeDetail}${unknownWarning}${conflictWarning}`}

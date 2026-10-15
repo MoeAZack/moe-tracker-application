@@ -3,7 +3,6 @@ import { TrackerData, Settings, MatchStatsUpdate, ScreenshotReviewDraft } from '
 import LoginScreen from './components/LoginScreen';
 import Logo from './components/Logo';
 import TeamSyncIndicator from './components/TeamSyncIndicator';
-import AnalyticsScopeControl from './components/AnalyticsScopeControl';
 import { apiFetch } from './utils/api';
 import { filterAnalyticsHistory } from './utils/historyFilter';
 import { filterTryoutWorkspace, activeTryoutPhase } from './utils/tryoutWorkspace';
@@ -594,7 +593,6 @@ export default function App() {
         )}
 
         <div className="aurora-utility-bar"><div className="aurora-utility-context"><span className="aurora-eyebrow">{data && activeTryoutPhase(data) ? `Tryouts · ${activeTryoutPhase(data)?.name}` : 'Team workspace'}</span><span className="aurora-version-badge" title="Installed MoeTracker version">v{__APP_VERSION__}</span></div>{data && <TeamSyncIndicator teamName={data.settings.teamName || 'MoeTracker team'} role={role} desktopMode={desktopMode} />}</div>
-        {analyticsProjection && <AnalyticsScopeControl scope={analyticsMapScope} context={analyticsProjection.context} onChange={setAnalyticsMapScope} />}
         {data && ['dashboard', 'economy', 'maps', 'comps', 'roster', 'comparisons'].includes(activeTab) && (data.tryoutBatches || []).some(batch => batch.status === 'archived') && <label className="mx-auto flex max-w-7xl w-full flex-wrap items-center gap-2 px-6 text-sm text-slate-300">Analytics history<select aria-label="Analytics phase" className="ui-field min-h-11 px-3" value={historicalTryoutId} onChange={event => setHistoricalTryoutId(event.target.value)}><option value="">Current workspace</option>{data.tryoutBatches.filter(batch => batch.status === 'archived').map(batch => <option key={batch.id} value={batch.id}>Archived tryouts · {batch.name}</option>)}</select>{historicalTryoutId && <span className="text-xs text-cyan-300">Viewing archived results only; new entries still use the current workspace.</span>}</label>}
 
         {/* Main Workspace Frame */}
@@ -678,7 +676,7 @@ export default function App() {
             )}
             {activeTab === 'settings' && data && (
               <div className="space-y-6">
-                <SettingsControl data={data} theme={theme} onSaveSettings={handleSaveSettings} onRefresh={fetchDatabase} />
+                <SettingsControl data={data} theme={theme} onSaveSettings={handleSaveSettings} onRefresh={fetchDatabase} analyticsMapScope={analyticsMapScope} analyticsMapScopeContext={analyticsProjection!.context} onAnalyticsMapScopeChange={setAnalyticsMapScope} />
               </div>
             )}
             </Suspense>

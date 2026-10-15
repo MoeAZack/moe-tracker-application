@@ -555,6 +555,7 @@ export default function MatchLogRounds({ data, theme, onSaveMatch, onRemove, onS
                         <th className="py-2 px-2.5">Agent</th>
                         <th className="py-2 px-2.5 text-center">K / D / A</th>
                         <th className="py-2 px-2.5 text-center">First bloods</th>
+                        <th className="py-2 px-2.5 text-center">First deaths</th>
                         <th className="py-2 px-2.5 text-center">Plants</th>
                         <th className="py-2 px-2.5 text-center">Defuses</th>
                         <th className="py-2 px-2.5 text-center">HS%</th>
@@ -571,6 +572,7 @@ export default function MatchLogRounds({ data, theme, onSaveMatch, onRemove, onS
                             <td className="py-3 px-2.5 text-gray-400">{ps.agent}</td>
                             <td className="py-3 px-2.5 text-center font-black text-slate-100">{ps.kills ?? '-'} <span className="text-gray-600">/</span> {ps.deaths ?? '-'} <span className="text-gray-600">/</span> {ps.assists ?? '-'}</td>
                             <td className="py-3 px-2.5 text-center text-rose-300">{ps.fk ?? '-'}</td>
+                            <td className="py-3 px-2.5 text-center text-amber-300">{ps.fd ?? '-'}</td>
                             <td className="py-3 px-2.5 text-center text-violet-300">{ps.plants ?? '-'}</td>
                             <td className="py-3 px-2.5 text-center text-emerald-300">{ps.defuses ?? '-'}</td>
                             <td className="py-3 px-2.5 text-center text-amber-500" title={ps.headshots !== null && ps.headshots !== undefined && ps.headshotEligibleKills !== null && ps.headshotEligibleKills !== undefined ? `${ps.headshots}/${ps.headshotEligibleKills} eligible weapon kills` : undefined}>{ps.hs !== null && ps.hs !== undefined ? `${ps.hs}%` : '-'}</td>
@@ -582,7 +584,7 @@ export default function MatchLogRounds({ data, theme, onSaveMatch, onRemove, onS
                       })}
                       {statsForSelectedMatch.length === 0 && (
                         <tr>
-                          <td colSpan={10} className="py-8 text-center text-gray-500">
+                          <td colSpan={11} className="py-8 text-center text-gray-500">
                             No player stats logged for this match. Click EDIT MATCH to record them!
                           </td>
                         </tr>
@@ -616,7 +618,8 @@ export default function MatchLogRounds({ data, theme, onSaveMatch, onRemove, onS
                           <th className="py-2 px-2.5">Side</th>
                           <th className="py-2 px-2.5">Buy</th>
                           <th className="py-2 px-2.5 text-center">Result</th>
-                          <th className="py-2 px-2.5">FK / FD</th>
+                          <th className="py-2 px-2.5">First kill</th>
+                          <th className="py-2 px-2.5">First death</th>
                           <th className="py-2 px-2.5">Clutch Scenario</th>
                           <th className="py-2 px-2.5">Discipline / Throws</th>
                           <th className="py-2 px-2.5">IGL Strategy Caller</th>
@@ -641,23 +644,8 @@ export default function MatchLogRounds({ data, theme, onSaveMatch, onRemove, onS
                                 {r.result}
                               </span>
                             </td>
-                            <td className="py-2 px-2.5">
-                              <div className="space-y-0.5">
-                                {r.firstKillBy && (
-                                  <span className="text-emerald-400 block text-[10px]">
-                                    ⚔️ FK: <span className="font-bold">{r.firstKillBy}</span>
-                                  </span>
-                                )}
-                                {r.firstDeathBy && (
-                                  <span className="text-rose-400 block text-[10px]">
-                                    💀 FD: <span className="font-bold">{r.firstDeathBy}</span>
-                                  </span>
-                                )}
-                                {!r.firstKillBy && !r.firstDeathBy && (
-                                  <span className="text-gray-600 italic">-</span>
-                                )}
-                              </div>
-                            </td>
+                            <td className="py-2 px-2.5 text-[10px] text-emerald-400">{r.firstKillBy ? <span className="font-bold">{r.firstKillBy}</span> : <span className="text-gray-600">—</span>}</td>
+                            <td className="py-2 px-2.5 text-[10px] text-rose-400">{r.firstDeathBy ? <span className="font-bold">{r.firstDeathBy}</span> : <span className="text-gray-600">—</span>}</td>
                             <td className="py-2 px-2.5">
                               {r.clutchType ? (
                                 <span className={`px-1.5 py-0.5 rounded text-[10px] font-bold ${
