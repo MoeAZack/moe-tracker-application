@@ -538,7 +538,7 @@ ipcMain.handle('desktop:process-match', async () => {
   if (processed?.state === 'unsupported-patch') return { state: 'unsupported-patch', message: processed.message, items: first };
   const imported = await importEvidenceFile(processed.evidencePath);
   const skippedNote = processed.skippedUnsupported ? ` Skipped ${processed.skippedUnsupported} newer replay${processed.skippedUnsupported === 1 ? '' : 's'} from an unsupported VALORANT patch; use screenshot capture for those.` : '';
-  return { state: 'review-ready', message: `${imported.idempotent ? 'This replay was already in the local review inbox.' : 'Replay parsed locally. The coach review draft is ready.'}${skippedNote}`, items: first, processed, imported };
+  return { state: imported.automatic ? 'processed' : 'review-ready', message: `${imported.automatic ? 'Replay, player names, and available statistics were processed automatically. You can edit the saved match later.' : imported.idempotent ? 'This replay was already in the local review inbox.' : 'Replay parsed locally. It will finish automatically when the matching scoreboard is available.'}${skippedNote}`, items: first, processed, imported };
 });
 ipcMain.handle('desktop:sync-now', syncNow);
 ipcMain.handle('desktop:pair-device', (_event, input) => pairDevice(input || {}));

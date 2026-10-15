@@ -14,7 +14,9 @@ function resolveReplayRuntime({ applicationRoot, collectorRoot, localAppData = '
   const fallbackBinary = completeVrfkitRoot(path.join(collectorRoot, 'runtime', `vrfkit-${runtimePin.version}`), exists);
   const binaryPath = bundledBinary || fallbackBinary || path.join(bundledRoot, 'vrfkit', 'vrfkit.exe');
   const pythonCandidates = [path.join(bundledRoot, 'python', 'python.exe'), path.join(localAppData, 'Programs', 'Python', 'Python312', 'python.exe')];
-  const normalizerCandidates = [path.join(collectorRoot, 'app', 'normalize-vrfkit-export.py'), path.join(applicationRoot, 'scripts', 'normalize-vrfkit-export.py')];
+  // The installed application owns the normalizer revision. A legacy copy in
+  // the collector data folder must never shadow a newer application build.
+  const normalizerCandidates = [path.join(applicationRoot, 'scripts', 'normalize-vrfkit-export.py'), path.join(collectorRoot, 'app', 'normalize-vrfkit-export.py')];
   const firstExisting = candidates => candidates.find(file => exists(file)) || candidates[0];
   const runtime = { binaryPath, pythonPath: firstExisting(pythonCandidates), normalizerPath: firstExisting(normalizerCandidates) };
   return { ...runtime, ready: Object.values(runtime).every(file => path.isAbsolute(file) && exists(file)) && !!(bundledBinary || fallbackBinary) };

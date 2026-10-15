@@ -34,4 +34,12 @@ describe('desktop replay runtime selection', () => {
     const existing = new Set([path.join(applicationRoot, 'replay-runtime', 'vrfkit', 'vrfkit.exe'), path.join(localAppData, 'Programs', 'Python', 'Python312', 'python.exe'), path.join(collectorRoot, 'app', 'normalize-vrfkit-export.py')]);
     expect(resolveReplayRuntime({ applicationRoot, collectorRoot, localAppData, exists: (file: string) => existing.has(file) }).ready).toBe(false);
   });
+
+  it('prefers the application normalizer over a stale collector copy', () => {
+    const applicationRoot = path.resolve('C:/app'); const collectorRoot = path.resolve('C:/collector'); const localAppData = path.resolve('C:/local');
+    const bundled = path.join(applicationRoot, 'replay-runtime', 'vrfkit');
+    const appNormalizer = path.join(applicationRoot, 'scripts', 'normalize-vrfkit-export.py');
+    const existing = new Set([path.join(bundled, 'vrfkit.exe'), path.join(bundled, 'build-info.json'), path.join(applicationRoot, 'replay-runtime', 'python', 'python.exe'), appNormalizer, path.join(collectorRoot, 'app', 'normalize-vrfkit-export.py')]);
+    expect(resolveReplayRuntime({ applicationRoot, collectorRoot, localAppData, exists: (file: string) => existing.has(file) }).normalizerPath).toBe(appNormalizer);
+  });
 });

@@ -5,8 +5,10 @@ export type ScreenshotPairing = {
   id: string; deviceId: string; imageSha256: string; createdAt: string; createdBy: string;
   status: 'pending' | 'linked' | 'ambiguous' | 'incomplete'; reviewRequired: true;
   draft: ScreenshotReviewDraft; replaySha256: string | null;
-  suggestions: Array<{ parserPlayerId: string; displayName: string; rosterPlayerId: string | null }>;
+  suggestions: Array<{ parserPlayerId: string; displayName: string; rosterPlayerId: string | null; screenshotTeam: 'ours' | 'theirs' }>;
   reason: string;
+  autoProcessedAt?: string;
+  automaticMatchId?: string;
 };
 export const SCREENSHOT_LIMIT = 100;
 const MAX_IMAGE_BYTES = 5 * 1024 * 1024;
@@ -44,7 +46,7 @@ function tuple(row: any) { return [row.kills, row.deaths, row.assists].every(int
 // Agent (from scoreboard portraits and the replay's character class) breaks
 // ties between identical K/D/A lines without weakening the uniqueness rule.
 function agentTuple(row: any) { const base = tuple(row); const agent = typeof row.agent === 'string' ? row.agent.trim().toLowerCase() : ''; return base && agent ? `${base}|${agent}` : null; }
-function safeSuggestions(rows: Array<{ parserPlayerId: string; displayName: string; rosterPlayerId: string | null }>) {
+function safeSuggestions(rows: ScreenshotPairing['suggestions']) {
   const counts = new Map<string, number>();
   for (const row of rows) if (row.rosterPlayerId) counts.set(row.rosterPlayerId, (counts.get(row.rosterPlayerId) || 0) + 1);
   return rows.map(row => row.rosterPlayerId && counts.get(row.rosterPlayerId)! > 1 ? { ...row, rosterPlayerId: null } : row);
@@ -84,14 +86,14 @@ export function pairReplayScreenshots(store: any) {
       const metadataMatches = Number(hasMap && !!replayMap && replayMap === mapName(match.map)) + Number(!!scores && replayScores === scores);
       candidates.push({ sha256, metadataMatches, suggestions: safeSuggestions(rows.map((row: any) => {
         const stat = stats[screenshotKeys.indexOf(row.key)];
-        return { parserPlayerId: row.id, displayName: stat.extractedName.trim(), rosterPlayerId: stat.rosterMatch?.status === 'matched' ? stat.matchedPlayerId : null };
+        return { parserPlayerId: row.id, displayName: stat.extractedName.trim(), rosterPlayerId: stat.rosterMatch?.status === 'matched' ? stat.matchedPlayerId : null, screenshotTeam: screenshotKeys.indexOf(row.key) < 5 ? 'ours' : 'theirs' };
       })) });
     }
     const strongest = candidates.length > 1
       ? candidates.filter(candidate => candidate.metadataMatches === Math.max(...candidates.map(item => item.metadataMatches)))
       : candidates;
     if (strongest.length > 1) { record.status = 'ambiguous'; record.reason = 'More than one replay matches. No names were assigned.'; }
-    else if (strongest.length === 1) { record.status = 'linked'; record.reason = 'Unique exact ten-player K/D/A match. Coach review is still required.'; record.replaySha256 = strongest[0].sha256; record.suggestions = strongest[0].suggestions; }
+    else if (strongest.length === 1) { record.status = 'linked'; record.reason = record.autoProcessedAt ? 'Automatically processed from a unique exact ten-player K/D/A match. You can edit the saved match later.' : 'Unique exact ten-player K/D/A match. Ready for automatic processing.'; record.replaySha256 = strongest[0].sha256; record.suggestions = strongest[0].suggestions; }
   }
   // Two independently extracted screenshots must not silently propose conflicting identities.
   for (const record of records.filter(item => item.status === 'linked')) {
