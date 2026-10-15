@@ -22,6 +22,13 @@ describe('scrim screenshot analytics', () => {
     const second = round({ id: 'r2', roundNo: 2, screenshotEvidence: { ...round().screenshotEvidence, players: [{ playerId: 'p1', displayName: 'Alpha', team: 'ours', assists: 1, survived: false }], events: [{ sequence: 1, killerPlayerId: 'x1', victimPlayerId: 'p1' }] } });
     expect(buildPlayerScreenshotMetrics([first, second] as any)[0].kast).toEqual({ successful: 1, covered: 2 });
   });
+  it('counts a proven KAST success even when the assist delta is unavailable', () => {
+    const survived = round({ roundNo: 7, screenshotEvidence: {
+      ...round().screenshotEvidence,
+      players: [{ playerId: 'p1', displayName: 'Alpha', team: 'ours', survived: true }],
+    } });
+    expect(buildPlayerScreenshotMetrics([survived] as any)[0].kast).toEqual({ successful: 1, covered: 1 });
+  });
   it('detects full-buy and anti-eco losses without counting review-required evidence', () => {
     const loss = round({ result: 'L', screenshotEvidence: { ...round().screenshotEvidence, ourAverageLoadout: 4300, enemyAverageLoadout: 1700 } });
     const ignored = round({ id: 'r2', screenshotEvidence: { ...round().screenshotEvidence, reviewStatus: 'review-required' } });

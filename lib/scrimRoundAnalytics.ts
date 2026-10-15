@@ -225,10 +225,16 @@ export function buildPlayerScreenshotMetrics(rounds: readonly Round[]) {
       const assistsKnown = roundAssists !== null;
       const survivalKnown = typeof observation.survived === 'boolean';
       const eventCoverage = !!playerId && eventsComplete;
-      if (assistsKnown && survivalKnown && eventCoverage) {
-        metric.kast!.covered += 1;
+      if (survivalKnown && eventCoverage) {
         const traded = events.some(event => event.victimPlayerId === observation.playerId && typeof event.tradedWithinSeconds === 'number' && event.tradedWithinSeconds <= 5);
-        if ((roundKills || 0) > 0 || roundAssists! > 0 || observation.survived || traded) metric.kast!.successful += 1;
+        const successWithoutAssist = (roundKills || 0) > 0 || observation.survived || traded;
+        // A kill, survival, or traded death proves KAST success even when the
+        // cumulative scoreboard cannot yield an exact assist delta. A failed
+        // round is covered only when assists are also known to be zero.
+        if (successWithoutAssist || assistsKnown) {
+          metric.kast!.covered += 1;
+          if (successWithoutAssist || roundAssists! > 0) metric.kast!.successful += 1;
+        }
       }
     }
   }
