@@ -9,7 +9,7 @@ export function preserveExistingRosterContext(existingMatch: any, submittedMatch
   else submittedMatch.rosterContext = { kind: 'unclassified' };
 }
 
-export function validateAndNormalizeLineup(db: any, match: any, stats: any[]) {
+export function validateAndNormalizeLineup(db: any, match: any, stats: any[], existingStats: any[] = []) {
   const context = match.rosterContext || { kind: 'unclassified' };
   match.rosterContext = context;
 
@@ -35,8 +35,9 @@ export function validateAndNormalizeLineup(db: any, match: any, stats: any[]) {
     : undefined;
 
   return stats.map(stat => {
+    const existing = stat.id ? existingStats.find((row: any) => row.id === stat.id) : undefined;
     if (!stat.playerId) {
-      if (stat.appearanceType) fail('An unlinked appearance cannot claim a roster status.');
+      if (stat.appearanceType && !existing) fail('An unlinked appearance cannot claim a roster status.');
       const observedName = typeof stat.displayNameSnapshot === 'string' && stat.displayNameSnapshot.trim()
         ? stat.displayNameSnapshot.trim()
         : typeof stat.player === 'string' ? stat.player.trim() : '';
@@ -46,6 +47,7 @@ export function validateAndNormalizeLineup(db: any, match: any, stats: any[]) {
     if (!stat.playerId || !stat.appearanceType) fail('Each confirmed appearance requires a player ID and appearance type.');
     const player = (db.rosterPlayers || []).find((entry: any) => entry.id === stat.playerId);
     if (!player) fail('A player appearance references an unknown roster identity.');
+    if (player.retiredAt && existing?.playerId !== player.id) fail('New appearances cannot link to an archived roster identity.');
     if (!APPEARANCE_TYPES.has(stat.appearanceType)) fail('Player appearance type is invalid.');
     if (stat.appearanceType === 'tryout') {
       if (!batch) fail('A tryout appearance requires a selected tryout batch.');

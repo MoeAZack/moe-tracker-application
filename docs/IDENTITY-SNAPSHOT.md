@@ -7,7 +7,7 @@ An accepted player appearance has two separate kinds of identity data:
 
 | Field | Meaning | Update rule |
 | --- | --- | --- |
-| `playerId` | Proven stable roster link used to aggregate one person's appearances. | Preserved independently of names. It is never inferred from an unmatched name. |
+| `playerId` | Proven stable roster link used to aggregate one person's appearances. | Preserved independently of names. It is never inferred from an unmatched name. An explicit reasoned correction may change it to an active roster identity or clear it. |
 | `displayNameSnapshot` | Name observed when this appearance was accepted. | Write-once. Historical labels prefer it. |
 | `agent` | Agent observed for this appearance. | Write-once. |
 | `appearanceType` | `core`, `tryout`, or `standIn` for this appearance. | Write-once; later promotion or retirement does not relabel it. |
@@ -33,8 +33,9 @@ replay re-acceptance, screenshot-summary synchronization, and desktop inbox
 merges preserve the accepted snapshot and stable link. A coach may correct an
 observed name, agent, or appearance type only by naming the fields and giving a
 non-empty reason in `identityCorrection`. The server appends correction
-provenance and ignores client-supplied correction history. A correction does
-not change `playerId`.
+provenance and ignores client-supplied correction history. A named `playerId`
+correction may link another active identity or clear a wrong link; it does not
+silently change the observed name, agent, or appearance type.
 
 ## Display, aggregation, archives, and access
 

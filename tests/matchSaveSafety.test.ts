@@ -10,6 +10,8 @@ import { createSeed } from '../lib/seed';
 const adminKey = 'test-master-secret-at-least-24-characters';
 const playerKey = 'test-player-access-key';
 const standInId = '00000000-0000-4000-8000-000000000003';
+const replacementId = '00000000-0000-4000-8000-000000000004';
+const retiredId = '00000000-0000-4000-8000-000000000005';
 let tempDir: string;
 let dbPath: string;
 let server: Server;
@@ -20,7 +22,11 @@ function fixture() {
     ...createSeed(),
     matches: [{ id: 'match-1', opponent: 'Before', attW: 1, attL: 0, defW: 0, defL: 0, rosterContext: { kind: 'mixed' }, source: 'manual' }],
     playerStats: [{ id: 'old-stat', matchId: 'match-1', player: 'Alpha', kills: 10, source: 'manual' }],
-    rosterPlayers: [{ id: standInId, displayName: 'Known Stand In', createdAt: '2026-01-01' }],
+    rosterPlayers: [
+      { id: standInId, displayName: 'Known Stand In', createdAt: '2026-01-01' },
+      { id: replacementId, displayName: 'Correct Identity', createdAt: '2026-01-01' },
+      { id: retiredId, displayName: 'Archived Identity', createdAt: '2026-01-01', retiredAt: '2026-10-01T00:00:00.000Z' },
+    ],
     authKeys: [{
       id: 'player-1',
       keyHash: crypto.createHash('sha256').update(playerKey).digest('hex'),
@@ -198,6 +204,51 @@ describe('explicit match statistics save contract', () => {
     const row = (await corrected.json()).statsUpdate.stats[0];
     expect(row).toMatchObject({ player: 'Corrected Observation', displayNameSnapshot: 'Corrected Observation', agent: 'Raze', appearanceType: 'standIn' });
     expect(row.corrections.at(-1)).toMatchObject({ correctedBy: 'Administrator (Master)', reason: 'Coach verified the scoreboard.' });
+  });
+
+  it('preserves routine linkage but allows a reasoned active-link correction or clear', async () => {
+    const seeded: any = fixture();
+    seeded.playerStats[0] = { ...seeded.playerStats[0], playerId: standInId, player: 'Observed', displayNameSnapshot: 'Observed', agent: 'Jett', appearanceType: 'standIn' };
+    await fs.writeFile(dbPath, JSON.stringify(seeded));
+    const token = await login(adminKey);
+    const routine = await save(token, {
+      match: { id: 'match-1', rosterContext: { kind: 'mixed' } },
+      statsUpdate: { operation: 'replace', stats: [{ ...seeded.playerStats[0], playerId: replacementId }] },
+    });
+    expect((await routine.json()).statsUpdate.stats[0]).toMatchObject({ playerId: standInId, displayNameSnapshot: 'Observed', agent: 'Jett', appearanceType: 'standIn' });
+
+    const corrected = await save(token, {
+      match: { id: 'match-1', rosterContext: { kind: 'mixed' } },
+      statsUpdate: { operation: 'replace', stats: [{ ...seeded.playerStats[0], playerId: replacementId, identityCorrection: { fields: ['playerId'], reason: 'Wrong roster identity was selected.' } }] },
+    });
+    const correctedRow = (await corrected.json()).statsUpdate.stats[0];
+    expect(correctedRow).toMatchObject({ playerId: replacementId, displayNameSnapshot: 'Observed', agent: 'Jett', appearanceType: 'standIn' });
+    expect(correctedRow.corrections.at(-1)).toMatchObject({ fields: ['playerId'], reason: 'Wrong roster identity was selected.' });
+
+    const cleared = await save(token, {
+      match: { id: 'match-1', rosterContext: { kind: 'mixed' } },
+      statsUpdate: { operation: 'replace', stats: [{ ...correctedRow, playerId: null, identityCorrection: { fields: ['playerId'], reason: 'Source does not prove a roster link.' } }] },
+    });
+    expect((await cleared.json()).statsUpdate.stats[0]).toMatchObject({ playerId: null, displayNameSnapshot: 'Observed', agent: 'Jett', appearanceType: 'standIn' });
+  });
+
+  it('rejects retired identities for new rows but preserves an accepted historical link', async () => {
+    const seeded: any = fixture();
+    seeded.playerStats[0] = { ...seeded.playerStats[0], playerId: retiredId, player: 'Archived observed', displayNameSnapshot: 'Archived observed', agent: 'Sova', appearanceType: 'standIn' };
+    await fs.writeFile(dbPath, JSON.stringify(seeded));
+    const token = await login(adminKey);
+    const historical = await save(token, {
+      match: { id: 'match-1', rosterContext: { kind: 'mixed' } },
+      statsUpdate: { operation: 'replace', stats: [{ ...seeded.playerStats[0], kills: 11 }] },
+    });
+    expect(historical.status).toBe(200);
+    expect((await historical.json()).statsUpdate.stats[0]).toMatchObject({ playerId: retiredId, displayNameSnapshot: 'Archived observed', kills: 11 });
+
+    const rejected = await save(token, {
+      match: { id: 'match-1', rosterContext: { kind: 'mixed' } },
+      statsUpdate: { operation: 'replace', stats: [seeded.playerStats[0], { rowOperation: 'create', playerId: retiredId, appearanceType: 'standIn', displayNameSnapshot: 'New invalid row' }] },
+    });
+    expect(rejected.status).toBe(400);
   });
 
   it('keeps the complete scoreboard when round analytics cover only some players', async () => {
