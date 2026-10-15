@@ -1,4 +1,4 @@
-import React, { useEffect, useRef, useState } from 'react';
+import React, { useEffect, useMemo, useRef, useState } from 'react';
 import { EntrySourceMetadata, MatchStatsUpdate, TrackerData } from '../types';
 import { apiFetch } from '../utils/api';
 import { Sparkles, Upload, X, Loader2, CheckCircle, Image as ImageIcon } from 'lucide-react';
@@ -12,6 +12,7 @@ import { classifyAverageLoadout, classifyTeamEquipment } from '../../lib/scrimRo
 import { classifyValorantScoreboardAgents } from '../../lib/localAgentClassifier';
 import { captureConsistencyReport, findDuplicateScoreboardMatch } from '../../lib/screenshotEvidence';
 import { extractCaptureSession, INFORMATIONAL_ROUND_ISSUES } from '../../lib/captureSessionPipeline';
+import { buildOpponentHistory } from '../../lib/opponentHistory';
 
 interface Props {
   data: TrackerData;
@@ -43,6 +44,8 @@ export default function ScrimImport({ data, theme, onSaveMatch, onSaveRounds, on
   const roster = data.settings?.players || [];
   const rosterPlayers = (data.rosterPlayers || []).filter(player => !player.retiredAt);
   const agents = data.settings?.agents || [];
+  const maps = data.settings?.maps || [];
+  const opponentHistory = useMemo(() => buildOpponentHistory(data.matches || []), [data.matches]);
   const [scoreboard, setScoreboard] = useState<File | null>(null);
   const [timeline, setTimeline] = useState<File | null>(null);
   const [step, setStep] = useState<'upload' | 'processing' | 'review'>('upload');
@@ -298,8 +301,8 @@ export default function ScrimImport({ data, theme, onSaveMatch, onSaveRounds, on
           <div className="space-y-5">
             {/* Match header */}
             <div className="grid sm:grid-cols-3 gap-3">
-              <input value={meta.opponent} onChange={(e) => setMeta({ ...meta, opponent: e.target.value })} placeholder="Opponent" className="bg-black/20 border border-white/10 rounded-lg px-3 py-2 text-sm outline-none" />
-              <input value={meta.map} onChange={(e) => setMeta({ ...meta, map: e.target.value })} placeholder="Map" className="bg-black/20 border border-white/10 rounded-lg px-3 py-2 text-sm outline-none" />
+              <div><input list="scrim-opponents" aria-label="Opponent" value={meta.opponent} onChange={(e) => setMeta({ ...meta, opponent: e.target.value })} placeholder="Opponent" className="w-full bg-black/20 border border-white/10 rounded-lg px-3 py-2 text-sm outline-none" /><datalist id="scrim-opponents">{opponentHistory.map(opponent => <option key={opponent.key} value={opponent.name}>{opponent.games} recorded game{opponent.games === 1 ? '' : 's'}</option>)}</datalist></div>
+              <select aria-label="Map name" required value={meta.map} onChange={(e) => setMeta({ ...meta, map: e.target.value })} className="bg-black/20 border border-white/10 rounded-lg px-3 py-2 text-sm outline-none"><option value="" disabled>Choose map…</option>{maps.map(map => <option key={map} value={map}>{map}</option>)}</select>
               <input type="date" value={meta.date} onChange={(e) => setMeta({ ...meta, date: e.target.value })} className="bg-black/20 border border-white/10 rounded-lg px-3 py-2 text-sm outline-none" />
               <select value={meta.type} onChange={(e) => setMeta({ ...meta, type: e.target.value })} className="bg-black/20 border border-white/10 rounded-lg px-3 py-2 text-sm outline-none">
                 {(data.settings?.matchTypes || ['Scrim', 'Official', 'Tournament']).map((t) => <option key={t} value={t}>{t}</option>)}
