@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { buildPlayerScreenshotMetrics, classifyAverageLoadout, combineStoredScreenshotMetrics, deriveSpecialRoundConversions, materializeFirstDeathsFromRoundEvidence, materializeRoundOpeningsFromScreenshotEvidence } from '../lib/scrimRoundAnalytics';
+import { buildPlayerScreenshotMetrics, classifyAverageLoadout, combineStoredScreenshotMetrics, deriveSpecialRoundConversions, materializeFirstDeathsFromRoundEvidence, materializeRoundOpeningsFromScreenshotEvidence, materializeRoundPlantsFromScreenshotEvidence } from '../lib/scrimRoundAnalytics';
 
 const round = (overrides: any = {}) => ({
   id: 'r1', matchId: 'm1', roundNo: 1, side: 'Attack', result: 'W',
@@ -87,6 +87,14 @@ describe('scrim screenshot analytics', () => {
     expect(materializeFirstDeathsFromRoundEvidence(data)).toBe(0);
     expect(data.rounds[0]).toMatchObject({ firstKillBy: 'Reviewed Killer', firstDeathBy: 'Reviewed Victim' });
     expect(data.playerStats[0].fd).toBe(7);
+  });
+  it('backfills positive plant evidence without inventing negatives or replacing coach review', () => {
+    const positive = round({ plant: '', screenshotEvidence: { ...round().screenshotEvidence, objectives: [{ type: 'plant', sourceRow: 4 }] } });
+    const unknown = round({ id: 'r2', roundNo: 2, plant: '', screenshotEvidence: { ...round().screenshotEvidence, objectives: [] } });
+    const corrected = round({ id: 'r3', roundNo: 3, plant: 'FALSE', screenshotEvidence: { ...round().screenshotEvidence, objectives: [{ type: 'plant', sourceRow: 5 }] } });
+    const data: any = { rounds: [positive, unknown, corrected] };
+    expect(materializeRoundPlantsFromScreenshotEvidence(data)).toBe(1);
+    expect(data.rounds.map((item: any) => item.plant)).toEqual(['TRUE', '', 'FALSE']);
   });
   it('does not count the same match round twice', () => {
     const duplicate = round({ id: 'different-row-id' });
