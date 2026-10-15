@@ -80,7 +80,7 @@ instead of recalculating percentages independently in each screen.
   [`EVIDENCE-REFERENCE.md`](./EVIDENCE-REFERENCE.md).
 - **S0.2 Derived-metric envelope** — Standardize `value`, numerator,
   denominator, coverage, confidence, unknown reason, source references, and
-  calculation version.
+  calculation version. Contract: [`DERIVED-METRIC.md`](./DERIVED-METRIC.md).
 - **S0.3 Signal registry** — Create stable identifiers for pistol conversion,
   anti-eco loss, full-buy loss, low-buy win, first-death recovery, opening
   conversion, advantage collapse, multikill, composition result, and incomplete
