@@ -2,6 +2,7 @@ export {};
 
 type DesktopStatus = {
   appVersion: string;
+  deviceId: string;
   mode: 'offline-first' | 'connected';
   deviceName: string;
   retentionDays: number;

@@ -882,6 +882,11 @@ export async function registerReplayDeviceRoutes(app: Express) {
       const initialDb = await readDB(); const initialStore = replayStore(initialDb);
       const assertDevice = (store: ReplayStore) => {
         if (deviceId === 'manual-entry') return;
+        // The installed desktop collector has a stable local identity but is
+        // intentionally not required to enroll as its own remote device.
+        // Accept only that UUID-shaped identity on the desktop-only server;
+        // browser/cloud instances still require an active enrolled device.
+        if (process.env.APP_DESKTOP === 'true' && /^desktop-[0-9a-f-]{36}$/i.test(deviceId)) return;
         const device = store.devices[deviceId];
         if (!device || device.revokedAt || Date.parse(device.expiresAt) <= Date.now()) throw Object.assign(new Error('Choose an active collection device.'), { status: 409 });
       };

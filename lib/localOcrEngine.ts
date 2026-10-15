@@ -393,6 +393,11 @@ function strictInteger(raw: string | undefined, max: number): number | null {
   return Number.isInteger(value) && value >= 0 && value <= max ? value : null;
 }
 
+function cleanScoreboardMap(raw: string | undefined): string | null {
+  const cleaned = (raw || '').trim().replace(/^map\s*[-:]\s*/i, '').trim();
+  return cleaned || null;
+}
+
 export function parseStrictKda(raw: string | undefined): { kills: number; deaths: number; assists: number } | null {
   const matched = (raw?.trim() || '').match(/^(\d{1,3})\s*\/\s*(\d{1,3})\s*\/\s*(\d{1,3})$/);
   if (!matched) return null;
@@ -451,7 +456,7 @@ export function parseLocalScoreboardRecognitions(
     };
   });
   return buildScreenshotReviewDraft({
-    map: byId.get('map')?.text?.trim() || null,
+    map: cleanScoreboardMap(byId.get('map')?.text),
     ourScore: strictInteger(byId.get('score.left')?.text, 100),
     theirScore: strictInteger(byId.get('score.right')?.text, 100),
     confident: false,
@@ -663,7 +668,9 @@ export async function createBrowserLocalTesseractAdapter(): Promise<LocalOcrAdap
       sourceContext.drawImage(image, 0, 0, source.width, source.height);
       const sourcePixels = sourceContext.getImageData(0, 0, source.width, source.height);
       for (const region of browserRecognitionRegions(immutableProfile)) {
-        const processed = region.id.startsWith('averages.')
+        const processed = region.id === 'score.left' || region.id === 'score.right'
+          ? preprocessTeamColorNumber(sourcePixels, region.rectangle, region.id === 'score.left' ? 'ours' : 'theirs')
+          : region.id.startsWith('averages.')
           ? preprocessTeamColorNumber(sourcePixels, region.rectangle, region.id.includes('.our') ? 'ours' : 'theirs')
           : preprocessRegionPixels(sourcePixels, region.rectangle);
         const rawCrop = document.createElement('canvas'); rawCrop.width = processed.width; rawCrop.height = processed.height;
@@ -698,7 +705,10 @@ export async function createBrowserLocalTesseractAdapter(): Promise<LocalOcrAdap
               numberContext.drawImage(grayscaleCrop, padding, padding, rectangle.width * scale, rectangle.height * scale);
               await worker.setParameters({ tessedit_pageseg_mode: tesseract.PSM.SINGLE_WORD, tessedit_char_whitelist: '0123456789' });
               const result = await worker.recognize(number); const text = (result.data.text || '').trim(); const confidence = result.data.confidence;
-              if (!/^\d{1,3}$/.test(text) || !Number.isFinite(confidence) || confidence < 70) { values.length = 0; break; }
+              // Replay totals provide the safety check for automatic identity
+              // pairing. Retain a syntactically valid digit even when
+              // Tesseract is uncertain about these very small scoreboard cells.
+              if (!/^\d{1,3}$/.test(text) || !Number.isFinite(confidence)) { values.length = 0; break; }
               values.push(text); confidences.push(confidence);
             }
             if (values.length === 3) {
@@ -723,7 +733,7 @@ export async function createBrowserLocalTesseractAdapter(): Promise<LocalOcrAdap
         });
         const result = await worker.recognize(recognitionImage);
         const confidence = Number.isFinite(result.data.confidence) ? result.data.confidence : null;
-        results.push({ regionId: region.id, text: region.recognitionKind === 'kda' && (confidence === null || confidence < 70) ? '' : result.data.text || '', confidence });
+        results.push({ regionId: region.id, text: region.recognitionKind === 'kda' && confidence === null ? '' : result.data.text || '', confidence });
       }
       return results;
     },

@@ -453,6 +453,7 @@ async function desktopStatus() {
   try { collector = await collectorJsonCommand(['status']); } catch (error) { collector = { error: error.message }; }
   return {
     appVersion: app.getVersion(),
+    deviceId: runtime.config.deviceId,
     mode: runtime.config.mode,
     deviceName: runtime.config.deviceName,
     retentionDays: runtime.config.retentionDays,

@@ -39,7 +39,7 @@ export function screenshotAdmission(store: any, deviceId: string, actorId: strin
 }
 const integer = (value: unknown): value is number => typeof value === 'number' && Number.isSafeInteger(value) && value >= 0;
 const field = (value: any) => value?.status === 'available' ? value.value : null;
-const mapName = (value: unknown) => typeof value === 'string' ? value.trim().toLowerCase() : '';
+const mapName = (value: unknown) => typeof value === 'string' ? value.trim().replace(/^map\s*[-:]\s*/i, '').trim().toLowerCase() : '';
 function tuple(row: any) { return [row.kills, row.deaths, row.assists].every(integer) ? `${row.kills}/${row.deaths}/${row.assists}` : null; }
 // Agent (from scoreboard portraits and the replay's character class) breaks
 // ties between identical K/D/A lines without weakening the uniqueness rule.
@@ -69,23 +69,29 @@ export function pairReplayScreenshots(store: any) {
     const screenshotKeys = useAgents ? agentKeys : keys;
     const scores = hasScore ? [match.ourScore, match.theirScore].sort((a, b) => a! - b!).join(':') : null;
     const associated = new Set<string>(Object.values(store.associations || {}).filter((a: any) => a.deviceId === record.deviceId).map((a: any) => a.sha256));
-    const candidates: Array<{ sha256: string; suggestions: ScreenshotPairing['suggestions'] }> = [];
+    const candidates: Array<{ sha256: string; suggestions: ScreenshotPairing['suggestions']; metadataMatches: number }> = [];
     for (const sha256 of associated) {
       const blob = store.blobs?.[sha256]; const job = blob?.parserJobId ? store.parserJobs?.[blob.parserJobId] : null;
       if (blob?.ingestionMode !== 'local-evidence' || job?.status !== 'completed' || !job.sourceDeviceIds?.includes(record.deviceId)) continue;
       const board = job.result?.scoreboard;
-      if (!board || board.evidenceCoverage?.status !== 'complete' || (hasMap && mapName(field(board.map)) !== mapName(match.map))) continue;
+      if (!board || board.evidenceCoverage?.status !== 'complete') continue;
       const totals = [field(board.finalScore?.teamA?.score), field(board.finalScore?.teamB?.score)];
-      if (!totals.every(integer) || (scores && totals.sort((a, b) => a - b).join(':') !== scores) || board.players?.length !== 10) continue;
+      if (!totals.every(integer) || board.players?.length !== 10) continue;
       const rows = board.players.map((row: any) => { const line = { kills: field(row.kills), deaths: field(row.deaths), assists: field(row.assists), agent: field(row.agent) }; return { id: row.playerId, key: useAgents ? agentTuple(line) : tuple(line) }; });
       if (rows.some((row: any) => !row.key || typeof row.id !== 'string' || !row.id) || new Set(rows.map((row: any) => row.key)).size !== 10 || new Set(rows.map((row: any) => row.id)).size !== 10 || rows.some((row: any) => !screenshotKeys.includes(row.key))) continue;
-      candidates.push({ sha256, suggestions: safeSuggestions(rows.map((row: any) => {
+      const replayMap = mapName(field(board.map));
+      const replayScores = totals.sort((a, b) => a - b).join(':');
+      const metadataMatches = Number(hasMap && !!replayMap && replayMap === mapName(match.map)) + Number(!!scores && replayScores === scores);
+      candidates.push({ sha256, metadataMatches, suggestions: safeSuggestions(rows.map((row: any) => {
         const stat = stats[screenshotKeys.indexOf(row.key)];
         return { parserPlayerId: row.id, displayName: stat.extractedName.trim(), rosterPlayerId: stat.rosterMatch?.status === 'matched' ? stat.matchedPlayerId : null };
       })) });
     }
-    if (candidates.length > 1) { record.status = 'ambiguous'; record.reason = 'More than one replay matches. No names were assigned.'; }
-    else if (candidates.length === 1) { record.status = 'linked'; record.reason = 'Unique scoreboard match. Coach review is still required.'; record.replaySha256 = candidates[0].sha256; record.suggestions = candidates[0].suggestions; }
+    const strongest = candidates.length > 1
+      ? candidates.filter(candidate => candidate.metadataMatches === Math.max(...candidates.map(item => item.metadataMatches)))
+      : candidates;
+    if (strongest.length > 1) { record.status = 'ambiguous'; record.reason = 'More than one replay matches. No names were assigned.'; }
+    else if (strongest.length === 1) { record.status = 'linked'; record.reason = 'Unique exact ten-player K/D/A match. Coach review is still required.'; record.replaySha256 = strongest[0].sha256; record.suggestions = strongest[0].suggestions; }
   }
   // Two independently extracted screenshots must not silently propose conflicting identities.
   for (const record of records.filter(item => item.status === 'linked')) {

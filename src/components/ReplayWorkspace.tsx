@@ -799,11 +799,15 @@ export default function ReplayWorkspace({
           defuses: stat.defuses,
         })),
       };
+      const desktopDeviceId = automatic && window.moeDesktop
+        ? (await window.moeDesktop.getStatus()).deviceId
+        : "";
+      const pairingDeviceId = desktopDeviceId || screenshotDevice || "manual-entry";
       const response = await apiFetch("/api/replay-intake/screenshots/local", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
-          deviceId: screenshotDevice || 'manual-entry',
+          deviceId: pairingDeviceId,
           imageSha256,
           capturedAt: draft.sourceMetadata.capturedAt,
           extraction,
@@ -826,7 +830,7 @@ export default function ReplayWorkspace({
         announce(
           pairing.status === "linked"
             ? `Scoreboard linked to the matching replay.${unchanged ? " Review the names and evidence before accepting." : " It is ready in the scoreboard queue."}`
-            : !screenshotDevice ? "Scoreboard saved. Choose Complete manually to enter map, score and player mappings." : "Scoreboard saved. The selected device will link it when the matching replay arrives.",
+            : pairingDeviceId === "manual-entry" ? "Scoreboard saved. Choose Complete manually to enter map, score and player mappings." : "Scoreboard saved. The selected device will link it when the matching replay arrives.",
         );
       return true;
     } catch (cause: any) {
