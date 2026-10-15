@@ -56,11 +56,14 @@ describe('strict screenshot pairing', () => {
     store.associations.second = { deviceId: 'device-12345678', sha256: 'b'.repeat(64) }; store.blobs['b'.repeat(64)] = { ingestionMode: 'local-evidence', parserJobId: 'second' }; store.parserJobs.second = structuredClone(store.parserJobs.job);
     pairReplayScreenshots(store); expect(store.screenshots.screenshot).toMatchObject({ status: 'ambiguous', suggestions: [], replaySha256: null });
   });
-  it.each(['device', 'map', 'score', 'row', 'incomplete', 'raw-mode'])('does not pair a wrong %s', mismatch => {
+  it('uses map and score as tie-breakers, not blockers, when all ten K/D/A rows uniquely match', () => {
+    const store = storeFixture(); const b = store.parserJobs.job.result.scoreboard;
+    b.map.value = 'Ascent'; b.finalScore.teamA.score.value = 10;
+    pairReplayScreenshots(store); expect(store.screenshots.screenshot).toMatchObject({ status: 'linked', replaySha256: hash });
+  });
+  it.each(['device', 'row', 'incomplete', 'raw-mode'])('does not pair a wrong %s', mismatch => {
     const store = storeFixture(); const b = store.parserJobs.job.result.scoreboard;
     if (mismatch === 'device') store.associations.first.deviceId = 'another-device';
-    if (mismatch === 'map') b.map.value = 'Ascent';
-    if (mismatch === 'score') b.finalScore.teamA.score.value = 10;
     if (mismatch === 'row') b.players[0].kills.value++;
     if (mismatch === 'incomplete') b.players[0].kills.status = 'unavailable';
     if (mismatch === 'raw-mode') store.blobs[hash].ingestionMode = 'coach-raw';
@@ -109,7 +112,7 @@ function envelope(deviceId: string) {
 describe('screenshot-first authenticated workflow', () => {
   beforeEach(async () => {
     vi.resetModules(); temporary = await fs.mkdtemp(path.join(os.tmpdir(), 'moetracker-pairing-')); dbPath = path.join(temporary, 'db.json');
-    for (const [key, value] of Object.entries({ NODE_ENV: 'test', USE_FIRESTORE: 'false', DB_PATH: dbPath, REPLAY_STORAGE_DIR: path.join(temporary, 'private'), ADMIN_PASSWORD: admin, JWT_SECRET: 'screenshot-session-secret-at-least-24-characters', GOOGLE_CLIENT_ID: '', REPLAY_GCS_RAW_ENABLED: 'false' })) vi.stubEnv(key, value);
+    for (const [key, value] of Object.entries({ NODE_ENV: 'test', APP_DESKTOP: 'true', USE_FIRESTORE: 'false', DB_PATH: dbPath, REPLAY_STORAGE_DIR: path.join(temporary, 'private'), ADMIN_PASSWORD: admin, JWT_SECRET: 'screenshot-session-secret-at-least-24-characters', GOOGLE_CLIENT_ID: '', REPLAY_GCS_RAW_ENABLED: 'false' })) vi.stubEnv(key, value);
     await fs.writeFile(dbPath, JSON.stringify({ settings: { players: [] }, matches: [], seasonArchives: [], rosterPlayers: [{ id: 'p1', displayName: 'Player' }], authKeys: [{ id: 'player-key', keyHash: crypto.createHash('sha256').update('player-key').digest('hex'), label: 'Player', role: 'player', playerId: 'p1' }], allowedUsers: [] }));
     mocked.generate.mockReset(); mocked.generate.mockResolvedValue({ text: JSON.stringify({ ...raw(), base64: png, players: raw().players.map(p => ({ ...p, rawMetrics: { base64: png } })) }) });
     const { createApp } = await import('../server'); const app = await createApp(false); server = await new Promise<Server>(resolve => { const instance = app.listen(0, '127.0.0.1', () => resolve(instance)); }); origin = `http://127.0.0.1:${(server.address() as AddressInfo).port}`;
@@ -165,6 +168,14 @@ describe('screenshot-first authenticated workflow', () => {
     const unsafe = raw() as any; unsafe.players[0].rawMetrics = { base64: 'PRIVATE_IMAGE_PAYLOAD' };
     expect((await request('/api/replay-intake/screenshots/local', coach, { deviceId: device.device.id, imageSha256: 'e'.repeat(64), capturedAt: '2026-10-12T20:00:00.000Z', extraction: unsafe })).status).toBe(400);
     expect(await fs.readFile(dbPath, 'utf8')).not.toContain('PRIVATE_IMAGE_PAYLOAD');
+  });
+  it('uses the installed desktop identity for local OCR without remote device enrollment', async () => {
+    const coach = await login(); const deviceId = `desktop-${crypto.randomUUID()}`;
+    const body = { deviceId, imageSha256: 'a'.repeat(64), capturedAt: '2026-10-12T20:00:00.000Z', extraction: raw() };
+    const response = await request('/api/replay-intake/screenshots/local', coach, body);
+    expect(response.status).toBe(201);
+    expect(await response.json()).toMatchObject({ deviceId, status: 'pending' });
+    expect((await request('/api/replay-intake/screenshots/local', coach, { ...body, deviceId: 'desktop-not-a-uuid' })).status).toBe(409);
   });
   it('lets coaches delete individual scoreboard drafts and replay evidence without deleting saved match rows', async () => {
     const coach = await login(); const player = await login('player-key');
