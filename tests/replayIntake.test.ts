@@ -58,6 +58,9 @@ describe('private replay intake', () => {
     const coach = await login(adminKey); const hash = 'c'.repeat(64); const deviceId = 'desktop-device-03';
     const original = evidenceEnvelope(hash, 100, deviceId);
     expect((await jsonRequest('/api/desktop/replay-evidence', coach, original)).status).toBe(201);
+    const reviewed = JSON.parse(await fs.readFile(dbPath, 'utf8'));
+    reviewed.replayIntake.reviews[hash] = { status: 'review-required' };
+    await fs.writeFile(dbPath, JSON.stringify(reviewed));
     const revised: any = evidenceEnvelope(hash, 100, deviceId);
     revised.normalized.scoreboard.durationMs.value = 2;
     const revisedBase = { ...revised }; delete revisedBase.evidenceSha256; revised.evidenceSha256 = localEvidenceDigest(revisedBase);
@@ -66,6 +69,19 @@ describe('private replay intake', () => {
     expect(await retry.json()).toMatchObject({ sha256: hash, idempotent: true, existingEvidencePreserved: true });
     const stored = JSON.parse(await fs.readFile(dbPath, 'utf8'));
     expect(Object.keys(stored.replayIntake.parserJobs)).toHaveLength(1);
+  });
+
+  it('upgrades unreviewed desktop evidence when the normalizer produces richer facts', async () => {
+    const coach = await login(adminKey); const hash = 'e'.repeat(64); const deviceId = 'desktop-device-04';
+    const original = evidenceEnvelope(hash, 100, deviceId);
+    expect((await jsonRequest('/api/desktop/replay-evidence', coach, original)).status).toBe(201);
+    const revised: any = evidenceEnvelope(hash, 100, deviceId);
+    revised.normalized.scoreboard.durationMs.value = 2;
+    const revisedBase = { ...revised }; delete revisedBase.evidenceSha256; revised.evidenceSha256 = localEvidenceDigest(revisedBase);
+    const retry = await jsonRequest('/api/desktop/replay-evidence', coach, revised);
+    expect(retry.status).toBe(201); expect(await retry.json()).toMatchObject({ sha256: hash, idempotent: false });
+    const stored = JSON.parse(await fs.readFile(dbPath, 'utf8')); const blob = stored.replayIntake.blobs[hash];
+    expect(stored.replayIntake.parserJobs[blob.parserJobId].result.scoreboard.durationMs.value).toBe(2);
   });
 
   it('keeps an accepted desktop replay accepted when identical evidence returns after parser-job pruning', async () => {

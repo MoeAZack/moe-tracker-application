@@ -21,6 +21,7 @@ const DEFAULT_DEMO = path.join(process.env.LOCALAPPDATA || '', 'VALORANT', 'Save
 const REPLAY_TYPE = 'application/vnd.valorant.replay';
 const runtimePin = JSON.parse(fs.readFileSync(new URL('./replay-runtime-pin.json', import.meta.url), 'utf8'));
 const VRFKIT_PIN = { ...runtimePin, binarySha256: runtimePin.windowsX64ExeSha256 };
+export const LOCAL_NORMALIZER_REVISION = 'assists-ults-kast-v2';
 const MAX_EVIDENCE_BYTES = 4 * 1024 * 1024;
 
 function option(args, name) { const index = args.indexOf(name); return index >= 0 ? args[index + 1] : undefined; }
@@ -127,7 +128,7 @@ function validateNormalizedEvidence(raw, replaySha256) {
 function validateEvidenceEnvelope(raw, replaySha256, size, deviceId) {
   if (!raw || raw.schemaVersion !== 1 || !raw.source || !raw.parser || !raw.normalized) throw new Error('Local evidence envelope is invalid.');
   if (!deviceId || raw.source.deviceId !== deviceId || raw.source.sha256 !== replaySha256 || raw.source.size !== size) throw new Error('Local evidence source identity is invalid.');
-  if (raw.parser.name !== 'vrfkit' || raw.parser.version !== VRFKIT_PIN.version || raw.parser.binarySha256 !== VRFKIT_PIN.binarySha256 || raw.parser.binaryCommit !== VRFKIT_PIN.commit) throw new Error('Local evidence parser identity is invalid.');
+  if (raw.parser.name !== 'vrfkit' || raw.parser.version !== VRFKIT_PIN.version || raw.parser.binarySha256 !== VRFKIT_PIN.binarySha256 || raw.parser.binaryCommit !== VRFKIT_PIN.commit || raw.parser.normalizerRevision !== LOCAL_NORMALIZER_REVISION) throw new Error('Local evidence parser identity is invalid.');
   validateNormalizedEvidence(raw.normalized, replaySha256);
   const { evidenceSha256, ...unsigned } = raw;
   const expected = crypto.createHash('sha256').update(canonical(unsigned)).digest('hex');
@@ -149,7 +150,7 @@ async function produceLocalEvidence(file, replaySha256, size, cfg) {
     execFileSync(cfg.localRuntime.pythonPath, [cfg.localRuntime.normalizerPath, '--export', exportDir, '--out', normalized, '--replay-sha256', replaySha256, '--binary-sha256', VRFKIT_PIN.binarySha256, '--binary-version', VRFKIT_PIN.version, '--binary-commit', VRFKIT_PIN.commit], { cwd: root, windowsHide: true, stdio: 'pipe', timeout: 5 * 60 * 1000, maxBuffer: 64 * 1024 });
     const bytes = await fsp.readFile(normalized); if (bytes.length > MAX_EVIDENCE_BYTES) throw new Error('Local evidence exceeded its upload limit.'); const result = validateNormalizedEvidence(JSON.parse(bytes.toString('utf8')), replaySha256);
     if (result.diagnostics.manifestSha256 !== manifestSha256 || await sha256(file) !== replaySha256 || (await fsp.stat(file)).size !== size) throw new Error('Replay changed while local evidence was produced.');
-    const envelope = { schemaVersion: 1, source: { sha256: replaySha256, size, originalName: path.basename(file), deviceId: cfg.deviceId }, parser: { name: 'vrfkit', version: VRFKIT_PIN.version, binarySha256: VRFKIT_PIN.binarySha256, binaryCommit: VRFKIT_PIN.commit }, normalized: result };
+    const envelope = { schemaVersion: 1, source: { sha256: replaySha256, size, originalName: path.basename(file), deviceId: cfg.deviceId }, parser: { name: 'vrfkit', version: VRFKIT_PIN.version, binarySha256: VRFKIT_PIN.binarySha256, binaryCommit: VRFKIT_PIN.commit, normalizerRevision: LOCAL_NORMALIZER_REVISION }, normalized: result };
     return { ...envelope, evidenceSha256: crypto.createHash('sha256').update(canonical(envelope)).digest('hex') };
   } finally { await fsp.rm(root, { recursive: true, force: true }); }
 }
@@ -386,4 +387,4 @@ async function main() {
 
 if (process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href) main().catch(error => { console.error(`Replay collector: ${error.message}`); process.exitCode = 1; });
 
-export const collectorInternals = { APP_DIR, EVIDENCE_DIR, LOCK_DIR, DEFAULT_DEMO, inside, canonicalFile, serverUrl, scoreboardApproval, uploadRequest, migrateConfig, validateNormalizedEvidence, validateEvidenceEnvelope, readReusableEvidence, evidencePath, pruneExpiredManagedReplays, resumableOffset, collectorUploadComplete, collectorUploadCompleteForServer };
+export const collectorInternals = { APP_DIR, EVIDENCE_DIR, LOCK_DIR, DEFAULT_DEMO, normalizerRevision: LOCAL_NORMALIZER_REVISION, inside, canonicalFile, serverUrl, scoreboardApproval, uploadRequest, migrateConfig, validateNormalizedEvidence, validateEvidenceEnvelope, readReusableEvidence, evidencePath, pruneExpiredManagedReplays, resumableOffset, collectorUploadComplete, collectorUploadCompleteForServer };

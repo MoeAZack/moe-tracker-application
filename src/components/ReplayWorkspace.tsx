@@ -20,6 +20,7 @@ import StorageIndicator from "./StorageIndicator";
 import { reportDesktopDiagnostic } from "../utils/desktopDiagnostics";
 import ScoreboardCrop from './ScoreboardCrop';
 import type { ScoreboardSelection } from '../../lib/localOcrEngine';
+import { extractScoreboardLocally } from '../utils/localScoreboard';
 
 export type Device = {
   id: string;
@@ -265,48 +266,6 @@ export async function refreshReplayWorkspace(
   if (sha256 && isCoach) await loadDetail(sha256);
 }
 
-async function extractScoreboardLocally(
-  file: File,
-  rosterPlayers: Array<{ id?: string; displayName: string }>,
-  selection?: ScoreboardSelection,
-) {
-  const buffer = await file.arrayBuffer();
-  const imageSha256 = [
-    ...new Uint8Array(await crypto.subtle.digest("SHA-256", buffer)),
-  ]
-    .map((value) => value.toString(16).padStart(2, "0"))
-    .join("");
-  const dataUrl = await new Promise<string>((resolve, reject) => {
-    const reader = new FileReader();
-    reader.onload = () => resolve(String(reader.result));
-    reader.onerror = () =>
-      reject(new Error("The scoreboard image could not be read locally."));
-    reader.readAsDataURL(file);
-  });
-  const image = new Image();
-  image.src = dataUrl;
-  await image.decode();
-  const localOcr = await import("../../lib/localOcrEngine");
-  const profile = selection
-    ? localOcr.createSelectedScoreboardProfile(image.naturalWidth, image.naturalHeight, selection)
-    : localOcr.createValorantEndScreenProfile(image.naturalWidth, image.naturalHeight);
-  const adapter = await localOcr.createBrowserLocalTesseractAdapter();
-  try {
-    return {
-      imageSha256,
-      draft: await localOcr.extractLocalScoreboardDraft(
-        adapter,
-        image,
-        profile.dimensions,
-        { capturedAt: new Date().toISOString(), rosterPlayers },
-        profile,
-      ),
-    };
-  } finally {
-    await adapter.terminate();
-  }
-}
-
 export default function ReplayWorkspace({
   data,
   role,
@@ -349,8 +308,6 @@ export default function ReplayWorkspace({
   const detailGuard = useRef(createLatestRequestGuard());
   const nameImportGuard = useRef(createLatestRequestGuard());
   const screenshotGuard = useRef(createLatestRequestGuard());
-  const folderScoreboardBusy = useRef(false);
-  const folderScoreboardAttempted = useRef(new Set<string>());
   const acceptedRef = useRef(false);
   const isCoach = role === "coach" || role === "owner";
   const activeRoster = useMemo(
@@ -844,30 +801,6 @@ export default function ReplayWorkspace({
     }
   };
 
-  useEffect(() => {
-    if (!isCoach || loading || !window.moeDesktop) return;
-    const processFolderInbox = async () => {
-      if (folderScoreboardBusy.current || screenshotBusy || cropFile) return;
-      folderScoreboardBusy.current = true;
-      try {
-        const [pending] = await window.moeDesktop!.listScoreboards();
-        if (!pending || folderScoreboardAttempted.current.has(pending.id)) return;
-        folderScoreboardAttempted.current.add(pending.id);
-        const loaded = await window.moeDesktop!.readScoreboard(pending.id);
-        const file = new File([new Uint8Array(loaded.bytes)], loaded.name, { type: loaded.mediaType, lastModified: Date.parse(pending.modifiedAt) });
-        if (await submitScoreboardFirst(file, true)) await window.moeDesktop!.completeScoreboard(pending.id);
-      } catch (cause: any) {
-        const code = await reportDesktopDiagnostic("scoreboard-inbox", cause);
-        announce("", `${cause.message || "The watched scoreboard could not be processed."}${code ? ` Error code: ${code}` : ""}`);
-      } finally {
-        folderScoreboardBusy.current = false;
-      }
-    };
-    const initial = window.setTimeout(() => void processFolderInbox(), 750);
-    const interval = window.setInterval(() => void processFolderInbox(), 5_000);
-    return () => { window.clearTimeout(initial); window.clearInterval(interval); };
-  }, [isCoach, loading, screenshotBusy, cropFile, screenshotDevice, activeRoster]);
-
   return (
     <div className="replay-workspace min-h-[70vh] space-y-4 text-slate-100">
       {cropFile && <ScoreboardCrop file={cropFile} onApply={finishCrop} onCancel={() => finishCrop(null)} />}
@@ -881,8 +814,8 @@ export default function ReplayWorkspace({
               Replay evidence
             </h1>
             <p className="mt-1 max-w-2xl text-sm text-slate-400">
-              Start with a scoreboard or collect a replay from your PC. Review
-              player names and available evidence before adding it to team analytics.
+              Replays and matching scoreboard names process automatically. Use
+              this inbox only to inspect or edit an exception afterward.
             </p>
             <p className="mt-2 inline-flex items-center gap-2 text-[11px] font-medium text-teal-300">
               <span className="h-1.5 w-1.5 rounded-full bg-teal-300 shadow-[0_0_10px_rgba(94,234,212,0.9)]" />

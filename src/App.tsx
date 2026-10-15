@@ -8,6 +8,7 @@ import { filterAnalyticsHistory } from './utils/historyFilter';
 import { filterTryoutWorkspace, activeTryoutPhase } from './utils/tryoutWorkspace';
 import { DEFAULT_ANALYTICS_MAP_SCOPE, projectAnalyticsMapScope, type AnalyticsMapScope } from './utils/activeMapPool';
 import { reportDesktopDiagnostic } from './utils/desktopDiagnostics';
+import DesktopReplayAutomation from './components/DesktopReplayAutomation';
 
 // Heavy route views are code-split so the initial bundle only loads the shell + login.
 const Dashboard = lazy(() => import('./components/Dashboard'));
@@ -606,6 +607,7 @@ export default function App() {
           </nav>
         )}
 
+        {data && desktopMode && <DesktopReplayAutomation data={data} role={role} onProcessed={fetchDatabase} />}
         <div className="aurora-utility-bar"><div className="aurora-utility-context"><span className="aurora-eyebrow">{data && activeTryoutPhase(data) ? `Tryouts · ${activeTryoutPhase(data)?.name}` : 'Team workspace'}</span><span className="aurora-version-badge" title="Installed MoeTracker version">v{__APP_VERSION__}</span></div>{data && <TeamSyncIndicator teamName={data.settings.teamName || 'MoeTracker team'} role={role} desktopMode={desktopMode} />}</div>
         {data && ['dashboard', 'economy', 'maps', 'comps', 'roster', 'comparisons'].includes(activeTab) && (data.tryoutBatches || []).some(batch => batch.status === 'archived') && <label className="mx-auto flex max-w-7xl w-full flex-wrap items-center gap-2 px-6 text-sm text-slate-300">Analytics history<select aria-label="Analytics phase" className="ui-field min-h-11 px-3" value={historicalTryoutId} onChange={event => setHistoricalTryoutId(event.target.value)}><option value="">Current workspace</option>{data.tryoutBatches.filter(batch => batch.status === 'archived').map(batch => <option key={batch.id} value={batch.id}>Archived tryouts · {batch.name}</option>)}</select>{historicalTryoutId && <span className="text-xs text-cyan-300">Viewing archived results only; new entries still use the current workspace.</span>}</label>}
 

@@ -26,7 +26,7 @@ describe('strict screenshot pairing', () => {
     const store = storeFixture(); const before = structuredClone(store.parserJobs); pairReplayScreenshots(store);
     expect(store.screenshots.screenshot).toMatchObject({ status: 'linked', replaySha256: hash, reviewRequired: true });
     expect(store.screenshots.screenshot.suggestions).toHaveLength(10);
-    expect(store.screenshots.screenshot.suggestions[0]).toEqual({ parserPlayerId: 'parser-0', displayName: 'Screenshot player 0', rosterPlayerId: null });
+    expect(store.screenshots.screenshot.suggestions[0]).toEqual({ parserPlayerId: 'parser-0', displayName: 'Screenshot player 0', rosterPlayerId: null, screenshotTeam: 'ours' });
     expect(store.parserJobs).toEqual(before);
   });
   it('carries unique exact OCR roster matches into the coach draft without duplicating an identity', () => {
@@ -176,6 +176,20 @@ describe('screenshot-first authenticated workflow', () => {
     expect(response.status).toBe(201);
     expect(await response.json()).toMatchObject({ deviceId, status: 'pending' });
     expect((await request('/api/replay-intake/screenshots/local', coach, { ...body, deviceId: 'desktop-not-a-uuid' })).status).toBe(409);
+  });
+  it('automatically creates an editable match and accepts a unique desktop replay/name pairing', async () => {
+    const coach = await login(); const deviceId = `desktop-${crypto.randomUUID()}`;
+    const evidence = await request('/api/desktop/replay-evidence', coach, envelope(deviceId));
+    expect(evidence.status).toBe(201);
+    const screenshot = await request('/api/replay-intake/screenshots/local', coach, { deviceId, imageSha256: 'e'.repeat(64), capturedAt: '2026-10-15T19:00:00.000Z', extraction: raw() });
+    expect(screenshot.status).toBe(201);
+    expect(await screenshot.json()).toMatchObject({ status: 'linked', automaticMatchId: expect.any(String), autoProcessedAt: expect.any(String) });
+    const stored = JSON.parse(await fs.readFile(dbPath, 'utf8'));
+    const accepted = Object.values(stored.replayIntake.reviews).find((item: any) => item.sha256 === hash) as any;
+    expect(accepted).toMatchObject({ status: 'accepted', teamId: 'blue', revision: 2 });
+    expect(stored.matches.find((item: any) => item.id === accepted.matchId)).toMatchObject({ date: '2026-10-15', map: 'Haven', ourScore: 13, theirScore: 9, opponent: 'Unknown opponent', automation: { mode: 'exact-scoreboard', editable: true } });
+    expect(stored.playerStats.filter((item: any) => item.matchId === accepted.matchId)).toHaveLength(5);
+    expect(stored.rosterPlayers.filter((item: any) => !item.retiredAt && item.rosterStatus === 'tryout')).toHaveLength(5);
   });
   it('lets coaches delete individual scoreboard drafts and replay evidence without deleting saved match rows', async () => {
     const coach = await login(); const player = await login('player-key');

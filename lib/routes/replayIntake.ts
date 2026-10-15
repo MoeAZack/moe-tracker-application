@@ -15,6 +15,7 @@ import { extractScoreboardScreenshot } from './aiVision';
 import { buildScreenshotReviewDraft } from '../entryEngine';
 import { localScreenshotSubmissionSchema } from '../../schemas';
 import { pairReplayScreenshots, pruneScreenshotPairings, screenshotAdmission, screenshotPairingPublic, screenshotRecordId, validatePairingImage, type ScreenshotPairing } from '../replayScreenshotPairing';
+import { activeCorePlayerIds, ensureObservedRosterPlayer, setObservedRosterStatus } from '../roster';
 import { cancelRawReplayUpload, deleteRawReplayObject, downloadRawReplayObject, initiateRawReplayUpload, verifyRawReplayObject, type RawReplayObject } from '../gcsReplayTemp';
 import { clientIp, requestRateLimit } from '../utils';
 import { historicalPlayerLabel, mergeAcceptedPlayerStat, preserveIdentitySnapshot } from '../identitySnapshot';
@@ -311,6 +312,85 @@ function acceptReviewIntoEngines(db: any, store: ReplayStore, job: ReplayParserJ
     }
   }
   return { acceptedAt, ratingDraftKeys };
+}
+
+function cairoDate(value: string) {
+  const parts = new Intl.DateTimeFormat('en-CA', { timeZone: 'Africa/Cairo', year: 'numeric', month: '2-digit', day: '2-digit' }).formatToParts(new Date(value));
+  const part = (type: string) => parts.find(item => item.type === type)?.value || '';
+  return `${part('year')}-${part('month')}-${part('day')}`;
+}
+
+/**
+ * Finish the ordinary desktop path without a confirmation dialog. Automation
+ * is deliberately evidence-gated: ten unique K/D/A rows, one replay, and one
+ * unambiguous five-player scoreboard side. Anything weaker remains an inbox
+ * draft while unrelated replays continue processing.
+ */
+function autoFinalizeDesktopReplay(db: any, store: ReplayStore, sha256: string, user: Actor) {
+  const blob = store.blobs[sha256]; const job = blob?.parserJobId ? store.parserJobs[blob.parserJobId] : null;
+  if (!blob || !job?.result || job.status !== 'completed' || blob.reviewStatus === 'accepted' || store.reviews[sha256]) return null;
+  const linked = Object.values(store.screenshots).filter(item => item.deviceId.startsWith('desktop-') && item.status === 'linked' && item.replaySha256 === sha256);
+  if (linked.length !== 1) return null;
+  const screenshot = linked[0]; const players = job.result.scoreboard?.players;
+  if (!Array.isArray(players) || players.length !== 10 || screenshot.suggestions.length !== 10) return null;
+  const byId = new Map(players.map((player: any) => [player.playerId, player]));
+  if (new Set(screenshot.suggestions.map(item => item.parserPlayerId)).size !== 10) return null;
+  const rosterTeamIds = new Set(screenshot.suggestions.filter(item => item.rosterPlayerId).map(item => (byId.get(item.parserPlayerId) as any)?.teamId).filter(Boolean));
+  const rosterMapped = screenshot.suggestions.filter(item => item.rosterPlayerId).length;
+  const scoreTeams = [job.result.scoreboard.finalScore?.teamA, job.result.scoreboard.finalScore?.teamB].filter((team: any) => team?.teamId);
+  const hintedOurScore = screenshot.draft.match?.ourScore; const hintedTheirScore = screenshot.draft.match?.theirScore;
+  const scoreMatches = scoreTeams.filter((candidate: any) => evidenceNumber(candidate.score) === hintedOurScore
+    && scoreTeams.some((other: any) => other !== candidate && evidenceNumber(other.score) === hintedTheirScore));
+  const fallbackTeamIds = new Set(screenshot.suggestions.filter(item => item.screenshotTeam === 'ours').map(item => (byId.get(item.parserPlayerId) as any)?.teamId).filter(Boolean));
+  const teamId = rosterMapped === 5 && rosterTeamIds.size === 1 ? [...rosterTeamIds][0] as string
+    : scoreMatches.length === 1 ? scoreMatches[0].teamId
+      : fallbackTeamIds.size === 1 ? [...fallbackTeamIds][0] as string : null;
+  if (!teamId) return null;
+  const ours = screenshot.suggestions.filter(item => (byId.get(item.parserPlayerId) as any)?.teamId === teamId);
+  const theirs = screenshot.suggestions.filter(item => (byId.get(item.parserPlayerId) as any)?.teamId !== teamId);
+  if (ours.length !== 5 || theirs.length !== 5) return null;
+
+  const hasCore = activeCorePlayerIds(db).size > 0;
+  const mappings: ReplayMapping[] = screenshot.suggestions.map(item => {
+    if ((byId.get(item.parserPlayerId) as any)?.teamId !== teamId) return { parserPlayerId: item.parserPlayerId, rosterPlayerId: null, displayName: item.displayName };
+    let roster = (db.rosterPlayers || []).find((player: any) => player.id === item.rosterPlayerId && !player.retiredAt);
+    roster ||= ensureObservedRosterPlayer(db, item.displayName);
+    if (!roster.rosterStatus) setObservedRosterStatus(db, { playerId: roster.id, displayName: roster.displayName, status: hasCore ? 'standIn' : 'tryout' });
+    return { parserPlayerId: item.parserPlayerId, rosterPlayerId: roster.id, displayName: item.displayName };
+  });
+
+  const board = job.result.scoreboard; const teamA = board.finalScore?.teamA; const teamB = board.finalScore?.teamB;
+  const ourBoard = teamA?.teamId === teamId ? teamA : teamB?.teamId === teamId ? teamB : null; const theirBoard = ourBoard === teamA ? teamB : teamA;
+  const map = evidenceText(board.map); const ourScore = evidenceNumber(ourBoard?.score); const theirScore = evidenceNumber(theirBoard?.score);
+  const date = cairoDate(screenshot.draft.sourceMetadata?.capturedAt || screenshot.createdAt);
+  const normalizedMap = String(map || '').trim().toLocaleLowerCase();
+  const candidates = (db.matches || []).filter((match: any) => match.date === date && String(match.map || '').trim().toLocaleLowerCase() === normalizedMap
+    && match.ourScore === ourScore && match.theirScore === theirScore && !db.engineAdapters?.replay?.[match.id]);
+  // Match rows are append-ordered. When a coach has accidentally logged the
+  // same map/score more than once, prefer the newest unlinked row instead of
+  // creating yet another duplicate; the result remains editable afterward.
+  let match = candidates.at(-1) || null;
+  if (!match) {
+    const activeBatch = (db.tryoutBatches || []).find((batch: any) => batch.status === 'active' && batch.id === db.settings?.activeTryoutBatchId)
+      || (db.tryoutBatches || []).find((batch: any) => batch.status === 'active');
+    match = { id: crypto.randomUUID(), date, type: 'Scrim', opponent: 'Unknown opponent', map, ourScore, theirScore,
+      rosterContext: activeBatch ? { kind: 'tryout', tryoutBatchId: activeBatch.id } : { kind: 'unclassified' },
+      sourceMetadata: { method: 'provider-import', capturedAt: new Date().toISOString(), provider: 'vrfkit', externalId: sha256 },
+      automation: { mode: 'exact-scoreboard', editable: true } };
+    (db.matches ||= []).push(match);
+  }
+
+  const now = new Date().toISOString(); const requestId = `auto:${sha256}:${screenshot.id}`;
+  const review: ReplayReview = { sha256, matchId: match.id, teamId, mappings, status: 'review-required', revision: 1,
+    requestId, requestHash: '', rawEvidenceHash: contentHash(job.result), updatedAt: now, acceptedAt: null, acceptedBy: null,
+    ratingDraftKeys: [], screenshotLinks: [{ id: screenshot.id, imageSha256: screenshot.imageSha256, replaySha256: sha256 }] };
+  review.requestHash = contentHash({ mode: 'automatic-exact-scoreboard', matchId: match.id, teamId, mappings, screenshotId: screenshot.id });
+  store.reviews[sha256] = review; blob.matchId = match.id;
+  const accepted = acceptReviewIntoEngines(db, store, job, review, user, requestId, review.requestHash);
+  review.status = 'accepted'; review.revision = 2; review.updatedAt = accepted.acceptedAt; review.acceptedAt = accepted.acceptedAt; review.acceptedBy = user.actorId; review.ratingDraftKeys = accepted.ratingDraftKeys;
+  blob.reviewStatus = 'accepted'; blob.matchId = match.id; screenshot.autoProcessedAt = accepted.acceptedAt; screenshot.automaticMatchId = match.id;
+  screenshot.reason = 'Automatically processed from a unique exact ten-player K/D/A match. You can edit the saved match later.';
+  return { matchId: match.id, acceptedAt: accepted.acceptedAt };
 }
 
 function actorCanSeeReplay(user: Actor, store: ReplayStore, sha256: string) {
@@ -811,7 +891,7 @@ export async function registerReplayDeviceRoutes(app: Express) {
       // Desktop reprocessing can legitimately produce a different envelope
       // after an app/parser migration. Preserve the already-reviewed local
       // record instead of replacing trusted evidence or blocking the user.
-      if (existing && priorEvidenceHash && priorEvidenceHash !== incomingEvidenceHash) {
+      if (existing && priorEvidenceHash && priorEvidenceHash !== incomingEvidenceHash && (existing.reviewStatus === 'accepted' || !!store.reviews[expectedHash])) {
         return res.json({ sha256: expectedHash, parserStatus: existing.parserStatus, reviewStatus: existing.reviewStatus, matchId: existing.matchId, idempotent: true, existingEvidencePreserved: true });
       }
       if (existing && priorEvidenceHash === incomingEvidenceHash) {
@@ -825,8 +905,10 @@ export async function registerReplayDeviceRoutes(app: Express) {
       const key = associationKey(sourceDeviceId, expectedHash);
       store.parserJobs[jobId] = job; store.blobs[expectedHash] = blob;
       store.associations[key] ||= { id: crypto.randomUUID(), sha256: expectedHash, size: source.size, originalName, deviceId: sourceDeviceId, owner: { actorId: user.actorId, role: user.role, playerId: user.playerId || null }, receivedAt: now };
-      pruneParserJobs(store); pairReplayScreenshots(store); await saveDB(db);
-      res.status(201).json({ sha256: expectedHash, parserStatus: blob.parserStatus, reviewStatus: blob.reviewStatus, matchId: blob.matchId, idempotent: false });
+      pruneParserJobs(store); pairReplayScreenshots(store);
+      const automatic = sourceDeviceId.startsWith('desktop-') ? autoFinalizeDesktopReplay(db, store, expectedHash, user) : null;
+      await saveDB(db);
+      res.status(201).json({ sha256: expectedHash, parserStatus: blob.parserStatus, reviewStatus: blob.reviewStatus, matchId: blob.matchId, idempotent: false, automatic });
     } catch (error: any) { res.status(error?.status || 400).json({ error: error?.message || 'Local replay evidence could not be imported.' }); }
   });
 
@@ -902,6 +984,8 @@ export async function registerReplayDeviceRoutes(app: Express) {
         pruneScreenshotPairings(store); screenshotAdmission(store, deviceId, user.actorId);
         store.screenshots[id] = { id, deviceId, imageSha256, createdAt: new Date().toISOString(), createdBy: user.actorId, status: 'pending', reviewRequired: true, draft, replaySha256: null, suggestions: [], reason: 'Waiting for a matching replay.' };
         pairReplayScreenshots(store);
+        const pairing = store.screenshots[id];
+        if (deviceId.startsWith('desktop-') && pairing.replaySha256) autoFinalizeDesktopReplay(db, store, pairing.replaySha256, user);
         try { await saveDB(db); return res.status(201).json(screenshotPairingPublic(store.screenshots[id])); }
         catch (error: any) { if (error?.status !== 409 || attempt === 3) throw error; }
       }
