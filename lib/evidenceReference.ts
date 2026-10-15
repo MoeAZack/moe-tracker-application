@@ -402,7 +402,7 @@ export function evidenceReferenceForMatch(db: any, matchId: string, options: Bui
     replay: replay ? { sha256: replay.sha256, evidenceSha256: replay.evidenceSha256 } : null, vod: null,
     producer: { parser: replay?.parser || null, ocr, capture: null },
     capturedAt: match.sourceMetadata?.capturedAt || null,
-    acceptedAt: state === 'accepted' ? latest(shot?.acceptedAt, replay?.acceptedAt, match.sourceMetadata?.capturedAt) : null,
+    acceptedAt: state === 'accepted' ? latest(shot?.acceptedAt, replay?.acceptedAt) : null,
     observedIdentities: identitiesFromStats(stats), confidence: null, fieldProvenance: null,
   });
 }
@@ -415,12 +415,17 @@ export function evidenceReferenceForRound(db: any, matchId: string, round: { rou
   if (!row) throw Object.assign(new EvidenceReferenceError('round-not-found'), { status: 404 });
   const evidence = row.screenshotEvidence;
   const fromScreenshot = !!evidence && base.sourceTypes.includes('screenshot');
+  // A retained OCR round is independently review-gated. It may only inherit
+  // acceptance after both the match and this exact round were confirmed.
+  const state: EvidenceState = fromScreenshot && (base.state !== 'accepted' || evidence.reviewStatus !== 'confirmed') ? 'draft' : base.state;
   const fieldProvenance = fromScreenshot && isObject(evidence.fieldConfidence)
     ? Object.fromEntries(Object.entries(evidence.fieldConfidence).filter(([field]) => FIELD_PATH.test(field)).slice(0, MAX_FIELD_PROVENANCE)
       .map(([field, value]) => [field, { source: 'screenshot', confidence: typeof value === 'number' && Number.isFinite(value) && value >= 0 && value <= 100 ? value : null }]))
     : null;
   return normalizeEvidenceReference({
     ...base,
+    state,
+    acceptedAt: state === 'accepted' ? base.acceptedAt : null,
     round: { roundId: typeof row.id === 'string' && ID.test(row.id) ? row.id : null, roundNumber: Number.isSafeInteger(row.roundNo) && row.roundNo >= 1 && row.roundNo <= MAX_ROUND ? row.roundNo : null },
     screenshot: fromScreenshot ? { artifactId: null, imageSha256: null, captureKind: 'round', cropRegionId: null } : null,
     confidence: fromScreenshot && EVIDENCE_CONFIDENCE.includes(evidence.confidence) ? evidence.confidence : null,
@@ -486,7 +491,8 @@ export function evidenceReferenceForReplay(db: any, sha256: string, options: Bui
 
 export type EvidenceResolutionFailure =
   | 'invalid-reference' | 'workspace-unidentified' | 'cross-workspace' | 'match-not-found' | 'round-not-found'
-  | 'capture-session-mismatch' | 'screenshot-not-found' | 'replay-not-found' | 'replay-match-mismatch' | 'vod-not-found' | 'state-mismatch';
+  | 'capture-session-mismatch' | 'screenshot-not-found' | 'replay-not-found' | 'replay-match-mismatch' | 'replay-evidence-mismatch'
+  | 'vod-not-found' | 'owner-device-mismatch' | 'state-mismatch';
 
 export type CurrentIdentity = { playerId: string; displayName: string | null; status: 'core' | 'tryout' | 'standIn' | 'archived' | 'unknown' };
 
@@ -520,7 +526,9 @@ export function resolveEvidenceReference(db: any, raw: unknown, caller: { worksp
   if (!own) return { ok: false, reason: 'workspace-unidentified' };
   if (caller?.workspaceId !== own || reference.scope.workspaceId !== own) return { ok: false, reason: 'cross-workspace' };
 
-  let storedState: EvidenceState = reference.state;
+  // Never seed resolved state from the untrusted claim itself.
+  let storedState: EvidenceState = 'draft';
+  const ownerDeviceIds = new Set<string>();
   let match: Extract<EvidenceResolution, { ok: true }>['match'] = null;
   let located: ReturnType<typeof locateMatch> = null;
   if (reference.matchId) {
@@ -528,18 +536,22 @@ export function resolveEvidenceReference(db: any, raw: unknown, caller: { worksp
     if (!located) return { ok: false, reason: 'match-not-found' };
     match = { id: reference.matchId, location: located.location, archiveId: located.location === 'archived' ? located.archiveId : null };
     const recordedCapture = located.match.screenshotEvidence?.captureId;
-    if (reference.captureSessionId && typeof recordedCapture === 'string' && recordedCapture !== reference.captureSessionId) return { ok: false, reason: 'capture-session-mismatch' };
+    if (reference.captureSessionId && recordedCapture !== reference.captureSessionId) return { ok: false, reason: 'capture-session-mismatch' };
+    const matchOwner = located.adapters?.screenshot?.[reference.matchId]?.sourceDeviceId;
+    if (typeof matchOwner === 'string' && ID.test(matchOwner)) ownerDeviceIds.add(matchOwner);
     storedState = located.match.sourceMetadata?.method === 'screenshot' && !screenshotAcceptance(located.match, located.adapters) ? 'draft' : 'accepted';
-  }
+  } else if (reference.captureSessionId) return { ok: false, reason: 'capture-session-mismatch' };
 
   let round: Extract<EvidenceResolution, { ok: true }>['round'] = null;
+  let roundRow: any = null;
   if (reference.round) {
     if (located) {
       const row = (located.container.rounds || []).find((item: any) => item?.matchId === reference.matchId
         && (reference.round!.roundId ? item.id === reference.round!.roundId : item.roundNo === reference.round!.roundNumber));
       if (!row || (reference.round.roundNumber !== null && row.roundNo !== reference.round.roundNumber)) return { ok: false, reason: 'round-not-found' };
+      roundRow = row;
       round = { id: typeof row.id === 'string' ? row.id : null, roundNumber: Number.isSafeInteger(row.roundNo) ? row.roundNo : null };
-    } else round = { id: reference.round.roundId, roundNumber: reference.round.roundNumber };
+    } else return { ok: false, reason: 'round-not-found' };
   }
 
   let replay: Extract<EvidenceResolution, { ok: true }>['replay'] = null;
@@ -548,40 +560,68 @@ export function resolveEvidenceReference(db: any, raw: unknown, caller: { worksp
     const store = located?.location === 'archived' ? null : db.replayIntake;
     const accepted = reference.matchId ? acceptedReplayFor(located?.adapters, store, reference.matchId) : null;
     const review = store?.reviews?.[sha]; const blob = store?.blobs?.[sha];
-    if (accepted?.sha256 === sha) replay = { sha256: sha, status: 'accepted' };
+    let storedEvidenceSha256: string | null = null;
+    if (accepted?.sha256 === sha) {
+      replay = { sha256: sha, status: 'accepted' };
+      storedEvidenceSha256 = accepted.evidenceSha256;
+    }
     else if (review || blob) {
       const linkedMatch = review?.matchId || blob?.matchId || null;
       if (reference.matchId && linkedMatch && linkedMatch !== reference.matchId) return { ok: false, reason: 'replay-match-mismatch' };
       replay = { sha256: sha, status: review?.status === 'accepted' && (!reference.matchId || review.matchId === reference.matchId) ? 'accepted' : 'review-required' };
+      storedEvidenceSha256 = SHA256.test(String(review?.rawEvidenceHash || blob?.evidenceHash || '')) ? (review?.rawEvidenceHash || blob.evidenceHash) : null;
     } else return { ok: false, reason: 'replay-not-found' };
+    if (reference.replay.evidenceSha256 && storedEvidenceSha256 !== reference.replay.evidenceSha256) return { ok: false, reason: 'replay-evidence-mismatch' };
+    for (const association of Object.values(store?.associations || {}) as any[]) {
+      if (association?.sha256 === sha && typeof association.deviceId === 'string' && ID.test(association.deviceId)) ownerDeviceIds.add(association.deviceId);
+    }
     if (replay.status !== 'accepted') storedState = 'draft';
     else if (!reference.matchId) storedState = 'accepted';
   }
 
   let screenshot: Extract<EvidenceResolution, { ok: true }>['screenshot'] = null;
   if (reference.screenshot) {
+    let backing: any = null;
     if (reference.screenshot.artifactId) {
       const record = db.replayIntake?.screenshots?.[reference.screenshot.artifactId];
       // Screenshot review records expire after their retention window; an expired record no longer resolves.
       if (!record || (reference.screenshot.imageSha256 && record.imageSha256 !== reference.screenshot.imageSha256)) return { ok: false, reason: 'screenshot-not-found' };
+      backing = record;
+      if (typeof record.deviceId === 'string' && ID.test(record.deviceId) && record.deviceId !== 'manual-entry') ownerDeviceIds.add(record.deviceId);
+      if (reference.screenshot.captureKind && reference.screenshot.captureKind !== 'scoreboard') return { ok: false, reason: 'screenshot-not-found' };
       // Retained screenshot records are review-required drafts by contract; they never carry acceptance.
-      storedState = 'draft';
+      storedState = record.status === 'rejected' ? 'rejected' : 'draft';
+    } else if (reference.screenshot.captureKind === 'round' && roundRow?.screenshotEvidence) {
+      backing = roundRow.screenshotEvidence;
+      const roundStatus = roundRow.screenshotEvidence.reviewStatus;
+      if (roundStatus !== 'confirmed' || storedState !== 'accepted') storedState = roundStatus === 'rejected' ? 'rejected' : 'draft';
+    } else if (reference.screenshot.captureKind === 'scoreboard' && located?.match.screenshotEvidence && reference.captureSessionId) {
+      backing = located.match.screenshotEvidence;
+    } else {
+      return { ok: false, reason: 'screenshot-not-found' };
     }
+    if (reference.screenshot.imageSha256 && backing?.imageSha256 !== reference.screenshot.imageSha256) return { ok: false, reason: 'screenshot-not-found' };
+    if (reference.screenshot.cropRegionId && backing?.cropRegionId !== reference.screenshot.cropRegionId) return { ok: false, reason: 'screenshot-not-found' };
     screenshot = { artifactId: reference.screenshot.artifactId };
   }
 
   let vod: Extract<EvidenceResolution, { ok: true }>['vod'] = null;
+  if (reference.vod && !reference.vod.vodReviewId) return { ok: false, reason: 'vod-not-found' };
   if (reference.vod?.vodReviewId) {
     const reviews = located?.location === 'archived' ? (located.container.vodReviews || []) : (db.vodReviews || []);
     const review = reviews.find((item: any) => item?.id === reference.vod!.vodReviewId);
     if (!review || (reference.matchId && review.matchId && review.matchId !== reference.matchId)) return { ok: false, reason: 'vod-not-found' };
     if (reference.vod.noteId && !(review.notes || []).some((note: any) => note?.id === reference.vod!.noteId)) return { ok: false, reason: 'vod-not-found' };
+    if (review.status === 'rejected') storedState = 'rejected';
     vod = { vodReviewId: review.id };
   }
 
-  // A reference may never claim acceptance that storage does not currently hold.
+  if (reference.scope.ownerDeviceId && ownerDeviceIds.size && !ownerDeviceIds.has(reference.scope.ownerDeviceId)) return { ok: false, reason: 'owner-device-mismatch' };
+
+  // A reference may never claim acceptance or rejection that storage does not
+  // currently hold. Draft references remain valid after later acceptance.
   if (reference.state === 'accepted' && storedState !== 'accepted') return { ok: false, reason: 'state-mismatch' };
-  if (reference.state === 'rejected') storedState = 'rejected';
+  if (reference.state === 'rejected' && storedState !== 'rejected') return { ok: false, reason: 'state-mismatch' };
 
   return {
     ok: true, reference, storedState, match, round, replay, screenshot, vod,

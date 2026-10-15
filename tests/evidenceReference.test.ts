@@ -140,6 +140,25 @@ describe('S0.1 canonical evidence reference', () => {
     expect(() => evidenceReferenceForRound(db, 'match-shot', { roundNumber: 9 }, opts)).toThrow(/round-not-found/);
   });
 
+  it('keeps review-required rounds draft until both the round and match are confirmed', () => {
+    const db = workspace();
+    db.rounds[0].screenshotEvidence.reviewStatus = 'review-required';
+    const draft = evidenceReferenceForRound(db, 'match-shot', { roundNumber: 1 }, opts);
+    expect(draft).toMatchObject({ state: 'draft', acceptedAt: null, screenshot: { captureKind: 'round' } });
+    expect(resolveEvidenceReference(db, draft, opts)).toMatchObject({ ok: true, storedState: 'draft' });
+    expect(resolveEvidenceReference(db, { ...draft, state: 'accepted', acceptedAt: CONFIRMED_AT }, opts)).toEqual({ ok: false, reason: 'state-mismatch' });
+
+    // A draft reference remains usable after the exact retained evidence is accepted.
+    db.rounds[0].screenshotEvidence.reviewStatus = 'confirmed';
+    expect(resolveEvidenceReference(db, draft, opts)).toMatchObject({ ok: true, storedState: 'accepted' });
+
+    delete db.matches[0].reviewConfirmation;
+    delete db.engineAdapters.screenshot['match-shot'];
+    const unconfirmedMatch = evidenceReferenceForRound(db, 'match-shot', { roundNumber: 1 }, opts);
+    expect(unconfirmedMatch).toMatchObject({ state: 'draft', acceptedAt: null });
+    expect(resolveEvidenceReference(db, { ...unconfirmedMatch, state: 'accepted', acceptedAt: CONFIRMED_AT }, opts)).toEqual({ ok: false, reason: 'state-mismatch' });
+  });
+
   it('references accepted replay evidence by SHA-256 and parser version, not as a separate provider import', () => {
     const db = workspace();
     const fromMatch = evidenceReferenceForMatch(db, 'match-replay', opts);
@@ -191,6 +210,37 @@ describe('S0.1 canonical evidence reference', () => {
     expect(isAcceptedEvidenceReference(rejected)).toBe(false);
     expect(validateEvidenceReference({ ...rejected, acceptedAt: CONFIRMED_AT })).toMatchObject({ ok: false, issues: [{ path: 'acceptedAt', code: 'only-when-accepted' }] });
     expect(validateEvidenceReference({ ...draftShot, acceptedAt: CONFIRMED_AT })).toMatchObject({ ok: false, issues: [{ path: 'acceptedAt', code: 'only-when-accepted' }] });
+    expect(resolveEvidenceReference(db, { ...draftReplay, state: 'rejected' }, opts)).toEqual({ ok: false, reason: 'state-mismatch' });
+    db.replayIntake.screenshots['shot-record-1'].status = 'rejected';
+    expect(resolveEvidenceReference(db, { ...draftShot, state: 'rejected' }, opts)).toMatchObject({ ok: true, storedState: 'rejected' });
+  });
+
+  it('never substitutes capture time for an unknown acceptance time', () => {
+    const db = workspace();
+    db.matches.push({ id: 'match-import-no-acceptance', source: 'import', sourceMetadata: { method: 'provider-import', capturedAt: '2026-10-14T17:15:00.000Z', provider: 'other' } });
+    expect(evidenceReferenceForMatch(db, 'match-import-no-acceptance', opts)).toMatchObject({ state: 'accepted', capturedAt: '2026-10-14T17:15:00.000Z', acceptedAt: null });
+  });
+
+  it('fails closed for locator details that current storage cannot substantiate', () => {
+    const db = workspace();
+    const artifact = evidenceReferenceForScreenshotRecord(db, 'shot-record-1', opts);
+    expect(resolveEvidenceReference(db, baseReference({ matchId: null, acceptedAt: null, state: 'draft', captureSessionId: 'unbacked-session' }), opts)).toEqual({ ok: false, reason: 'capture-session-mismatch' });
+    expect(resolveEvidenceReference(db, { ...artifact, screenshot: { ...artifact.screenshot!, captureKind: 'performance' } }, opts)).toEqual({ ok: false, reason: 'screenshot-not-found' });
+    expect(resolveEvidenceReference(db, { ...artifact, screenshot: { ...artifact.screenshot!, cropRegionId: 'crop-unbacked' } }, opts)).toEqual({ ok: false, reason: 'screenshot-not-found' });
+    expect(resolveEvidenceReference(db, baseReference({ captureSessionId: '20261014-180000', screenshot: { artifactId: null, imageSha256: IMAGE, captureKind: 'scoreboard', cropRegionId: null } }), opts)).toEqual({ ok: false, reason: 'screenshot-not-found' });
+    expect(resolveEvidenceReference(db, baseReference({ sourceTypes: ['screenshot', 'vod'], vod: { vodReviewId: null, noteId: 'note-1', atSeconds: 42 } }), opts)).toEqual({ ok: false, reason: 'vod-not-found' });
+    expect(resolveEvidenceReference(db, baseReference({ round: { roundId: 'round-shot-2', roundNumber: 2 }, screenshot: { artifactId: null, imageSha256: null, captureKind: 'round', cropRegionId: null } }), opts)).toEqual({ ok: false, reason: 'screenshot-not-found' });
+  });
+
+  it('rechecks replay evidence hashes and stored source-device claims', () => {
+    const db = workspace();
+    const accepted = evidenceReferenceForReplay(db, REPLAY, opts);
+    expect(resolveEvidenceReference(db, { ...accepted, replay: { ...accepted.replay!, evidenceSha256: 'f'.repeat(64) } }, opts)).toEqual({ ok: false, reason: 'replay-evidence-mismatch' });
+    const draft = evidenceReferenceForReplay(db, REPLAY_DRAFT, opts);
+    expect(resolveEvidenceReference(db, { ...draft, replay: { ...draft.replay!, evidenceSha256: 'f'.repeat(64) } }, opts)).toEqual({ ok: false, reason: 'replay-evidence-mismatch' });
+    expect(resolveEvidenceReference(db, { ...draft, scope: { ...draft.scope, ownerDeviceId: 'd_wrongDevice01' } }, opts)).toEqual({ ok: false, reason: 'owner-device-mismatch' });
+    const shot = evidenceReferenceForScreenshotRecord(db, 'shot-record-1', opts);
+    expect(resolveEvidenceReference(db, { ...shot, scope: { ...shot.scope, ownerDeviceId: 'd_wrongDevice01' } }, opts)).toEqual({ ok: false, reason: 'owner-device-mismatch' });
   });
 
   it('keeps missing optional data null and never converts it to zero', () => {
