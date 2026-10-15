@@ -28,20 +28,22 @@ A derived claim (a summary value, a later review signal or assignment) links to 
 ## Rules enforced
 
 - Missing optional data is `null` or an empty list. Nothing is defaulted to zero, guessed, or coerced from a string.
-- A source type must name the evidence it claims (a replay needs its SHA-256; a screenshot needs a locator, capture session or match), and named evidence must appear in `sourceTypes`.
+- A source type must name the evidence it claims (a replay needs its SHA-256; a screenshot needs a locator, capture session or match), and named evidence must appear in `sourceTypes`. Resolution additionally requires every claimed capture session, screenshot kind/hash/crop, replay evidence hash and VOD review/note to be backed by the current store.
 - Synthetic capture keys such as `name:alpha` are never treated as roster identities.
 - Unknown fields, invalid identifiers, malformed hashes, out-of-range rounds and references over 32 KiB are rejected.
 - `serializeEvidenceReference` is canonical (sorted keys, normalized hashes and instants), so `evidenceReferenceKey` is a stable SHA-256 for de-duplication.
 
 ## Resolution and team boundary
 
-`resolveEvidenceReference(db, reference, { workspaceId })` rejects with `cross-workspace` unless the caller's workspace, the reference's workspace and the stored workspace are identical, and with `workspace-unidentified` when the store has no identity yet. It then re-checks storage: the match (active season first, then preserved season archives), round, capture session, replay, screenshot record and VOD note must exist and agree. A reference claiming `accepted` for evidence that storage holds as a draft fails with `state-mismatch`; retained screenshot review records are always drafts. Resolution returns identifiers, states and each observed identity alongside its current roster status. It never returns raw evidence and never rewrites the snapshot.
+`resolveEvidenceReference(db, reference, { workspaceId })` rejects with `cross-workspace` unless the caller's workspace, the reference's workspace and the stored workspace are identical, and with `workspace-unidentified` when the store has no identity yet. It then re-checks storage: the match (active season first, then preserved season archives), round, capture session, replay and its claimed evidence SHA-256, screenshot record and its locator details, and VOD review/note must exist and agree. Capture-session-only and VOD-note-only references do not resolve without their owning stored records. A stored source-device ID is also checked when one is available. A reference claiming `accepted` for evidence that storage holds as a draft, or `rejected` without a stored rejection, fails with `state-mismatch`; retained screenshot review records are drafts unless storage explicitly records rejection. A draft reference may continue to resolve after the same stored evidence is later accepted. Resolution returns identifiers, states and each observed identity alongside its current roster status. It never returns raw evidence and never rewrites the snapshot.
 
 ## Compatibility
 
 - Existing matches, rounds, replay records and screenshot records are not rewritten. The `evidenceReferenceFor{Match,Round,Replay,ScreenshotRecord}` adapters derive references on demand from today's fields.
 - An accepted match reference includes a replay only when that replay is itself accepted. A replay draft gets its own draft reference.
+- A screenshot-derived round remains `draft` while its retained round evidence is `review-required`; it is accepted only when the round is confirmed and its match evidence is accepted.
 - Legacy matches without source metadata produce `sourceTypes: ['unknown']`. An accepted legacy row that never recorded an acceptance time keeps `acceptedAt: null`.
+- `acceptedAt` is populated only from a recorded acceptance/confirmation timestamp and never falls back to `capturedAt`.
 - The workspace identity (`db.workspace = { schemaVersion: 1, id, createdAt }`) is created on the first persisted write (JSON, Firestore and D1 paths) and is never replaced. Reads never create it, so an unsaved identity cannot change between requests. It survives season archive/reset and is not copied by portable-package import. A complete restore carries the restored workspace's own identity.
 
 ## Known limitations
