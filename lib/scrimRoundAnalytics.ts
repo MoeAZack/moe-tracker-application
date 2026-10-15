@@ -2,11 +2,30 @@ import type { EconomyClass, PlayerScreenshotMetrics, Round } from '../src/types'
 import { knownResult } from './analyticsEvidence';
 import { normalizeCaptureName } from './scrimCaptureImport';
 
+export const PLAYER_SCREENSHOT_CALCULATION_VERSION = 'player-screenshot-metrics/v1' as const;
+
 export function screenshotPlayerIdentity(playerId: unknown, displayName: unknown): string {
   const supplied = typeof playerId === 'string' ? playerId.trim() : '';
   if (supplied && !supplied.toLocaleLowerCase().startsWith('name:')) return supplied;
   const name = supplied ? supplied.slice(5) : displayName;
   return `name:${normalizeCaptureName(name)}`;
+}
+
+function roundPlayerIdentity(matchId: string, playerId: unknown, displayName: unknown): string {
+  const supplied = typeof playerId === 'string' ? playerId.trim() : '';
+  if (supplied && !supplied.toLocaleLowerCase().startsWith('name:')) return supplied;
+  const observed = supplied ? supplied.slice(5) : displayName;
+  return `unlinked:${matchId}:${normalizeCaptureName(observed)}`;
+}
+
+function stablePlayerIdentity(playerId: unknown): string | null {
+  const supplied = typeof playerId === 'string' ? playerId.trim() : '';
+  return supplied && !supplied.toLocaleLowerCase().startsWith('name:') ? supplied : null;
+}
+
+function observedPlayerName(playerId: unknown, displayName: unknown): string {
+  const supplied = typeof playerId === 'string' ? playerId.trim() : '';
+  return normalizeCaptureName(supplied.toLocaleLowerCase().startsWith('name:') ? supplied.slice(5) : displayName);
 }
 
 export function classifyAverageLoadout(value: unknown): EconomyClass {
@@ -73,7 +92,7 @@ export function deriveSpecialRoundConversions(rounds: readonly Round[]) {
 
 type Mutable = PlayerScreenshotMetrics & { identity: string; displayName: string };
 const empty = (identity: string, displayName: string): Mutable => ({
-  schemaVersion: 1, identity, displayName, coveredRounds: 0, wins: 0, losses: 0,
+  schemaVersion: 1, calculationVersion: PLAYER_SCREENSHOT_CALCULATION_VERSION, identity, displayName, coveredRounds: 0, wins: 0, losses: 0,
   firstKills: 0, firstDeaths: 0, multikills: { two: 0, three: 0, four: 0, ace: 0 },
   lowBudgetWins: 0, highBudgetLosses: 0, antiEcoLosses: 0,
   kast: { successful: 0, covered: 0 }, weapons: [],
@@ -93,6 +112,14 @@ export function buildPlayerScreenshotMetrics(rounds: readonly Round[]) {
     if (coveredRoundKeys.has(roundKey)) continue;
     coveredRoundKeys.add(roundKey);
     const ours = evidence.players.filter(player => player.team === 'ours');
+    const unlinkedNameCounts = new Map<string, number>();
+    for (const observation of ours) {
+      if (stablePlayerIdentity(observation.playerId)) continue;
+      const name = observedPlayerName(observation.playerId, observation.displayName);
+      if (name) unlinkedNameCounts.set(name, (unlinkedNameCounts.get(name) || 0) + 1);
+    }
+    const ambiguousNames = new Set([...unlinkedNameCounts].filter(([, count]) => count > 1).map(([name]) => name));
+    const ambiguousOccurrences = new Map<string, number>();
     const ourEquipment = classifyTeamEquipment(evidence.players, 'ours');
     const enemyEquipment = classifyTeamEquipment(evidence.players, 'theirs');
     const ourEconomy = ourEquipment !== 'unknown' ? ourEquipment : classifyAverageLoadout(evidence.ourAverageLoadout);
@@ -109,8 +136,10 @@ export function buildPlayerScreenshotMetrics(rounds: readonly Round[]) {
     const deaths = new Map<string, number>();
     const weaponKills = new Map<string, Map<string, number>>();
     for (const event of eventsComplete ? events : []) {
-      const killerId = event.killerPlayerId ? screenshotPlayerIdentity(event.killerPlayerId, '') : null;
-      const victimId = event.victimPlayerId ? screenshotPlayerIdentity(event.victimPlayerId, '') : null;
+      const killerName = observedPlayerName(event.killerPlayerId, '');
+      const victimName = observedPlayerName(event.victimPlayerId, '');
+      const killerId = event.killerPlayerId && !ambiguousNames.has(killerName) ? roundPlayerIdentity(round.matchId, event.killerPlayerId, '') : null;
+      const victimId = event.victimPlayerId && !ambiguousNames.has(victimName) ? roundPlayerIdentity(round.matchId, event.victimPlayerId, '') : null;
       if (killerId) kills.set(killerId, (kills.get(killerId) || 0) + 1);
       if (victimId) deaths.set(victimId, (deaths.get(victimId) || 0) + 1);
       const weapon = event.weapon?.trim();
@@ -123,7 +152,14 @@ export function buildPlayerScreenshotMetrics(rounds: readonly Round[]) {
     for (const observation of ours) {
       const normalizedName = normalizeCaptureName(observation.displayName);
       if (!observation.playerId && !normalizedName) continue;
-      const identity = screenshotPlayerIdentity(observation.playerId, observation.displayName);
+      const stableIdentity = stablePlayerIdentity(observation.playerId);
+      const observedName = observedPlayerName(observation.playerId, observation.displayName);
+      const ambiguous = !stableIdentity && ambiguousNames.has(observedName);
+      const occurrence = ambiguous ? (ambiguousOccurrences.get(observedName) || 0) + 1 : 0;
+      if (ambiguous) ambiguousOccurrences.set(observedName, occurrence);
+      const identity = stableIdentity || (ambiguous
+        ? `unlinked:${round.matchId}:${round.roundNo}:${observedName}:${occurrence}`
+        : roundPlayerIdentity(round.matchId, observation.playerId, observation.displayName));
       if (seenOurPlayers.has(identity)) continue;
       seenOurPlayers.add(identity);
       const metric = players.get(identity) || empty(identity, observation.displayName);
@@ -133,9 +169,13 @@ export function buildPlayerScreenshotMetrics(rounds: readonly Round[]) {
       if (result === 'win' && (ourEconomy === 'eco' || ourEconomy === 'low')) metric.lowBudgetWins += 1;
       if (result === 'loss' && ourEconomy === 'full') metric.highBudgetLosses += 1;
       if (result === 'loss' && ourEconomy === 'full' && (enemyEconomy === 'eco' || enemyEconomy === 'low')) metric.antiEcoLosses += 1;
-      const playerId = typeof observation.playerId === 'string' && observation.playerId.length > 0 ? screenshotPlayerIdentity(observation.playerId, observation.displayName) : null;
-      const firstKillerId = first?.killerPlayerId ? screenshotPlayerIdentity(first.killerPlayerId, '') : null;
-      const firstVictimId = first?.victimPlayerId ? screenshotPlayerIdentity(first.victimPlayerId, '') : null;
+      const playerId = stableIdentity || (!ambiguous && typeof observation.playerId === 'string' && observation.playerId.length > 0
+        ? roundPlayerIdentity(round.matchId, observation.playerId, observation.displayName)
+        : null);
+      const firstKillerName = observedPlayerName(first?.killerPlayerId, '');
+      const firstVictimName = observedPlayerName(first?.victimPlayerId, '');
+      const firstKillerId = first?.killerPlayerId && !ambiguousNames.has(firstKillerName) ? roundPlayerIdentity(round.matchId, first.killerPlayerId, '') : null;
+      const firstVictimId = first?.victimPlayerId && !ambiguousNames.has(firstVictimName) ? roundPlayerIdentity(round.matchId, first.victimPlayerId, '') : null;
       if (playerId && firstKillerId === playerId) metric.firstKills += 1;
       if (playerId && firstVictimId === playerId) metric.firstDeaths += 1;
       const roundKills = playerId && eventsComplete ? kills.get(playerId) : undefined;
@@ -234,13 +274,18 @@ export function materializeFirstDeathsFromRoundEvidence(
   return changed;
 }
 
-export function combineStoredScreenshotMetrics(rows: ReadonlyArray<{ playerId?: string | null; player?: string; displayNameSnapshot?: string; screenshotMetrics?: PlayerScreenshotMetrics }>) {
+export function combineStoredScreenshotMetrics(rows: ReadonlyArray<{ id?: string; playerId?: string | null; player?: string; displayNameSnapshot?: string; screenshotMetrics?: PlayerScreenshotMetrics }>) {
   const combined = new Map<string, Mutable>();
-  for (const row of rows) {
+  for (const [index, row] of rows.entries()) {
     const source = row.screenshotMetrics;
     if (!source) continue;
     const displayName = row.displayNameSnapshot || row.player || 'Unknown player';
-    const identity = screenshotPlayerIdentity(row.playerId, displayName);
+    // Historical labels are not identities. Two unlinked appearances with the
+    // same observed name must remain separate until a coach explicitly links
+    // each row to a stable roster player.
+    const identity = row.playerId
+      ? screenshotPlayerIdentity(row.playerId, displayName)
+      : `unlinked:${row.id?.trim() || index}`;
     const target = combined.get(identity) || empty(identity, displayName);
     combined.set(identity, target);
     for (const field of ['coveredRounds', 'wins', 'losses', 'firstKills', 'firstDeaths', 'lowBudgetWins', 'highBudgetLosses', 'antiEcoLosses'] as const) target[field] += source[field] || 0;

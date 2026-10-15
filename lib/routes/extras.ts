@@ -3,7 +3,7 @@ import { Type } from '@google/genai';
 import { ai } from '../clients';
 import { readDB, saveDB } from '../store';
 import { postDiscordReport } from '../services';
-import { stripLegacySecrets, toPublicTrackerData } from '../publicData';
+import { buildShareableBackupPayload, stripLegacySecrets, toPublicTrackerData } from '../publicData';
 import { createPrivateBackup } from '../privateBackup';
 
 export function prepareShareableImport(current: Record<string, any>, payload: Record<string, any>) {
@@ -28,7 +28,7 @@ export function registerExtraRoutes(app: Express) {
       const db = await readDB();
       res.setHeader('Content-disposition', `attachment; filename=scrim_tracker_backup_${Date.now()}.json`);
       res.setHeader('Content-type', 'application/json');
-      res.write(JSON.stringify(toPublicTrackerData(db), null, 2));
+      res.write(JSON.stringify(buildShareableBackupPayload(db), null, 2));
       res.end();
     } catch (err: any) {
       res.status(500).json({ error: err.message });
