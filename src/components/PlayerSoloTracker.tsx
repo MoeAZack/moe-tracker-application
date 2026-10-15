@@ -49,14 +49,44 @@ export default function PlayerSoloTracker({ data, theme, role, onRefresh }: Prop
 }
 
 function PlayerDetails({ row, muted }: { row: ObservedPlayerDashboard; muted: string }) {
-  const cards = [
-    { title: 'Performance', body: [`K/D ${format(row.kd)}`, `ADR ${format(row.avgAdr, 0)}`, `HS ${row.avgHs === null ? '—' : `${Math.round(row.avgHs)}%`}`, `ATK K/D ${format(row.attackKd)}`, `DEF K/D ${format(row.defenseKd)}`] },
-    { title: 'Opening impact', body: [`FK ${row.firstKills ?? '—'}`, `FD ${row.firstDeaths ?? '—'}`, `Diff ${row.firstKills === null || row.firstDeaths === null ? '—' : row.firstKills - row.firstDeaths}`, `Success ${row.firstKills === null || row.firstDeaths === null ? '—' : percent(row.firstKills / Math.max(1, row.firstKills + row.firstDeaths))}`] },
-    { title: 'Objectives & multikills', body: [`Plants ${row.plants}`, `Defuses ${row.defuses}`, `Trades ${row.trades}`, `2K ${row.multikills.two}`, `3K ${row.multikills.three}`, `4K ${row.multikills.four}`, `Aces ${row.multikills.ace}`] },
-    { title: 'Economy impact', body: [`Low-buy wins ${row.lowBudgetWins}`, `Full-buy losses ${row.highBudgetLosses}`, `Anti-eco losses ${row.antiEcoLosses}`] },
-  ];
-  return <div className="space-y-4"><div className="grid gap-3 md:grid-cols-2 xl:grid-cols-4">{cards.map(card => <div key={card.title} className="rounded-lg border border-white/10 bg-black/10 p-3"><h4 className="text-[10px] font-semibold uppercase tracking-wider text-cyan-300">{card.title}</h4><div className="mt-2 flex flex-wrap gap-x-4 gap-y-1 text-xs">{card.body.map(item => <span key={item}>{item}</span>)}</div></div>)}</div><div className="grid gap-3 lg:grid-cols-3"><Split title="Agent splits" rows={row.agents.map(item => `${item.name} · ${item.matches}M · ${percent(item.matches ? item.wins / item.matches : null)}`)} muted={muted} /><Split title="Map splits" rows={row.maps.map(item => `${item.name} · ${item.matches}M · ${percent(item.matches ? item.wins / item.matches : null)}`)} muted={muted} /><Split title="Weapons observed" rows={row.weapons.map(item => `${item.name} · ${item.rounds}R · ${percent(item.rounds ? item.wins / item.rounds : null)} · ${item.kills}/${item.deaths}`)} muted={muted} /></div><p className={`text-[10px] ${muted}`}>Evidence coverage: {row.recordedRows} scoreboard rows · {row.evidence.performanceRows} performance rows · {row.evidence.openingRows} opening rows · {row.evidence.screenshotRounds} round screenshots. Equipped weapon is observational evidence and does not prove a purchase.</p></div>;
+  const openingDiff = row.firstKills === null || row.firstDeaths === null ? null : row.firstKills - row.firstDeaths;
+  const openingSuccess = row.firstKills === null || row.firstDeaths === null ? null : row.firstKills / Math.max(1, row.firstKills + row.firstDeaths);
+  return <div className="space-y-4">
+    <div className="grid gap-3 xl:grid-cols-2">
+      <MetricPanel title="Performance" subtitle="Core combat output" accent="cyan">
+        <MetricValue label="K / D" value={format(row.kd)} primary />
+        <MetricValue label="ADR" value={format(row.avgAdr, 0)} />
+        <MetricValue label="Headshots" value={row.avgHs === null ? '—' : `${Math.round(row.avgHs)}%`} />
+        <MetricValue label="Attack K / D" value={format(row.attackKd)} />
+        <MetricValue label="Defense K / D" value={format(row.defenseKd)} />
+      </MetricPanel>
+      <MetricPanel title="Opening impact" subtitle="First-duel pressure" accent="rose">
+        <MetricValue label="First kills" value={row.firstKills ?? '—'} primary tone="good" />
+        <MetricValue label="First deaths" value={row.firstDeaths ?? '—'} primary tone="bad" />
+        <MetricValue label="Difference" value={openingDiff === null ? '—' : `${openingDiff >= 0 ? '+' : ''}${openingDiff}`} tone={openingDiff === null ? 'neutral' : openingDiff >= 0 ? 'good' : 'bad'} />
+        <MetricValue label="Duels won" value={openingSuccess === null ? '—' : percent(openingSuccess)} tone={openingSuccess === null ? 'neutral' : openingSuccess >= .5 ? 'good' : 'bad'} />
+      </MetricPanel>
+      <MetricPanel title="Objectives & multikills" subtitle="Round-winning actions" accent="violet">
+        <MetricValue label="Plants" value={row.plants} />
+        <MetricValue label="Defuses" value={row.defuses} />
+        <MetricValue label="Trades" value={row.trades} />
+        <MetricValue label="2K rounds" value={row.multikills.two} />
+        <MetricValue label="3K rounds" value={row.multikills.three} />
+        <MetricValue label="4K rounds" value={row.multikills.four} />
+        <MetricValue label="Aces" value={row.multikills.ace} />
+      </MetricPanel>
+      <MetricPanel title="Economy impact" subtitle="High-leverage round outcomes" accent="amber">
+        <MetricValue label="Low-buy wins" value={row.lowBudgetWins} tone="good" />
+        <MetricValue label="Full-buy losses" value={row.highBudgetLosses} tone="bad" />
+        <MetricValue label="Anti-eco losses" value={row.antiEcoLosses} tone="bad" />
+      </MetricPanel>
+    </div>
+    <div className="grid gap-3 lg:grid-cols-3"><Split title="Agent splits" rows={row.agents.map(item => `${item.name} · ${item.matches}M · ${percent(item.matches ? item.wins / item.matches : null)}`)} muted={muted} /><Split title="Map splits" rows={row.maps.map(item => `${item.name} · ${item.matches}M · ${percent(item.matches ? item.wins / item.matches : null)}`)} muted={muted} /><Split title="Weapons observed" rows={row.weapons.map(item => `${item.name} · ${item.rounds}R · ${percent(item.rounds ? item.wins / item.rounds : null)} · ${item.kills}/${item.deaths}`)} muted={muted} /></div>
+    <p className={`text-[10px] ${muted}`}>Evidence coverage: {row.recordedRows} scoreboard rows · {row.evidence.performanceRows} performance rows · {row.evidence.openingRows} opening rows · {row.evidence.screenshotRounds} round screenshots. Equipped weapon is observational evidence and does not prove a purchase.</p>
+  </div>;
 }
+function MetricPanel({ title, subtitle, accent, children }: { title: string; subtitle: string; accent: 'cyan' | 'rose' | 'violet' | 'amber'; children: React.ReactNode }) { const accents = { cyan: 'border-cyan-400/20 bg-cyan-400/[0.045] text-cyan-300', rose: 'border-rose-400/20 bg-rose-400/[0.045] text-rose-300', violet: 'border-violet-400/20 bg-violet-400/[0.045] text-violet-300', amber: 'border-amber-400/20 bg-amber-400/[0.045] text-amber-300' }; return <section className={`rounded-xl border p-4 ${accents[accent]}`}><div><h4 className="text-[10px] font-black uppercase tracking-[0.16em]">{title}</h4><p className="mt-0.5 text-[10px] text-slate-500">{subtitle}</p></div><div className="mt-3 grid grid-cols-2 gap-2 sm:grid-cols-3">{children}</div></section>; }
+function MetricValue({ label, value, primary = false, tone = 'neutral' }: { label: string; value: React.ReactNode; primary?: boolean; tone?: 'neutral' | 'good' | 'bad' }) { const color = tone === 'good' ? 'text-emerald-300' : tone === 'bad' ? 'text-rose-300' : 'text-slate-100'; return <div className="min-w-0 rounded-lg border border-white/[0.07] bg-black/20 px-3 py-2.5"><span className="block text-[9px] font-semibold uppercase tracking-wider text-slate-500">{label}</span><strong className={`mt-1 block font-mono ${primary ? 'text-xl' : 'text-base'} ${color}`}>{value}</strong></div>; }
 function Split({ title, rows, muted }: { title: string; rows: string[]; muted: string }) { return <div className="rounded-lg border border-white/10 bg-black/10 p-3"><h4 className="text-[10px] font-semibold uppercase tracking-wider text-cyan-300">{title}</h4>{rows.length ? <ul className="mt-2 space-y-1 text-xs">{rows.slice(0, 6).map(row => <li key={row}>{row}</li>)}</ul> : <p className={`mt-2 text-xs ${muted}`}>No confirmed evidence yet.</p>}</div>; }
 function Readiness({ icon: Icon, title, badge, detail, surface, muted }: { icon: React.ComponentType<any>; title: string; badge: string; detail: string; surface: string; muted: string }) { return <section className={`rounded-xl border p-4 ${surface}`}><div className="flex items-center justify-between gap-3"><h3 className="flex min-w-0 items-center gap-2 text-sm font-semibold"><Icon className="h-4 w-4 shrink-0 text-amber-500" />{title}</h3><span className="shrink-0 rounded-full border border-amber-500/30 bg-amber-500/10 px-2 py-1 text-[9px] uppercase tracking-wider text-amber-600">{badge}</span></div><p className={`mt-3 text-xs leading-relaxed ${muted}`}>{detail}</p></section>; }
 function EvidenceCount({ label, value, available, muted }: { label: string; value: number; available: boolean; muted: string }) { return <div className="rounded-lg border border-white/10 bg-black/10 p-3"><span className={`block text-[9px] uppercase tracking-wider ${muted}`}>{label}</span><span className={`mt-1 block text-lg font-semibold ${available ? '' : muted}`}>{available ? value : '—'}</span></div>; }
