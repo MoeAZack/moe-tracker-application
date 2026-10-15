@@ -1,6 +1,6 @@
 import { buildAcceptedMatchAggregatePlan, buildCanonicalAnalyticsExport } from './aggregateVersioning';
 
-const PRIVATE_TOP_LEVEL_KEYS = new Set(['authKeys', 'allowedUsers', 'secretValues', '_storage', 'authenticatedViewer']);
+const PRIVATE_TOP_LEVEL_KEYS = new Set(['authKeys', 'allowedUsers', 'secretValues', '_storage', 'authenticatedViewer', 'tryoutDecisionNotes']);
 const PRIVATE_SETTING_KEYS = new Set(['discordWebhook', 'gridApiKey', 'henrikApiKey']);
 
 /** Build the tracker payload that is safe to send to the authenticated role. */
@@ -43,6 +43,7 @@ export function toPublicTrackerData(db: Record<string, any>, role: 'coach' | 'pl
       return exported;
     });
   }
+  if (role === 'coach') publicData.tryoutDecisionNotes = structuredClone(db.tryoutDecisionNotes || []);
   delete publicData.replayIntake;
   delete publicData.engineAdapters;
   if (Array.isArray(publicData.seasonArchives)) publicData.seasonArchives = publicData.seasonArchives.map((archive: any) => {
@@ -59,6 +60,7 @@ export function toPublicTrackerData(db: Record<string, any>, role: 'coach' | 'pl
     publicData.matches = (publicData.matches || []).map(({ notes: _notes, vod: _vod, corrections: _corrections, ...match }: any) => match);
     publicData.playerStats = (publicData.playerStats || []).map(({ notes: _notes, corrections: _corrections, ...stat }: any) => stat);
     publicData.rounds = (publicData.rounds || []).map(({ notes: _notes, isThrow: _isThrow, thrownBy: _thrownBy, throwReason: _throwReason, iglPlayer: _iglPlayer, iglRole: _iglRole, midRoundIglChange: _midRoundIglChange, strategies: _strategies, corrections: _corrections, ...round }: any) => round);
+    publicData.practiceBlocks = (publicData.practiceBlocks || []).map(({ createdBy: _createdBy, updatedBy: _updatedBy, ...block }: any) => block);
   }
   publicData.settings = settings;
   publicData.secrets = {
@@ -77,8 +79,8 @@ export function toPublicTrackerData(db: Record<string, any>, role: 'coach' | 'pl
   return publicData;
 }
 
-const WEBSITE_MATCH_FIELDS = ['id', 'date', 'type', 'opponent', 'map', 'attW', 'attL', 'defW', 'defL', 'ourScore', 'theirScore', 'pistolAtt', 'pistolDef', 'ecoAtt', 'ecoDef', 'bonusAtt', 'bonusDef', 'rosterContext', 'roundAnalytics'] as const;
-const WEBSITE_STAT_FIELDS = ['id', 'matchId', 'player', 'playerId', 'displayNameSnapshot', 'appearanceType', 'agent', 'kills', 'deaths', 'assists', 'acs', 'adr', 'hs', 'headshots', 'headshotEligibleKills', 'fk', 'fd', 'plants', 'defuses', 'cl', 'clAtt', 'mk3', 'mk4', 'mk5', 'dTraded', 'kTraded', 'rating', 'screenshotMetrics'] as const;
+const WEBSITE_MATCH_FIELDS = ['id', 'date', 'type', 'opponent', 'opponentCategory', 'map', 'attW', 'attL', 'defW', 'defL', 'ourScore', 'theirScore', 'pistolAtt', 'pistolDef', 'ecoAtt', 'ecoDef', 'bonusAtt', 'bonusDef', 'rosterContext', 'roundAnalytics'] as const;
+const WEBSITE_STAT_FIELDS = ['id', 'matchId', 'player', 'playerId', 'displayNameSnapshot', 'appearanceType', 'agent', 'roleSnapshot', 'kills', 'deaths', 'assists', 'acs', 'adr', 'hs', 'headshots', 'headshotEligibleKills', 'fk', 'fd', 'plants', 'defuses', 'cl', 'clAtt', 'mk3', 'mk4', 'mk5', 'dTraded', 'kTraded', 'rating', 'screenshotMetrics'] as const;
 
 function selectFields(record: any, fields: readonly string[]) {
   return Object.fromEntries(fields.filter(key => record?.[key] !== undefined).map(key => [key, structuredClone(record[key])]));
@@ -100,10 +102,17 @@ export function toWebsiteTrackerData(db: Record<string, any>, role: 'coach' | 'p
     rosterPlayers: structuredClone(safe.rosterPlayers || []),
     coreMemberships: structuredClone(safe.coreMemberships || []),
     tryoutBatches: structuredClone(safe.tryoutBatches || []),
+    practiceBlocks: (safe.practiceBlocks || []).map(({ createdBy: _createdBy, updatedBy: _updatedBy, ...block }: any) => structuredClone(block)),
     schedule: (safe.schedule || []).map((item: any) => selectFields(item, ['id', 'date', 'kind', 'primary', 'secondary', 'notes', 'attendance', 'calendarKey'])),
     goals: (safe.goals || []).map((item: any) => selectFields(item, ['id', 'date', 'goal', 'notes', 'status', 'owner'])),
-    matches: (safe.matches || []).map((item: any) => selectFields(item, WEBSITE_MATCH_FIELDS)),
-    playerStats: (safe.playerStats || []).map((item: any) => selectFields(item, WEBSITE_STAT_FIELDS)),
+    matches: (safe.matches || []).map((item: any) => ({
+      ...selectFields(item, WEBSITE_MATCH_FIELDS),
+      comparisonEvidence: { accepted: item.sourceMetadata?.method === 'screenshot' ? item.reviewConfirmation?.alliedSideConfirmed === true : !!item.sourceMetadata && item.sourceMetadata.method !== 'unknown' },
+    })),
+    playerStats: (safe.playerStats || []).map((item: any) => ({
+      ...selectFields(item, WEBSITE_STAT_FIELDS),
+      comparisonEvidence: { openingAccepted: !!item.sourceMetadata && item.sourceMetadata.method !== 'unknown' },
+    })),
     soloq: (safe.soloq || []).map((item: any) => selectFields(item, ['id', 'date', 'player', 'wins', 'losses', 'rank', 'rr', 'source'])),
     // Keep the TrackerData shape stable while proving that detailed desktop-only
     // collections are never transferred to the browser summary portal.
@@ -114,7 +123,14 @@ export function toWebsiteTrackerData(db: Record<string, any>, role: 'coach' | 'p
 
 /** Exact payload used by the authenticated shareable backup route. */
 export function buildShareableBackupPayload(db: Record<string, any>) {
-  return toPublicTrackerData(db, 'coach');
+  const payload = toPublicTrackerData(db, 'coach');
+  delete payload.tryoutDecisionNotes;
+  payload.practiceBlocks = (payload.practiceBlocks || []).map(({ createdBy: _createdBy, updatedBy: _updatedBy, ...block }: any) => block);
+  payload.seasonArchives = (payload.seasonArchives || []).map(({ tryoutDecisionNotes: _privateNotes, ...archive }: any) => ({
+    ...archive,
+    practiceBlocks: (archive.practiceBlocks || []).map(({ createdBy: _createdBy, updatedBy: _updatedBy, ...block }: any) => block),
+  }));
+  return payload;
 }
 
 /** Remove credential fields from imported legacy backups before storage. */

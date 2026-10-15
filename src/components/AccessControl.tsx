@@ -2,13 +2,19 @@ import React, { useEffect, useState } from 'react';
 import { apiFetch } from '../utils/api';
 import { UserPlus, Trash2, ShieldCheck, Users, AlertCircle } from 'lucide-react';
 
-interface Allowed { email: string; role: string; name?: string; addedAt?: string; }
+interface Allowed { email: string; role: string; name?: string; playerId?: string; addedAt?: string; }
+interface RosterIdentity { id: string; displayName: string; retiredAt?: string | null; }
+
+export function buildAccessGrantPayload(email: string, role: string, playerId: string) {
+  return { email: email.trim(), role, ...(role === 'player' ? { playerId } : {}) };
+}
 
 // Coach-only panel to manage which Google accounts can sign in.
-export default function AccessControl({ theme }: { theme: any }) {
+export default function AccessControl({ theme, rosterPlayers = [] }: { theme: any; rosterPlayers?: RosterIdentity[] }) {
   const [users, setUsers] = useState<Allowed[]>([]);
   const [email, setEmail] = useState('');
   const [role, setRole] = useState('player');
+  const [playerId, setPlayerId] = useState('');
   const [googleEnabled, setGoogleEnabled] = useState(false);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -27,18 +33,23 @@ export default function AccessControl({ theme }: { theme: any }) {
   const add = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!email.trim()) return;
+    if (role === 'player' && !playerId) {
+      setError('Select the roster player who owns this Google access.');
+      return;
+    }
     setLoading(true);
     setError(null);
     try {
       const res = await apiFetch('/api/access/add', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ email: email.trim(), role })
+        body: JSON.stringify(buildAccessGrantPayload(email, role, playerId))
       });
       const json = await res.json();
       if (!res.ok) throw new Error(json.error || 'Failed to add access.');
       setUsers(json);
       setEmail('');
+      setPlayerId('');
     } catch (err: any) {
       setError(err.message);
     } finally {
@@ -92,6 +103,17 @@ export default function AccessControl({ theme }: { theme: any }) {
           <option value="player">Player</option>
           <option value="coach">Coach</option>
         </select>
+        {role === 'player' && (
+          <select
+            aria-label="Roster identity"
+            value={playerId}
+            onChange={(e) => setPlayerId(e.target.value)}
+            className="bg-black/20 border border-white/10 rounded-lg px-3 py-2 text-sm outline-none font-mono"
+          >
+            <option value="">Select roster player</option>
+            {rosterPlayers.filter(player => !player.retiredAt).map(player => <option key={player.id} value={player.id}>{player.displayName}</option>)}
+          </select>
+        )}
         <button
           type="submit"
           disabled={loading}
@@ -101,7 +123,7 @@ export default function AccessControl({ theme }: { theme: any }) {
         </button>
       </form>
 
-      {error && <p className="text-xs text-rose-400 font-mono">{error}</p>}
+      {error && <p role="alert" className="text-xs text-rose-400 font-mono">{error}</p>}
 
       <div className="space-y-1.5">
         {users.length === 0 && (
@@ -113,7 +135,7 @@ export default function AccessControl({ theme }: { theme: any }) {
               <ShieldCheck className={`w-4 h-4 shrink-0 ${u.role === 'coach' ? 'text-[#ff4655]' : 'text-[#3aa0ff]'}`} />
               <div className="min-w-0">
                 <span className="text-sm font-mono truncate block">{u.email}</span>
-                <span className="text-[9px] uppercase tracking-widest text-gray-500">{u.role}</span>
+                <span className="text-[9px] uppercase tracking-widest text-gray-500">{u.role}{u.playerId ? ` · roster linked` : ''}</span>
               </div>
             </div>
             <button

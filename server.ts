@@ -15,6 +15,7 @@ import { createPlayerPasswordVerifier, verifyPlayerPassword } from './lib/player
 import { stripLegacySecrets, toPublicTrackerData } from './lib/publicData';
 import { registerReplayDeviceRoutes, registerReplayDeviceUploadRoute } from './lib/routes/replayIntake';
 import { registerPortablePackageRoutes } from './lib/routes/portablePackages';
+import { registerComparisonRoutes } from './lib/routes/comparisons';
 
 // Google Sign-In config (dormant unless GOOGLE_CLIENT_ID is set — password auth always works).
 const GOOGLE_CLIENT_ID = process.env.GOOGLE_CLIENT_ID || '';
@@ -231,8 +232,8 @@ export async function createApp(serveFrontend = true) {
           } else if (decoded?.kind === 'key' && decoded.keyId) {
             const entry = db.authKeys.find((k: any) => k.id === decoded.keyId);
             const versionMatches = entry?.credentialType !== 'player-password' || decoded.credentialVersion === entry.credentialVersion;
-            const activePasswordPlayer = entry?.credentialType !== 'player-password' || (db.rosterPlayers || []).some((player: any) => player.id === entry.playerId && !player.retiredAt);
-            if (entry && versionMatches && activePasswordPlayer) {
+            const activePlayerBinding = entry?.role !== 'player' || !entry?.playerId || (db.rosterPlayers || []).some((player: any) => player.id === entry.playerId && !player.retiredAt);
+            if (entry && versionMatches && activePlayerBinding) {
               userRole = entry.role;
               username = entry.label;
               (req as any).sessionPlayerId = entry.playerId;
@@ -240,7 +241,8 @@ export async function createApp(serveFrontend = true) {
             }
           } else if (decoded?.kind === 'google' && decoded.email) {
             const entry = (db.allowedUsers || []).find((u: any) => (u.email || '').toLowerCase() === String(decoded.email).toLowerCase());
-            if (entry) {
+            const activeGooglePlayer = entry?.role !== 'player' || (entry?.playerId && (db.rosterPlayers || []).some((player: any) => player.id === entry.playerId && !player.retiredAt));
+            if (entry && activeGooglePlayer) {
               userRole = entry.role;
               username = decoded.name || entry.email;
               (req as any).sessionPlayerId = entry.playerId;
@@ -428,17 +430,19 @@ export async function createApp(serveFrontend = true) {
     try {
       if (!requireCoach(req, res)) return;
       const body = validate(schemas.accessAddSchema, req.body, res); if (!body) return;
-      const { email, role, name } = body;
+      const { email, role, name, playerId } = body;
       const clean = String(email).trim().toLowerCase();
       const finalRole = role === 'coach' ? 'coach' : 'player';
       const db = await readDB();
       if (!db.allowedUsers) db.allowedUsers = [];
+      if (finalRole === 'player' && (!playerId || !(db.rosterPlayers || []).some((player: any) => player.id === playerId && !player.retiredAt))) return res.status(400).json({ error: 'Player Google access must be linked to an active roster identity.' });
       const existing = db.allowedUsers.find((u: any) => (u.email || '').toLowerCase() === clean);
       if (existing) {
         existing.role = finalRole;
         if (name) existing.name = name;
+        if (finalRole === 'player') existing.playerId = playerId; else delete existing.playerId;
       } else {
-        db.allowedUsers.push({ email: clean, role: finalRole, name: name || '', addedAt: new Date().toISOString() });
+        db.allowedUsers.push({ email: clean, role: finalRole, name: name || '', ...(finalRole === 'player' ? { playerId } : {}), addedAt: new Date().toISOString() });
       }
       await saveDB(db);
       res.json(db.allowedUsers);
@@ -471,6 +475,7 @@ export async function createApp(serveFrontend = true) {
 
   // Stable player identities, core membership history and named tryout batches.
   registerRosterRoutes(app);
+  registerComparisonRoutes(app);
 
   // Persisted, offline-only adapters for accepted replay, shadow-rating and ranked engines.
   registerEngineAdapterRoutes(app);

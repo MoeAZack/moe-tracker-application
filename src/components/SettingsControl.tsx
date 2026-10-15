@@ -5,6 +5,7 @@ import { apiFetch } from '../utils/api';
 import StorageIndicator from './StorageIndicator';
 import DesktopDeviceSettings from './DesktopDeviceSettings';
 import DesktopIntegrationSecrets from './DesktopIntegrationSecrets';
+import AccessControl from './AccessControl';
 
 interface ComponentProps {
   data: TrackerData;
@@ -1456,6 +1457,7 @@ function syncTable(sheetName, items, headers) {
             {/* SUB TAB: ACCESS CONTROL */}
             {activeSubTab === 'access-control' && (
               <div className="space-y-6">
+                <AccessControl theme={theme} rosterPlayers={data.rosterPlayers || []} />
                 <div className="border-b border-white/5 pb-2">
                   <h4 className="text-xs uppercase font-black tracking-widest text-[#ff4655] font-mono">
                     Access Keys & Panel Control
