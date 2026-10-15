@@ -1,10 +1,10 @@
 import { buildAcceptedMatchAggregatePlan, buildCanonicalAnalyticsExport } from './aggregateVersioning';
 
-const PRIVATE_TOP_LEVEL_KEYS = new Set(['authKeys', 'allowedUsers', 'secretValues', '_storage']);
+const PRIVATE_TOP_LEVEL_KEYS = new Set(['authKeys', 'allowedUsers', 'secretValues', '_storage', 'authenticatedViewer']);
 const PRIVATE_SETTING_KEYS = new Set(['discordWebhook', 'gridApiKey', 'henrikApiKey']);
 
 /** Build the tracker payload that is safe to send to the authenticated role. */
-export function toPublicTrackerData(db: Record<string, any>, role: 'coach' | 'player' = 'coach') {
+export function toPublicTrackerData(db: Record<string, any>, role: 'coach' | 'player' = 'coach', authenticatedPlayerId?: string | null) {
   const publicData: Record<string, any> = {};
   for (const [key, value] of Object.entries(db)) {
     if (!PRIVATE_TOP_LEVEL_KEYS.has(key)) publicData[key] = value;
@@ -67,6 +67,13 @@ export function toPublicTrackerData(db: Record<string, any>, role: 'coach' | 'pl
     GRID_API_KEY: !!process.env.GRID_API_KEY,
     DISCORD_WEBHOOK_URL: !!process.env.DISCORD_WEBHOOK_URL
   };
+  if (authenticatedPlayerId !== undefined) {
+    publicData.authenticatedViewer = {
+      playerId: role === 'player' && typeof authenticatedPlayerId === 'string' && authenticatedPlayerId.trim()
+        ? authenticatedPlayerId.trim()
+        : null,
+    };
+  }
   return publicData;
 }
 
@@ -78,8 +85,8 @@ function selectFields(record: any, fields: readonly string[]) {
 }
 
 /** Minimal authenticated website projection. Detailed evidence remains desktop-only. */
-export function toWebsiteTrackerData(db: Record<string, any>, role: 'coach' | 'player' = 'coach') {
-  const safe = toPublicTrackerData(db, role);
+export function toWebsiteTrackerData(db: Record<string, any>, role: 'coach' | 'player' = 'coach', authenticatedPlayerId?: string | null) {
+  const safe = toPublicTrackerData(db, role, authenticatedPlayerId);
   const settings = { ...(safe.settings || {}) };
   delete settings.riotIds;
   delete settings.vlr;
@@ -88,6 +95,7 @@ export function toWebsiteTrackerData(db: Record<string, any>, role: 'coach' | 'p
     ? settings.calendars.map(({ gcalId: _privateCalendarId, ...calendar }: any) => calendar)
     : [];
   return {
+    ...(safe.authenticatedViewer ? { authenticatedViewer: structuredClone(safe.authenticatedViewer) } : {}),
     settings,
     rosterPlayers: structuredClone(safe.rosterPlayers || []),
     coreMemberships: structuredClone(safe.coreMemberships || []),

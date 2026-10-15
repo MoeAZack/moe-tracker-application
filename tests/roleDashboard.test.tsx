@@ -7,6 +7,7 @@ import { createSeed } from '../lib/seed';
 const theme = { cardBg: 'surface-card', border: 'border-white/10', text: 'text-cyan-300' };
 const data = {
   ...createSeed(),
+  authenticatedViewer: { playerId: 'player-1' },
   settings: { ...createSeed().settings, teamName: 'Moe Team' },
   rosterPlayers: [{ id: 'player-1', displayName: 'Ahmed', retiredAt: null }],
   matches: [{ id: 'match-1', date: '2026-10-13', type: 'Practice', opponent: 'Rivals', map: 'Haven', attW: null, attL: null, defW: null, defL: null, ourScore: 13, theirScore: 9 }],
@@ -15,8 +16,10 @@ const data = {
 
 describe('role-aware dashboard', () => {
   it('opens player sessions on a personal-first performance brief', () => {
-    const html = renderToStaticMarkup(<Dashboard data={data} theme={theme} role="player" username="Ahmed" onOpenMatch={() => {}} />);
-    expect(html).toContain('Ahmed · personal brief');
+    const renamed = { ...data, rosterPlayers: [{ ...data.rosterPlayers[0], displayName: 'Ahmed Renamed' }] };
+    const html = renderToStaticMarkup(<Dashboard data={renamed} theme={theme} role="player" username="Different Login Label" onOpenMatch={() => {}} />);
+    expect(html).toContain('Different Login Label · personal brief');
+    expect(html).toContain('Ahmed Renamed');
     expect(html).toContain('My performance');
     expect(html).toContain('20 / 10 / 5');
     expect(html).toContain('40.0%');
@@ -31,7 +34,7 @@ describe('role-aware dashboard', () => {
   });
 
   it('does not infer an unpaired player identity from a matching display name', () => {
-    const unpaired = { ...data, rosterPlayers: [] };
+    const unpaired = { ...data, authenticatedViewer: { playerId: null }, rosterPlayers: [{ id: 'other-player', displayName: 'Ahmed' }] };
     const html = renderToStaticMarkup(<Dashboard data={unpaired} theme={theme} role="player" username="Ahmed" onOpenMatch={() => {}} />);
     expect(html).toContain('no personal evidence is inferred from its display name');
     expect(html).not.toContain('20 / 10 / 5');

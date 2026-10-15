@@ -12,10 +12,10 @@ interface Props { data: TrackerData; theme: any; role: string | null; username: 
 const score = (match: Match) => match.ourScore !== null && match.ourScore !== undefined && match.theirScore !== null && match.theirScore !== undefined ? { ours: match.ourScore, theirs: match.theirScore } : [match.attW, match.attL, match.defW, match.defL].every(value => typeof value === 'number') ? { ours: Number(match.attW) + Number(match.defW), theirs: Number(match.attL) + Number(match.defL) } : null;
 const matchOrder = (match: Match) => Date.parse(match.sourceMetadata?.capturedAt || '') || Date.parse(`${match.date || ''}T12:00:00Z`) || 0;
 
-export function selectDashboardPersonalRows(data: Pick<TrackerData, 'rosterPlayers' | 'playerStats'>, username: string | null) {
-  const normalizedViewer = String(username || '').trim().toLocaleLowerCase();
-  const viewer = (data.rosterPlayers || []).find(player => String(player.displayName || '').trim().toLocaleLowerCase() === normalizedViewer);
-  return { viewer: viewer || null, rows: (data.playerStats || []).filter(row => !!viewer && row.playerId === viewer.id) };
+export function selectDashboardPersonalRows(data: Pick<TrackerData, 'authenticatedViewer' | 'rosterPlayers' | 'playerStats'>) {
+  const playerId = typeof data.authenticatedViewer?.playerId === 'string' ? data.authenticatedViewer.playerId.trim() : '';
+  const viewer = playerId ? (data.rosterPlayers || []).find(player => player.id === playerId) : undefined;
+  return { viewer: viewer || null, rows: (data.playerStats || []).filter(row => !!viewer && row.playerId === playerId) };
 }
 
 export default function Dashboard({ data, theme, role, username, onOpenMatch, onOpenReplay, onOpenCapture, summaryMode = false }: Props) {
@@ -41,7 +41,7 @@ export default function Dashboard({ data, theme, role, username, onOpenMatch, on
   const replay = replayIntegrationReadiness(engineState); const shadow = shadowRatingReadiness(engineState); const ranked = rankedIntegrationReadiness(engineState);
   const latestMatch = matches[0];
   const latestScore = latestMatch ? score(latestMatch) : null;
-  const { viewer, rows: personalRows } = selectDashboardPersonalRows(data, username);
+  const { viewer, rows: personalRows } = selectDashboardPersonalRows(data);
   const personalMatchIds = new Set(personalRows.map(row => row.matchId));
   const personalMatches = matches.filter(match => personalMatchIds.has(match.id));
   const total = (field: keyof (typeof personalRows)[number]) => personalRows.reduce((sum, row) => sum + (typeof row[field] === 'number' ? Number(row[field]) : 0), 0);

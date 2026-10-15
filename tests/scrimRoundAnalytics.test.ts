@@ -91,6 +91,20 @@ describe('scrim screenshot analytics', () => {
     expect(metrics.map(item => item.identity)).toEqual(['unlinked:match-a:samename', 'unlinked:match-b:samename']);
     expect(metrics.every(item => item.coveredRounds === 1)).toBe(true);
   });
+  it('separates ambiguous duplicate unlinked names within a round and declines event attribution', () => {
+    const ambiguous = round({ screenshotEvidence: {
+      ...round().screenshotEvidence,
+      players: [
+        { playerId: 'name:same', displayName: 'Same', team: 'ours', equippedWeapon: 'Vandal', assists: 0, survived: true },
+        { playerId: 'name:same', displayName: 'Same', team: 'ours', equippedWeapon: 'Phantom', assists: 0, survived: false },
+      ],
+      events: [{ sequence: 1, killerPlayerId: 'name:same', victimPlayerId: 'enemy', killerTeam: 'ours', victimTeam: 'theirs', weapon: 'Vandal' }],
+    } });
+    const metrics = buildPlayerScreenshotMetrics([ambiguous] as any);
+    expect(metrics.map(item => item.identity)).toEqual(['unlinked:m1:1:same:1', 'unlinked:m1:1:same:2']);
+    expect(metrics.map(item => item.coveredRounds)).toEqual([1, 1]);
+    expect(metrics.every(item => item.firstKills === 0 && item.kast?.covered === 0 && item.weapons.every(weapon => weapon.kills === 0))).toBe(true);
+  });
   it('derives pistol, eco and earned bonus conversion by side from rounds', () => {
     const rows = [
       { roundNo: 1, side: 'Attack', result: 'W', buy: 'Eco' },
