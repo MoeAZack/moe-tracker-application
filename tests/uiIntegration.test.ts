@@ -41,9 +41,33 @@ describe('observed player K/D aggregation', () => {
     ] as any);
     expect(result.map(row => [row.playerId, row.kd])).toEqual([['p1', 2], ['p2', 0.5]]);
   });
+  it('combines exact-name legacy rows that have no stable ID', () => {
+    const result = aggregateObservedPlayerKd([
+      { id: 'a', matchId: 'm1', player: ' Bellatrix ', kills: 14, deaths: 18 },
+      { id: 'b', matchId: 'm2', displayNameSnapshot: 'bellatrix', kills: 17, deaths: 16 },
+      { id: 'c', matchId: 'm3', player: 'BELLATRIX', kills: 16, deaths: 26 },
+    ] as any);
+    expect(result).toHaveLength(1);
+    expect(result[0]).toMatchObject({ displayName: 'Bellatrix', recordedRows: 3, pairedSamples: 3, playerId: null });
+    expect(result[0].kd).toBeCloseTo(47 / 60);
+  });
 });
 
 describe('observed roster dashboard', () => {
+  it('combines repeated unlinked appearances into one player row and match count', () => {
+    const rows = aggregateObservedPlayerDashboard({
+      rosterPlayers: [], coreMemberships: [], tryoutBatches: [],
+      matches: [{ id: 'm1', date: '2026-10-13', map: 'Haven' }, { id: 'm2', date: '2026-10-14', map: 'Lotus' }, { id: 'm3', date: '2026-10-15', map: 'Pearl' }],
+      playerStats: [
+        { id: 'a', matchId: 'm1', player: 'bellatrix', kills: 14, deaths: 18, assists: 3 },
+        { id: 'b', matchId: 'm2', player: 'Bellatrix', kills: 17, deaths: 16, assists: 5 },
+        { id: 'c', matchId: 'm3', displayNameSnapshot: ' BELLATRIX ', kills: 16, deaths: 26, assists: 12 },
+      ],
+    } as any);
+    expect(rows).toHaveLength(1);
+    expect(rows[0]).toMatchObject({ displayName: 'bellatrix', matches: 3, recordedRows: 3, kills: 47, deaths: 60, assists: 20 });
+  });
+
   it('surfaces scoreboard, opening, economy, weapon, map and evidence metrics for unmatched names', () => {
     const [row] = aggregateObservedPlayerDashboard({
       rosterPlayers: [], coreMemberships: [], tryoutBatches: [],

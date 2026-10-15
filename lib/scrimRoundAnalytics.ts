@@ -245,9 +245,12 @@ export function materializeFirstDeathsFromRoundEvidence(
   options: { overwrite?: boolean; matchId?: string } = {},
 ) {
   let changed = 0;
-  for (const match of data.matches || []) {
+  const matches = Array.isArray(data.matches) ? data.matches : [];
+  const allRounds = Array.isArray(data.rounds) ? data.rounds : [];
+  const stats = Array.isArray(data.playerStats) ? data.playerStats : [];
+  for (const match of matches) {
     if (options.matchId && match.id !== options.matchId) continue;
-    const rounds = (data.rounds || []).filter(round => round.matchId === match.id).sort((a, b) => Number(a.roundNo) - Number(b.roundNo));
+    const rounds = allRounds.filter(round => round.matchId === match.id).sort((a, b) => Number(a.roundNo) - Number(b.roundNo));
     const expectedRounds = Number.isInteger(match.ourScore) && Number.isInteger(match.theirScore) ? Number(match.ourScore) + Number(match.theirScore) : null;
     if (!rounds.length || (expectedRounds !== null && rounds.length !== expectedRounds)) continue;
     const firstDeaths = new Map<string, number>();
@@ -264,12 +267,52 @@ export function materializeFirstDeathsFromRoundEvidence(
       if (first.victimTeam === 'ours') firstDeaths.set(first.victimPlayerId, (firstDeaths.get(first.victimPlayerId) || 0) + 1);
     }
     if (!complete) continue;
-    for (const stat of data.playerStats || []) {
+    for (const stat of stats) {
       if (stat.matchId !== match.id || (!options.overwrite && stat.fd !== null && stat.fd !== undefined)) continue;
       const identity = screenshotPlayerIdentity(stat.playerId, stat.displayNameSnapshot || stat.player || '');
       stat.fd = firstDeaths.get(identity) || 0;
       changed += 1;
     }
+  }
+  return changed;
+}
+
+/**
+ * Fill the round-log opening columns from securely resolved screenshot kill
+ * feeds. Existing values may be coach corrections, so migration only fills
+ * blanks and never replaces them.
+ */
+export function materializeRoundOpeningsFromScreenshotEvidence(
+  data: { rounds?: any[] },
+  options: { matchId?: string } = {},
+) {
+  let changed = 0;
+  const rounds = Array.isArray(data.rounds) ? data.rounds : [];
+  for (const round of rounds) {
+    if (options.matchId && round.matchId !== options.matchId) continue;
+    const evidence = round.screenshotEvidence;
+    const first = [...(evidence?.events || [])].sort((a: any, b: any) => Number(a.sequence) - Number(b.sequence))[0];
+    const legacyOpening = evidence?.openingEventComplete === undefined
+      && (evidence?.eventsComplete === true || first?.sourceRow === 0);
+    if (!(evidence?.openingEventComplete === true || legacyOpening)
+      || first?.sequence !== 1 || !first.killerPlayerId || !first.victimPlayerId) continue;
+
+    const names = new Map<string, string>();
+    for (const player of evidence.players || []) {
+      const displayName = typeof player.displayName === 'string' ? player.displayName.trim() : '';
+      if (!displayName) continue;
+      const rawId = typeof player.playerId === 'string' ? player.playerId.trim() : '';
+      if (rawId) names.set(rawId, displayName);
+      names.set(screenshotPlayerIdentity(player.playerId, player.displayName), displayName);
+    }
+    const resolve = (playerId: unknown) => {
+      const rawId = typeof playerId === 'string' ? playerId.trim() : '';
+      return rawId ? names.get(rawId) || names.get(screenshotPlayerIdentity(rawId, '')) || null : null;
+    };
+    const firstKillBy = resolve(first.killerPlayerId);
+    const firstDeathBy = resolve(first.victimPlayerId);
+    if (!round.firstKillBy && firstKillBy) { round.firstKillBy = firstKillBy; changed += 1; }
+    if (!round.firstDeathBy && firstDeathBy) { round.firstDeathBy = firstDeathBy; changed += 1; }
   }
   return changed;
 }
