@@ -9,12 +9,12 @@ The registry is a closed, immutable set of coaching-signal definitions. It gives
 | Identifier | Value / unit | Direction | Evidence expectation |
 | --- | --- | --- | --- |
 | `economy.pistol-conversion` | percentage of eligible rounds | higher is better | Won pistol plus its known immediate follow-up result. |
-| `economy.anti-eco-loss` | percentage of eligible rounds | lower is better | Both teams’ proven economy classes and result. |
+| `economy.anti-eco-loss` | losses / eligible anti-eco rounds | lower is better | Denominator includes only rounds where our team is proven full buy, the opponent proven eco/low buy, and the result known. |
 | `economy.full-buy-loss` | percentage of eligible rounds | lower is better | Proven team full buy and result. |
 | `economy.low-buy-win` | percentage of eligible rounds | higher is better | Proven team eco/low buy and result. |
 | `opening.first-death-recovery` | percentage of eligible rounds | higher is better | Team suffered the first death; result is known. |
 | `opening.conversion` | percentage of eligible rounds | higher is better | Team secured the first kill; result is known. This is not pistol follow-up conversion. |
-| `round.advantage-collapse` | percentage of eligible rounds | lower is better | Complete ordered life-state events prove a multi-player advantage, followed by a lost round. |
+| `round.advantage-collapse` | collapses / eligible advantage rounds | lower is better | Denominator includes only rounds where complete ordered life-state evidence proves our team held the configured multi-player advantage and the result is known. |
 | `combat.multikill` | occurrence count | higher is better | Complete player-attributed eliminations for the covered round. Two/three/four/ace are dimensions, not separate IDs. |
 | `composition.result` | percentage of eligible matches | higher is better | Five observed agents, map, and complete decisive score. Missing or tied scores are unknown. |
 | `evidence.incomplete` | evidence-gap count | informational | A fully inspected scope identifies explicit missing, partial, contradictory, or unsupported facts. It is evidence quality, not a performance failure. |

@@ -105,6 +105,33 @@ describe('S0.3 coaching signal registry', () => {
     expect(getSignalDefinition('evidence.incomplete').metric.direction).toBe('informational');
   });
 
+  it('defines anti-eco loss eligibility before counting losses', () => {
+    const definition = getSignalDefinition('economy.anti-eco-loss');
+    expect(definition.metric).toMatchObject({
+      numerator: 'eligible anti-eco rounds lost',
+      denominator: 'eligible rounds where our team is proven full buy, the opponent is proven eco or low buy, and the result is known',
+    });
+    expect(definition.evidence.requiredFacts).toEqual([
+      'our team full-buy classification',
+      'opponent eco or low-buy classification',
+      'round result',
+    ]);
+  });
+
+  it('defines advantage-collapse eligibility before counting lost advantage rounds', () => {
+    const definition = getSignalDefinition('round.advantage-collapse');
+    expect(definition.metric).toMatchObject({
+      numerator: 'eligible rounds lost after our team held the configured multi-player advantage',
+      denominator: 'eligible rounds where complete ordered life-state evidence proves our team held the configured multi-player advantage and the result is known',
+    });
+    expect(definition.evidence.requiredFacts).toEqual([
+      'complete ordered elimination events',
+      'team membership',
+      'configured multi-player advantage held by our team',
+      'round result',
+    ]);
+  });
+
   it('requires accepted sources for performance signals but allows an evidence-quality draft', () => {
     const performance = { ...fixture('combat.multikill', 'complete'), sourceReferences: [reference('match-draft', 'draft')], provenance: 'includes-unaccepted' };
     expect(() => normalizeSignalMetric('combat.multikill', performance)).toThrow(/accepted-sources-required/);
