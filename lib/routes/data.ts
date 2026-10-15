@@ -190,7 +190,7 @@ export function registerDataRoutes(app: Express, options: { websiteSummaryOnly?:
           return res.status(400).json({ error: 'Every replacement stat must use the saved match ID.' });
         }
         const submittedStats = statsUpdate.stats;
-        statsUpdate.stats = validateAndNormalizeLineup(db, match, submittedStats)
+        statsUpdate.stats = validateAndNormalizeLineup(db, match, submittedStats, existingStats)
           .map((stat: any, index: number) => {
             const correction = parseIdentitySnapshotCorrection(submittedStats[index]?.identityCorrection);
             const corrected = { ...stat };
@@ -232,6 +232,10 @@ export function registerDataRoutes(app: Express, options: { websiteSummaryOnly?:
           if (correction && !existingStat) throw Object.assign(new Error('Identity correction requires an existing accepted player appearance.'), { status: 400 });
           if (correction?.fields.some(field => !Object.prototype.hasOwnProperty.call(stat, field))) {
             throw Object.assign(new Error('Every named identity correction field requires an explicit value.'), { status: 400 });
+          }
+          if (correction?.fields.includes('playerId') && stat.playerId !== null) {
+            const target = (db.rosterPlayers || []).find((player: any) => player.id === stat.playerId && !player.retiredAt);
+            if (!target) throw Object.assign(new Error('Identity link corrections require an active roster identity or null.'), { status: 400 });
           }
           const { rowOperation: _rowOperation, identityCorrection: _identityCorrection, ...submittedStat } = stat;
           const cleanStat = preserveIdentitySnapshot(existingStat, submittedStat, correction);

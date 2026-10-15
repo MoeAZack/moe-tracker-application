@@ -168,6 +168,7 @@ async function authenticateDevice(req: Request) {
   if (!DEVICE_ID.test(id) || token.length < 43 || token.length > 256) return null;
   const db = await readDB(); const store = replayStore(db); const device = store.devices[id];
   if (!device || device.revokedAt || Date.parse(device.expiresAt) <= Date.now() || !safeEqual(device.tokenHash, tokenHash(token))) return null;
+  if (device.owner.playerId && !(db.rosterPlayers || []).some((player: any) => player.id === device.owner.playerId && !player.retiredAt)) return null;
   return { db, store, device };
 }
 
@@ -618,7 +619,7 @@ export function registerReplayDeviceUploadRoute(app: Express) {
         if (!row?.id || row.matchId !== matchId || !row.screenshotMetrics || row.screenshotMetrics.schemaVersion !== 1) throw Object.assign(new Error('Screenshot player summary is invalid.'), { status: 400 });
         const allowed = ['id', 'matchId', 'player', 'playerId', 'displayNameSnapshot', 'appearanceType', 'agent', 'kills', 'deaths', 'assists', 'acs', 'adr', 'hs', 'headshots', 'headshotEligibleKills', 'orbPoints', 'fk', 'fd', 'plants', 'defuses', 'screenshotMetrics', 'sourceMetadata'];
         const safe = Object.fromEntries(allowed.filter(key => row[key] !== undefined).map(key => [key, structuredClone(row[key])]));
-        if (safe.playerId && !(db.rosterPlayers || []).some((player: any) => player.id === safe.playerId)) {
+        if (safe.playerId && !(db.rosterPlayers || []).some((player: any) => player.id === safe.playerId && !player.retiredAt)) {
           delete safe.playerId;
           delete safe.appearanceType;
         }

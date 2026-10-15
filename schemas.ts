@@ -60,7 +60,7 @@ const playerStatSchema = looseObject.extend({
   id: z.string().max(200).optional(),
   matchId: z.string().max(200).optional(),
   player: z.string().max(200).optional(),
-  playerId: z.string().uuid().optional(),
+  playerId: z.string().uuid().nullable().optional(),
   displayNameSnapshot: z.string().trim().min(1).max(200).optional(),
   appearanceType: z.enum(['core', 'tryout', 'standIn']).optional(),
   agent: z.string().max(100).nullable().optional(),
@@ -81,7 +81,7 @@ const playerStatSchema = looseObject.extend({
   rowOperation: z.literal('create').optional(),
   sourceMetadata: sourceMetadataSchema.optional(),
   identityCorrection: z.object({
-    fields: z.array(z.enum(['displayNameSnapshot', 'agent', 'appearanceType'])).min(1).max(3),
+    fields: z.array(z.enum(['playerId', 'displayNameSnapshot', 'agent', 'appearanceType'])).min(1).max(4),
     reason: z.string().trim().min(1).max(500),
   }).strict().optional(),
 });

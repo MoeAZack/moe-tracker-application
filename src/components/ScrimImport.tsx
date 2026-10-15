@@ -41,7 +41,7 @@ const imageFromBase64 = async (base64: string, mediaType: string) => {
 
 export default function ScrimImport({ data, theme, onSaveMatch, onSaveRounds, onClose }: Props) {
   const roster = data.settings?.players || [];
-  const rosterPlayers = data.rosterPlayers || [];
+  const rosterPlayers = (data.rosterPlayers || []).filter(player => !player.retiredAt);
   const agents = data.settings?.agents || [];
   const [scoreboard, setScoreboard] = useState<File | null>(null);
   const [timeline, setTimeline] = useState<File | null>(null);

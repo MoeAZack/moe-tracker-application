@@ -7,10 +7,11 @@
  * backfilled here: an absent snapshot stays absent until S0.6 migration work.
  */
 export const IDENTITY_SNAPSHOT_FIELDS = ['displayNameSnapshot', 'agent', 'appearanceType'] as const;
-export type IdentitySnapshotField = typeof IDENTITY_SNAPSHOT_FIELDS[number];
+export const IDENTITY_CORRECTION_FIELDS = ['playerId', ...IDENTITY_SNAPSHOT_FIELDS] as const;
+export type IdentityCorrectionField = typeof IDENTITY_CORRECTION_FIELDS[number];
 
 export type IdentitySnapshotCorrection = {
-  fields: IdentitySnapshotField[];
+  fields: IdentityCorrectionField[];
   reason: string;
 };
 
@@ -34,8 +35,10 @@ export function preserveIdentitySnapshot<T extends Record<string, any>>(
 
   // Linkage is not an observed label and is separately stable. Never replace a
   // proven link during a routine re-save, and never infer one from a name.
-  if (own(existing, 'playerId')) result.playerId = existing.playerId;
-  else delete result.playerId;
+  if (!allowed.has('playerId')) {
+    if (own(existing, 'playerId')) result.playerId = existing.playerId;
+    else delete result.playerId;
+  }
 
   for (const field of IDENTITY_SNAPSHOT_FIELDS) {
     if (allowed.has(field)) continue;
@@ -61,8 +64,8 @@ export function parseIdentitySnapshotCorrection(value: unknown): IdentitySnapsho
   if (!value || typeof value !== 'object' || Array.isArray(value)) return undefined;
   const input = value as Record<string, unknown>;
   const fields = Array.isArray(input.fields)
-    ? [...new Set(input.fields.filter((field): field is IdentitySnapshotField =>
-      typeof field === 'string' && (IDENTITY_SNAPSHOT_FIELDS as readonly string[]).includes(field)))]
+    ? [...new Set(input.fields.filter((field): field is IdentityCorrectionField =>
+      typeof field === 'string' && (IDENTITY_CORRECTION_FIELDS as readonly string[]).includes(field)))]
     : [];
   const reason = typeof input.reason === 'string' ? input.reason.trim() : '';
   return fields.length && reason ? { fields, reason } : undefined;
@@ -71,4 +74,12 @@ export function parseIdentitySnapshotCorrection(value: unknown): IdentitySnapsho
 /** Merge an accepted row arriving from replay/screenshot synchronization. */
 export function mergeAcceptedPlayerStat(existing: Record<string, any> | undefined, incoming: Record<string, any>) {
   return preserveIdentitySnapshot(existing, existing ? { ...existing, ...incoming } : incoming);
+}
+
+/** Stable analytics key. Unlinked rows remain separate even when labels match. */
+export function playerAggregationKey(row: { id?: unknown; playerId?: unknown }, fallback: string | number = ''): string {
+  const playerId = typeof row.playerId === 'string' ? row.playerId.trim() : '';
+  if (playerId) return `player:${playerId}`;
+  const rowId = typeof row.id === 'string' ? row.id.trim() : '';
+  return `unlinked:${rowId || fallback}`;
 }
