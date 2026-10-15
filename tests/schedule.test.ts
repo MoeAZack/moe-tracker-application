@@ -1,5 +1,25 @@
 import { describe, expect, it } from 'vitest';
-import { repeatedHourlyScheduleRows } from '../lib/schedule';
+import { DEFAULT_SCHEDULE_CALENDARS, ensureScheduleCalendars, repeatedHourlyScheduleRows } from '../lib/schedule';
+
+describe('schedule categories', () => {
+  it('adds the standard categories while preserving existing custom values', () => {
+    const settings = { calendars: [{ key: 'practice', name: 'Team Practice', color: '#123456', gcalId: 'custom', sync: true }] };
+    ensureScheduleCalendars(settings);
+    expect(settings.calendars.map(calendar => calendar.name)).toEqual(['Team Practice', 'Official', 'VOD Review', 'Offline', 'Team Talk', 'Debrief']);
+    expect(settings.calendars[0]).toEqual({ key: 'practice', name: 'Team Practice', color: '#123456', gcalId: 'custom', sync: true });
+  });
+
+  it('normalizes only old built-in labels and remains idempotent', () => {
+    const settings = { calendars: [
+      { key: 'official', name: 'Officials', color: '#111111' },
+      { key: 'review', name: 'VOD review', color: '#222222' },
+    ] };
+    ensureScheduleCalendars(settings);
+    ensureScheduleCalendars(settings);
+    expect(settings.calendars.map(calendar => calendar.name)).toEqual(['Official', 'VOD Review', 'Practice', 'Offline', 'Team Talk', 'Debrief']);
+    expect(settings.calendars).toHaveLength(DEFAULT_SCHEDULE_CALENDARS.length);
+  });
+});
 
 describe('hourly schedule repetition', () => {
   it('creates consecutive same-day slots for repeated practice blocks', () => {

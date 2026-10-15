@@ -1,4 +1,5 @@
 import { uid } from './utils';
+import { DEFAULT_SCHEDULE_CALENDARS } from './schedule';
 
 // Empty structural seed for a fresh installation. Sample schedules, goals,
 // identities, matches and strategies must never be recreated by first boot.
@@ -28,11 +29,7 @@ export function createSeed() {
     matchTypes: ['Scrim', 'Official', 'Tournament'],
     attendanceStates: ['Prac', 'Official', 'OFF', 'Late', 'Absent'],
     goalStates: ['Open', 'In progress', 'Done'],
-    calendars: [
-      { key: 'practice', name: 'Practice', color: '#ff4655', gcalId: '', sync: false },
-      { key: 'official', name: 'Officials', color: '#3aa0ff', gcalId: '', sync: false },
-      { key: 'review', name: 'VOD review', color: '#3ddc84', gcalId: '', sync: false }
-    ],
+    calendars: DEFAULT_SCHEDULE_CALENDARS.map(calendar => ({ ...calendar })),
     riotIds: {} as Record<string, { name: string; tag: string; region?: string; level?: number }>,
     vlr: { baseUrl: '', teamId: '', teamName: '' },
     ai: { model: 'gemini-2.5-flash' },
