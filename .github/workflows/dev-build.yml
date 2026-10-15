@@ -93,35 +93,7 @@ jobs:
           python-version: '3.12'
       - name: Bundle pinned replay parser runtime
         shell: pwsh
-        run: |
-          $ErrorActionPreference = 'Stop'
-          trap { Write-Host "::error title=replay-runtime::$($_.Exception.Message)"; exit 1 }
-          $rt = Join-Path $PWD 'replay-runtime'
-          New-Item -ItemType Directory -Force (Join-Path $rt 'vrfkit'), (Join-Path $rt 'python') | Out-Null
-          $zip = Join-Path $env:RUNNER_TEMP 'vrfkit.zip'
-          Invoke-WebRequest 'https://github.com/yakisoba0728/vrfkit/releases/download/v0.2.5/vrfkit-v0.2.5-windows-x64.zip' -OutFile $zip
-          $zipHash = (Get-FileHash $zip -Algorithm SHA256).Hash.ToLower()
-          if ($zipHash -ne '2cf8375191f7de8b8199f84a69e91a02e5e4d5b541c242e466c9d9aa24ef7494') { throw "vrfkit release ZIP hash mismatch: $zipHash" }
-          $extract = Join-Path $env:RUNNER_TEMP 'vrfkit'
-          Expand-Archive $zip -DestinationPath $extract
-          $exe = Get-ChildItem $extract -Recurse -Filter 'vrfkit.exe' | Select-Object -First 1
-          $buildInfo = Join-Path $exe.DirectoryName 'build-info.json'
-          if (-not (Test-Path -LiteralPath $buildInfo -PathType Leaf)) { throw 'vrfkit release is missing build-info.json' }
-          $exeHash = (Get-FileHash $exe.FullName -Algorithm SHA256).Hash.ToLower()
-          if ($exeHash -ne 'aa55fc410f1596a6ffedc7ab579341da6edb262197c64902e74b4eed485dc23f') { throw "vrfkit.exe hash mismatch: $exeHash" }
-          Copy-Item (Join-Path $exe.DirectoryName '*') (Join-Path $rt 'vrfkit') -Recurse
-          $pyVersion = '3.12.10'
-          $pyZip = Join-Path $env:RUNNER_TEMP 'python-embed.zip'
-          Invoke-WebRequest "https://www.python.org/ftp/python/$pyVersion/python-$pyVersion-embed-amd64.zip" -OutFile $pyZip
-          Write-Host "python embed sha256: $((Get-FileHash $pyZip -Algorithm SHA256).Hash.ToLower())"
-          Expand-Archive $pyZip -DestinationPath (Join-Path $rt 'python')
-          $pth = Get-ChildItem (Join-Path $rt 'python') -Filter 'python*._pth' | Select-Object -First 1
-          Add-Content $pth.FullName "Lib\site-packages`nimport site"
-          python -m pip install --only-binary=:all: --no-deps --target (Join-Path $rt 'python\Lib\site-packages') 'pyarrow==18.1.0'
-          & (Join-Path $rt 'python\python.exe') -c "import pyarrow.parquet; print('pyarrow', pyarrow.__version__)"
-          if ($LASTEXITCODE -ne 0) { throw 'Embedded Python cannot import pyarrow.' }
-          Write-Host "::notice title=replay-runtime::vrfkit $exeHash bundled with embedded Python $pyVersion and pyarrow 18.1.0"
-          exit 0
+        run: .\scripts\stage-replay-runtime.ps1
       - name: Build unsigned installer
         shell: pwsh
         env:
