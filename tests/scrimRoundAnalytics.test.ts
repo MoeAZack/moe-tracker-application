@@ -56,7 +56,7 @@ describe('scrim screenshot analytics', () => {
   it('uses the same identity for names with spaces in rounds and stored scoreboards', () => {
     const spaced = round({ screenshotEvidence: { ...round().screenshotEvidence, players: [{ playerId: 'name:rafblack', displayName: 'RAF BLACK', team: 'ours', equippedWeapon: 'Vandal', kills: 1, assists: 0, survived: true }] } });
     const metric = buildPlayerScreenshotMetrics([spaced] as any)[0];
-    expect(metric.identity).toBe('name:rafblack');
+    expect(metric.identity).toBe('unlinked:m1:rafblack');
     expect(combineStoredScreenshotMetrics([{ id: 'legacy-row', player: 'RAF BLACK', screenshotMetrics: metric } as any])[0].identity).toBe('unlinked:legacy-row');
   });
   it('attributes kills to the event weapon while keeping equipped-round results separate', () => {
@@ -83,6 +83,13 @@ describe('scrim screenshot analytics', () => {
     ]);
     expect(combined.map(item => item.identity)).toEqual(['unlinked:row-a', 'unlinked:row-b']);
     expect(combined.every(item => item.coveredRounds === 1)).toBe(true);
+  });
+  it('keeps same-name raw screenshot appearances separate across matches', () => {
+    const first = round({ matchId: 'match-a', screenshotEvidence: { ...round().screenshotEvidence, players: [{ displayName: 'Same Name', team: 'ours', equippedWeapon: 'Vandal' }] } });
+    const second = round({ id: 'r2', matchId: 'match-b', screenshotEvidence: { ...round().screenshotEvidence, players: [{ displayName: 'Same Name', team: 'ours', equippedWeapon: 'Phantom' }] } });
+    const metrics = buildPlayerScreenshotMetrics([first, second] as any);
+    expect(metrics.map(item => item.identity)).toEqual(['unlinked:match-a:samename', 'unlinked:match-b:samename']);
+    expect(metrics.every(item => item.coveredRounds === 1)).toBe(true);
   });
   it('derives pistol, eco and earned bonus conversion by side from rounds', () => {
     const rows = [

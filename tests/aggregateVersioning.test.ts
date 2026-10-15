@@ -8,8 +8,11 @@ import {
   recomputeAcceptedMatchAggregates,
 } from '../lib/aggregateVersioning';
 import { buildMapRoundIntelligence } from '../lib/mapRoundAnalytics';
-import { toPublicTrackerData } from '../lib/publicData';
+import { buildShareableBackupPayload, toPublicTrackerData, toWebsiteTrackerData } from '../lib/publicData';
 import { ensureStorageSchema } from '../lib/storageSchema';
+import { selectDashboardPersonalRows } from '../src/components/Dashboard';
+import { buildEconomySpecialConversions } from '../src/components/EconomyAnalytics';
+import { compositionMatchOutcome } from '../src/components/TeamCompositions';
 
 function fixture() {
   return {
@@ -107,14 +110,26 @@ describe('S0.6 aggregate migration', () => {
   it('keeps the canonical map, economy, dashboard payload, and export sample in parity', () => {
     const data = fixture();
     data.workspace = { schemaVersion: 1, id: 'ws_teamAlphaWorkspace0001', createdAt: '2026-10-01T00:00:00.000Z' };
+    data.settings = {};
+    data.rosterPlayers = [{ id: 'p1', displayName: 'Same' }];
     const builder = buildMapRoundIntelligence([{ ...data.matches[0], roundAnalytics: undefined }], data.rounds)[0];
     const publicData = toPublicTrackerData(data, 'coach');
+    const websiteData = toWebsiteTrackerData(data, 'coach');
+    const backupData = buildShareableBackupPayload(data);
     const exported = buildCanonicalAnalyticsExport(data, 'm1');
+    const economy = buildEconomySpecialConversions(data.matches, data.rounds);
+    const personal = selectDashboardPersonalRows(data, 'Same');
     expect(publicData.matches[0].roundAnalytics.pistol).toEqual(builder.pistol);
     expect(publicData.matches[0].roundAnalytics.postPistol).toEqual(builder.postPistol);
+    expect(websiteData.matches[0].roundAnalytics.pistol).toEqual(builder.pistol);
+    expect(backupData.matches[0].roundAnalytics.pistol).toEqual(builder.pistol);
+    expect(economy.pistol).toEqual({ attW: builder.pistolBySide.attack.won, attT: builder.pistolBySide.attack.total, defW: builder.pistolBySide.defense.won, defT: builder.pistolBySide.defense.total });
     expect(publicData.canonicalAnalytics[0].metrics.pistolConversion).toEqual(exported.metrics.pistolConversion);
     expect(exported.metrics.pistolConversion.numerator).toBe(builder.pistol.won);
     expect(exported.metrics.pistolConversion.denominator).toBe(builder.pistol.total);
+    expect(compositionMatchOutcome(data.matches[0])).toBe('win');
+    expect(personal.viewer?.id).toBe('p1');
+    expect(personal.rows.map(row => row.id)).toEqual(['s1']);
   });
 
   it('applies storage schema 3 once and records the versioned migration', () => {

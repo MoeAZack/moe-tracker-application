@@ -97,7 +97,7 @@ export function recomputeAcceptedMatchAggregates(container: AggregateContainer, 
   }
 
   const built = new Map(buildPlayerScreenshotMetrics(rounds)
-    .filter(metric => !metric.identity.startsWith('name:'))
+    .filter(metric => !metric.identity.startsWith('unlinked:'))
     .map(metric => [metric.identity, metric]));
   for (const stat of stats) {
     // A stable roster link is the only permissible migration join. An observed

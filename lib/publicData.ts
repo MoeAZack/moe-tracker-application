@@ -20,9 +20,21 @@ export function toPublicTrackerData(db: Record<string, any>, role: 'coach' | 'pl
   // replay observations. Both have dedicated role-aware endpoints and must never
   // hitchhike in the broad tracker payload, including for coaches.
   if (Array.isArray(publicData.matches) && Array.isArray(publicData.rounds)) {
+    const plans = new Map<string, ReturnType<typeof buildAcceptedMatchAggregatePlan>>(publicData.matches.map((match: any) => [match.id, buildAcceptedMatchAggregatePlan(publicData, match.id)]));
     publicData.matches = publicData.matches.map((match: any) => {
-      const plan = buildAcceptedMatchAggregatePlan(publicData, match.id);
-      return plan.build.status === 'recomputed' && plan.match ? plan.match : match;
+      const plan = plans.get(match.id)!;
+      if (plan.build.status === 'recomputed' && plan.match) return plan.match;
+      const { roundAnalytics: _quarantinedAggregate, ...sourceOnly } = match;
+      return sourceOnly;
+    });
+    if (Array.isArray(publicData.playerStats)) publicData.playerStats = publicData.playerStats.map((stat: any) => {
+      const plan = plans.get(stat.matchId);
+      const planned = plan?.playerStats.find(item => item.id === stat.id);
+      const metric = planned?.screenshotMetrics;
+      if (plan?.build.status === 'recomputed' && metric?.calculationVersion === 'player-screenshot-metrics/v1'
+        && metric.sourceHash === plan.build.sourceHash) return planned;
+      const { screenshotMetrics: _quarantinedAggregate, ...sourceOnly } = stat;
+      return sourceOnly;
     });
   }
   if (role === 'coach' && db.workspace && Array.isArray(db.matches)) {
@@ -90,6 +102,11 @@ export function toWebsiteTrackerData(db: Record<string, any>, role: 'coach' | 'p
     rounds: [], vetos: [], strats: [], stratRuns: [], seasonArchives: [], vodReviews: [], lineups: [],
     secrets: {}, serverTime: new Date().toISOString(),
   };
+}
+
+/** Exact payload used by the authenticated shareable backup route. */
+export function buildShareableBackupPayload(db: Record<string, any>) {
+  return toPublicTrackerData(db, 'coach');
 }
 
 /** Remove credential fields from imported legacy backups before storage. */

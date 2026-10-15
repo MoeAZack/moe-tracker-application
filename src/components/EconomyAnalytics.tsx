@@ -46,22 +46,24 @@ function StatCard({ icon, title, attW, attT, defW, defT }: { icon: React.ReactNo
   );
 }
 
+export function buildEconomySpecialConversions(matches: TrackerData['matches'], rounds: TrackerData['rounds']) {
+  const acc = { pistol: { attW: 0, attT: 0, defW: 0, defT: 0 }, eco: { attW: 0, attT: 0, defW: 0, defT: 0 }, bonus: { attW: 0, attT: 0, defW: 0, defT: 0 } };
+  for (const row of buildMapRoundIntelligence(matches.map(match => ({ ...match, roundAnalytics: undefined })), rounds)) {
+    for (const [kind, source] of [['pistol', row.pistolBySide], ['eco', row.postPistolBySide], ['bonus', row.earnedBonusBySide]] as const) {
+      acc[kind].attW += source.attack.won; acc[kind].attT += source.attack.total;
+      acc[kind].defW += source.defense.won; acc[kind].defT += source.defense.total;
+    }
+  }
+  return acc;
+}
+
 export default function EconomyAnalytics({ data, theme }: Props) {
   const matches = data.matches || [];
   const rounds = data.rounds || [];
   const buyTypes = data.settings?.buyTypes || ['Full', 'Half', 'Force', 'Bonus', 'Eco'];
 
   // Canonical round-backed conversions shared with Map Analysis and exports.
-  const special = useMemo(() => {
-    const acc = { pistol: { attW: 0, attT: 0, defW: 0, defT: 0 }, eco: { attW: 0, attT: 0, defW: 0, defT: 0 }, bonus: { attW: 0, attT: 0, defW: 0, defT: 0 } };
-    for (const row of buildMapRoundIntelligence(matches.map(match => ({ ...match, roundAnalytics: undefined })), rounds)) {
-      for (const [kind, source] of [['pistol', row.pistolBySide], ['eco', row.postPistolBySide], ['bonus', row.earnedBonusBySide]] as const) {
-        acc[kind].attW += source.attack.won; acc[kind].attT += source.attack.total;
-        acc[kind].defW += source.defense.won; acc[kind].defT += source.defense.total;
-      }
-    }
-    return acc;
-  }, [matches, rounds]);
+  const special = useMemo(() => buildEconomySpecialConversions(matches, rounds), [matches, rounds]);
 
   // Round-level buy-type + side win rates (available when rounds are logged).
   const byBuy = useMemo(() => {
