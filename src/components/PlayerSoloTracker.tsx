@@ -69,7 +69,7 @@ function PlayerDetails({ row, muted }: { row: ObservedPlayerDashboard; muted: st
       <MetricPanel title="Objectives & multikills" subtitle="Round-winning actions" accent="violet">
         <MetricValue label="Plants" value={row.plants} />
         <MetricValue label="Defuses" value={row.defuses} />
-        <MetricValue label="Trades" value={row.trades} />
+        <MetricValue label="Trades" value={row.trades ?? '—'} />
         <MetricValue label="2K rounds" value={row.multikills.two} />
         <MetricValue label="3K rounds" value={row.multikills.three} />
         <MetricValue label="4K rounds" value={row.multikills.four} />

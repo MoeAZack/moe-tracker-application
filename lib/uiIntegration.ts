@@ -1,5 +1,6 @@
 import type { CoreMembership, Match, PlayerStats, TrackerData, VodReview } from '../src/types';
 import { toCairoDateKey } from './coachAnalytics';
+import { buildPlayerScreenshotMetrics, combinePlayerScreenshotMetrics, combineStoredScreenshotMetrics } from './scrimRoundAnalytics';
 
 export type IntegrationReadiness =
   | { status: 'ready'; detail: string }
@@ -46,7 +47,7 @@ export interface ObservedPlayerDashboard extends ObservedPlayerKd {
   mainAgent: string | null; avgAcs: number | null; avgAdr: number | null; avgHs: number | null;
   firstKills: number | null; firstDeaths: number | null; kast: number | null;
   recentForm: Array<'W' | 'L' | '—'>; status: 'core' | 'standIn' | 'tryout';
-  attackKd: number | null; defenseKd: number | null; plants: number; defuses: number; trades: number;
+  attackKd: number | null; defenseKd: number | null; plants: number; defuses: number; trades: number | null;
   multikills: { two: number; three: number; four: number; ace: number };
   lowBudgetWins: number; highBudgetLosses: number; antiEcoLosses: number;
   agents: Array<{ name: string; matches: number; wins: number }>;
@@ -84,12 +85,14 @@ const matchWon = (match: Match | undefined): boolean | null => {
   return won + lost > 0 ? won > lost : null;
 };
 
-export function aggregateObservedPlayerDashboard(data: Pick<TrackerData, 'playerStats' | 'matches' | 'rosterPlayers' | 'coreMemberships' | 'tryoutBatches'>): ObservedPlayerDashboard[] {
+export function aggregateObservedPlayerDashboard(data: Pick<TrackerData, 'playerStats' | 'matches' | 'rosterPlayers' | 'coreMemberships' | 'tryoutBatches'> & { rounds?: TrackerData['rounds'] }): ObservedPlayerDashboard[] {
   const matches = new Map((data.matches || []).map(match => [match.id, match]));
   const playerById = new Map((data.rosterPlayers || []).map(player => [player.id, player]));
   const activeCore = new Set((data.coreMemberships || []).filter(item => !item.endedAt).map(item => item.playerId));
   const activeTryouts = new Set((data.tryoutBatches || []).filter(batch => batch.status === 'active').flatMap(batch => batch.candidatePlayerIds));
   const activePlayerByName = new Map((data.rosterPlayers || []).filter(player => !player.retiredAt).map(player => [normalizedObservedName(player.displayName), player.id]));
+  const liveScreenshotByIdentity = new Map(combinePlayerScreenshotMetrics(buildPlayerScreenshotMetrics(data.rounds || []))
+    .map(metric => [metric.identity, metric]));
   const groups = new Map<string, { playerId: string | null; displayName: string; rows: PlayerStats[] }>();
   for (const row of (data.playerStats || [])) {
     const displayName = observedName(row);
@@ -115,7 +118,10 @@ export function aggregateObservedPlayerDashboard(data: Pick<TrackerData, 'player
     }
     const agents = [...agentMap].map(([name, item]) => ({ name, matches: item.matches.size, wins: item.wins })).sort((a, b) => b.matches - a.matches || a.name.localeCompare(b.name));
     const maps = [...mapMap].map(([name, item]) => ({ name, matches: item.matches.size, wins: item.wins })).sort((a, b) => b.matches - a.matches || a.name.localeCompare(b.name));
-    const screenshot = rows.map(row => row.screenshotMetrics).filter(Boolean) as NonNullable<PlayerStats['screenshotMetrics']>[];
+    const liveScreenshot = liveScreenshotByIdentity.get(group.playerId || `unlinked-name:${normalizedObservedName(group.displayName)}`);
+    const storedScreenshot = combineStoredScreenshotMetrics(rows);
+    const screenshot = liveScreenshot ? [liveScreenshot] : storedScreenshot;
+    const recordedTrades = rows.map(row => row.trades).filter(knownNumber);
     const weapons = new Map<string, { rounds: number; wins: number; kills: number; deaths: number }>();
     for (const metric of screenshot) for (const weapon of metric.weapons || []) { const item = weapons.get(weapon.weapon) || { rounds: 0, wins: 0, kills: 0, deaths: 0 }; item.rounds += weapon.rounds; item.wins += weapon.wins; item.kills += weapon.kills; item.deaths += weapon.deaths; weapons.set(weapon.weapon, item); }
     const attackKills = rows.reduce((sum, row) => sum + (knownNumber(row.kAtt) ? row.kAtt : 0), 0); const attackDeaths = rows.reduce((sum, row) => sum + (knownNumber(row.dAtt) ? row.dAtt : 0), 0);
@@ -134,7 +140,7 @@ export function aggregateObservedPlayerDashboard(data: Pick<TrackerData, 'player
       recentForm: matchIds.sort((a, b) => String(matches.get(b)?.date || '').localeCompare(String(matches.get(a)?.date || ''))).slice(0, 5).map(id => { const won = matchWon(matches.get(id)); return won === null ? '—' : won ? 'W' : 'L'; }),
       status, attackKd: rows.some(row => knownNumber(row.kAtt) && knownNumber(row.dAtt)) ? ratio(attackKills, attackDeaths) : null,
       defenseKd: rows.some(row => knownNumber(row.kDef) && knownNumber(row.dDef)) ? ratio(defenseKills, defenseDeaths) : null,
-      plants: rows.reduce((sum, row) => sum + (knownNumber(row.plants) ? row.plants : 0), 0), defuses: rows.reduce((sum, row) => sum + (knownNumber(row.defuses) ? row.defuses : 0), 0), trades: rows.reduce((sum, row) => sum + (knownNumber(row.trades) ? row.trades : 0), 0),
+      plants: rows.reduce((sum, row) => sum + (knownNumber(row.plants) ? row.plants : 0), 0), defuses: rows.reduce((sum, row) => sum + (knownNumber(row.defuses) ? row.defuses : 0), 0), trades: recordedTrades.length ? recordedTrades.reduce((sum, value) => sum + value, 0) : screenshot.length ? screenshot.reduce((sum, item) => sum + (item.trades || 0), 0) : null,
       multikills: { two: screenshot.reduce((sum, item) => sum + item.multikills.two, 0), three: screenshot.reduce((sum, item) => sum + item.multikills.three, 0), four: screenshot.reduce((sum, item) => sum + item.multikills.four, 0), ace: screenshot.reduce((sum, item) => sum + item.multikills.ace, 0) },
       lowBudgetWins: screenshot.reduce((sum, item) => sum + item.lowBudgetWins, 0), highBudgetLosses: screenshot.reduce((sum, item) => sum + item.highBudgetLosses, 0), antiEcoLosses: screenshot.reduce((sum, item) => sum + item.antiEcoLosses, 0),
       agents, maps, weapons: [...weapons].map(([name, item]) => ({ name, ...item })).sort((a, b) => b.rounds - a.rounds || a.name.localeCompare(b.name)),
