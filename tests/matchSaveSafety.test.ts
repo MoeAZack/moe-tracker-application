@@ -167,6 +167,39 @@ describe('explicit match statistics save contract', () => {
     expect(stat).toMatchObject({ kills: 22, deaths: 14, assists: 7, kDef: null, fk: null, fd: 0 });
   });
 
+  it('keeps accepted identity facts on resave and requires an explicit reason to correct them', async () => {
+    const seeded: any = fixture();
+    seeded.playerStats[0] = {
+      ...seeded.playerStats[0], playerId: standInId, player: 'Observed Stand In',
+      displayNameSnapshot: 'Observed Stand In', agent: 'Jett', appearanceType: 'standIn',
+    };
+    await fs.writeFile(dbPath, JSON.stringify(seeded));
+    const token = await login(adminKey);
+    const routine = await save(token, {
+      match: { id: 'match-1', opponent: 'After', rosterContext: { kind: 'mixed' } },
+      statsUpdate: { operation: 'replace', stats: [{
+        ...seeded.playerStats[0], player: 'Known Stand In', displayNameSnapshot: 'Known Stand In',
+        agent: 'Sova', appearanceType: 'core', kills: 13,
+      }] },
+    });
+    expect(routine.status).toBe(200);
+    expect((await routine.json()).statsUpdate.stats[0]).toMatchObject({
+      player: 'Observed Stand In', displayNameSnapshot: 'Observed Stand In', agent: 'Jett', appearanceType: 'standIn', kills: 13,
+    });
+
+    const corrected = await save(token, {
+      match: { id: 'match-1', opponent: 'After', rosterContext: { kind: 'mixed' } },
+      statsUpdate: { operation: 'replace', stats: [{
+        ...seeded.playerStats[0], displayNameSnapshot: 'Corrected Observation', agent: 'Raze',
+        identityCorrection: { fields: ['displayNameSnapshot', 'agent'], reason: 'Coach verified the scoreboard.' },
+      }] },
+    });
+    expect(corrected.status).toBe(200);
+    const row = (await corrected.json()).statsUpdate.stats[0];
+    expect(row).toMatchObject({ player: 'Corrected Observation', displayNameSnapshot: 'Corrected Observation', agent: 'Raze', appearanceType: 'standIn' });
+    expect(row.corrections.at(-1)).toMatchObject({ correctedBy: 'Administrator (Master)', reason: 'Coach verified the scoreboard.' });
+  });
+
   it('keeps the complete scoreboard when round analytics cover only some players', async () => {
     const seeded = fixture();
     seeded.playerStats = ['Alpha', 'Bravo', 'Charlie', 'Delta', 'Echo'].map((player, index) => ({

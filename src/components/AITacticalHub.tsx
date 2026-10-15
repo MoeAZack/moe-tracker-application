@@ -20,10 +20,12 @@ const sanitizeInline = (html: string): string =>
     .replace(/<(\/?(?:b|strong|i|em))[^>]*>/gi, '<$1>');
 
 export default function AITacticalHub({ data, theme, onUpsert, onRemove }: ComponentProps) {
-  // Join stat rows on the stable roster id when present, so renames and
-  // tryout aliases don't split one player's history into several names.
-  const rosterNameById = useMemo(() => new Map((data.rosterPlayers || []).map((player: any) => [player.id, player.displayName])), [data.rosterPlayers]);
-  const statPlayerName = (row: { playerId?: string | null; player?: string }) => (row.playerId && rosterNameById.get(row.playerId)) || row.player || '';
+  // Evidence labels remain historical. Current names are used only as the UI
+  // bucket for a proven stable ID, so a rename does not split aggregation.
+  const currentRosterNameById = useMemo(() => new Map((data.rosterPlayers || []).map((player: any) => [player.id, player.displayName])), [data.rosterPlayers]);
+  const statPlayerName = (row: { displayNameSnapshot?: string; player?: string }) => row.displayNameSnapshot?.trim() || row.player?.trim() || '';
+  const statAggregationName = (row: { playerId?: string | null; displayNameSnapshot?: string; player?: string }) =>
+    (row.playerId && currentRosterNameById.get(row.playerId)) || statPlayerName(row);
   const [subTab, setSubTab] = useState<'playbook' | 'chemistry' | 'drafting'>('playbook');
   const isLight = data.settings.theme === 'daylight';
 
@@ -89,7 +91,7 @@ export default function AITacticalHub({ data, theme, onUpsert, onRemove }: Compo
     
     (data.playerStats || []).forEach(ps => {
       if (!matchIds.has(ps.matchId)) return;
-      const p = statPlayerName(ps);
+      const p = statAggregationName(ps);
       if (stats[p]) {
         stats[p].kills += ps.kills || 0;
         stats[p].deaths += ps.deaths || 0;
@@ -120,8 +122,8 @@ export default function AITacticalHub({ data, theme, onUpsert, onRemove }: Compo
     return stats;
   };
 
-  const prevPeriodMetrics = useMemo(() => getPeriodMetrics(prevMatchIds), [prevMatchIds, activePlayers, data.playerStats, data.rounds]);
-  const currPeriodMetrics = useMemo(() => getPeriodMetrics(currMatchIds), [currMatchIds, activePlayers, data.playerStats, data.rounds]);
+  const prevPeriodMetrics = useMemo(() => getPeriodMetrics(prevMatchIds), [prevMatchIds, activePlayers, data.playerStats, data.rounds, currentRosterNameById]);
+  const currPeriodMetrics = useMemo(() => getPeriodMetrics(currMatchIds), [currMatchIds, activePlayers, data.playerStats, data.rounds, currentRosterNameById]);
 
   const getKpiRecommendation = (player: string, curr: any, prev: any) => {
     const deaths = curr.deaths || 1;
@@ -191,7 +193,7 @@ export default function AITacticalHub({ data, theme, onUpsert, onRemove }: Compo
     });
 
     statsList.forEach((stat) => {
-      const player = statPlayerName(stat);
+      const player = statAggregationName(stat);
       const agent = stat.agent;
       if (!profs[player]) profs[player] = {};
       if (!profs[player][agent]) {
@@ -251,7 +253,7 @@ export default function AITacticalHub({ data, theme, onUpsert, onRemove }: Compo
     });
 
     return matrix;
-  }, [data.playerStats, data.matches, activePlayers, standardAgents]);
+  }, [data.playerStats, data.matches, activePlayers, standardAgents, currentRosterNameById]);
 
   const handleCycleOverride = (player: string, agent: string) => {
     const currentOverride = matrixOverrides[player]?.[agent];
@@ -552,7 +554,7 @@ export default function AITacticalHub({ data, theme, onUpsert, onRemove }: Compo
     const matchPlayersMap: Record<string, string[]> = {};
     matchesList.forEach((m) => {
       const matchStats = playerStatsList.filter(ps => ps.matchId === m.id);
-      matchPlayersMap[m.id] = matchStats.map(ps => statPlayerName(ps));
+      matchPlayersMap[m.id] = matchStats.map(ps => statAggregationName(ps));
     });
 
     // We will track total rounds played together and total rounds won
@@ -581,7 +583,7 @@ export default function AITacticalHub({ data, theme, onUpsert, onRemove }: Compo
     });
 
     return pairings;
-  }, [data.matches, data.rounds, data.playerStats, activePlayers]);
+  }, [data.matches, data.rounds, data.playerStats, activePlayers, currentRosterNameById]);
 
   // --- INTERACTIVE LINEUP SIMULATOR STATE ---
   const [simMap, setSimMap] = useState(data.settings.maps[0] || 'Ascent');

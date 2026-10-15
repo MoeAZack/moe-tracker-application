@@ -189,6 +189,8 @@ export interface EntryCorrectionMetadata {
   correctedAt: string;
   correctedBy: string;
   fields: string[];
+  /** Required explanation for explicit corrections to accepted identity facts. */
+  reason?: string;
 }
 
 export type RosterContextKind = 'core' | 'tryout' | 'mixed' | 'unclassified';
