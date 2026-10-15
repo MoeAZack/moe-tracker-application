@@ -572,7 +572,7 @@ export default function MatchLogRounds({ data, theme, onSaveMatch, onRemove, onS
                             <td className="py-3 px-2.5 text-gray-400">{ps.agent}</td>
                             <td className="py-3 px-2.5 text-center font-black text-slate-100">{ps.kills ?? '-'} <span className="text-gray-600">/</span> {ps.deaths ?? '-'} <span className="text-gray-600">/</span> {ps.assists ?? '-'}</td>
                             <td className="py-3 px-2.5 text-center text-rose-300">{ps.fk ?? '-'}</td>
-                            <td className="py-3 px-2.5 text-center text-amber-300">{ps.fd ?? '-'}</td>
+                            <td className="py-3 px-2.5 text-center text-amber-300">{ps.fd ?? ps.screenshotMetrics?.firstDeaths ?? '-'}</td>
                             <td className="py-3 px-2.5 text-center text-violet-300">{ps.plants ?? '-'}</td>
                             <td className="py-3 px-2.5 text-center text-emerald-300">{ps.defuses ?? '-'}</td>
                             <td className="py-3 px-2.5 text-center text-amber-500" title={ps.headshots !== null && ps.headshots !== undefined && ps.headshotEligibleKills !== null && ps.headshotEligibleKills !== undefined ? `${ps.headshots}/${ps.headshotEligibleKills} eligible weapon kills` : undefined}>{ps.hs !== null && ps.hs !== undefined ? `${ps.hs}%` : '-'}</td>

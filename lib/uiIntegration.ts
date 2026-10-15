@@ -55,14 +55,17 @@ export interface ObservedPlayerDashboard extends ObservedPlayerKd {
   evidence: { performanceRows: number; openingRows: number; screenshotRounds: number };
 }
 
+const observedName = (row: PlayerStats) => row.displayNameSnapshot?.trim() || row.player?.trim() || 'Unknown player';
+const normalizedObservedName = (value: string) => value.trim().toLocaleLowerCase('en');
+const observedIdentity = (row: PlayerStats) => row.playerId?.trim() || `unlinked-name:${normalizedObservedName(observedName(row))}`;
+
 export function aggregateObservedPlayerKd(rows: readonly PlayerStats[]): ObservedPlayerKd[] {
   const groups = new Map<string, { playerId: string | null; displayName: string; rows: PlayerStats[] }>();
-  rows.forEach((row, index) => {
-    const displayName = row.displayNameSnapshot?.trim() || row.player?.trim() || 'Unknown player';
-    const identity = row.playerId?.trim() || `unlinked:${row.id || index}`;
+  rows.forEach(row => {
+    const displayName = observedName(row);
+    const identity = observedIdentity(row);
     const current = groups.get(identity) || { playerId: row.playerId || null, displayName, rows: [] };
     current.rows.push(row); groups.set(identity, current);
-    void index;
   });
   return [...groups.entries()].map(([identity, group]) => {
     const paired = group.rows.filter(row => typeof row.kills === 'number' && Number.isFinite(row.kills) && row.kills >= 0 && typeof row.deaths === 'number' && Number.isFinite(row.deaths) && row.deaths >= 0);
@@ -86,11 +89,13 @@ export function aggregateObservedPlayerDashboard(data: Pick<TrackerData, 'player
   const playerById = new Map((data.rosterPlayers || []).map(player => [player.id, player]));
   const activeCore = new Set((data.coreMemberships || []).filter(item => !item.endedAt).map(item => item.playerId));
   const activeTryouts = new Set((data.tryoutBatches || []).filter(batch => batch.status === 'active').flatMap(batch => batch.candidatePlayerIds));
+  const activePlayerByName = new Map((data.rosterPlayers || []).filter(player => !player.retiredAt).map(player => [normalizedObservedName(player.displayName), player.id]));
   const groups = new Map<string, { playerId: string | null; displayName: string; rows: PlayerStats[] }>();
-  for (const [index, row] of (data.playerStats || []).entries()) {
-    const displayName = row.displayNameSnapshot?.trim() || row.player?.trim() || 'Unknown player';
-    const identity = row.playerId?.trim() || `unlinked:${row.id || index}`;
-    const group = groups.get(identity) || { playerId: row.playerId || null, displayName, rows: [] };
+  for (const row of (data.playerStats || [])) {
+    const displayName = observedName(row);
+    const matchedPlayerId = row.playerId?.trim() || activePlayerByName.get(normalizedObservedName(displayName)) || null;
+    const identity = matchedPlayerId || `unlinked-name:${normalizedObservedName(displayName)}`;
+    const group = groups.get(identity) || { playerId: matchedPlayerId, displayName, rows: [] };
     group.rows.push(row); groups.set(identity, group);
   }
   return [...groups.entries()].map(([identity, group]) => {
