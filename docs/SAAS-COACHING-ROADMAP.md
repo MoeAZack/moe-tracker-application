@@ -44,7 +44,7 @@ data source is required.
 - Collection is post-match only. No live competitive assistance, injection, memory inspection, or anti-cheat bypass is permitted.
 - Desktop operation remains useful offline; cloud synchronization is durable, idempotent, and resumable.
 - Coach/manager mutations and player read-only boundaries must be enforced by the server, not only hidden in the UI.
-- Active-map-pool filters apply consistently across dashboard, map, composition, economy, and comparison views.
+- The optional active-map-pool scope applies consistently across dashboard, map, composition, economy, and comparison views; all recorded/practice maps remain the default.
 - Every release retains accessible keyboard operation, visible focus, semantic tables, reduced motion, 200% zoom usability, and readable contrast.
 
 ## Delivery order
@@ -86,9 +86,10 @@ instead of recalculating percentages independently in each screen.
   anti-eco loss, full-buy loss, low-buy win, first-death recovery, opening
   conversion, advantage collapse, multikill, composition result, and incomplete
   evidence.
-- **S0.4 Active-map-pool enforcement** — Centralize filtering so disabled maps
-  disappear from every current-performance surface while historical evidence is
-  preserved.
+- **S0.4 Optional active-map-pool scope** — Centralize the view-only projection
+  so users can switch current-performance surfaces between all recorded/practice
+  maps (default) and the configured active pool while historical evidence is
+  preserved. Contract: [`ANALYTICS-MAP-SCOPE.md`](./ANALYTICS-MAP-SCOPE.md).
 - **S0.5 Identity snapshot policy** — Keep the observed name and agent attached
   to historical evidence even after roster status changes or archival.
 - **S0.6 Migration/versioning** — Version aggregate builders and make existing
