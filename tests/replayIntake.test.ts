@@ -119,6 +119,20 @@ describe('private replay intake', () => {
     expect(device.tokenHash).toBe(crypto.createHash('sha256').update(body.credential.token).digest('hex')); expect(JSON.stringify(stored)).not.toContain(body.credential.token);
   });
 
+  it('rejects uploads from a device whose linked roster identity was retired', async () => {
+    const coach = await login(adminKey);
+    const enrollment = await (await jsonRequest('/api/replay-intake/devices/enroll', coach, { name: 'Soon archived PC', playerId: 'p1' })).json();
+    const stored = JSON.parse(await fs.readFile(dbPath, 'utf8'));
+    stored.rosterPlayers[0].retiredAt = '2026-10-15T10:00:00.000Z';
+    await fs.writeFile(dbPath, JSON.stringify(stored));
+    const response = await fetch(`${origin}/api/replay-intake/evidence/${'9'.repeat(64)}`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', 'X-Device-Id': enrollment.device.id, 'X-Device-Token': enrollment.credential.token },
+      body: JSON.stringify(evidenceEnvelope('9'.repeat(64), 100, enrollment.device.id)),
+    });
+    expect(response.status).toBe(401);
+  });
+
   it('synchronizes complete screenshot match and player fields', async () => {
     const coach = await login(adminKey);
     const enrollment = await (await jsonRequest('/api/replay-intake/devices/enroll', coach, { name: 'Coach screenshot PC' })).json();

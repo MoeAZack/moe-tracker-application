@@ -66,7 +66,9 @@ describe('lineup context contract', () => {
 
   it('keeps legacy/import rows unclassified and requires a batch for typed tryout context', () => {
     const legacy = [{ player: 'Unknown historical name', kills: 9 }];
-    expect(validateAndNormalizeLineup(rosterDb(), {}, legacy)).toEqual(legacy);
+    expect(validateAndNormalizeLineup(rosterDb(), {}, legacy)).toEqual([{
+      ...legacy[0], displayNameSnapshot: 'Unknown historical name',
+    }]);
     expect(saveMatchSchema.safeParse({
       match: { rosterContext: { kind: 'tryout' } },
       statsUpdate: { operation: 'replace', stats: [] },

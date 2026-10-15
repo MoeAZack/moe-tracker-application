@@ -121,15 +121,15 @@ describe('roster domain', () => {
     expect(db.settings.players).toEqual([]);
   });
 
-  it('turns an observed name into a stable classified player and links all earlier rows', () => {
+  it('creates a stable classified player without guessing links for earlier name-only rows', () => {
     const db: any = rosterDb();
     db.playerStats.push({ id: 'stat-2', player: 'Legacy-Name', matchId: 'm2', kills: 11 });
     const result = setObservedRosterStatus(db, { displayName: 'legacy-name', status: 'standIn' }, () => ids[0], now);
     expect(result).toMatchObject({ status: 'standIn', player: { id: ids[0], displayName: 'legacy-name', rosterStatus: 'standIn' } });
-    expect(db.playerStats).toEqual(expect.arrayContaining([
-      expect.objectContaining({ id: 'stat-1', playerId: ids[0] }),
-      expect.objectContaining({ id: 'stat-2', playerId: ids[0] }),
-    ]));
+    expect(db.playerStats.map((row: any) => ({ id: row.id, playerId: row.playerId }))).toEqual([
+      { id: 'stat-1', playerId: undefined },
+      { id: 'stat-2', playerId: undefined },
+    ]);
     expect(db.coreMemberships).toEqual([]);
     setObservedRosterStatus(db, { playerId: ids[0], displayName: 'legacy-name', status: 'core' }, () => ids[1], now);
     expect(db.coreMemberships).toHaveLength(1);

@@ -4,6 +4,7 @@ import { Sparkles, Brain, Zap, UserCheck, Check, Trash2, Loader2, Target, Users,
 import { apiFetch } from '../utils/api';
 import { addPlayerEvidence, emptyPlayerEvidence, headshotRate, untradedRate } from '../../lib/analyticsEvidence';
 import { percentageBarClass, percentageSurfaceClass, percentageTextClass } from '../utils/percentageColor';
+import { playerAggregationKey } from '../../lib/identitySnapshot';
 
 interface ComponentProps {
   data: TrackerData;
@@ -20,10 +21,8 @@ const sanitizeInline = (html: string): string =>
     .replace(/<(\/?(?:b|strong|i|em))[^>]*>/gi, '<$1>');
 
 export default function AITacticalHub({ data, theme, onUpsert, onRemove }: ComponentProps) {
-  // Join stat rows on the stable roster id when present, so renames and
-  // tryout aliases don't split one player's history into several names.
-  const rosterNameById = useMemo(() => new Map((data.rosterPlayers || []).map((player: any) => [player.id, player.displayName])), [data.rosterPlayers]);
-  const statPlayerName = (row: { playerId?: string | null; player?: string }) => (row.playerId && rosterNameById.get(row.playerId)) || row.player || '';
+  // Analytics are keyed by stable IDs. Names remain presentation labels only.
+  const statAggregationKey = (row: { id?: string; playerId?: string | null }) => playerAggregationKey(row, row.id || 'unknown');
   const [subTab, setSubTab] = useState<'playbook' | 'chemistry' | 'drafting'>('playbook');
   const isLight = data.settings.theme === 'daylight';
 
@@ -31,6 +30,16 @@ export default function AITacticalHub({ data, theme, onUpsert, onRemove }: Compo
   const activePlayers = useMemo(() => {
     return data.settings?.players || [];
   }, [data.settings]);
+  const activePlayerKeyByName = useMemo(() => {
+    const roster = (data.rosterPlayers || []).filter(player => !player.retiredAt);
+    return new Map(activePlayers.map((name, index) => {
+      const candidates = roster.filter(player => player.displayName === name);
+      return [name, candidates.length === 1 ? `player:${candidates[0].id}` : `active-label:${index}:${name}`];
+    }));
+  }, [activePlayers, data.rosterPlayers]);
+  const activePlayerKeys = useMemo(() => new Set(activePlayerKeyByName.values()), [activePlayerKeyByName]);
+  const activePlayerKey = (name: string) => activePlayerKeyByName.get(name) || `active-label:${name}`;
+  const pairKey = (left: string, right: string) => left < right ? `${left}|||${right}` : `${right}|||${left}`;
 
   // --- KPI & PERIOD OVERRIDES STATE ---
   const [selectedKpiPlayer, setSelectedKpiPlayer] = useState<string>(activePlayers[0] || '');
@@ -81,7 +90,7 @@ export default function AITacticalHub({ data, theme, onUpsert, onRemove }: Compo
     }> = {};
 
     activePlayers.forEach(p => {
-      stats[p] = { kills: 0, deaths: 0, clutchesWon: 0, clutchesAttempted: 0, throws: 0, firstDeaths: 0, roundsCount: 0, ...emptyPlayerEvidence() };
+      stats[activePlayerKey(p)] = { kills: 0, deaths: 0, clutchesWon: 0, clutchesAttempted: 0, throws: 0, firstDeaths: 0, roundsCount: 0, ...emptyPlayerEvidence() };
     });
 
     // Count rounds played in these matches
@@ -89,7 +98,7 @@ export default function AITacticalHub({ data, theme, onUpsert, onRemove }: Compo
     
     (data.playerStats || []).forEach(ps => {
       if (!matchIds.has(ps.matchId)) return;
-      const p = statPlayerName(ps);
+      const p = statAggregationKey(ps);
       if (stats[p]) {
         stats[p].kills += ps.kills || 0;
         stats[p].deaths += ps.deaths || 0;
@@ -102,7 +111,7 @@ export default function AITacticalHub({ data, theme, onUpsert, onRemove }: Compo
     roundsInPeriod.forEach(r => {
       // Throws
       if ((r.isThrow === 'TRUE' || r.isThrow === 'true') && r.thrownBy) {
-        const p = r.thrownBy;
+        const p = activePlayerKey(r.thrownBy);
         if (stats[p]) {
           stats[p].throws++;
         }
@@ -110,7 +119,7 @@ export default function AITacticalHub({ data, theme, onUpsert, onRemove }: Compo
 
       // First Deaths
       if (r.firstDeathBy) {
-        const p = r.firstDeathBy;
+        const p = activePlayerKey(r.firstDeathBy);
         if (stats[p]) {
           stats[p].firstDeaths++;
         }
@@ -120,8 +129,8 @@ export default function AITacticalHub({ data, theme, onUpsert, onRemove }: Compo
     return stats;
   };
 
-  const prevPeriodMetrics = useMemo(() => getPeriodMetrics(prevMatchIds), [prevMatchIds, activePlayers, data.playerStats, data.rounds]);
-  const currPeriodMetrics = useMemo(() => getPeriodMetrics(currMatchIds), [currMatchIds, activePlayers, data.playerStats, data.rounds]);
+  const prevPeriodMetrics = useMemo(() => getPeriodMetrics(prevMatchIds), [prevMatchIds, activePlayers, data.playerStats, data.rounds, activePlayerKeyByName]);
+  const currPeriodMetrics = useMemo(() => getPeriodMetrics(currMatchIds), [currMatchIds, activePlayers, data.playerStats, data.rounds, activePlayerKeyByName]);
 
   const getKpiRecommendation = (player: string, curr: any, prev: any) => {
     const deaths = curr.deaths || 1;
@@ -187,11 +196,11 @@ export default function AITacticalHub({ data, theme, onUpsert, onRemove }: Compo
     const profs: Record<string, Record<string, { rating: number; count: number; gamesWon: number; gamesTotal: number }>> = {};
 
     activePlayers.forEach((player) => {
-      profs[player] = {};
+      profs[activePlayerKey(player)] = {};
     });
 
     statsList.forEach((stat) => {
-      const player = statPlayerName(stat);
+      const player = statAggregationKey(stat);
       const agent = stat.agent;
       if (!profs[player]) profs[player] = {};
       if (!profs[player][agent]) {
@@ -222,7 +231,7 @@ export default function AITacticalHub({ data, theme, onUpsert, onRemove }: Compo
     activePlayers.forEach((player) => {
       matrix[player] = {};
       standardAgents.forEach((agent) => {
-        const pStat = profs[player]?.[agent];
+        const pStat = profs[activePlayerKey(player)]?.[agent];
         if (pStat && pStat.count > 0) {
           const avgRating = pStat.rating / pStat.count;
           const winRate = pStat.gamesTotal > 0 ? Math.round((pStat.gamesWon / pStat.gamesTotal) * 100) : 0;
@@ -251,7 +260,7 @@ export default function AITacticalHub({ data, theme, onUpsert, onRemove }: Compo
     });
 
     return matrix;
-  }, [data.playerStats, data.matches, activePlayers, standardAgents]);
+  }, [data.playerStats, data.matches, activePlayers, standardAgents, activePlayerKeyByName]);
 
   const handleCycleOverride = (player: string, agent: string) => {
     const currentOverride = matrixOverrides[player]?.[agent];
@@ -552,7 +561,7 @@ export default function AITacticalHub({ data, theme, onUpsert, onRemove }: Compo
     const matchPlayersMap: Record<string, string[]> = {};
     matchesList.forEach((m) => {
       const matchStats = playerStatsList.filter(ps => ps.matchId === m.id);
-      matchPlayersMap[m.id] = matchStats.map(ps => statPlayerName(ps));
+      matchPlayersMap[m.id] = matchStats.map(ps => statAggregationKey(ps));
     });
 
     // We will track total rounds played together and total rounds won
@@ -565,10 +574,10 @@ export default function AITacticalHub({ data, theme, onUpsert, onRemove }: Compo
         for (let j = i + 1; j < playersInMatch.length; j++) {
           const p1 = playersInMatch[i];
           const p2 = playersInMatch[j];
-          if (!activePlayers.includes(p1) || !activePlayers.includes(p2)) continue;
+          if (!activePlayerKeys.has(p1) || !activePlayerKeys.has(p2)) continue;
 
           // Standardized key
-          const key = p1 < p2 ? `${p1}|||${p2}` : `${p2}|||${p1}`;
+          const key = pairKey(p1, p2);
           if (!pairings[key]) {
             pairings[key] = { total: 0, won: 0 };
           }
@@ -581,7 +590,7 @@ export default function AITacticalHub({ data, theme, onUpsert, onRemove }: Compo
     });
 
     return pairings;
-  }, [data.matches, data.rounds, data.playerStats, activePlayers]);
+  }, [data.matches, data.rounds, data.playerStats, activePlayers, activePlayerKeyByName, activePlayerKeys]);
 
   // --- INTERACTIVE LINEUP SIMULATOR STATE ---
   const [simMap, setSimMap] = useState(data.settings.maps[0] || 'Ascent');
@@ -620,7 +629,7 @@ export default function AITacticalHub({ data, theme, onUpsert, onRemove }: Compo
     let pairingsCount = 0;
     for (let i = 0; i < simRoster.length; i++) {
       for (let j = i + 1; j < simRoster.length; j++) {
-        const key = simRoster[i] < simRoster[j] ? `${simRoster[i]}|||${simRoster[j]}` : `${simRoster[j]}|||${simRoster[i]}`;
+        const key = pairKey(activePlayerKey(simRoster[i]), activePlayerKey(simRoster[j]));
         const pStat = chemistryMatrix[key];
         if (pStat && pStat.total > 15) {
           const wr = pStat.won / pStat.total;
@@ -1041,8 +1050,8 @@ export default function AITacticalHub({ data, theme, onUpsert, onRemove }: Compo
               if (!p) return <div className="text-xs text-gray-500 font-mono text-center">No active players to analyze.</div>;
               
               const emptyMetrics = () => ({ kills: 0, deaths: 0, clutchesWon: 0, clutchesAttempted: 0, throws: 0, firstDeaths: 0, roundsCount: 0, ...emptyPlayerEvidence() });
-              const curr = currPeriodMetrics[p] || emptyMetrics();
-              const prev = prevPeriodMetrics[p] || emptyMetrics();
+              const curr = currPeriodMetrics[activePlayerKey(p)] || emptyMetrics();
+              const prev = prevPeriodMetrics[activePlayerKey(p)] || emptyMetrics();
 
               const currKd = curr.deaths > 0 ? (curr.kills / curr.deaths).toFixed(2) : curr.kills.toFixed(2);
               const prevKd = prev.deaths > 0 ? (prev.kills / prev.deaths).toFixed(2) : prev.kills.toFixed(2);
@@ -1233,7 +1242,7 @@ export default function AITacticalHub({ data, theme, onUpsert, onRemove }: Compo
                         if (p1 === p2) {
                           return <td key={p2} className="py-3 px-3 text-center text-gray-600 font-bold bg-white/2">-</td>;
                         }
-                        const key = p1 < p2 ? `${p1}|||${p2}` : `${p2}|||${p1}`;
+                        const key = pairKey(activePlayerKey(p1), activePlayerKey(p2));
                         const stats = chemistryMatrix[key];
                         if (!stats || stats.total < 10) {
                           return <td key={p2} className="py-3 px-3 text-center text-gray-500 italic bg-black/10">insufficient</td>;

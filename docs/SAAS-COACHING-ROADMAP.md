@@ -91,7 +91,8 @@ instead of recalculating percentages independently in each screen.
   maps (default) and the configured active pool while historical evidence is
   preserved. Contract: [`ANALYTICS-MAP-SCOPE.md`](./ANALYTICS-MAP-SCOPE.md).
 - **S0.5 Identity snapshot policy** — Keep the observed name and agent attached
-  to historical evidence even after roster status changes or archival.
+  to historical evidence even after roster status changes or archival. Contract:
+  [`IDENTITY-SNAPSHOT.md`](./IDENTITY-SNAPSHOT.md).
 - **S0.6 Migration/versioning** — Version aggregate builders and make existing
   accepted matches reproducibly recomputable.
 

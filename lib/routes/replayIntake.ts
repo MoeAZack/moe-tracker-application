@@ -17,6 +17,7 @@ import { localScreenshotSubmissionSchema } from '../../schemas';
 import { pairReplayScreenshots, pruneScreenshotPairings, screenshotAdmission, screenshotPairingPublic, screenshotRecordId, validatePairingImage, type ScreenshotPairing } from '../replayScreenshotPairing';
 import { cancelRawReplayUpload, deleteRawReplayObject, downloadRawReplayObject, initiateRawReplayUpload, verifyRawReplayObject, type RawReplayObject } from '../gcsReplayTemp';
 import { clientIp, requestRateLimit } from '../utils';
+import { historicalPlayerLabel, mergeAcceptedPlayerStat, preserveIdentitySnapshot } from '../identitySnapshot';
 
 const REPLAY_TYPE = 'application/vnd.valorant.replay';
 const MAX_REPLAY_BYTES = Number(process.env.REPLAY_MAX_BYTES || 2 * 1024 * 1024 * 1024);
@@ -167,6 +168,7 @@ async function authenticateDevice(req: Request) {
   if (!DEVICE_ID.test(id) || token.length < 43 || token.length > 256) return null;
   const db = await readDB(); const store = replayStore(db); const device = store.devices[id];
   if (!device || device.revokedAt || Date.parse(device.expiresAt) <= Date.now() || !safeEqual(device.tokenHash, tokenHash(token))) return null;
+  if (device.owner.playerId && !(db.rosterPlayers || []).some((player: any) => player.id === device.owner.playerId && !player.retiredAt)) return null;
   return { db, store, device };
 }
 
@@ -255,10 +257,11 @@ function acceptReviewIntoEngines(db: any, store: ReplayStore, job: ReplayParserJ
   const existingRows = new Map<string, any>((db.playerStats || []).filter((item: any) => item.matchId === review.matchId).map((item: any) => [item.playerId, item]));
   const activeCoreIds = new Set((db.coreMemberships || []).filter((item: any) => !item.endedAt).map((item: any) => item.playerId));
   const acceptedRows = [...mapping.entries()].map(([parserPlayerId, overlay]) => {
-    const raw: any = rawRows.get(parserPlayerId) || {}; const metrics: any = metricRows.get(parserPlayerId) || {}; const existing: any = existingRows.get(overlay.rosterPlayerId) || {};
+    const raw: any = rawRows.get(parserPlayerId) || {}; const metrics: any = metricRows.get(parserPlayerId) || {}; const existing: any = existingRows.get(overlay.rosterPlayerId);
     const corrected = correctedFields(existing); const replay: Record<string, any> = { kills: evidenceNumber(raw.kills) ?? metrics.kills ?? null, deaths: evidenceNumber(raw.deaths) ?? metrics.deaths ?? null, assists: evidenceNumber(raw.assists) ?? metrics.assists ?? null, acs: null, adr: metrics.damage === null || metrics.damage === undefined || !draft.coverage?.playedRounds ? null : metrics.damage / draft.coverage.playedRounds, hs: metrics.headshotPercentage ?? null, headshots: metrics.headshotKills ?? null, headshotEligibleKills: metrics.eligibleHeadshotKills ?? null, orbPoints: metrics.orbCaptures ?? null, fk: evidenceNumber(raw.firstBloods), fd: evidenceNumber(raw.firstDeaths), plants: evidenceNumber(raw.plants), defuses: evidenceNumber(raw.defuses) };
     const facts = Object.fromEntries(Object.entries(replay).map(([field, value]) => [field, mergeVerifiedField(existing, field, value, corrected)]));
-    return { ...existing, id: existing.id || `replay:${review.matchId}:${overlay.rosterPlayerId}`, matchId: review.matchId, playerId: overlay.rosterPlayerId, player: overlay.displayName, displayNameSnapshot: overlay.displayName, appearanceType: existing.appearanceType || (activeCoreIds.has(overlay.rosterPlayerId) ? 'core' : 'standIn'), agent: existing.agent || 'Unknown', ...facts, sourceMetadata: { method: 'provider-import', capturedAt: acceptedAt, provider: 'vrfkit', externalId: review.sha256 }, corrections: [...(existing.corrections || []), { correctedAt: review.updatedAt, correctedBy: user.username, fields: ['player-name-mapping'] }] };
+    const accepted = { ...existing, id: existing?.id || `replay:${review.matchId}:${overlay.rosterPlayerId}`, matchId: review.matchId, playerId: overlay.rosterPlayerId, player: overlay.displayName, displayNameSnapshot: overlay.displayName, appearanceType: existing?.appearanceType || (activeCoreIds.has(overlay.rosterPlayerId) ? 'core' : 'standIn'), agent: evidenceText(raw.agent) || existing?.agent || 'Unknown', ...facts, sourceMetadata: { method: 'provider-import', capturedAt: acceptedAt, provider: 'vrfkit', externalId: review.sha256 }, corrections: [...(existing?.corrections || []), { correctedAt: review.updatedAt, correctedBy: user.username, fields: ['player-name-mapping'] }] };
+    return preserveIdentitySnapshot(existing, accepted);
   });
   const replacedPlayerIds = new Set(acceptedRows.map((item: any) => item.playerId));
   db.playerStats = [...(db.playerStats || []).filter((item: any) => item.matchId !== review.matchId || !replacedPlayerIds.has(item.playerId)), ...acceptedRows];
@@ -298,7 +301,7 @@ function acceptReviewIntoEngines(db: any, store: ReplayStore, job: ReplayParserJ
       const parserId = [...mapping.entries()].find(([, item]) => item.rosterPlayerId === row.playerId)?.[0];
       const metric = parserId ? metricRows.get(parserId) as any : undefined; const raw = parserId ? rawRows.get(parserId) as any : undefined;
       const count = (value: any) => typeof value === 'number' && Number.isFinite(value) && rounds > 0 ? { value: value / rounds, samples: rounds } : { value: null, samples: 0 };
-      const input: PlayerRatingInput = { context: { playerId: row.playerId, displayName: row.displayNameSnapshot, mode, source: structuredClone(config.baseline.source), appearance: row.appearanceType || 'unclassified', rosterKind: match.rosterContext?.kind || 'unclassified', tryoutBatchId: match.rosterContext?.tryoutBatchId || null, matchIds: [review.matchId], rounds, maps: [map || match.map].filter(Boolean), agents: row.agent && row.agent !== 'Unknown' ? [row.agent] : [], roles: [] }, metrics: { killsPerRound: count(evidenceNumber(raw?.kills) ?? metric?.kills), deathsPerRound: count(evidenceNumber(raw?.deaths) ?? metric?.deaths), assistsPerRound: count(evidenceNumber(raw?.assists) ?? metric?.assists), averageDamagePerRound: count(metric?.damage), kastRate: { value: null, samples: 0 }, firstKillsPerRound: count(evidenceNumber(raw?.firstBloods)), firstDeathsPerRound: count(evidenceNumber(raw?.firstDeaths)) } };
+      const input: PlayerRatingInput = { context: { playerId: row.playerId, displayName: historicalPlayerLabel(row), mode, source: structuredClone(config.baseline.source), appearance: row.appearanceType || 'unclassified', rosterKind: match.rosterContext?.kind || 'unclassified', tryoutBatchId: match.rosterContext?.tryoutBatchId || null, matchIds: [review.matchId], rounds, maps: [map || match.map].filter(Boolean), agents: row.agent && row.agent !== 'Unknown' ? [row.agent] : [], roles: [] }, metrics: { killsPerRound: count(evidenceNumber(raw?.kills) ?? metric?.kills), deathsPerRound: count(evidenceNumber(raw?.deaths) ?? metric?.deaths), assistsPerRound: count(evidenceNumber(raw?.assists) ?? metric?.assists), averageDamagePerRound: count(metric?.damage), kastRate: { value: null, samples: 0 }, firstKillsPerRound: count(evidenceNumber(raw?.firstBloods)), firstDeathsPerRound: count(evidenceNumber(raw?.firstDeaths)) } };
       // This handoff creates one review artifact per accepted match. The general
       // rating adapter may intentionally replace an aggregate series snapshot, but
       // replay acceptance must not erase the prior match's auditable source input.
@@ -615,7 +618,12 @@ export function registerReplayDeviceUploadRoute(app: Express) {
       const safeStats = body.playerStats.map((row: any) => {
         if (!row?.id || row.matchId !== matchId || !row.screenshotMetrics || row.screenshotMetrics.schemaVersion !== 1) throw Object.assign(new Error('Screenshot player summary is invalid.'), { status: 400 });
         const allowed = ['id', 'matchId', 'player', 'playerId', 'displayNameSnapshot', 'appearanceType', 'agent', 'kills', 'deaths', 'assists', 'acs', 'adr', 'hs', 'headshots', 'headshotEligibleKills', 'orbPoints', 'fk', 'fd', 'plants', 'defuses', 'screenshotMetrics', 'sourceMetadata'];
-        return Object.fromEntries(allowed.filter(key => row[key] !== undefined).map(key => [key, structuredClone(row[key])]));
+        const safe = Object.fromEntries(allowed.filter(key => row[key] !== undefined).map(key => [key, structuredClone(row[key])]));
+        if (safe.playerId && !(db.rosterPlayers || []).some((player: any) => player.id === safe.playerId && !player.retiredAt)) {
+          delete safe.playerId;
+          delete safe.appearanceType;
+        }
+        return safe;
       });
       const digest = contentHash({ match: safeMatch, playerStats: safeStats }); db.engineAdapters ||= {}; db.engineAdapters.screenshot ||= {};
       const existingRecord = db.engineAdapters.screenshot[matchId];
@@ -623,7 +631,7 @@ export function registerReplayDeviceUploadRoute(app: Express) {
       const existingMatch = (db.matches || []).find((item: any) => item.id === matchId); if (!existingMatch) (db.matches ||= []).push(safeMatch);
       for (const incoming of safeStats) {
         const existing = (db.playerStats || []).find((item: any) => item.id === incoming.id && item.matchId === matchId);
-        if (existing) Object.assign(existing, incoming); else (db.playerStats ||= []).push(incoming);
+        if (existing) Object.assign(existing, mergeAcceptedPlayerStat(existing, incoming)); else (db.playerStats ||= []).push(incoming);
       }
       const updatedAt = new Date().toISOString(); db.engineAdapters.screenshot[matchId] = { schemaVersion: 1, status: 'accepted', matchId, digest, revision: Number(existingRecord?.revision || 0) + 1, updatedAt, sourceDeviceId: device.id };
       device.lastSeenAt = updatedAt; await saveDB(db); res.status(existingRecord ? 200 : 201).json({ accepted: true, idempotent: false, revision: db.engineAdapters.screenshot[matchId].revision });

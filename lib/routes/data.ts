@@ -5,6 +5,7 @@ import { postDiscordReport } from '../services';
 import * as schemas from '../../schemas';
 import { toPublicTrackerData, toWebsiteTrackerData } from '../publicData';
 import { preserveExistingRosterContext, validateAndNormalizeLineup } from '../matchContext';
+import { parseIdentitySnapshotCorrection, preserveIdentitySnapshot } from '../identitySnapshot';
 import { applyImmutableEntryMetadata, applyScreenshotReviewConfirmation, reconcileStatTotals } from '../entryEngine';
 import { buildPlayerScreenshotMetrics, materializeFirstDeathsFromRoundEvidence, materializeScreenshotMetricsFromRoundEvidence, screenshotPlayerIdentity } from '../scrimRoundAnalytics';
 import { buildMapRoundIntelligence } from '../mapRoundAnalytics';
@@ -188,8 +189,14 @@ export function registerDataRoutes(app: Express, options: { websiteSummaryOnly?:
         if (mismatchedStat) {
           return res.status(400).json({ error: 'Every replacement stat must use the saved match ID.' });
         }
-        statsUpdate.stats = validateAndNormalizeLineup(db, match, statsUpdate.stats)
-          .map((stat: any) => reconcileStatTotals(stat));
+        const submittedStats = statsUpdate.stats;
+        statsUpdate.stats = validateAndNormalizeLineup(db, match, submittedStats, existingStats)
+          .map((stat: any, index: number) => {
+            const correction = parseIdentitySnapshotCorrection(submittedStats[index]?.identityCorrection);
+            const corrected = { ...stat };
+            for (const field of correction?.fields || []) corrected[field] = submittedStats[index][field];
+            return reconcileStatTotals(corrected);
+          });
 
         const existingById = new Map(existingStats.map((stat: any) => [stat.id, stat]));
         const seenIds = new Set<string>();
@@ -220,7 +227,18 @@ export function registerDataRoutes(app: Express, options: { websiteSummaryOnly?:
           const existingStat = submittedId
             ? existingStats.find((entry: any) => entry.id === submittedId)
             : undefined;
-          const { rowOperation: _rowOperation, ...cleanStat } = stat;
+          const correction = parseIdentitySnapshotCorrection(stat.identityCorrection);
+          if (stat.identityCorrection && !correction) throw Object.assign(new Error('Identity correction requires named snapshot fields and a reason.'), { status: 400 });
+          if (correction && !existingStat) throw Object.assign(new Error('Identity correction requires an existing accepted player appearance.'), { status: 400 });
+          if (correction?.fields.some(field => !Object.prototype.hasOwnProperty.call(stat, field))) {
+            throw Object.assign(new Error('Every named identity correction field requires an explicit value.'), { status: 400 });
+          }
+          if (correction?.fields.includes('playerId') && stat.playerId !== null) {
+            const target = (db.rosterPlayers || []).find((player: any) => player.id === stat.playerId && !player.retiredAt);
+            if (!target) throw Object.assign(new Error('Identity link corrections require an active roster identity or null.'), { status: 400 });
+          }
+          const { rowOperation: _rowOperation, identityCorrection: _identityCorrection, ...submittedStat } = stat;
+          const cleanStat = preserveIdentitySnapshot(existingStat, submittedStat, correction);
           const withMetadata = applyImmutableEntryMetadata(
             existingStat,
             cleanStat,
@@ -228,6 +246,10 @@ export function registerDataRoutes(app: Express, options: { websiteSummaryOnly?:
             timestamp,
             match.sourceMetadata,
           );
+          const previousCorrectionCount = existingStat?.corrections?.length || 0;
+          if (correction && withMetadata.corrections?.length > previousCorrectionCount) {
+            withMetadata.corrections[withMetadata.corrections.length - 1].reason = correction.reason;
+          }
           return { ...withMetadata, id: existingStat?.id || uid(), matchId: match.id };
         });
       }

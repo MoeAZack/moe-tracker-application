@@ -60,6 +60,9 @@ const playerStatSchema = looseObject.extend({
   id: z.string().max(200).optional(),
   matchId: z.string().max(200).optional(),
   player: z.string().max(200).optional(),
+  playerId: z.string().uuid().nullable().optional(),
+  displayNameSnapshot: z.string().trim().min(1).max(200).optional(),
+  appearanceType: z.enum(['core', 'tryout', 'standIn']).optional(),
   agent: z.string().max(100).nullable().optional(),
   kAtt: unknownInt(200), kDef: unknownInt(200), dAtt: unknownInt(200), dDef: unknownInt(200),
   aAtt: unknownInt(200), aDef: unknownInt(200), kills: unknownInt(400), deaths: unknownInt(400), assists: unknownInt(400),
@@ -77,6 +80,10 @@ const playerStatSchema = looseObject.extend({
   headToHead: z.array(z.object({ opponent: z.string().max(200).nullable(), kills: z.number().int().min(0).max(100), deaths: z.number().int().min(0).max(100), assists: z.number().int().min(0).max(100) }).strict()).max(5).optional(),
   rowOperation: z.literal('create').optional(),
   sourceMetadata: sourceMetadataSchema.optional(),
+  identityCorrection: z.object({
+    fields: z.array(z.enum(['playerId', 'displayNameSnapshot', 'agent', 'appearanceType'])).min(1).max(4),
+    reason: z.string().trim().min(1).max(500),
+  }).strict().optional(),
 });
 const matchStatsUpdateSchema = z.discriminatedUnion('operation', [
   z.object({ operation: z.literal('preserve') }).strict(),

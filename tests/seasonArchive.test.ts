@@ -32,7 +32,7 @@ function seasonDb() {
     schedule: [{ id: 'schedule-1', title: 'Practice' }],
     goals: [{ id: 'goal-1', title: 'Improve' }],
     matches: [{ id: 'match-1', opponent: 'Opponent' }],
-    playerStats: [{ id: 'stat-1', matchId: 'match-1', playerId, player: 'Alpha' }],
+    playerStats: [{ id: 'stat-1', matchId: 'match-1', playerId, player: 'Alpha observed', displayNameSnapshot: 'Alpha observed', agent: 'Jett', appearanceType: 'tryout' }],
     soloq: [{ id: 'solo-1', player: 'Alpha' }],
     rounds: [{ id: 'round-1', matchId: 'match-1' }],
     vetos: [{ id: 'veto-1', matchId: 'match-1' }],
@@ -69,6 +69,9 @@ describe('full roster-season archive domain', () => {
     }
     expect(db.settings).toMatchObject({ season: '2026 Summer', players: [], inactivePlayers: [], riotIds: {}, tryoutsMode: false, activeTryoutBatchId: null });
     expect(db.seasonArchives).toEqual([archive]);
+    expect(archive.playerStats[0]).toMatchObject({
+      playerId, displayNameSnapshot: 'Alpha observed', agent: 'Jett', appearanceType: 'tryout',
+    });
     expect(db.strats).toEqual([expect.objectContaining({ id: 'strat-1' })]);
     expect(db.lineups).toEqual([{ id: 'lineup-1', title: 'Shared lineup library entry' }]);
 
@@ -85,6 +88,9 @@ describe('full roster-season archive domain', () => {
     expect(db.coreMemberships[0].playerId).toBe(playerId);
     expect(db.matches[0].id).toBe('match-1');
     expect(db.playerStats[0].id).toBe('stat-1');
+    expect(db.playerStats[0]).toMatchObject({
+      playerId, displayNameSnapshot: 'Alpha observed', agent: 'Jett', appearanceType: 'tryout',
+    });
     expect(db.settings).toMatchObject({ season: '2026 Spring', players: ['Alpha'], inactivePlayers: ['Former'] });
     expect(db.seasonArchives).toHaveLength(1);
     expect(() => restoreSeasonArchive(db, archive.id)).toThrow('Archive the current active season');
