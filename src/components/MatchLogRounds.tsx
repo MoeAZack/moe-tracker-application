@@ -7,6 +7,7 @@ import { reconcileStatsForContext } from '../utils/lineupContext';
 import { reconcileStatTotals } from '../../lib/entryEngine';
 import { partitionScreenshotRows } from '../../lib/screenshotRosterDraft';
 import { activeTryoutPhase, newWorkspaceMatchContext, resolvePhaseAlias } from '../utils/tryoutWorkspace';
+import { buildOpponentHistory } from '../../lib/opponentHistory';
 import { 
   Swords, Plus, Edit2, Trash2, Video, FileText, BarChart3, HelpCircle, 
   Save, Trash, Shuffle, RefreshCw, Zap, Globe, AlertCircle, ShieldAlert, Check,
@@ -105,6 +106,8 @@ export default function MatchLogRounds({ data, theme, onSaveMatch, onRemove, onS
   const [activeVetos, setActiveVetos] = useState<Partial<Veto>[]>([]);
 
   const matches = data.matches || [];
+  const opponentHistory = useMemo(() => buildOpponentHistory(matches), [matches]);
+  const repeatOpponents = opponentHistory.filter(opponent => opponent.games > 1);
   const playerStats = data.playerStats || [];
   const players = data.settings.players || [];
   const knownPlayers = data.rosterPlayers || [];
@@ -406,6 +409,11 @@ export default function MatchLogRounds({ data, theme, onSaveMatch, onRemove, onS
           </button>
         </div>
       </div>
+
+      {repeatOpponents.length > 0 && <section className={`rounded-xl border p-4 ${isLight ? 'border-slate-200 bg-white' : 'border-white/10 bg-white/[0.03]'}`} aria-labelledby="repeat-opponents-title">
+        <div className="flex flex-wrap items-end justify-between gap-2"><div><h4 id="repeat-opponents-title" className="text-xs font-black uppercase tracking-widest">Repeat opponent tracker</h4><p className="mt-1 text-xs text-gray-500">Teams with two or more recorded maps. Capitalization variants are combined.</p></div><span className="text-[10px] uppercase tracking-wider text-cyan-300">{repeatOpponents.length} recurring teams</span></div>
+        <div className="mt-3 grid gap-3 sm:grid-cols-2 lg:grid-cols-3">{repeatOpponents.map(opponent => <article key={opponent.key} className="rounded-lg border border-white/10 bg-black/10 p-3"><div className="flex items-center justify-between gap-3"><strong>{opponent.name}</strong><span className="font-mono text-sm">{opponent.games} games</span></div><p className="mt-2 text-xs text-slate-400"><span className="text-emerald-300">{opponent.wins}W</span> · <span className="text-rose-300">{opponent.losses}L</span>{opponent.ties ? ` · ${opponent.ties}T` : ''} · {opponent.maps.join(', ') || 'Map unknown'}</p><p className="mt-1 text-[10px] text-slate-500">Last played {opponent.lastPlayed}</p></article>)}</div>
+      </section>}
 
       <div className="grid grid-cols-1 lg:grid-cols-4 gap-6">
         {/* Left Side: Match Records Column */}
@@ -1044,6 +1052,7 @@ export default function MatchLogRounds({ data, theme, onSaveMatch, onRemove, onS
                 <label className="text-[10px] uppercase font-black text-gray-400 font-mono">Opponent Team</label>
                 <input
                   type="text"
+                  list="match-log-opponents"
                   required
                   placeholder="Opponent name"
                   aria-label="Opponent team"
@@ -1051,6 +1060,7 @@ export default function MatchLogRounds({ data, theme, onSaveMatch, onRemove, onS
                   onChange={e => setEditingMatch({ ...editingMatch, opponent: e.target.value })}
                   className="w-full p-2 bg-black/20 rounded border border-white/10 text-xs text-white"
                 />
+                <datalist id="match-log-opponents">{opponentHistory.map(opponent => <option key={opponent.key} value={opponent.name}>{opponent.games} recorded game{opponent.games === 1 ? '' : 's'}</option>)}</datalist>
               </div>
 
               <div className="space-y-1">

@@ -13,6 +13,13 @@ interface Props {
 }
 
 const pct = (won: number, total: number) => (total > 0 ? Math.round((won / total) * 100) : 0);
+const normalizedName = (value: unknown) => String(value || '').trim().toLocaleLowerCase('en');
+
+export function excludeArchivedScreenshotPlayers<T extends { identity: string; displayName: string }>(players: readonly T[], rosterPlayers: TrackerData['rosterPlayers']) {
+  const retiredIds = new Set((rosterPlayers || []).filter(player => player.retiredAt).map(player => player.id));
+  const retiredNames = new Set((rosterPlayers || []).filter(player => player.retiredAt).map(player => normalizedName(player.displayName)));
+  return players.filter(player => !retiredIds.has(player.identity) && !retiredNames.has(normalizedName(player.displayName)));
+}
 
 function Bar({ label, won, total }: { label: string; won: number; total: number }) {
   const p = pct(won, total);
@@ -96,8 +103,9 @@ export default function EconomyAnalytics({ data, theme }: Props) {
   const hasKnownBuys = Object.keys(byBuy).length > 0;
   const screenshotPlayers = useMemo(() => {
     const live = buildPlayerScreenshotMetrics(rounds);
-    return live.length ? combinePlayerScreenshotMetrics(live) : combineStoredScreenshotMetrics(data.playerStats || []);
-  }, [rounds, data.playerStats]);
+    const combined = live.length ? combinePlayerScreenshotMetrics(live) : combineStoredScreenshotMetrics(data.playerStats || []);
+    return excludeArchivedScreenshotPlayers(combined, data.rosterPlayers || []);
+  }, [rounds, data.playerStats, data.rosterPlayers]);
 
   return (
     <div className="space-y-6">

@@ -385,12 +385,12 @@ export default function App() {
     { id: 'vod', label: 'VOD Review', icon: Film },
     { id: 'lineups', label: 'Lineup Library', icon: Crosshair },
     { id: 'economy', label: 'Economy', icon: Coins },
-    { id: 'comparisons', label: 'Tryout comparisons', icon: GitCompareArrows },
     { id: 'aitactical', label: 'AI Coach Hub', icon: Sparkles },
     { id: 'livelogger', label: 'Live Logger 🔴', icon: Activity },
     { id: 'maps', label: 'Map Analysis', icon: Compass },
     { id: 'comps', label: 'Compositions', icon: Layers },
     { id: 'roster', label: 'Roster & Solo Q', icon: Users },
+    { id: 'comparisons', label: 'Tryout comparisons', icon: GitCompareArrows },
     { id: 'settings', label: 'Settings', icon: SettingsIcon },
   ] as const;
 

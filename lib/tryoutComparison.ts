@@ -88,6 +88,31 @@ function newAccumulator(): Accumulator {
 }
 
 const normalized = (value: string | null | undefined) => (value || '').trim().toLocaleLowerCase();
+const observedId = (name: string) => `observed:${normalized(name)}`;
+const observedName = (row: PlayerStats) => (row.displayNameSnapshot || row.player || '').trim();
+const matchesParticipant = (data: ComparisonData, row: PlayerStats, id: string | undefined) => {
+  if (!id) return false;
+  if (id.startsWith('observed:')) return !row.playerId && observedId(observedName(row)) === id;
+  if (row.playerId === id) return true;
+  const player = data.rosterPlayers.find(item => item.id === id && !item.retiredAt);
+  return !row.playerId && !!player && normalized(observedName(row)) === normalized(player.displayName);
+};
+
+export function comparisonParticipants(data: ComparisonData) {
+  const retiredIds = new Set(data.rosterPlayers.filter(player => player.retiredAt).map(player => player.id));
+  const retiredNames = new Set(data.rosterPlayers.filter(player => player.retiredAt).map(player => normalized(player.displayName)));
+  const roster = data.rosterPlayers.filter(player => !player.retiredAt).map(player => ({ id: player.id, displayName: player.displayName, rosterPlayerId: player.id }));
+  const rosterNames = new Set(roster.map(player => normalized(player.displayName)));
+  const observed = new Map<string, string>();
+  for (const row of data.playerStats) {
+    if (row.playerId) { if (retiredIds.has(row.playerId)) continue; else continue; }
+    const name = observedName(row); const key = normalized(name);
+    if (!key || retiredNames.has(key) || rosterNames.has(key) || observed.has(key)) continue;
+    observed.set(key, name);
+  }
+  return [...roster, ...[...observed].map(([key, displayName]) => ({ id: `observed:${key}`, displayName, rosterPlayerId: null }))]
+    .sort((left, right) => left.displayName.localeCompare(right.displayName, 'en'));
+}
 function score(match: Match) { if (typeof match.ourScore === 'number' && typeof match.theirScore === 'number') return { ours: match.ourScore, theirs: match.theirScore }; if ([match.attW,match.defW,match.attL,match.defL].every(value => typeof value === 'number')) return { ours: match.attW! + match.defW!, theirs: match.attL! + match.defL! }; return null; }
 function composition(matchId: string, stats: readonly PlayerStats[]) { const agents = stats.filter(row => row.matchId === matchId && row.playerId && row.agent?.trim()).map(row => row.agent.trim()); return agents.length === 5 && new Set(agents.map(normalized)).size === 5 ? agents.sort().join(' / ') : null; }
 function accepted(match: Match) { return match.comparisonEvidence?.accepted === true || (match.sourceMetadata?.method === 'screenshot' ? match.reviewConfirmation?.alliedSideConfirmed === true : !!match.sourceMetadata && match.sourceMetadata.method !== 'unknown'); }
@@ -106,7 +131,7 @@ function filterMatches(data: ComparisonData, filters: ComparisonFilter = {}) {
 function comparableStrata(data: ComparisonData, matches: readonly Match[], predicate: (row: PlayerStats) => boolean, omitMap: boolean, omitComposition: boolean, agent?: string) {
   const matchById = new Map(matches.map(match => [match.id, match])); const keys = new Set<string>();
   for (const row of data.playerStats) {
-    const match = matchById.get(row.matchId); if (!match || !row.playerId || !predicate(row) || (agent && normalized(row.agent) !== normalized(agent))) continue;
+    const match = matchById.get(row.matchId); if (!match || !predicate(row) || (agent && normalized(row.agent) !== normalized(agent))) continue;
     keys.add(JSON.stringify([omitMap ? null : normalized(match.map), normalized((match as any).opponentCategory), omitComposition ? null : normalized(composition(match.id, data.playerStats))]));
   }
   return keys;
@@ -126,7 +151,7 @@ function sideValue(stat: PlayerStats, field: 'k'|'d'|'a', side: ComparisonSide) 
 function accumulate(data: ComparisonData, matches: readonly Match[], predicate: (row: PlayerStats) => boolean, side: ComparisonSide, agents?: string[], roles?: string[]) {
   const acc = newAccumulator(); const matchMap = new Map(matches.map(match => [match.id, match])); const wantedAgents = agents?.map(normalized);
   const wantedRoles = roles?.map(normalized);
-  const rows = data.playerStats.filter(row => !!row.playerId && matchMap.has(row.matchId) && predicate(row) && (!wantedAgents?.length || wantedAgents.includes(normalized(row.agent))) && (!wantedRoles?.length || wantedRoles.includes(normalized(row.roleSnapshot))));
+  const rows = data.playerStats.filter(row => matchMap.has(row.matchId) && predicate(row) && (!wantedAgents?.length || wantedAgents.includes(normalized(row.agent))) && (!wantedRoles?.length || wantedRoles.includes(normalized(row.roleSnapshot))));
   for (const row of rows) {
     const match = matchMap.get(row.matchId)!; acc.matchIds.add(match.id);
     const kills = sideValue(row, 'k', side); const deaths = sideValue(row, 'd', side); const assists = sideValue(row, 'a', side);
@@ -162,7 +187,7 @@ export function buildTryoutComparison(data: ComparisonData, query: ComparisonQue
   const minimum = query.minimumSamples ?? 3; if (!Number.isInteger(minimum) || minimum < 1) throw new RangeError('minimumSamples must be positive.');
   const filters = query.filters || {}; const side = filters.side || 'all'; const currentMatches = filterMatches(data, filters);
   let leftMatches = currentMatches; let rightMatches = currentMatches; let leftSide = side; let rightSide = side; let leftAgents = filters.agents; let rightAgents = filters.agents;
-  let leftPredicate = (row: PlayerStats) => row.playerId === query.leftId; let rightPredicate = (row: PlayerStats) => row.playerId === query.rightId;
+  let leftPredicate = (row: PlayerStats) => matchesParticipant(data, row, query.leftId); let rightPredicate = (row: PlayerStats) => matchesParticipant(data, row, query.rightId);
   if (query.mode === 'tryout-core-average') rightPredicate = row => row.appearanceType === 'core' && !!row.playerId && row.playerId !== query.leftId;
   if (query.mode === 'own-previous-period') {
     if (!query.previousWindow || !filters.window) throw new RangeError('Previous-period comparison requires current and previous date windows.');
@@ -197,10 +222,10 @@ export function buildTryoutComparison(data: ComparisonData, query: ComparisonQue
 }
 
 export function buildCoverageGatedRanks(data: ComparisonData, filters: ComparisonFilter = {}, minimumSamples = 3) {
-  const active = data.rosterPlayers.filter(player => !player.retiredAt); const rows = active.map(player => ({ player, result: buildTryoutComparison(data, { mode: 'player-player', leftId: player.id, rightId: player.id, filters, minimumSamples }) }));
+  const active = comparisonParticipants(data); const rows = active.map(player => ({ player, result: buildTryoutComparison(data, { mode: 'player-player', leftId: player.id, rightId: player.id, filters, minimumSamples }) }));
   const coveredMatches = (playerId: string, metricId: string) => {
     const matches = new Set(filterMatches(data, filters).map(match => match.id)); const agents = filters.agents?.map(normalized); const roles = filters.roles?.map(normalized); const side = filters.side || 'all';
-    const ids = data.playerStats.filter(row => row.playerId === playerId && matches.has(row.matchId) && (!agents?.length || agents.includes(normalized(row.agent))) && (!roles?.length || roles.includes(normalized(row.roleSnapshot)))).filter(row => {
+    const ids = data.playerStats.filter(row => matchesParticipant(data, row, playerId) && matches.has(row.matchId) && (!agents?.length || agents.includes(normalized(row.agent))) && (!roles?.length || roles.includes(normalized(row.roleSnapshot)))).filter(row => {
       const k=sideValue(row,'k',side),d=sideValue(row,'d',side),a=sideValue(row,'a',side); const screenshot=side==='all'?row.screenshotMetrics:undefined; const opening=!!row.sourceMetadata&&row.sourceMetadata.method!=='unknown';
       if(metricId==='kills')return typeof k==='number'; if(metricId==='deaths')return typeof d==='number'; if(metricId==='assists')return typeof a==='number'; if(metricId==='kd')return typeof k==='number'&&typeof d==='number'; if(metricId==='kda')return typeof k==='number'&&typeof d==='number'&&typeof a==='number'; if(metricId==='acs'||metricId==='adr')return side==='all'&&typeof row[metricId]==='number'; if(metricId==='hsRate')return side==='all'&&typeof (row.headshotEligibleKills??row.kills)==='number'&&(typeof row.headshots==='number'||typeof row.hs==='number'); if(metricId==='fk')return opening&&typeof row.fk==='number'; if(metricId==='fd')return opening&&typeof row.fd==='number'; if(metricId==='openingSuccess')return opening&&typeof row.fk==='number'&&typeof row.fd==='number'; if(metricId==='kast')return !!screenshot?.kast&&screenshot.kast.covered>0&&screenshot.kast.covered===screenshot.coveredRounds; if(metricId==='objectives')return side==='all'&&(row.plants!==undefined||row.defuses!==undefined); if(metricId==='multikills')return side==='all'&&(!!screenshot||row.mk3!==undefined||row.mk4!==undefined||row.mk5!==undefined); if(metricId==='lowBudgetWins'||metricId==='highBudgetLosses'||metricId==='antiEcoLosses'||metricId==='weaponRounds')return !!screenshot; if(metricId==='teamRecord')return !!score(data.matches.find(match=>match.id===row.matchId)!); return false;
     }).map(row=>row.matchId); return [...new Set(ids)].sort();
