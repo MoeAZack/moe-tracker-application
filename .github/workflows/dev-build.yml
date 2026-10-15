@@ -105,6 +105,8 @@ jobs:
           $extract = Join-Path $env:RUNNER_TEMP 'vrfkit'
           Expand-Archive $zip -DestinationPath $extract
           $exe = Get-ChildItem $extract -Recurse -Filter 'vrfkit.exe' | Select-Object -First 1
+          $buildInfo = Join-Path $exe.DirectoryName 'build-info.json'
+          if (-not (Test-Path -LiteralPath $buildInfo -PathType Leaf)) { throw 'vrfkit release is missing build-info.json' }
           $exeHash = (Get-FileHash $exe.FullName -Algorithm SHA256).Hash.ToLower()
           if ($exeHash -ne 'aa55fc410f1596a6ffedc7ab579341da6edb262197c64902e74b4eed485dc23f') { throw "vrfkit.exe hash mismatch: $exeHash" }
           Copy-Item (Join-Path $exe.DirectoryName '*') (Join-Path $rt 'vrfkit') -Recurse

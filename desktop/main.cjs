@@ -13,6 +13,7 @@ const { appendLocalCrashEvent } = require('./local-crash-log.cjs');
 const { createUpdateController } = require('./update-controller.cjs');
 const { createUpdateHealth } = require('./update-health.cjs');
 const { createSupportBundle } = require('./support-bundle.cjs');
+const { resolveReplayRuntime } = require('./replay-runtime.cjs');
 const { collectChildOutput, collectJson } = require('./collector-command.cjs');
 const { canonical, refreshScreenshotOutboxFromData } = require('./sync-outbox.cjs');
 const { hasRecentRecoveryBackup } = require('./recovery-backup.cjs');
@@ -240,14 +241,10 @@ async function configureCollector() {
   const collectorRoot = runtime.paths.collector;
   // Prefer the parser runtime bundled with the installer (hash-pinned vrfkit
   // v0.2.5 + embedded Python with pyarrow); fall back to a manual install.
-  const bundled = path.join(applicationRoot(), 'replay-runtime');
-  const firstExisting = (...candidates) => candidates.find(file => fs.existsSync(file)) || candidates[0];
-  const knownRuntime = {
-    binaryPath: firstExisting(path.join(bundled, 'vrfkit', 'vrfkit.exe'), path.join(collectorRoot, 'runtime', 'vrfkit-v0.2.5', 'vrfkit.exe')),
-    pythonPath: firstExisting(path.join(bundled, 'python', 'python.exe'), path.join(process.env.LOCALAPPDATA || '', 'Programs', 'Python', 'Python312', 'python.exe')),
-    normalizerPath: firstExisting(path.join(collectorRoot, 'app', 'normalize-vrfkit-export.py'), path.join(applicationRoot(), 'scripts', 'normalize-vrfkit-export.py')),
-  };
-  const runtimeArgs = Object.values(knownRuntime).every(file => path.isAbsolute(file) && fs.existsSync(file))
+  // A vrfkit.exe without its signed build-info.json is incomplete and must
+  // never shadow a complete fallback runtime.
+  const knownRuntime = resolveReplayRuntime({ applicationRoot: applicationRoot(), collectorRoot, localAppData: process.env.LOCALAPPDATA || '' });
+  const runtimeArgs = knownRuntime.ready
     ? ['--vrfkit-binary', knownRuntime.binaryPath, '--python', knownRuntime.pythonPath, '--normalizer', knownRuntime.normalizerPath]
     : [];
   await collectorCommand(['configure', '--device-id', runtime.config.deviceId, '--managed-replay-path', runtime.paths.replays, '--scoreboard-folder', runtime.paths.screenshots, '--retention-days', String(runtime.config.retentionDays || 30), '--stable-seconds', '10', '--scan-seconds', '5', '--enable-auto-process', '--disable-auto-upload', ...runtimeArgs]);
@@ -534,7 +531,7 @@ ipcMain.handle('desktop:process-match', async () => {
   let processed;
   try { processed = await collectorJsonCommand(['process-latest']); }
   catch (error) {
-    if (/Local (binaryPath|pythonPath|normalizerPath) is not configured/.test(String(error?.message || ''))) throw new Error('The verified replay parser is not installed on this PC. Screenshot capture still works; install or repair the replay parser from Settings before processing replay files.');
+    if (/Local (binaryPath|pythonPath|normalizerPath) is not configured|build-info\.json|Local vrfkit runtime does not match/.test(String(error?.message || ''))) throw new Error('The verified replay parser is incomplete on this PC. Screenshot capture still works; install or repair the replay parser from Settings before processing replay files.');
     throw error;
   }
   if (processed?.state === 'unsupported-patch') return { state: 'unsupported-patch', message: processed.message, items: first };
