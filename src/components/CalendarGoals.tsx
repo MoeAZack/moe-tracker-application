@@ -1,33 +1,49 @@
-import React, { useState, useMemo } from 'react';
+import React, { useState, useMemo, useEffect } from 'react';
 import { TrackerData, Schedule, Goal } from '../types';
-import { Calendar, ChevronLeft, ChevronRight, CheckSquare, Plus, Edit2, Trash2, CalendarDays, ClipboardList, Clock, AlertCircle } from 'lucide-react';
+import { Calendar, ChevronLeft, ChevronRight, Plus, Edit2, Trash2, CalendarDays, ClipboardList, Clock, AlertCircle, CheckCircle2, ShieldCheck } from 'lucide-react';
+import { apiFetch } from '../utils/api';
+import { attendancePolicy, attendanceStatus, attendanceSummary, attendanceWindow } from '../../lib/attendance';
 
 interface ComponentProps {
   data: TrackerData;
   theme: any;
+  role: string;
   onUpsert: (sheet: string, row: any) => Promise<any>;
   onRemove: (sheet: string, id: string) => Promise<any>;
+  onRefresh: () => Promise<void>;
 }
 
-export default function CalendarGoals({ data, theme, onUpsert, onRemove }: ComponentProps) {
+const cairoDate = (value = new Date()) => new Intl.DateTimeFormat('en-CA', { timeZone: 'Africa/Cairo', year: 'numeric', month: '2-digit', day: '2-digit' }).format(value);
+
+export default function CalendarGoals({ data, theme, role, onUpsert, onRemove, onRefresh }: ComponentProps) {
   const [activeSubTab, setActiveSubTab] = useState<'calendar' | 'goals'>('calendar');
   const isLight = data.settings.theme === 'daylight';
 
   // --- CALENDAR STATE ---
-  const [currentDate, setCurrentDate] = useState(new Date());
-  const [selectedDateStr, setSelectedDateStr] = useState<string>(new Date().toISOString().slice(0, 10));
+  const [currentDate, setCurrentDate] = useState(() => new Date(`${cairoDate()}T12:00:00`));
+  const [selectedDateStr, setSelectedDateStr] = useState<string>(() => cairoDate());
   const [scheduleModalOpen, setScheduleModalOpen] = useState(false);
   const [editingSchedule, setEditingSchedule] = useState<Partial<Schedule> | null>(null);
+  const [now, setNow] = useState(() => new Date());
+  const [attendanceBusy, setAttendanceBusy] = useState('');
+  const [attendanceMessage, setAttendanceMessage] = useState('');
 
   // --- GOALS STATE ---
   const [goalFilter, setGoalFilter] = useState<string>('All');
   const [goalModalOpen, setGoalModalOpen] = useState(false);
   const [editingGoal, setEditingGoal] = useState<Partial<Goal> | null>(null);
 
-  const players = data.settings.players || [];
+  const rosterPlayers = (data.rosterPlayers || []).filter(player => !player.retiredAt);
   const calendars = data.settings.calendars || [];
   const scheduleList = data.schedule || [];
   const goalsList = data.goals || [];
+  const policy = useMemo(() => attendancePolicy(data.settings), [data.settings]);
+  const attendanceSummaries = useMemo(() => rosterPlayers.map(player => ({ player, summary: attendanceSummary(data, player.id, now) })), [data, rosterPlayers, now]);
+
+  useEffect(() => {
+    const timer = window.setInterval(() => setNow(new Date()), 30_000);
+    return () => window.clearInterval(timer);
+  }, []);
 
   // --- CALENDAR CALCULATIONS ---
   const year = currentDate.getFullYear();
@@ -95,7 +111,10 @@ export default function CalendarGoals({ data, theme, onUpsert, onRemove }: Compo
       primary: '',
       secondary: '',
       notes: '',
-      attendance: players.reduce((acc, p) => ({ ...acc, [p]: 'Prac' }), {})
+      startTime: '15:00',
+      attendanceEnabled: false,
+      requiredPlayerIds: [],
+      attendance: {}
     });
     setScheduleModalOpen(true);
   };
@@ -108,6 +127,7 @@ export default function CalendarGoals({ data, theme, onUpsert, onRemove }: Compo
   const handleSaveSchedule = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!editingSchedule || !editingSchedule.primary) return;
+    if (editingSchedule.attendanceEnabled && !(editingSchedule.requiredPlayerIds?.length)) { setAttendanceMessage('Select at least one player for attendance.'); return; }
     if (data.settings.confirmOnSave && !window.confirm('Save this schedule item?')) return;
     
     await onUpsert('Schedule', editingSchedule);
@@ -120,6 +140,34 @@ export default function CalendarGoals({ data, theme, onUpsert, onRemove }: Compo
     await onRemove('Schedule', id);
   };
 
+  const postAttendance = async (path: string, body: Record<string, unknown>, busyKey: string) => {
+    setAttendanceBusy(busyKey); setAttendanceMessage('');
+    try {
+      const response = await apiFetch(path, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) });
+      const result = await response.json().catch(() => ({}));
+      if (!response.ok) throw new Error(result.error || 'Attendance could not be updated.');
+      setAttendanceMessage(path.includes('green-credit') ? 'Green dot recorded.' : path.includes('/correct') ? 'Attendance correction saved with its reason.' : result.checkIn?.status === 'late' ? 'Checked in late — one strike recorded.' : 'Checked in on time.');
+      await onRefresh(); setNow(new Date());
+    } catch (error: any) { setAttendanceMessage(error?.message || 'Attendance could not be updated.'); }
+    finally { setAttendanceBusy(''); }
+  };
+
+  const giveGreenDot = async (playerId: string, displayName: string) => {
+    const reason = window.prompt(`Why is ${displayName} receiving a green dot?`, 'Consistent on-time attendance');
+    if (!reason?.trim()) return;
+    await postAttendance('/api/attendance/green-credit', { playerId, reason: reason.trim() }, `green:${playerId}`);
+  };
+
+  const correctAttendance = async (scheduleId: string, playerId: string, status: string) => {
+    const reason = window.prompt(`Reason for changing this record to ${status}?`, status === 'excused' ? 'Excused by coach' : 'Coach correction');
+    if (!reason?.trim()) return;
+    await postAttendance('/api/attendance/correct', { scheduleId, playerId, status, reason: reason.trim() }, `correct:${scheduleId}:${playerId}`);
+  };
+
+  const playerName = (id: string) => rosterPlayers.find(player => player.id === id)?.displayName || 'Unknown player';
+  const statusLabel = (status: string) => ({ 'not-required': 'Not required', upcoming: 'Upcoming', open: 'Check-in open', 'late-window': 'Late · strike · check in', 'on-time': 'On time', late: 'Late · strike', excused: 'Excused', absent: 'Absent · strike' }[status] || status);
+  const statusClass = (status: string) => ({ upcoming: 'text-slate-400 border-white/10 bg-white/5', open: 'text-cyan-200 border-cyan-400/30 bg-cyan-400/10', 'late-window': 'text-amber-200 border-amber-400/30 bg-amber-400/10', 'on-time': 'text-emerald-200 border-emerald-400/30 bg-emerald-400/10', late: 'text-amber-200 border-amber-400/30 bg-amber-400/10', excused: 'text-violet-200 border-violet-400/30 bg-violet-400/10', absent: 'text-rose-200 border-rose-400/30 bg-rose-400/10' }[status] || 'text-slate-400 border-white/10 bg-white/5');
+
   // --- GOAL MUTATIONS ---
   const filteredGoals = useMemo(() => {
     if (goalFilter === 'All') return goalsList;
@@ -129,7 +177,7 @@ export default function CalendarGoals({ data, theme, onUpsert, onRemove }: Compo
   const handleOpenAddGoal = () => {
     setEditingGoal({
       id: '',
-      date: new Date().toISOString().slice(0, 10),
+      date: cairoDate(),
       goal: '',
       notes: '',
       status: 'Open',
@@ -189,7 +237,21 @@ export default function CalendarGoals({ data, theme, onUpsert, onRemove }: Compo
       </div>
 
       {activeSubTab === 'calendar' ? (
-        <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
+        <div className="space-y-6">
+          {attendanceSummaries.length > 0 && (
+            <section className={`rounded-xl border p-4 ${isLight ? 'border-slate-200 bg-white' : 'border-white/10 bg-white/5'}`}>
+              <div className="mb-3 flex flex-wrap items-start justify-between gap-3"><div><h3 className="text-xs font-black uppercase tracking-widest">Attendance ledger</h3><p className="mt-1 text-[10px] text-gray-400">{policy.strikesPerRedDot} strikes = 1 red dot · {policy.graceMinutes}-minute grace · Cairo time</p></div>{data.settings.attendanceRedDotCost ? <span className="rounded-full border border-rose-400/25 bg-rose-400/10 px-3 py-1 text-[10px] font-bold text-rose-200">{policy.redDotCost} {policy.currency} / active red dot</span> : null}</div>
+              <div className="grid gap-2 sm:grid-cols-2 xl:grid-cols-3">
+                {attendanceSummaries.map(({ player, summary }) => <article key={player.id} className="rounded-lg border border-white/10 bg-black/10 p-3">
+                  <div className="flex items-start justify-between gap-2"><div><p className="text-sm font-bold">{player.displayName}</p><p className="mt-1 text-[10px] text-gray-400">{summary.onTime} on time · {summary.late} late · {summary.absent} absent · streak {summary.onTimeStreak}</p></div><div className="flex items-center gap-1" aria-label={`${summary.redDots} red dots and ${summary.greenDots} green dots`}><span className="text-sm text-rose-400">{'●'.repeat(summary.redDots) || '○'}</span>{summary.greenDots > 0 && <span className="text-sm text-emerald-400">{'●'.repeat(summary.greenDots)}</span>}</div></div>
+                  <div className="mt-3 flex flex-wrap items-center justify-between gap-2"><span className="text-[10px] font-bold text-amber-200">{summary.strikes} strikes · {summary.strikesTowardNextRedDot}/{policy.strikesPerRedDot} toward next</span><span className="text-[10px] font-black text-rose-200">{summary.cost > 0 ? `${summary.cost} ${summary.currency}` : 'No active cost'}</span></div>
+                  {role === 'coach' && <button type="button" title={summary.redDots < 1 ? 'Green dots remove an existing red dot.' : 'Remove one red dot and keep the history.'} disabled={summary.redDots < 1 || attendanceBusy === `green:${player.id}`} onClick={() => void giveGreenDot(player.id, player.displayName)} className="mt-3 inline-flex min-h-9 items-center gap-1.5 rounded-lg border border-emerald-400/25 bg-emerald-400/10 px-3 text-[10px] font-bold text-emerald-200 disabled:opacity-40"><ShieldCheck className="h-3.5 w-3.5" /> Give green dot</button>}
+                </article>)}
+              </div>
+              {attendanceMessage && <p role="status" className="mt-3 text-xs text-cyan-200">{attendanceMessage}</p>}
+            </section>
+          )}
+          <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
           {/* Calendar Grid Frame */}
           <div className={`lg:col-span-2 p-5 rounded-xl border ${isLight ? 'bg-white border-slate-200 text-slate-800 shadow-sm' : 'bg-white/5 border-white/10'} flex flex-col`}>
             {/* Calendar Controller Header */}
@@ -224,7 +286,7 @@ export default function CalendarGoals({ data, theme, onUpsert, onRemove }: Compo
               {calendarDays.map((cell, idx) => {
                 const dayScheds = scheduleMap[cell.dateStr] || [];
                 const isSelected = selectedDateStr === cell.dateStr;
-                const isToday = new Date().toISOString().slice(0, 10) === cell.dateStr;
+                const isToday = cairoDate(now) === cell.dateStr;
 
                 return (
                   <button
@@ -270,12 +332,12 @@ export default function CalendarGoals({ data, theme, onUpsert, onRemove }: Compo
           <div className={`p-5 rounded-xl border ${isLight ? 'bg-white border-slate-200 text-slate-800 shadow-sm' : 'bg-white/5 border-white/10'} h-fit`}>
             <div className="flex justify-between items-center mb-4">
               <h4 className="font-black text-xs uppercase text-gray-500 font-mono">Day Details: {selectedDateStr}</h4>
-              <button
+              {role === 'coach' && <button
                 onClick={() => handleOpenAddSchedule(selectedDateStr)}
                 className={`flex items-center gap-1.5 px-2.5 py-1 text-[10px] font-bold rounded ${theme.primaryBg} text-white cursor-pointer hover:opacity-90`}
               >
                 <Plus className="w-3.5 h-3.5" /> ADD EVENT
-              </button>
+              </button>}
             </div>
 
             {selectedDaySchedules.length > 0 ? (
@@ -284,7 +346,7 @@ export default function CalendarGoals({ data, theme, onUpsert, onRemove }: Compo
                   const cal = calendars.find(c => c.key === sched.calendarKey) || { color: '#ff4655', name: 'Schedule' };
                   return (
                     <div key={sched.id} className={`p-4 rounded-xl border ${isLight ? 'bg-slate-50 border-slate-100' : 'bg-white/5 border-white/5'} space-y-3 relative group`}>
-                      <div className="absolute right-3 top-3 flex items-center gap-1.5 opacity-0 group-hover:opacity-100 transition-opacity">
+                      {role === 'coach' && <div className="absolute right-3 top-3 flex items-center gap-1.5 opacity-0 group-hover:opacity-100 transition-opacity">
                         <button
                           onClick={() => handleOpenEditSchedule(sched)}
                           className="p-1 rounded hover:bg-white/10 text-gray-400 hover:text-white"
@@ -297,7 +359,7 @@ export default function CalendarGoals({ data, theme, onUpsert, onRemove }: Compo
                         >
                           <Trash2 className="w-3.5 h-3.5" />
                         </button>
-                      </div>
+                      </div>}
 
                       <div className="flex items-center gap-2">
                         <div className="w-2.5 h-2.5 rounded-full" style={{ backgroundColor: cal.color }}></div>
@@ -306,6 +368,7 @@ export default function CalendarGoals({ data, theme, onUpsert, onRemove }: Compo
 
                       <div>
                         <h5 className="text-base font-black tracking-tight">{sched.primary}</h5>
+                        {sched.startTime && <p className="mt-1 flex items-center gap-1 text-[10px] font-bold text-cyan-200"><Clock className="h-3 w-3" /> {sched.startTime} Cairo {sched.source === 'pracc' ? '· Pracc' : ''}</p>}
                         {sched.secondary && (
                           <p className="text-xs text-gray-400 font-mono mt-0.5">{sched.secondary}</p>
                         )}
@@ -315,28 +378,12 @@ export default function CalendarGoals({ data, theme, onUpsert, onRemove }: Compo
                         <p className="text-xs text-gray-400 bg-black/10 p-2.5 rounded font-mono leading-relaxed">{sched.notes}</p>
                       )}
 
-                      {/* Attendance List */}
-                      <div>
-                        <p className="text-[10px] uppercase font-black tracking-widest text-gray-500 mb-1.5 font-mono">Attendance Roster</p>
-                        <div className="flex flex-wrap gap-1">
-                          {players.map((p) => {
-                            const state = sched.attendance?.[p] || 'OFF';
-                            const badgeColor = {
-                              Prac: 'bg-emerald-500/10 text-emerald-400 border-emerald-500/20',
-                              Official: 'bg-rose-500/10 text-rose-400 border-rose-500/20',
-                              OFF: 'bg-slate-500/10 text-slate-400 border border-slate-500/20',
-                              Late: 'bg-amber-500/10 text-amber-400 border-amber-500/20',
-                              Absent: 'bg-gray-500/10 text-gray-400 border-gray-500/20'
-                            }[state as string] || 'bg-slate-500/10 text-slate-400';
-
-                            return (
-                              <div key={p} className={`px-2 py-0.5 rounded text-[9px] font-bold border ${badgeColor}`}>
-                                {p}: {state}
-                              </div>
-                            );
-                          })}
-                        </div>
-                      </div>
+                      {sched.attendanceEnabled && sched.startTime && <div>
+                        <p className="mb-2 text-[10px] font-black uppercase tracking-widest text-gray-500">Attendance</p>
+                        <div className="space-y-1.5">{(sched.requiredPlayerIds || []).map(playerId => { const status = attendanceStatus(sched, playerId, now, policy); const isMe = data.authenticatedViewer?.playerId === playerId; const canCheckIn = role === 'player' && isMe && (status === 'open' || status === 'late-window'); return <div key={playerId} className="flex flex-wrap items-center justify-between gap-2 rounded-lg border border-white/5 bg-black/10 px-2.5 py-2"><span className="text-xs font-bold">{playerName(playerId)}</span><div className="flex items-center gap-2"><span className={`rounded-full border px-2 py-1 text-[9px] font-bold ${statusClass(status)}`}>{statusLabel(status)}</span>{canCheckIn && <button type="button" disabled={attendanceBusy === `checkin:${sched.id}`} onClick={() => void postAttendance('/api/attendance/check-in', { scheduleId: sched.id }, `checkin:${sched.id}`)} className="ui-button ui-button-primary min-h-9 px-3 text-[10px] disabled:opacity-50"><CheckCircle2 className="h-3.5 w-3.5" /> Check in</button>}{role === 'coach' && <select aria-label={`Correct attendance for ${playerName(playerId)}`} disabled={attendanceBusy === `correct:${sched.id}:${playerId}`} value="" onChange={event => { if (event.target.value) void correctAttendance(sched.id, playerId, event.target.value); }} className="min-h-9 rounded-lg border border-white/10 bg-black/30 px-2 text-[9px] text-gray-300"><option value="">Correct…</option><option value="on-time">On time</option><option value="late">Late</option><option value="excused">Excused</option><option value="clear">Clear record</option></select>}</div></div>; })}</div>
+                        {(() => { const window = attendanceWindow(sched, policy); return <p className="mt-2 text-[9px] text-gray-500">On time through {new Intl.DateTimeFormat('en-GB', { timeZone: 'Africa/Cairo', hour: '2-digit', minute: '2-digit' }).format(window.graceEndsAt)} · check-in closes {new Intl.DateTimeFormat('en-GB', { timeZone: 'Africa/Cairo', hour: '2-digit', minute: '2-digit' }).format(window.closesAt)}</p>; })()}
+                      </div>}
+                      {!sched.attendanceEnabled && Object.keys(sched.attendance || {}).length > 0 && <p className="text-[10px] text-gray-500">Legacy attendance labels preserved. Enable timed attendance when editing this event.</p>}
                     </div>
                   );
                 })}
@@ -348,6 +395,7 @@ export default function CalendarGoals({ data, theme, onUpsert, onRemove }: Compo
               </div>
             )}
           </div>
+        </div>
         </div>
       ) : (
         /* GOALS VIEW */
@@ -503,6 +551,17 @@ export default function CalendarGoals({ data, theme, onUpsert, onRemove }: Compo
               </div>
             </div>
 
+            <div className="grid grid-cols-1 gap-4 md:grid-cols-2">
+              <div className="space-y-1">
+                <label className="text-[10px] uppercase font-black text-gray-400 font-mono">Start time · Cairo</label>
+                <input type="time" required value={editingSchedule.startTime || ''} onChange={event => setEditingSchedule({ ...editingSchedule, startTime: event.target.value })} className="w-full p-2.5 bg-black/20 rounded border border-white/10 text-xs font-mono" />
+              </div>
+              <label className="flex min-h-11 items-center gap-3 self-end rounded-lg border border-cyan-400/20 bg-cyan-400/5 px-3 py-2 text-xs font-bold text-cyan-100">
+                <input type="checkbox" checked={Boolean(editingSchedule.attendanceEnabled)} onChange={event => setEditingSchedule({ ...editingSchedule, attendanceEnabled: event.target.checked })} />
+                Require player check-in
+              </label>
+            </div>
+
             <div className="space-y-1">
               <label className="text-[10px] uppercase font-black text-gray-400 font-mono">Primary Topic / Map</label>
               <input
@@ -537,32 +596,14 @@ export default function CalendarGoals({ data, theme, onUpsert, onRemove }: Compo
               />
             </div>
 
-            {/* Attendance fields */}
-            <div className="space-y-2">
-              <label className="text-[10px] uppercase font-black text-gray-400 font-mono block border-b border-white/5 pb-1">Attendance States</label>
-              <div className="grid grid-cols-2 sm:grid-cols-3 gap-2.5">
-                {players.map((p) => {
-                  const state = editingSchedule.attendance?.[p] || 'Prac';
-                  return (
-                    <div key={p} className="flex items-center justify-between gap-2 border border-white/5 bg-black/10 p-2 rounded">
-                      <span className="text-xs font-bold truncate">{p}</span>
-                      <select
-                        value={state}
-                        onChange={(e) => {
-                          const updatedAtt = { ...editingSchedule.attendance, [p]: e.target.value };
-                          setEditingSchedule({ ...editingSchedule, attendance: updatedAtt });
-                        }}
-                        className="bg-black text-[10px] p-1 rounded text-white font-mono"
-                      >
-                        {data.settings.attendanceStates.map(st => (
-                          <option key={st} value={st}>{st}</option>
-                        ))}
-                      </select>
-                    </div>
-                  );
-                })}
+            {editingSchedule.attendanceEnabled && <div className="space-y-2">
+              <div className="flex items-center justify-between border-b border-white/5 pb-1"><label className="text-[10px] uppercase font-black text-gray-400 font-mono">Players required to attend</label><span className="text-[9px] text-gray-500">{editingSchedule.requiredPlayerIds?.length || 0} selected</span></div>
+              <div className="grid max-h-52 grid-cols-1 gap-2 overflow-y-auto sm:grid-cols-2">
+                {rosterPlayers.map(player => { const selected = editingSchedule.requiredPlayerIds?.includes(player.id) || false; return <label key={player.id} className={`flex min-h-11 items-center gap-2 rounded-lg border px-3 text-xs font-bold ${selected ? 'border-cyan-400/30 bg-cyan-400/10 text-cyan-100' : 'border-white/5 bg-black/10 text-gray-400'}`}><input type="checkbox" checked={selected} onChange={event => { const ids = new Set(editingSchedule.requiredPlayerIds || []); if (event.target.checked) ids.add(player.id); else ids.delete(player.id); setEditingSchedule({ ...editingSchedule, requiredPlayerIds: [...ids] }); }} />{player.displayName}</label>; })}
               </div>
-            </div>
+              {rosterPlayers.length === 0 && <p className="text-xs text-amber-300">Add players to the roster before enabling attendance.</p>}
+              <p className="text-[9px] leading-relaxed text-gray-500">Check-in opens {policy.checkInOpenMinutes} minutes before the event. It is on time through {policy.graceMinutes} minutes after the start, then late until the {policy.checkInCloseMinutes}-minute close.</p>
+            </div>}
 
             <div className="pt-4 flex justify-end gap-2 border-t border-white/10">
               <button
@@ -654,7 +695,7 @@ export default function CalendarGoals({ data, theme, onUpsert, onRemove }: Compo
                   className="w-full p-2.5 bg-black/20 rounded border border-white/10 text-xs text-white"
                 >
                   <option value="">TEAM Goal</option>
-                  {players.map(p => <option key={p} value={p}>{p}</option>)}
+                  {rosterPlayers.map(player => <option key={player.id} value={player.displayName}>{player.displayName}</option>)}
                 </select>
               </div>
             </div>

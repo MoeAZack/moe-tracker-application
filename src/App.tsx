@@ -630,7 +630,7 @@ export default function App() {
               <Dashboard data={analyticsData} theme={theme} role={role} username={username} summaryMode={!desktopMode} onOpenMatch={(matchId) => { setReviewMatchId(matchId); setActiveTab('vod'); }} onOpenReplay={() => setActiveTab('replays')} onOpenCapture={() => setScrimOpen(true)} />
             )}
             {activeTab === 'calendar' && data && (
-              <CalendarGoals data={data} theme={theme} onUpsert={handleUpsert} onRemove={handleRemove} />
+              <CalendarGoals data={data} theme={theme} role={role || 'player'} onUpsert={handleUpsert} onRemove={handleRemove} onRefresh={fetchDatabase} />
             )}
             {activeTab === 'matches' && data && desktopMode && (
               <MatchLogRounds 
