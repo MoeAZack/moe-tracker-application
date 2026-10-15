@@ -117,6 +117,20 @@ export default function App() {
     }
   }, [key]);
 
+  useEffect(() => {
+    if (!key) return;
+    const validateSession = () => { void apiFetch('/api/session').catch(() => {}); };
+    const validateVisibleSession = () => { if (document.visibilityState === 'visible') validateSession(); };
+    const timer = window.setInterval(validateSession, 10_000);
+    window.addEventListener('focus', validateSession);
+    document.addEventListener('visibilitychange', validateVisibleSession);
+    return () => {
+      window.clearInterval(timer);
+      window.removeEventListener('focus', validateSession);
+      document.removeEventListener('visibilitychange', validateVisibleSession);
+    };
+  }, [key]);
+
   const handleLoginSuccess = (newKey: string, newRole: string, newUsername: string) => {
     setKey(newKey);
     setRole(newRole);

@@ -134,7 +134,9 @@ describe('HTTP authentication and authorization boundary', () => {
   it('revokes an already-issued player session immediately', async () => {
     const token = await login(playerKey);
     const coach = await login(adminKey);
+    expect((await request('/api/session', token)).status).toBe(200);
     expect((await request('/api/keys/revoke', coach, { id: 'player-1' })).status).toBe(200);
+    expect((await request('/api/session', token)).status).toBe(401);
     expect((await request('/api/data', token)).status).toBe(401);
   });
 
