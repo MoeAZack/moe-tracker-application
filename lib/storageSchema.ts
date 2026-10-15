@@ -18,7 +18,7 @@ const GROWTH_TREES = new Set(['replayIntake', 'engineAdapters', 'analyticsBuilds
 const CORE_ARRAYS = [
   'matches', 'playerStats', 'seasonArchives', 'rounds', 'schedule', 'authKeys', 'allowedUsers',
   'goals', 'soloq', 'vetos', 'strats', 'stratRuns', 'rosterPlayers', 'coreMemberships',
-  'tryoutBatches', 'vodReviews', 'lineups',
+  'tryoutBatches', 'vodReviews', 'lineups', 'practiceBlocks', 'tryoutDecisionNotes',
 ] as const;
 
 export type StorageMetadata = {

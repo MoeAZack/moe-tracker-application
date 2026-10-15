@@ -26,6 +26,7 @@ export const SEASON_COLLECTION_POLICY = {
   archive: [
     'rosterPlayers', 'coreMemberships', 'tryoutBatches', 'schedule', 'goals',
     'matches', 'playerStats', 'soloq', 'rounds', 'vetos', 'stratRuns', 'vodReviews',
+    'practiceBlocks', 'tryoutDecisionNotes',
   ],
   retain: ['seasonArchives', 'lineups', 'authKeys', 'allowedUsers', 'engineAdapters'],
   retainAndSnapshotReferences: ['strats'],
@@ -358,8 +359,9 @@ export function retireRosterPlayer(db: any, playerId: string, clock = defaultClo
   // Keep phase candidate/alias references immutable for audit history. The
   // player's retiredAt flag controls active availability without severing the
   // stable identity from the phase in which it appeared.
-  db.authKeys = (db.authKeys || []).filter((key: any) => key.playerId !== playerId);
-  db.allowedUsers = (db.allowedUsers || []).filter((user: any) => user.playerId !== playerId);
+  const retiredName = normalizedPlayerName(player.displayName);
+  db.authKeys = (db.authKeys || []).filter((key: any) => key.playerId !== playerId && !(key.role === 'player' && normalizedPlayerName(key.label) === retiredName));
+  db.allowedUsers = (db.allowedUsers || []).filter((user: any) => user.playerId !== playerId && !(user.role === 'player' && normalizedPlayerName(user.name) === retiredName));
   for (const device of Object.values(db.replayIntake?.devices || {}) as any[]) if (device.owner?.playerId === playerId && !device.revokedAt) device.revokedAt = retiredAt;
   for (const consent of Object.values(db.engineAdapters?.ranked?.consents || {}) as any[]) if (consent.playerId === playerId && !consent.revokedAt) consent.revokedAt = retiredAt;
   syncLegacyCoreNames(db);
@@ -368,7 +370,8 @@ export function retireRosterPlayer(db: any, playerId: string, clock = defaultClo
 
 export function addCoreMembership(db: any, playerId: string, sourceTryoutBatchId?: string, idFactory = defaultId, clock = defaultClock) {
   ensureRoster(db);
-  playerById(db, playerId);
+  const player = playerById(db, playerId);
+  if (player.retiredAt) fail('Archived players cannot be added to the active core roster.', 409);
   const existing = db.coreMemberships.find((membership: any) => membership.playerId === playerId && !membership.endedAt);
   if (existing) return { membership: existing, created: false };
   const membership = {
@@ -404,6 +407,7 @@ export function createTryoutBatch(db: any, name: string, idFactory = defaultId, 
 export function addTryoutCandidate(db: any, batchId: string, playerId: string) {
   ensureRoster(db);
   const player = playerById(db, playerId);
+  if (player.retiredAt) fail('Archived players cannot be added to an active tryout batch.', 409);
   const batch = batchById(db, batchId);
   if (batch.status !== 'active') fail('Candidates can be added only to an active tryout batch.', 409);
   if (!batch.candidatePlayerIds.includes(player.id)) batch.candidatePlayerIds.push(player.id);
@@ -437,7 +441,8 @@ export function restoreTryoutBatch(db: any, batchId: string) {
 export function promoteTryoutCandidate(db: any, batchId: string, playerId: string, idFactory = defaultId, clock = defaultClock) {
   ensureRoster(db);
   const batch = batchById(db, batchId);
-  playerById(db, playerId);
+  const player = playerById(db, playerId);
+  if (player.retiredAt) fail('Archived players cannot be promoted.', 409);
   if (batch.status !== 'active') fail('Candidates can be promoted only from an active tryout batch.', 409);
   if (!batch.candidatePlayerIds.includes(playerId)) fail('Player is not a candidate in this tryout batch.', 409);
   return addCoreMembership(db, playerId, batch.id, idFactory, clock);
