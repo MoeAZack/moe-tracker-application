@@ -56,8 +56,8 @@ describe('scrim screenshot analytics', () => {
   it('uses the same identity for names with spaces in rounds and stored scoreboards', () => {
     const spaced = round({ screenshotEvidence: { ...round().screenshotEvidence, players: [{ playerId: 'name:rafblack', displayName: 'RAF BLACK', team: 'ours', equippedWeapon: 'Vandal', kills: 1, assists: 0, survived: true }] } });
     const metric = buildPlayerScreenshotMetrics([spaced] as any)[0];
-    expect(metric.identity).toBe('name:rafblack');
-    expect(combineStoredScreenshotMetrics([{ player: 'RAF BLACK', screenshotMetrics: metric } as any])[0].identity).toBe('name:rafblack');
+    expect(metric.identity).toBe('unlinked:m1:rafblack');
+    expect(combineStoredScreenshotMetrics([{ id: 'legacy-row', player: 'RAF BLACK', screenshotMetrics: metric } as any])[0].identity).toBe('unlinked:legacy-row');
   });
   it('attributes kills to the event weapon while keeping equipped-round results separate', () => {
     const mixedWeapon = round({ screenshotEvidence: { ...round().screenshotEvidence, events: [
@@ -73,6 +73,37 @@ describe('scrim screenshot analytics', () => {
     const metric: any = buildPlayerScreenshotMetrics([round()] as any)[0];
     const { identity: _identity, displayName: _displayName, ...stored } = metric;
     expect(combineStoredScreenshotMetrics([{ playerId: 'p1', player: 'Alpha', screenshotMetrics: stored }, { playerId: 'p1', player: 'Alpha', screenshotMetrics: stored }])[0]).toMatchObject({ coveredRounds: 2, lowBudgetWins: 2, weapons: [{ weapon: 'Sheriff', rounds: 2, wins: 2, kills: 4 }] });
+  });
+  it('keeps same-name unlinked stored appearances separate', () => {
+    const metric: any = buildPlayerScreenshotMetrics([round()] as any)[0];
+    const { identity: _identity, displayName: _displayName, ...stored } = metric;
+    const combined = combineStoredScreenshotMetrics([
+      { id: 'row-a', player: 'Same Name', screenshotMetrics: stored },
+      { id: 'row-b', player: 'Same Name', screenshotMetrics: stored },
+    ]);
+    expect(combined.map(item => item.identity)).toEqual(['unlinked:row-a', 'unlinked:row-b']);
+    expect(combined.every(item => item.coveredRounds === 1)).toBe(true);
+  });
+  it('keeps same-name raw screenshot appearances separate across matches', () => {
+    const first = round({ matchId: 'match-a', screenshotEvidence: { ...round().screenshotEvidence, players: [{ displayName: 'Same Name', team: 'ours', equippedWeapon: 'Vandal' }] } });
+    const second = round({ id: 'r2', matchId: 'match-b', screenshotEvidence: { ...round().screenshotEvidence, players: [{ displayName: 'Same Name', team: 'ours', equippedWeapon: 'Phantom' }] } });
+    const metrics = buildPlayerScreenshotMetrics([first, second] as any);
+    expect(metrics.map(item => item.identity)).toEqual(['unlinked:match-a:samename', 'unlinked:match-b:samename']);
+    expect(metrics.every(item => item.coveredRounds === 1)).toBe(true);
+  });
+  it('separates ambiguous duplicate unlinked names within a round and declines event attribution', () => {
+    const ambiguous = round({ screenshotEvidence: {
+      ...round().screenshotEvidence,
+      players: [
+        { playerId: 'name:same', displayName: 'Same', team: 'ours', equippedWeapon: 'Vandal', assists: 0, survived: true },
+        { playerId: 'name:same', displayName: 'Same', team: 'ours', equippedWeapon: 'Phantom', assists: 0, survived: false },
+      ],
+      events: [{ sequence: 1, killerPlayerId: 'name:same', victimPlayerId: 'enemy', killerTeam: 'ours', victimTeam: 'theirs', weapon: 'Vandal' }],
+    } });
+    const metrics = buildPlayerScreenshotMetrics([ambiguous] as any);
+    expect(metrics.map(item => item.identity)).toEqual(['unlinked:m1:1:same:1', 'unlinked:m1:1:same:2']);
+    expect(metrics.map(item => item.coveredRounds)).toEqual([1, 1]);
+    expect(metrics.every(item => item.firstKills === 0 && item.kast?.covered === 0 && item.weapons.every(weapon => weapon.kills === 0))).toBe(true);
   });
   it('derives pistol, eco and earned bonus conversion by side from rounds', () => {
     const rows = [

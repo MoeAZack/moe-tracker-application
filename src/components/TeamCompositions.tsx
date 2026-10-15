@@ -2,6 +2,7 @@ import React, { useMemo } from 'react';
 import { TrackerData } from '../types';
 import { Award, Layers, Users } from 'lucide-react';
 import { percentageTextClass } from '../utils/percentageColor';
+import { matchOutcome } from '../../lib/analyticsEvidence';
 
 interface ComponentProps {
   data: TrackerData;
@@ -9,12 +10,8 @@ interface ComponentProps {
 }
 
 export function compositionMatchOutcome(match: any): 'win' | 'loss' | null {
-  const direct = [match.ourScore, match.theirScore];
-  if (direct.every(value => typeof value === 'number' && Number.isFinite(value)) && direct[0] !== direct[1]) return direct[0] > direct[1] ? 'win' : 'loss';
-  const halves = [match.attW, match.attL, match.defW, match.defL];
-  if (!halves.every(value => typeof value === 'number' && Number.isFinite(value))) return null;
-  const ours = match.attW + match.defW; const theirs = match.attL + match.defL;
-  return ours === theirs ? null : ours > theirs ? 'win' : 'loss';
+  const outcome = matchOutcome(match);
+  return outcome === 'win' || outcome === 'loss' ? outcome : null;
 }
 
 export default function TeamCompositions({ data, theme }: ComponentProps) {

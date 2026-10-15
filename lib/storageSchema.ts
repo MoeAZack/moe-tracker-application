@@ -1,7 +1,8 @@
 import crypto from 'crypto';
 import { assertWorkspaceIdentityShape } from './evidenceReference';
+import { migrateAcceptedMatchAggregates } from './aggregateVersioning';
 
-export const STORAGE_SCHEMA_VERSION = 2;
+export const STORAGE_SCHEMA_VERSION = 3;
 export const MAX_ENTITY_BYTES = 840 * 1024;
 export const MAX_DOCUMENT_BYTES = 900 * 1024;
 export const MAX_JSON_DATABASE_BYTES = 64 * 1024 * 1024;
@@ -13,7 +14,7 @@ export const FIRESTORE_BATCH_MAX_WRITES = 350;
 const CURRENT_VALORANT_AGENTS = ['Astra', 'Breach', 'Brimstone', 'Chamber', 'Clove', 'Cypher', 'Deadlock', 'Fade', 'Gekko', 'Harbor', 'Iso', 'Jett', 'KAY/O', 'Killjoy', 'Miks', 'Neon', 'Omen', 'Phoenix', 'Raze', 'Reyna', 'Sage', 'Skye', 'Sova', 'Tejo', 'Veto', 'Viper', 'Vyse', 'Waylay', 'Yoru'];
 
 const GROWTH_ARRAYS = new Set(['matches', 'playerStats', 'seasonArchives']);
-const GROWTH_TREES = new Set(['replayIntake', 'engineAdapters']);
+const GROWTH_TREES = new Set(['replayIntake', 'engineAdapters', 'analyticsBuilds']);
 const CORE_ARRAYS = [
   'matches', 'playerStats', 'seasonArchives', 'rounds', 'schedule', 'authKeys', 'allowedUsers',
   'goals', 'soloq', 'vetos', 'strats', 'stratRuns', 'rosterPlayers', 'coreMemberships',
@@ -73,7 +74,11 @@ export function ensureStorageSchema(input: any, now = new Date().toISOString()) 
   if (declared > STORAGE_SCHEMA_VERSION) throw storageError(`Database schema ${declared} is newer than this server supports (${STORAGE_SCHEMA_VERSION}).`, 409);
   const ledger = Array.isArray(input._storage?.migrationLedger) ? input._storage.migrationLedger.filter((item: any) =>
     Number.isSafeInteger(item?.from) && Number.isSafeInteger(item?.to) && typeof item?.at === 'string') : [];
-  if (declared < STORAGE_SCHEMA_VERSION) ledger.push({ from: declared, to: STORAGE_SCHEMA_VERSION, at: now });
+  if (declared < STORAGE_SCHEMA_VERSION) {
+    migrateAcceptedMatchAggregates(input);
+    for (const archive of input.seasonArchives || []) migrateAcceptedMatchAggregates(archive);
+    ledger.push({ from: declared, to: STORAGE_SCHEMA_VERSION, at: now });
+  }
   input._storage = { schemaVersion: STORAGE_SCHEMA_VERSION, migratedAt: declared < STORAGE_SCHEMA_VERSION ? now : String(input._storage?.migratedAt || now), migrationLedger: ledger } satisfies StorageMetadata;
   if (input.settings && Array.isArray(input.settings.agents)) {
     input.settings.agents = [...new Set([...input.settings.agents.filter((agent: unknown) => typeof agent === 'string' && agent.trim()), ...CURRENT_VALORANT_AGENTS])].sort((left, right) => String(left).localeCompare(String(right)));

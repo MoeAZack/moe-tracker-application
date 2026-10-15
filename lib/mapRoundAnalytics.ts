@@ -4,9 +4,13 @@ import { classifyAverageLoadout, classifyTeamEquipment } from './scrimRoundAnaly
 
 type Conversion = { won: number; total: number };
 type LossConversion = { lost: number; total: number };
+export const MAP_ROUND_CALCULATION_VERSION = 'map-round-intelligence/v1' as const;
 
 export interface MapRoundIntelligence {
   schemaVersion: 1;
+  calculationVersion?: string;
+  sourceHash?: string;
+  unknownReasons?: string[];
   map: string;
   matches: number;
   coveredRounds: number;
@@ -74,7 +78,7 @@ export function buildMapRoundIntelligence(matches: readonly Match[], rounds: rea
     let row = rows.get(map);
     if (!row) {
       row = {
-        schemaVersion: 1, map, matches: 0, coveredRounds: 0,
+        schemaVersion: 1, calculationVersion: MAP_ROUND_CALCULATION_VERSION, map, matches: 0, coveredRounds: 0,
         openingRounds: [conversion(), conversion(), conversion()], openingThree: conversion(),
         pistol: conversion(), pistolBySide: { attack: conversion(), defense: conversion() },
         postPistol: conversion(), postPistolBySide: { attack: conversion(), defense: conversion() },
@@ -102,7 +106,9 @@ export function buildMapRoundIntelligence(matches: readonly Match[], rounds: rea
     const numbered = roundsByMatch.get(match.id);
     if (!numbered?.size) {
       const stored = (match as any).roundAnalytics as MapRoundIntelligence | undefined;
-      if (!stored || stored.schemaVersion !== 1 || stored.map !== match.map) continue;
+      if (!stored || stored.schemaVersion !== 1 || stored.map !== match.map
+        || stored.calculationVersion !== MAP_ROUND_CALCULATION_VERSION
+        || !/^[a-f0-9]{64}$/.test(stored.sourceHash || '')) continue;
       const row = ensure(match.map);
       row.matches += stored.matches || 1; row.coveredRounds += stored.coveredRounds || 0;
       row.openingRounds.forEach((target, index) => { target.won += stored.openingRounds?.[index]?.won || 0; target.total += stored.openingRounds?.[index]?.total || 0; });

@@ -312,6 +312,10 @@ export interface RoundScreenshotEvidence {
 
 export interface PlayerScreenshotMetrics {
   schemaVersion: 1;
+  /** Immutable aggregate builder identity used for reproducible recomputation. */
+  calculationVersion?: string;
+  sourceHash?: string;
+  unknownReasons?: string[];
   coveredRounds: number;
   wins: number;
   losses: number;
@@ -452,6 +456,7 @@ export interface StratRun {
 }
 
 export interface TrackerData {
+  authenticatedViewer?: { playerId: string | null };
   settings: Settings;
   rosterPlayers: RosterPlayer[];
   coreMemberships: CoreMembership[];
@@ -464,6 +469,7 @@ export interface TrackerData {
   playerStats: PlayerStats[];
   soloq: SoloQ[];
   rounds: Round[];
+  analyticsBuilds?: Record<string, unknown>;
   vetos: Veto[];
   strats: Strat[];
   stratRuns: StratRun[];

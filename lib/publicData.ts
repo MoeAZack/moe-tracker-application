@@ -1,10 +1,10 @@
-import { buildMapRoundIntelligence } from './mapRoundAnalytics';
+import { buildAcceptedMatchAggregatePlan, buildCanonicalAnalyticsExport } from './aggregateVersioning';
 
-const PRIVATE_TOP_LEVEL_KEYS = new Set(['authKeys', 'allowedUsers', 'secretValues', '_storage']);
+const PRIVATE_TOP_LEVEL_KEYS = new Set(['authKeys', 'allowedUsers', 'secretValues', '_storage', 'authenticatedViewer']);
 const PRIVATE_SETTING_KEYS = new Set(['discordWebhook', 'gridApiKey', 'henrikApiKey']);
 
 /** Build the tracker payload that is safe to send to the authenticated role. */
-export function toPublicTrackerData(db: Record<string, any>, role: 'coach' | 'player' = 'coach') {
+export function toPublicTrackerData(db: Record<string, any>, role: 'coach' | 'player' = 'coach', authenticatedPlayerId?: string | null) {
   const publicData: Record<string, any> = {};
   for (const [key, value] of Object.entries(db)) {
     if (!PRIVATE_TOP_LEVEL_KEYS.has(key)) publicData[key] = value;
@@ -19,15 +19,32 @@ export function toPublicTrackerData(db: Record<string, any>, role: 'coach' | 'pl
   // and mutable review overlays. Engine adapters contain private rating inputs and
   // replay observations. Both have dedicated role-aware endpoints and must never
   // hitchhike in the broad tracker payload, including for coaches.
-  delete publicData.replayIntake;
-  delete publicData.engineAdapters;
   if (Array.isArray(publicData.matches) && Array.isArray(publicData.rounds)) {
+    const plans = new Map<string, ReturnType<typeof buildAcceptedMatchAggregatePlan>>(publicData.matches.map((match: any) => [match.id, buildAcceptedMatchAggregatePlan(publicData, match.id)]));
     publicData.matches = publicData.matches.map((match: any) => {
-      if (match.roundAnalytics?.schemaVersion === 1) return match;
-      const roundAnalytics = buildMapRoundIntelligence([match], publicData.rounds.filter((round: any) => round.matchId === match.id))[0];
-      return roundAnalytics ? { ...match, roundAnalytics } : match;
+      const plan = plans.get(match.id)!;
+      if (plan.build.status === 'recomputed' && plan.match) return plan.match;
+      const { roundAnalytics: _quarantinedAggregate, ...sourceOnly } = match;
+      return sourceOnly;
+    });
+    if (Array.isArray(publicData.playerStats)) publicData.playerStats = publicData.playerStats.map((stat: any) => {
+      const plan = plans.get(stat.matchId);
+      const planned = plan?.playerStats.find(item => item.id === stat.id);
+      const metric = planned?.screenshotMetrics;
+      if (plan?.build.status === 'recomputed' && metric?.calculationVersion === 'player-screenshot-metrics/v1'
+        && metric.sourceHash === plan.build.sourceHash) return planned;
+      const { screenshotMetrics: _quarantinedAggregate, ...sourceOnly } = stat;
+      return sourceOnly;
     });
   }
+  if (role === 'coach' && db.workspace && Array.isArray(db.matches)) {
+    publicData.canonicalAnalytics = db.matches.map((match: any) => {
+      const { canonicalJson: _canonicalJson, ...exported } = buildCanonicalAnalyticsExport(db, match.id);
+      return exported;
+    });
+  }
+  delete publicData.replayIntake;
+  delete publicData.engineAdapters;
   if (Array.isArray(publicData.seasonArchives)) publicData.seasonArchives = publicData.seasonArchives.map((archive: any) => {
     const { accessIdentities: _privateAccessIdentities, engineAdapters: _privateEngineAdapters, replayIntake: _privateReplayIntake, ...safeArchive } = archive || {};
     return safeArchive;
@@ -50,6 +67,13 @@ export function toPublicTrackerData(db: Record<string, any>, role: 'coach' | 'pl
     GRID_API_KEY: !!process.env.GRID_API_KEY,
     DISCORD_WEBHOOK_URL: !!process.env.DISCORD_WEBHOOK_URL
   };
+  if (authenticatedPlayerId !== undefined) {
+    publicData.authenticatedViewer = {
+      playerId: role === 'player' && typeof authenticatedPlayerId === 'string' && authenticatedPlayerId.trim()
+        ? authenticatedPlayerId.trim()
+        : null,
+    };
+  }
   return publicData;
 }
 
@@ -61,8 +85,8 @@ function selectFields(record: any, fields: readonly string[]) {
 }
 
 /** Minimal authenticated website projection. Detailed evidence remains desktop-only. */
-export function toWebsiteTrackerData(db: Record<string, any>, role: 'coach' | 'player' = 'coach') {
-  const safe = toPublicTrackerData(db, role);
+export function toWebsiteTrackerData(db: Record<string, any>, role: 'coach' | 'player' = 'coach', authenticatedPlayerId?: string | null) {
+  const safe = toPublicTrackerData(db, role, authenticatedPlayerId);
   const settings = { ...(safe.settings || {}) };
   delete settings.riotIds;
   delete settings.vlr;
@@ -71,6 +95,7 @@ export function toWebsiteTrackerData(db: Record<string, any>, role: 'coach' | 'p
     ? settings.calendars.map(({ gcalId: _privateCalendarId, ...calendar }: any) => calendar)
     : [];
   return {
+    ...(safe.authenticatedViewer ? { authenticatedViewer: structuredClone(safe.authenticatedViewer) } : {}),
     settings,
     rosterPlayers: structuredClone(safe.rosterPlayers || []),
     coreMemberships: structuredClone(safe.coreMemberships || []),
@@ -85,6 +110,11 @@ export function toWebsiteTrackerData(db: Record<string, any>, role: 'coach' | 'p
     rounds: [], vetos: [], strats: [], stratRuns: [], seasonArchives: [], vodReviews: [], lineups: [],
     secrets: {}, serverTime: new Date().toISOString(),
   };
+}
+
+/** Exact payload used by the authenticated shareable backup route. */
+export function buildShareableBackupPayload(db: Record<string, any>) {
+  return toPublicTrackerData(db, 'coach');
 }
 
 /** Remove credential fields from imported legacy backups before storage. */

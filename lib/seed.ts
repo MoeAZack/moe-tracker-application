@@ -208,6 +208,7 @@ export function createSeed() {
     playerStats,
     soloq,
     rounds,
+    analyticsBuilds: {},
     vetos,
     strats,
     stratRuns,
