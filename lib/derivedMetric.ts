@@ -167,6 +167,11 @@ export function validateDerivedMetric(
   if (value !== null && unknownReason !== null) reader.fail('unknownReason', 'only-when-value-unknown');
 
   const fractionKind = kind === 'average' || kind === 'ratio' || kind === 'rate' || kind === 'percentage';
+  if (unknownReason === 'no-samples' && sampleCount !== 0) reader.fail('unknownReason', 'inconsistent-with-facts');
+  if (unknownReason === 'denominator-zero' && (!fractionKind || denominator !== 0)) reader.fail('unknownReason', 'inconsistent-with-facts');
+  if (unknownReason === 'incomplete-coverage' && (covered === null || total === null || covered >= total)) {
+    reader.fail('unknownReason', 'inconsistent-with-facts');
+  }
   if (!fractionKind && (numerator !== null || denominator !== null)) reader.fail('numerator', 'not-allowed-for-kind');
   if (fractionKind) {
     if ((numerator === null) !== (denominator === null)) reader.fail('numerator', 'fraction-pair-required');

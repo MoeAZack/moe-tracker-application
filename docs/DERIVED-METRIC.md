@@ -28,6 +28,7 @@ Unknown reasons are `no-samples`, `missing-evidence`, `incomplete-coverage`, `co
 - Unknown fields, malformed values, unbounded sizes and unsupported schemas fail closed.
 - Fractional values must agree with their numerator and denominator. Rate and percentage numerators cannot exceed their denominators.
 - Known values require a positive sample; unknown values require an explicit reason. Zero-denominator fractions remain unknown and use `denominator-zero`.
+- Unknown reasons must match their facts: `no-samples` requires a zero sample count, `denominator-zero` requires a fractional kind with a zero denominator, and `incomplete-coverage` requires covered to be less than total.
 - Each source is normalized by the S0.1 contract, must share the envelope workspace, and is de-duplicated by its canonical evidence key.
 - Metric confidence cannot exceed the weakest explicit S0.1 source confidence and is never inferred from coverage.
 - `requireAcceptedMetricSources` (or the normalization option) rejects draft, rejected and unreferenced provenance. `resolveDerivedMetricSources` additionally resolves every accepted reference against the authenticated caller's current workspace before publication. This lets internal draft previews exist without allowing them into accepted team analytics.
