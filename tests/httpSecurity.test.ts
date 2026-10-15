@@ -184,6 +184,20 @@ describe('HTTP authentication and authorization boundary', () => {
     expect(db.authKeys.find((entry: any) => entry.id === `player-password:${playerId}`).credentialVersion).toBe(resetMetadata.credentialVersion);
   });
 
+  it('revokes player access after archival while coaches retain historical rows', async () => {
+    const coach = await login(adminKey);
+    const playerId = '11111111-1111-4111-8111-111111111111';
+    expect((await request('/api/player-password', coach, { playerId, password: 'archive-test' })).status).toBe(200);
+    const signedIn = await request('/api/login-key', undefined, { playerName: 'Ahmed', key: 'archive-test' });
+    const playerToken = (await signedIn.json()).key;
+    const db = JSON.parse(await fs.readFile(dbPath, 'utf8'));
+    db.rosterPlayers[0].retiredAt = '2026-10-15T10:00:00.000Z';
+    await fs.writeFile(dbPath, JSON.stringify(db));
+    expect((await request('/api/data', playerToken)).status).toBe(401);
+    const staffData = await (await request('/api/data', coach)).json();
+    expect(staffData.playerStats).toEqual([expect.objectContaining({ id: 'visible-stat', player: 'Ahmed' })]);
+  });
+
   it('does not resurrect an old password session after credential deletion and recreation', async () => {
     const coach = await login(adminKey);
     const playerId = '11111111-1111-4111-8111-111111111111';

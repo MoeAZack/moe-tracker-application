@@ -19,10 +19,15 @@ export function validateAndNormalizeLineup(db: any, match: any, stats: any[]) {
   }
 
   if (context.kind === 'unclassified') {
-    if (stats.some(stat => stat.playerId || stat.appearanceType || stat.displayNameSnapshot)) {
-      fail('Classified player appearances require a classified match roster context.');
+    if (stats.some(stat => stat.playerId || stat.appearanceType)) {
+      fail('Linked player appearances require a classified match roster context.');
     }
-    return stats;
+    return stats.map(stat => {
+      const observedName = typeof stat.displayNameSnapshot === 'string' && stat.displayNameSnapshot.trim()
+        ? stat.displayNameSnapshot.trim()
+        : typeof stat.player === 'string' ? stat.player.trim() : '';
+      return observedName ? { ...stat, player: observedName, displayNameSnapshot: observedName } : stat;
+    });
   }
 
   const batch = context.tryoutBatchId
@@ -30,6 +35,14 @@ export function validateAndNormalizeLineup(db: any, match: any, stats: any[]) {
     : undefined;
 
   return stats.map(stat => {
+    if (!stat.playerId) {
+      if (stat.appearanceType) fail('An unlinked appearance cannot claim a roster status.');
+      const observedName = typeof stat.displayNameSnapshot === 'string' && stat.displayNameSnapshot.trim()
+        ? stat.displayNameSnapshot.trim()
+        : typeof stat.player === 'string' ? stat.player.trim() : '';
+      if (!observedName) fail('Each unlinked appearance requires an observed name.');
+      return { ...stat, player: observedName, displayNameSnapshot: observedName };
+    }
     if (!stat.playerId || !stat.appearanceType) fail('Each confirmed appearance requires a player ID and appearance type.');
     const player = (db.rosterPlayers || []).find((entry: any) => entry.id === stat.playerId);
     if (!player) fail('A player appearance references an unknown roster identity.');
@@ -40,10 +53,13 @@ export function validateAndNormalizeLineup(db: any, match: any, stats: any[]) {
     }
     if (context.kind === 'core' && stat.appearanceType !== 'core') fail('Core context can contain only core appearances.');
     if (context.kind === 'tryout' && stat.appearanceType !== 'tryout') fail('Tryout context can contain only tryout appearances.');
+    const observedName = typeof stat.displayNameSnapshot === 'string' && stat.displayNameSnapshot.trim()
+      ? stat.displayNameSnapshot.trim()
+      : player.displayName;
     return {
       ...stat,
-      player: player.displayName,
-      displayNameSnapshot: player.displayName,
+      player: observedName,
+      displayNameSnapshot: observedName,
     };
   });
 }

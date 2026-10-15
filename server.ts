@@ -224,7 +224,10 @@ export async function createApp(serveFrontend = true) {
             username = decoded.name || 'Administrator';
             (req as any).sessionActorId = 'master';
           } else if (process.env.APP_DESKTOP === 'true' && decoded?.kind === 'desktop-player' && safeEqual(decoded.authVersion || '', hashAccessKey(adminPass))) {
-            userRole = 'player'; username = decoded.name || 'Player'; (req as any).sessionPlayerId = decoded.playerId || undefined; (req as any).sessionActorId = `desktop:${decoded.playerId || 'unpaired'}`;
+            const activePlayer = (db.rosterPlayers || []).find((player: any) => player.id === decoded.playerId && !player.retiredAt);
+            if (activePlayer) {
+              userRole = 'player'; username = decoded.name || 'Player'; (req as any).sessionPlayerId = decoded.playerId || undefined; (req as any).sessionActorId = `desktop:${decoded.playerId || 'unpaired'}`;
+            }
           } else if (decoded?.kind === 'key' && decoded.keyId) {
             const entry = db.authKeys.find((k: any) => k.id === decoded.keyId);
             const versionMatches = entry?.credentialType !== 'player-password' || decoded.credentialVersion === entry.credentialVersion;

@@ -41,6 +41,7 @@ const imageFromBase64 = async (base64: string, mediaType: string) => {
 
 export default function ScrimImport({ data, theme, onSaveMatch, onSaveRounds, onClose }: Props) {
   const roster = data.settings?.players || [];
+  const rosterPlayers = data.rosterPlayers || [];
   const agents = data.settings?.agents || [];
   const [scoreboard, setScoreboard] = useState<File | null>(null);
   const [timeline, setTimeline] = useState<File | null>(null);
@@ -191,6 +192,7 @@ export default function ScrimImport({ data, theme, onSaveMatch, onSaveRounds, on
       const bonusOne = roundResult(1) === 'W' && roundResult(2) === 'W' ? specialBySide(3) : {};
       const bonusTwo = roundResult(13) === 'W' && roundResult(14) === 'W' ? specialBySide(15) : {};
 
+      const hasLinkedPlayers = players.some(player => player.include && player.matchedPlayerId);
       const match = {
         date: meta.date, type: meta.type, opponent: meta.opponent, map: meta.map,
         attW: hasRounds ? attW : null, attL: hasRounds ? attL : null,
@@ -201,6 +203,7 @@ export default function ScrimImport({ data, theme, onSaveMatch, onSaveRounds, on
         notes: hasRounds ? 'Screenshot draft confirmed after round review.' : 'Screenshot draft confirmed; attack/defense split is unknown.',
         source: 'scrim-import', sourceMetadata,
         reviewConfirmation: { alliedSideConfirmed: true },
+        rosterContext: hasLinkedPlayers ? { kind: 'mixed' as const } : { kind: 'unclassified' as const },
         screenshotEvidence: {
           schemaVersion: 1,
           captureId: pendingCaptureId,
@@ -210,15 +213,22 @@ export default function ScrimImport({ data, theme, onSaveMatch, onSaveRounds, on
 
       const stats = players
         .filter((p) => p.include && (p.matchedPlayerName || p.extractedName))
-        .map((p) => ({
-          player: p.matchedPlayerName || p.extractedName, agent: p.agent || '',
+        .map((p) => {
+          const linked = p.matchedPlayerId ? rosterPlayers.find(player => player.id === p.matchedPlayerId) : undefined;
+          const activeCore = linked && (data.coreMemberships || []).some(member => member.playerId === linked.id && !member.endedAt);
+          const activeTryout = linked && (data.tryoutBatches || []).some(batch => batch.status === 'active' && batch.candidatePlayerIds.includes(linked.id));
+          const appearanceType = linked ? (activeCore ? 'core' : activeTryout ? 'tryout' : 'standIn') : undefined;
+          return {
+          player: p.extractedName, displayNameSnapshot: p.extractedName,
+          ...(linked ? { playerId: linked.id, appearanceType } : {}), agent: p.agent || '',
           kAtt: null, kDef: null, dAtt: null, dDef: null, aAtt: null, aDef: null,
           kills: num(p.kills) ?? null, deaths: num(p.deaths) ?? null, assists: num(p.assists) ?? null,
           acs: num(p.acs) ?? null, adr: num(p.adr) ?? null, hs: num(p.hs) ?? null,
           fk: num(p.fk) ?? null, fd: num(p.fd) ?? null,
           performanceScore: num(p.performanceScore) ?? null, trades: num(p.trades) ?? null, ...(p.headToHead ? { headToHead: p.headToHead } : {}),
           plants: num(p.plants) ?? null, defuses: num(p.defuses) ?? null, sourceMetadata,
-        }));
+        };
+        });
 
       const result = await onSaveMatch(match, { operation: 'replace', stats });
       const saved = result?.match || result;
@@ -318,9 +328,13 @@ export default function ScrimImport({ data, theme, onSaveMatch, onSaveRounds, on
                   <div key={i} className="flex items-center gap-2 text-xs bg-white/[0.03] rounded-lg px-2.5 py-1.5">
                     <input type="checkbox" checked={!!p.include} onChange={(e) => setPlayers(players.map((x, j) => j === i ? { ...x, include: e.target.checked } : x))} />
                     <span className="w-24 truncate font-mono text-gray-400">{p.extractedName}</span>
-                    <select value={p.matchedPlayerName || ''} onChange={(e) => setPlayers(players.map((x, j) => j === i ? { ...x, matchedPlayerName: e.target.value, include: !!e.target.value } : x))} className="bg-black/20 border border-white/10 rounded px-1.5 py-1 outline-none">
+                    <select value={p.matchedPlayerId || ''} onChange={(e) => setPlayers(players.map((x, j) => {
+                      if (j !== i) return x;
+                      const selected = rosterPlayers.find(player => player.id === e.target.value);
+                      return { ...x, matchedPlayerId: selected?.id || null, matchedPlayerName: selected?.displayName || null, include: !!selected };
+                    }))} className="bg-black/20 border border-white/10 rounded px-1.5 py-1 outline-none">
                       <option value="">— unmapped —</option>
-                      {roster.map((r) => <option key={r} value={r}>{r}</option>)}
+                      {rosterPlayers.map((player) => <option key={player.id} value={player.id}>{player.displayName}</option>)}
                     </select>
                     <select aria-label={`Agent for ${p.extractedName}`} value={p.agent || ''} onChange={(e) => setPlayers(players.map((x, j) => j === i ? { ...x, agent: e.target.value || null } : x))} className="max-w-28 bg-black/20 border border-white/10 rounded px-1.5 py-1 outline-none">
                       <option value="">Agent unknown</option>

@@ -59,7 +59,7 @@ export function aggregateObservedPlayerKd(rows: readonly PlayerStats[]): Observe
   const groups = new Map<string, { playerId: string | null; displayName: string; rows: PlayerStats[] }>();
   rows.forEach((row, index) => {
     const displayName = row.displayNameSnapshot?.trim() || row.player?.trim() || 'Unknown player';
-    const identity = row.playerId?.trim() || `legacy:${displayName.toLocaleLowerCase('en')}`;
+    const identity = row.playerId?.trim() || `unlinked:${row.id || index}`;
     const current = groups.get(identity) || { playerId: row.playerId || null, displayName, rows: [] };
     current.rows.push(row); groups.set(identity, current);
     void index;
@@ -87,9 +87,9 @@ export function aggregateObservedPlayerDashboard(data: Pick<TrackerData, 'player
   const activeCore = new Set((data.coreMemberships || []).filter(item => !item.endedAt).map(item => item.playerId));
   const activeTryouts = new Set((data.tryoutBatches || []).filter(batch => batch.status === 'active').flatMap(batch => batch.candidatePlayerIds));
   const groups = new Map<string, { playerId: string | null; displayName: string; rows: PlayerStats[] }>();
-  for (const row of data.playerStats || []) {
+  for (const [index, row] of (data.playerStats || []).entries()) {
     const displayName = row.displayNameSnapshot?.trim() || row.player?.trim() || 'Unknown player';
-    const identity = row.playerId?.trim() || `legacy:${displayName.toLocaleLowerCase('en')}`;
+    const identity = row.playerId?.trim() || `unlinked:${row.id || index}`;
     const group = groups.get(identity) || { playerId: row.playerId || null, displayName, rows: [] };
     group.rows.push(row); groups.set(identity, group);
   }

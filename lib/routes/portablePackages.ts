@@ -2,6 +2,7 @@ import type { Express } from 'express';
 import { readDB, saveDB } from '../store';
 import { applyPortablePackage, createPortablePackage, previewPortablePackage } from '../portablePackage';
 import { createPrivateBackup } from '../privateBackup';
+import { mergeAcceptedPlayerStat } from '../identitySnapshot';
 
 export function registerPortablePackageRoutes(app: Express) {
   if (process.env.APP_DESKTOP === 'true') app.post('/api/desktop/sync-inbox', async (req, res) => {
@@ -17,7 +18,7 @@ export function registerPortablePackageRoutes(app: Express) {
             db.playerStats ||= [];
             for (const incoming of Array.isArray(item.playerStats) ? item.playerStats : []) {
               const existing = db.playerStats.find((row: any) => row.id === incoming.id && row.matchId === item.match.id);
-              if (existing) Object.assign(existing, structuredClone(incoming)); else db.playerStats.push(structuredClone(incoming));
+              if (existing) Object.assign(existing, mergeAcceptedPlayerStat(existing, structuredClone(incoming))); else db.playerStats.push(structuredClone(incoming));
             }
             db.engineAdapters.screenshot[item.match.id] = structuredClone(item.screenshot); applied += 1;
           }

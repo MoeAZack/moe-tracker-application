@@ -322,18 +322,16 @@ function normalizedPlayerName(value: unknown) {
   return String(value || '').trim().toLocaleLowerCase('en');
 }
 
-/** Promote an observed scoreboard name to a stable identity without losing its earlier rows. */
+/**
+ * Create/select an active roster identity for a coach-entered name.
+ * Historical unlinked rows are intentionally left unlinked: exact-name and
+ * case-insensitive matches are not proof that two appearances are one person.
+ */
 export function ensureObservedRosterPlayer(db: any, displayName: string, idFactory = defaultId, clock = defaultClock) {
   ensureRoster(db);
   const normalized = normalizedPlayerName(displayName);
   let player = db.rosterPlayers.find((entry: any) => !entry.retiredAt && normalizedPlayerName(entry.displayName) === normalized);
   if (!player) player = createRosterPlayer(db, displayName, idFactory, clock);
-  for (const stat of db.playerStats || []) {
-    if (!stat.playerId && normalizedPlayerName(stat.displayNameSnapshot || stat.player) === normalized) {
-      stat.playerId = player.id;
-      stat.displayNameSnapshot = player.displayName;
-    }
-  }
   return player;
 }
 
