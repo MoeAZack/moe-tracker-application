@@ -5,6 +5,7 @@ import { reconcileAppearanceMap } from '../utils/lineupContext';
 import { activeTryoutPhase, newWorkspaceMatchContext } from '../utils/tryoutWorkspace';
 import { prepareLiveFinalStat, reconcileStatTotals } from '../../lib/entryEngine';
 import { percentageTextClass } from '../utils/percentageColor';
+import { buildOpponentHistory } from '../../lib/opponentHistory';
 import { 
   Zap, Swords, Compass, Users, Activity, Play, Plus, Trash2, 
   CheckCircle2, AlertTriangle, Shield, Award, Sparkles, Trophy, 
@@ -60,6 +61,7 @@ export default function LiveLogger({ data, theme, onSaveMatch, onSaveRounds, onR
   const winReasons = data.settings.winReasons || ['Elimination', 'Post-plant', 'Retake', 'Time', 'Defuse', 'Clutch'];
   const sitesList = data.settings.sites || ['A', 'B', 'C'];
   const liveDefaults = useMemo(() => getLiveLoggerDefaults(data), [data]);
+  const opponentHistory = useMemo(() => buildOpponentHistory(data.matches || []), [data.matches]);
 
   // --- STATE FOR LIVE SESSION ---
   const [sessionActive, setSessionActive] = useState(false);
@@ -648,6 +650,7 @@ export default function LiveLogger({ data, theme, onSaveMatch, onSaveRounds, onR
                 <label className="text-[10px] text-gray-400 uppercase font-bold font-mono">Opponent Name</label>
                 <input
                   type="text"
+                  list="live-opponents"
                   placeholder="e.g. Acend Club"
                   value={opponent}
                   onChange={(e) => setOpponent(e.target.value)}
@@ -655,6 +658,7 @@ export default function LiveLogger({ data, theme, onSaveMatch, onSaveRounds, onR
                     isLight ? 'bg-slate-50 border-slate-200 text-slate-800' : 'bg-black/20 border-white/10 text-white'
                   }`}
                 />
+                <datalist id="live-opponents">{opponentHistory.map(item => <option key={item.key} value={item.name}>{item.games} recorded game{item.games === 1 ? '' : 's'}</option>)}</datalist>
               </div>
 
               <div className="grid grid-cols-2 gap-3">

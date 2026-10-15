@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { buildCoverageGatedRanks, buildEvaluationExport, buildTryoutComparison } from '../lib/tryoutComparison';
+import { buildCoverageGatedRanks, buildEvaluationExport, buildTryoutComparison, comparisonParticipants } from '../lib/tryoutComparison';
 import { buildShareableBackupPayload, toPublicTrackerData, toWebsiteTrackerData } from '../lib/publicData';
 import { createPortablePackage } from '../lib/portablePackage';
 import { saveMatchSchema } from '../schemas';
@@ -12,6 +12,16 @@ const stat=(id:string,matchId:string,playerId:string,appearanceType:'core'|'tryo
 const data:any={matches:[match('m1'),match('m2')],rounds:[],practiceBlocks:[],rosterPlayers:[{id:p1,displayName:'Trial',createdAt:''},{id:p2,displayName:'Core A',createdAt:''},{id:p3,displayName:'Core B',createdAt:''}],playerStats:[stat('trial1','m1',p1,'tryout',{kills:10,deaths:5,assists:4,fk:2,fd:null,acs:200,screenshotMetrics:{coveredRounds:2,wins:1,losses:1,firstKills:0,firstDeaths:0,multikills:{two:0,three:0,four:0,ace:0},lowBudgetWins:0,highBudgetLosses:0,antiEcoLosses:0,kast:{successful:2,covered:2},weapons:[]}}),stat('trial2','m2',p1,'tryout',{kills:8,deaths:4,assists:2,fk:1,fd:1,acs:180}),stat('core1','m1',p2,'core',{kills:20,deaths:10,assists:6,acs:220}),stat('core2','m2',p3,'core',{kills:4,deaths:4,assists:2,acs:160})]};
 
 describe('S4 tryout comparisons',()=>{
+  it('compares observed unlinked players when no core roster exists and excludes archived names',()=>{
+    const observed:any={matches:[match('observed-match')],rounds:[],practiceBlocks:[],coreMemberships:[],rosterPlayers:[{id:'old',displayName:'Archived',createdAt:'2026-10-01',retiredAt:'2026-10-15'}],playerStats:[
+      {id:'candidate',matchId:'observed-match',playerId:null,player:'Candidate',displayNameSnapshot:'Candidate',agent:'Sova',kills:10,deaths:5,assists:2,kAtt:null,kDef:null,dAtt:null,dDef:null,aAtt:null,aDef:null,sourceMetadata:source},
+      {id:'archived',matchId:'observed-match',playerId:null,player:'Archived',displayNameSnapshot:'Archived',agent:'Jett',kills:8,deaths:6,assists:1,kAtt:null,kDef:null,dAtt:null,dDef:null,aAtt:null,aDef:null,sourceMetadata:source},
+    ]};
+    const participants=comparisonParticipants(observed);
+    expect(participants.map((player:any)=>player.displayName)).toEqual(['Candidate']);
+    const id=participants[0].id; const result=buildTryoutComparison(observed,{mode:'player-player',leftId:id,rightId:id,minimumSamples:1});
+    expect(result.metrics.find((metric:any)=>metric.id==='kd')?.left).toBe(2);
+  });
   it('preserves missing values and uses only paired K/D and paired opening evidence',()=>{
     const result=buildTryoutComparison(data,{mode:'player-player',leftId:p1,rightId:p2,minimumSamples:1});
     expect(result.metrics.find((item:any)=>item.id==='kd')).toMatchObject({left:2,right:2,leftSamples:2,rightSamples:1});
