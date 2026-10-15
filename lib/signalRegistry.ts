@@ -83,8 +83,8 @@ const INPUTS: readonly DefinitionInput[] = [
   percent(
     'economy.anti-eco-loss', 'Anti-eco loss',
     'Share of rounds lost while the team had a proven full-buy advantage over an opponent eco or low buy.',
-    'lower-is-better', 'anti-eco rounds lost', 'rounds with both teams’ economy class and result known',
-    ['both teams’ economy classification', 'round result'],
+    'lower-is-better', 'eligible anti-eco rounds lost', 'eligible rounds where our team is proven full buy, the opponent is proven eco or low buy, and the result is known',
+    ['our team full-buy classification', 'opponent eco or low-buy classification', 'round result'],
   ),
   percent(
     'economy.full-buy-loss', 'Full-buy loss',
@@ -113,8 +113,8 @@ const INPUTS: readonly DefinitionInput[] = [
   percent(
     'round.advantage-collapse', 'Advantage collapse',
     'Share of eligible rounds lost after the team held a proven multi-player advantage.',
-    'lower-is-better', 'rounds lost after multi-player advantage', 'rounds with complete ordered life-state events and known result',
-    ['complete ordered elimination events', 'team membership', 'multi-player advantage state', 'lost-round result'],
+    'lower-is-better', 'eligible rounds lost after our team held the configured multi-player advantage', 'eligible rounds where complete ordered life-state evidence proves our team held the configured multi-player advantage and the result is known',
+    ['complete ordered elimination events', 'team membership', 'configured multi-player advantage held by our team', 'round result'],
   ),
   {
     id: 'combat.multikill', label: 'Multikill',
