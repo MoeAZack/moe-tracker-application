@@ -340,6 +340,28 @@ export function materializeRoundOpeningsFromScreenshotEvidence(
   return changed;
 }
 
+/**
+ * Retained objective rows are authoritative positive evidence that a plant
+ * occurred. Only fill an unknown legacy flag: an explicit coach Yes/No remains
+ * a correction and is never replaced by the migration.
+ */
+export function materializeRoundPlantsFromScreenshotEvidence(
+  data: { rounds?: any[] },
+  options: { matchId?: string } = {},
+) {
+  let changed = 0;
+  const rounds = Array.isArray(data.rounds) ? data.rounds : [];
+  for (const round of rounds) {
+    if (options.matchId && round.matchId !== options.matchId) continue;
+    if (round.plant !== undefined && round.plant !== null && String(round.plant).trim() !== '') continue;
+    const hasPlant = (round.screenshotEvidence?.objectives || []).some((event: any) => event?.type === 'plant');
+    if (!hasPlant) continue;
+    round.plant = 'TRUE';
+    changed += 1;
+  }
+  return changed;
+}
+
 export function combinePlayerScreenshotMetrics(metrics: ReadonlyArray<PlayerScreenshotMetrics & { identity: string; displayName: string }>) {
   const combined = new Map<string, Mutable>();
   for (const source of metrics) {

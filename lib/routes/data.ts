@@ -7,7 +7,7 @@ import { toPublicTrackerData, toWebsiteTrackerData } from '../publicData';
 import { preserveExistingRosterContext, validateAndNormalizeLineup } from '../matchContext';
 import { parseIdentitySnapshotCorrection, preserveIdentitySnapshot } from '../identitySnapshot';
 import { applyImmutableEntryMetadata, applyScreenshotReviewConfirmation, reconcileStatTotals } from '../entryEngine';
-import { materializeFirstDeathsFromRoundEvidence, materializeRoundOpeningsFromScreenshotEvidence } from '../scrimRoundAnalytics';
+import { materializeFirstDeathsFromRoundEvidence, materializeRoundOpeningsFromScreenshotEvidence, materializeRoundPlantsFromScreenshotEvidence } from '../scrimRoundAnalytics';
 import { recomputeAcceptedMatchAggregates } from '../aggregateVersioning';
 
 // Core data + match logging: full payload, reset, settings, generic upsert/remove,
@@ -296,6 +296,7 @@ export function registerDataRoutes(app: Express, options: { websiteSummaryOnly?:
       });
 
       materializeRoundOpeningsFromScreenshotEvidence(db, { matchId });
+      materializeRoundPlantsFromScreenshotEvidence(db, { matchId });
 
       const match = db.matches.find((item: any) => item.id === matchId) || null;
       db.analyticsBuilds ||= {};

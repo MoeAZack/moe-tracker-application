@@ -25,6 +25,12 @@ interface ComponentProps {
   onManualReplayDraftConsumed?: () => void;
 }
 
+const roundFlag = (value: unknown): true | false | null => {
+  if (value === true || String(value).trim().toLocaleUpperCase() === 'TRUE') return true;
+  if (value === false || String(value).trim().toLocaleUpperCase() === 'FALSE') return false;
+  return null;
+};
+
 export default function MatchLogRounds({ data, theme, onSaveMatch, onRemove, onSaveRounds, onSaveVeto, onRefreshDatabase, manualReplayDraft, onManualReplayDraftConsumed }: ComponentProps) {
   const isLight = data.settings.theme === 'daylight';
   
@@ -658,12 +664,14 @@ export default function MatchLogRounds({ data, theme, onSaveMatch, onRemove, onS
                               )}
                             </td>
                             <td className="py-2 px-2.5">
-                              {(r.isThrow === 'TRUE' || r.isThrow === true) ? (
+                              {roundFlag(r.isThrow) === true ? (
                                 <span className="bg-rose-500/10 border border-rose-500/20 text-rose-400 p-1 px-2 rounded text-[10px] block font-bold" title={r.throwReason}>
                                   ⚠️ Choked: {r.thrownBy || 'Team'} ({r.throwReason || 'Advantage throw'})
                                 </span>
-                              ) : (
+                              ) : roundFlag(r.isThrow) === false ? (
                                 <span className="text-emerald-500/80 font-bold text-[10px]">✓ Clean</span>
+                              ) : (
+                                <span className="text-gray-600 italic text-[10px]">—</span>
                               )}
                             </td>
                             <td className="py-2 px-2.5 font-bold">
@@ -691,7 +699,7 @@ export default function MatchLogRounds({ data, theme, onSaveMatch, onRemove, onS
                                 )}
                               </div>
                             </td>
-                            <td className="py-2 px-2.5 text-center">{r.plant ? 'Yes' : 'No'}</td>
+                            <td className="py-2 px-2.5 text-center">{roundFlag(r.plant) === true ? 'Yes' : roundFlag(r.plant) === false ? 'No' : '—'}</td>
                             <td className="py-2 px-2.5 text-center font-bold">{r.site || '-'}</td>
                             <td className="py-2 px-2.5 text-gray-500 max-w-[150px] truncate" title={r.notes}>{r.notes || '-'}</td>
                           </tr>
@@ -1418,16 +1426,20 @@ export default function MatchLogRounds({ data, theme, onSaveMatch, onRemove, onS
                         </select>
                       </td>
                       <td className="py-1 px-1 text-center">
-                        <input
-                          type="checkbox"
-                          checked={r.plant === 'TRUE' || !!r.plant}
+                        <select
+                          aria-label={`Round ${r.roundNo} plant status`}
+                          value={roundFlag(r.plant) === true ? 'TRUE' : roundFlag(r.plant) === false ? 'FALSE' : ''}
                           onChange={(e) => {
                             const updated = [...activeRounds];
-                            updated[index].plant = e.target.checked ? 'TRUE' : '';
+                            updated[index].plant = e.target.value;
                             setActiveRounds(updated);
                           }}
-                          className="rounded"
-                        />
+                          className="bg-black text-[10px] p-1 rounded text-white"
+                        >
+                          <option value="">Unknown</option>
+                          <option value="TRUE">Yes</option>
+                          <option value="FALSE">No</option>
+                        </select>
                       </td>
                       <td className="py-1 px-1 text-center">
                         <select
@@ -1444,16 +1456,20 @@ export default function MatchLogRounds({ data, theme, onSaveMatch, onRemove, onS
                         </select>
                       </td>
                       <td className="py-1 px-1 text-center">
-                        <input
-                          type="checkbox"
-                          checked={r.isThrow === 'TRUE' || !!r.isThrow}
+                        <select
+                          aria-label={`Round ${r.roundNo} discipline status`}
+                          value={roundFlag(r.isThrow) === true ? 'TRUE' : roundFlag(r.isThrow) === false ? 'FALSE' : ''}
                           onChange={(e) => {
                             const updated = [...activeRounds];
-                            updated[index].isThrow = e.target.checked ? 'TRUE' : '';
+                            updated[index].isThrow = e.target.value;
                             setActiveRounds(updated);
                           }}
-                          className="rounded accent-rose-500"
-                        />
+                          className="bg-black text-[10px] p-1 rounded text-white"
+                        >
+                          <option value="">Unknown</option>
+                          <option value="FALSE">Clean</option>
+                          <option value="TRUE">Throw</option>
+                        </select>
                       </td>
                       <td className="py-1 px-1">
                         <div className="relative group">

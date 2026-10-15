@@ -11,4 +11,12 @@ describe('match log opening-duel columns', () => {
     expect(source).toContain('First death');
     expect(source).toContain('r.firstDeathBy');
   });
+
+  it('renders plant and discipline as three-state evidence instead of treating missing as No', () => {
+    const source = fs.readFileSync('src/components/MatchLogRounds.tsx', 'utf8');
+    expect(source).toContain("roundFlag(r.plant) === true ? 'Yes' : roundFlag(r.plant) === false ? 'No' : '—'");
+    expect(source).toContain('Round ${r.roundNo} plant status');
+    expect(source).toContain('Round ${r.roundNo} discipline status');
+    expect(source).not.toContain("{r.plant ? 'Yes' : 'No'}");
+  });
 });
