@@ -2,7 +2,7 @@ import type { EconomyClass, PlayerScreenshotMetrics, Round } from '../src/types'
 import { knownResult } from './analyticsEvidence';
 import { normalizeCaptureName } from './scrimCaptureImport';
 
-export const PLAYER_SCREENSHOT_CALCULATION_VERSION = 'player-screenshot-metrics/v1' as const;
+export const PLAYER_SCREENSHOT_CALCULATION_VERSION = 'player-screenshot-metrics/v2' as const;
 
 export function screenshotPlayerIdentity(playerId: unknown, displayName: unknown): string {
   const supplied = typeof playerId === 'string' ? playerId.trim() : '';
@@ -93,7 +93,7 @@ export function deriveSpecialRoundConversions(rounds: readonly Round[]) {
 type Mutable = PlayerScreenshotMetrics & { identity: string; displayName: string };
 const empty = (identity: string, displayName: string): Mutable => ({
   schemaVersion: 1, calculationVersion: PLAYER_SCREENSHOT_CALCULATION_VERSION, identity, displayName, coveredRounds: 0, wins: 0, losses: 0,
-  firstKills: 0, firstDeaths: 0, multikills: { two: 0, three: 0, four: 0, ace: 0 },
+  firstKills: 0, firstDeaths: 0, trades: 0, multikills: { two: 0, three: 0, four: 0, ace: 0 },
   lowBudgetWins: 0, highBudgetLosses: 0, antiEcoLosses: 0,
   kast: { successful: 0, covered: 0 }, weapons: [],
 });
@@ -134,6 +134,7 @@ export function buildPlayerScreenshotMetrics(rounds: readonly Round[]) {
     const first = openingComplete ? events[0] : undefined;
     const kills = new Map<string, number>();
     const deaths = new Map<string, number>();
+    const tradeKills = new Map<string, number>();
     const weaponKills = new Map<string, Map<string, number>>();
     for (const event of eventsComplete ? events : []) {
       const killerName = observedPlayerName(event.killerPlayerId, '');
@@ -146,6 +147,21 @@ export function buildPlayerScreenshotMetrics(rounds: readonly Round[]) {
       if (weapon && killerId) {
         const byWeapon = weaponKills.get(killerId) || new Map<string, number>();
         byWeapon.set(weapon, (byWeapon.get(weapon) || 0) + 1); weaponKills.set(killerId, byWeapon);
+      }
+    }
+    if (eventsComplete) {
+      for (const [index, death] of events.entries()) {
+        if (typeof death.tradedWithinSeconds !== 'number' || death.tradedWithinSeconds < 0 || death.tradedWithinSeconds > 5
+          || !death.killerPlayerId || !death.victimTeam || typeof death.occurredAtSeconds !== 'number') continue;
+        const trade = events.slice(index + 1).find(candidate => candidate.victimPlayerId === death.killerPlayerId
+          && candidate.killerTeam === death.victimTeam
+          && typeof candidate.occurredAtSeconds === 'number'
+          && candidate.occurredAtSeconds >= death.occurredAtSeconds!
+          && candidate.occurredAtSeconds - death.occurredAtSeconds! <= 5);
+        const traderName = observedPlayerName(trade?.killerPlayerId, '');
+        const traderId = trade?.killerPlayerId && !ambiguousNames.has(traderName)
+          ? roundPlayerIdentity(round.matchId, trade.killerPlayerId, '') : null;
+        if (traderId) tradeKills.set(traderId, (tradeKills.get(traderId) || 0) + 1);
       }
     }
     const seenOurPlayers = new Set<string>();
@@ -178,6 +194,7 @@ export function buildPlayerScreenshotMetrics(rounds: readonly Round[]) {
       const firstVictimId = first?.victimPlayerId && !ambiguousNames.has(firstVictimName) ? roundPlayerIdentity(round.matchId, first.victimPlayerId, '') : null;
       if (playerId && firstKillerId === playerId) metric.firstKills += 1;
       if (playerId && firstVictimId === playerId) metric.firstDeaths += 1;
+      if (playerId && eventsComplete) metric.trades! += tradeKills.get(playerId) || 0;
       const roundKills = playerId && eventsComplete ? kills.get(playerId) : undefined;
       if (roundKills === 2) metric.multikills.two += 1;
       else if (roundKills === 3) metric.multikills.three += 1;
@@ -317,21 +334,17 @@ export function materializeRoundOpeningsFromScreenshotEvidence(
   return changed;
 }
 
-export function combineStoredScreenshotMetrics(rows: ReadonlyArray<{ id?: string; playerId?: string | null; player?: string; displayNameSnapshot?: string; screenshotMetrics?: PlayerScreenshotMetrics }>) {
+export function combinePlayerScreenshotMetrics(metrics: ReadonlyArray<PlayerScreenshotMetrics & { identity: string; displayName: string }>) {
   const combined = new Map<string, Mutable>();
-  for (const [index, row] of rows.entries()) {
-    const source = row.screenshotMetrics;
-    if (!source) continue;
-    const displayName = row.displayNameSnapshot || row.player || 'Unknown player';
-    // Historical labels are not identities. Two unlinked appearances with the
-    // same observed name must remain separate until a coach explicitly links
-    // each row to a stable roster player.
-    const identity = row.playerId
-      ? screenshotPlayerIdentity(row.playerId, displayName)
-      : `unlinked:${row.id?.trim() || index}`;
+  for (const source of metrics) {
+    const displayName = source.displayName || 'Unknown player';
+    const identity = source.identity.startsWith('unlinked:')
+      ? `unlinked-name:${normalizeCaptureName(displayName)}`
+      : source.identity;
     const target = combined.get(identity) || empty(identity, displayName);
     combined.set(identity, target);
     for (const field of ['coveredRounds', 'wins', 'losses', 'firstKills', 'firstDeaths', 'lowBudgetWins', 'highBudgetLosses', 'antiEcoLosses'] as const) target[field] += source[field] || 0;
+    target.trades! += source.trades || 0;
     for (const field of ['two', 'three', 'four', 'ace'] as const) target.multikills[field] += source.multikills?.[field] || 0;
     if (source.kast) { target.kast!.successful += source.kast.successful; target.kast!.covered += source.kast.covered; }
     for (const weapon of source.weapons || []) {
@@ -341,4 +354,17 @@ export function combineStoredScreenshotMetrics(rows: ReadonlyArray<{ id?: string
     }
   }
   return [...combined.values()].map(metric => ({ ...metric, weapons: metric.weapons.sort((a, b) => b.rounds - a.rounds || a.weapon.localeCompare(b.weapon)) }));
+}
+
+export function combineStoredScreenshotMetrics(rows: ReadonlyArray<{ id?: string; playerId?: string | null; player?: string; displayNameSnapshot?: string; screenshotMetrics?: PlayerScreenshotMetrics }>) {
+  const metrics = rows.flatMap((row, index) => {
+    if (!row.screenshotMetrics) return [];
+    const displayName = row.displayNameSnapshot || row.player || 'Unknown player';
+    return [{
+      ...row.screenshotMetrics,
+      identity: row.playerId ? screenshotPlayerIdentity(row.playerId, displayName) : `unlinked:${row.id?.trim() || index}`,
+      displayName,
+    }];
+  });
+  return combinePlayerScreenshotMetrics(metrics);
 }
