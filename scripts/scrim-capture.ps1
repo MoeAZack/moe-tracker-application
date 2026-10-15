@@ -64,6 +64,9 @@ public static class MoeScrimNative {
   [DllImport("user32.dll")]
   public static extern bool ShowWindowAsync(IntPtr hWnd, int command);
 
+  [DllImport("kernel32.dll")]
+  public static extern IntPtr GetConsoleWindow();
+
   [DllImport("user32.dll", SetLastError = true)]
   public static extern uint GetWindowThreadProcessId(IntPtr hWnd, out uint processId);
 
@@ -317,11 +320,31 @@ $diagnosticLog = Join-Path ([Environment]::GetFolderPath('LocalApplicationData')
 Start-Transcript -LiteralPath $diagnosticLog -Force | Out-Null
 $captureFolder = $null
 $manifest = $null
+$consoleHandle = [MoeScrimNative]::GetConsoleWindow()
+$consoleHidden = $false
+
+function Hide-CaptureConsole {
+  if ($script:consoleHandle -eq [IntPtr]::Zero -or $script:consoleHidden) { return }
+  [void][MoeScrimNative]::ShowWindowAsync($script:consoleHandle, 0)
+  $script:consoleHidden = $true
+  Start-Sleep -Milliseconds 250
+}
+
+function Show-CaptureConsole {
+  if ($script:consoleHandle -eq [IntPtr]::Zero -or -not $script:consoleHidden) { return }
+  [void][MoeScrimNative]::ShowWindowAsync($script:consoleHandle, 5)
+  [void][MoeScrimNative]::SetForegroundWindow($script:consoleHandle)
+  $script:consoleHidden = $false
+}
 
 try {
   if ($StartDelaySeconds -gt 0) {
     Write-Host "Capture starts in $StartDelaySeconds seconds. Keep the post-match Summary open."
+    Hide-CaptureConsole
     Start-Sleep -Seconds $StartDelaySeconds
+  }
+  else {
+    Hide-CaptureConsole
   }
 
   $window = Find-ValorantRenderArea (Get-ValorantWindow)
@@ -435,12 +458,14 @@ catch {
     $manifest.status = 'stopped'
     $manifest.error = $_.Exception.Message
   }
+  Show-CaptureConsole
   Write-Host "Capture failed: $($_.Exception.Message)" -ForegroundColor Red
   Write-Host "Diagnostic log: $diagnosticLog" -ForegroundColor Yellow
   Read-Host 'Press Enter to close this window'
   exit 1
 }
 finally {
+  Show-CaptureConsole
   if ($manifest -and $captureFolder) {
     $manifest | ConvertTo-Json -Depth 5 | Set-Content -LiteralPath (Join-Path $captureFolder 'capture-manifest.json') -Encoding UTF8
   }
