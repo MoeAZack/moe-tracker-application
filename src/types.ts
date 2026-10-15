@@ -354,6 +354,8 @@ export interface PlayerScreenshotMetrics {
   losses: number;
   firstKills: number;
   firstDeaths: number;
+  /** Successful five-second trade kills resolved from complete kill-feed evidence. */
+  trades?: number;
   multikills: { two: number; three: number; four: number; ace: number };
   lowBudgetWins: number;
   highBudgetLosses: number;

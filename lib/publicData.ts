@@ -1,4 +1,4 @@
-import { buildAcceptedMatchAggregatePlan, buildCanonicalAnalyticsExport } from './aggregateVersioning';
+import { buildAcceptedMatchAggregatePlan, buildCanonicalAnalyticsExport, PLAYER_SCREENSHOT_BUILDER } from './aggregateVersioning';
 
 const PRIVATE_TOP_LEVEL_KEYS = new Set(['authKeys', 'allowedUsers', 'secretValues', '_storage', 'authenticatedViewer', 'tryoutDecisionNotes']);
 const PRIVATE_SETTING_KEYS = new Set(['discordWebhook', 'gridApiKey', 'henrikApiKey']);
@@ -31,7 +31,7 @@ export function toPublicTrackerData(db: Record<string, any>, role: 'coach' | 'pl
       const plan = plans.get(stat.matchId);
       const planned = plan?.playerStats.find(item => item.id === stat.id);
       const metric = planned?.screenshotMetrics;
-      if (plan?.build.status === 'recomputed' && metric?.calculationVersion === 'player-screenshot-metrics/v1'
+      if (plan?.build.status === 'recomputed' && metric?.calculationVersion === PLAYER_SCREENSHOT_BUILDER
         && metric.sourceHash === plan.build.sourceHash) return planned;
       const { screenshotMetrics: _quarantinedAggregate, ...sourceOnly } = stat;
       return sourceOnly;

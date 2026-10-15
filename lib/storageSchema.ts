@@ -3,7 +3,7 @@ import { assertWorkspaceIdentityShape } from './evidenceReference';
 import { migrateAcceptedMatchAggregates } from './aggregateVersioning';
 import { materializeFirstDeathsFromRoundEvidence, materializeRoundOpeningsFromScreenshotEvidence } from './scrimRoundAnalytics';
 
-export const STORAGE_SCHEMA_VERSION = 4;
+export const STORAGE_SCHEMA_VERSION = 5;
 export const MAX_ENTITY_BYTES = 840 * 1024;
 export const MAX_DOCUMENT_BYTES = 900 * 1024;
 export const MAX_JSON_DATABASE_BYTES = 64 * 1024 * 1024;
