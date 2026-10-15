@@ -3,7 +3,7 @@ import { toPublicTrackerData } from './publicData';
 
 export const PORTABLE_PACKAGE_FORMAT = 'moetracker-package/v1';
 export const PORTABLE_PACKAGE_MAX_BYTES = 9 * 1024 * 1024;
-const COLLECTIONS = ['matches', 'playerStats', 'rounds', 'rosterPlayers', 'coreMemberships', 'schedule', 'goals', 'soloq', 'vetos', 'strats', 'stratRuns', 'tryoutBatches', 'vodReviews', 'lineups', 'seasonArchives', 'practiceBlocks'] as const;
+const COLLECTIONS = ['matches', 'playerStats', 'rounds', 'rosterPlayers', 'coreMemberships', 'schedule', 'attendanceCredits', 'goals', 'soloq', 'vetos', 'strats', 'stratRuns', 'tryoutBatches', 'vodReviews', 'lineups', 'seasonArchives', 'practiceBlocks'] as const;
 
 function canonical(value: unknown): string {
   return JSON.stringify(value, (_key, nested) => nested && typeof nested === 'object' && !Array.isArray(nested)
@@ -25,7 +25,7 @@ export function createPortablePackage(db: any, sourceDeviceId: string, createdAt
   const scope = selection.scope || 'team'; const selectedId = selection.id || null; let matchIds: Set<string> | null = null;
   if (scope === 'player') {
     if (!selectedId) throw Object.assign(new Error('Player package requires a player identity.'), { status: 400 });
-    collections.playerStats = collections.playerStats.filter((row: any) => row.playerId === selectedId); matchIds = new Set(collections.playerStats.map((row: any) => row.matchId)); collections.rosterPlayers = collections.rosterPlayers.filter((row: any) => row.id === selectedId); collections.coreMemberships = collections.coreMemberships.filter((row: any) => row.playerId === selectedId); collections.soloq = collections.soloq.filter((row: any) => row.playerId === selectedId || row.player === selectedId);
+    collections.playerStats = collections.playerStats.filter((row: any) => row.playerId === selectedId); matchIds = new Set(collections.playerStats.map((row: any) => row.matchId)); collections.rosterPlayers = collections.rosterPlayers.filter((row: any) => row.id === selectedId); collections.coreMemberships = collections.coreMemberships.filter((row: any) => row.playerId === selectedId); collections.soloq = collections.soloq.filter((row: any) => row.playerId === selectedId || row.player === selectedId); collections.attendanceCredits = collections.attendanceCredits.filter((row: any) => row.playerId === selectedId); collections.schedule = collections.schedule.filter((row: any) => row.requiredPlayerIds?.includes(selectedId)).map((row: any) => ({ ...row, requiredPlayerIds: [selectedId], attendanceCheckIns: (row.attendanceCheckIns || []).filter((item: any) => item.playerId === selectedId) }));
   } else if (scope === 'match') {
     if (!selectedId) throw Object.assign(new Error('Match package requires a match identity.'), { status: 400 }); matchIds = new Set([selectedId]);
   } else if (scope === 'season') {

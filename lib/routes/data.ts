@@ -9,10 +9,16 @@ import { parseIdentitySnapshotCorrection, preserveIdentitySnapshot } from '../id
 import { applyImmutableEntryMetadata, applyScreenshotReviewConfirmation, reconcileStatTotals } from '../entryEngine';
 import { materializeFirstDeathsFromRoundEvidence, materializeRoundOpeningsFromScreenshotEvidence, materializeRoundPlantsFromScreenshotEvidence } from '../scrimRoundAnalytics';
 import { recomputeAcceptedMatchAggregates } from '../aggregateVersioning';
+import { attendancePolicy, attendanceStatus, attendanceSummary, attendanceWindow } from '../attendance';
 
 // Core data + match logging: full payload, reset, settings, generic upsert/remove,
 // and match/round/veto saves. Protected routes (registered after the auth middleware).
 export function registerDataRoutes(app: Express, options: { websiteSummaryOnly?: boolean } = {}) {
+  const requireCoach = (req: any, res: any) => {
+    if (req.user?.role === 'coach') return true;
+    res.status(403).json({ error: 'Only the coach can manage attendance.' });
+    return false;
+  };
   // GET tracker full payload
   app.get('/api/data', async (req, res) => {
     try {
@@ -45,6 +51,7 @@ export function registerDataRoutes(app: Express, options: { websiteSummaryOnly?:
       db.vetos = [];
       db.stratRuns = [];
       db.schedule = [];
+      db.attendanceCredits = [];
       db.goals = [];
       db.strats = [];
       await saveDB(db);
@@ -73,7 +80,8 @@ export function registerDataRoutes(app: Express, options: { websiteSummaryOnly?:
   app.post('/api/upsert', async (req, res) => {
     try {
       const body = validate(schemas.upsertSchema, req.body, res); if (!body) return;
-      const { sheet, row } = body;
+      const { sheet } = body;
+      let row: any = { ...body.row };
       const db = await readDB();
       
       const key = {
@@ -86,6 +94,16 @@ export function registerDataRoutes(app: Express, options: { websiteSummaryOnly?:
 
       if (!key || !db[key]) {
         return res.status(400).json({ error: `Invalid sheet identifier: ${sheet}` });
+      }
+
+      if (sheet === 'Schedule') {
+        const existing = row.id ? db.schedule.find((item: any) => item.id === row.id) : null;
+        const activeIds = new Set((db.rosterPlayers || []).filter((player: any) => !player.retiredAt).map((player: any) => player.id));
+        row.requiredPlayerIds = [...new Set((Array.isArray(row.requiredPlayerIds) ? row.requiredPlayerIds : []).filter((id: unknown) => typeof id === 'string' && activeIds.has(id)))];
+        row.attendanceEnabled = Boolean(row.attendanceEnabled && row.startTime && row.requiredPlayerIds.length);
+        row.startTime = typeof row.startTime === 'string' && /^\d{2}:\d{2}$/.test(row.startTime) ? row.startTime : '';
+        row.source = existing?.source === 'pracc' ? 'pracc' : 'manual';
+        row.attendanceCheckIns = Array.isArray(existing?.attendanceCheckIns) ? existing.attendanceCheckIns : [];
       }
 
       if (!row.id) {
@@ -105,6 +123,72 @@ export function registerDataRoutes(app: Express, options: { websiteSummaryOnly?:
     } catch (err: any) {
       res.status(500).json({ error: err.message });
     }
+  });
+
+  app.post('/api/attendance/check-in', async (req, res) => {
+    try {
+      const body = validate(schemas.attendanceCheckInSchema, req.body, res); if (!body) return;
+      const user = (req as any).user;
+      if (user?.role !== 'player' || !user.playerId) return res.status(403).json({ error: 'Check-in requires a player account linked to the roster.' });
+      const db = await readDB();
+      const schedule = (db.schedule || []).find((item: any) => item.id === body.scheduleId);
+      if (!schedule) return res.status(404).json({ error: 'Schedule event was not found.' });
+      if (!schedule.attendanceEnabled || !schedule.requiredPlayerIds?.includes(user.playerId)) return res.status(403).json({ error: 'You are not assigned to this attendance event.' });
+      schedule.attendanceCheckIns ||= [];
+      const existing = schedule.attendanceCheckIns.find((item: any) => item.playerId === user.playerId);
+      if (existing) return res.json({ checkIn: existing, summary: attendanceSummary(db, user.playerId) });
+      const now = new Date(); const policy = attendancePolicy(db.settings); const window = attendanceWindow(schedule, policy);
+      if (now < window.opensAt) return res.status(409).json({ error: `Check-in opens ${policy.checkInOpenMinutes} minutes before the event.` });
+      if (now > window.closesAt) return res.status(409).json({ error: 'The check-in window is closed. Ask the coach to correct the record.' });
+      const status = attendanceStatus(schedule, user.playerId, now, policy) === 'late-window' ? 'late' : 'on-time';
+      const checkIn = { id: uid(), playerId: user.playerId, checkedInAt: now.toISOString(), status };
+      schedule.attendanceCheckIns.push(checkIn);
+      await saveDB(db);
+      res.status(201).json({ checkIn, summary: attendanceSummary(db, user.playerId, now) });
+    } catch (err: any) { res.status(err?.status || 500).json({ error: err.message }); }
+  });
+
+  app.post('/api/attendance/green-credit', async (req, res) => {
+    try {
+      if (!requireCoach(req, res)) return;
+      const body = validate(schemas.attendanceGreenCreditSchema, req.body, res); if (!body) return;
+      const db = await readDB();
+      if (!(db.rosterPlayers || []).some((player: any) => player.id === body.playerId && !player.retiredAt)) return res.status(404).json({ error: 'Active roster player was not found.' });
+      if (attendanceSummary(db, body.playerId).redDots < 1) return res.status(409).json({ error: 'This player has no active red dot to remove.' });
+      db.attendanceCredits ||= [];
+      const credit = { id: uid(), playerId: body.playerId, kind: 'green', reason: body.reason, createdAt: new Date().toISOString(), createdBy: (req as any).user.username || 'Coach' };
+      db.attendanceCredits.push(credit); await saveDB(db);
+      res.status(201).json({ credit, summary: attendanceSummary(db, body.playerId) });
+    } catch (err: any) { res.status(err?.status || 500).json({ error: err.message }); }
+  });
+
+  app.post('/api/attendance/correct', async (req, res) => {
+    try {
+      if (!requireCoach(req, res)) return;
+      const body = validate(schemas.attendanceCorrectionSchema, req.body, res); if (!body) return;
+      const db = await readDB(); const schedule = (db.schedule || []).find((item: any) => item.id === body.scheduleId);
+      if (!schedule) return res.status(404).json({ error: 'Schedule event was not found.' });
+      if (!schedule.requiredPlayerIds?.includes(body.playerId)) return res.status(409).json({ error: 'The player is not assigned to this event.' });
+      schedule.attendanceCheckIns ||= [];
+      const existing = schedule.attendanceCheckIns.find((item: any) => item.playerId === body.playerId);
+      if (body.status === 'clear') schedule.attendanceCheckIns = schedule.attendanceCheckIns.filter((item: any) => item.playerId !== body.playerId);
+      else {
+        const corrected = { id: existing?.id || uid(), playerId: body.playerId, checkedInAt: existing?.checkedInAt || new Date().toISOString(), status: body.status, correctionReason: body.reason, correctedAt: new Date().toISOString(), correctedBy: (req as any).user.username || 'Coach' };
+        if (existing) Object.assign(existing, corrected); else schedule.attendanceCheckIns.push(corrected);
+      }
+      await saveDB(db); res.json({ scheduleId: schedule.id, summary: attendanceSummary(db, body.playerId) });
+    } catch (err: any) { res.status(err?.status || 500).json({ error: err.message }); }
+  });
+
+  app.post('/api/attendance/green-credit/revoke', async (req, res) => {
+    try {
+      if (!requireCoach(req, res)) return;
+      const body = validate(schemas.attendanceCreditRevokeSchema, req.body, res); if (!body) return;
+      const db = await readDB(); const credit = (db.attendanceCredits || []).find((item: any) => item.id === body.creditId && !item.revokedAt);
+      if (!credit) return res.status(404).json({ error: 'Active green credit was not found.' });
+      credit.revokedAt = new Date().toISOString(); credit.revokedBy = (req as any).user.username || 'Coach'; credit.revokeReason = body.reason;
+      await saveDB(db); res.json({ credit, summary: attendanceSummary(db, credit.playerId) });
+    } catch (err: any) { res.status(err?.status || 500).json({ error: err.message }); }
   });
 
   // POST remove row

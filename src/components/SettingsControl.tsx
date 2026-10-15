@@ -1,6 +1,6 @@
 import React, { useState, useEffect, useMemo } from 'react';
 import { TrackerData, Settings } from '../types';
-import { Settings as SettingsIcon, Save, Info, Key, Sliders, Plus, Trash2, Eye, EyeOff, UserCheck, UserMinus, ShieldAlert, Database, Download, Upload, Code, Copy, Check, FileCode, HardDrive } from 'lucide-react';
+import { Settings as SettingsIcon, Save, Info, Key, Sliders, Plus, Trash2, Eye, EyeOff, UserCheck, UserMinus, ShieldAlert, Database, Download, Upload, Code, Copy, Check, FileCode, HardDrive, Clock3 } from 'lucide-react';
 import { apiFetch } from '../utils/api';
 import StorageIndicator from './StorageIndicator';
 import DesktopDeviceSettings from './DesktopDeviceSettings';
@@ -20,7 +20,7 @@ interface ComponentProps {
 
 export default function SettingsControl({ data, theme, onSaveSettings, onRefresh, analyticsMapScope, analyticsMapScopeContext, onAnalyticsMapScopeChange }: ComponentProps) {
   const isLight = data.settings.theme === 'daylight';
-  const [activeSubTab, setActiveSubTab] = useState<'general' | 'pool' | 'weights' | 'backup-import' | 'access-control'>('general');
+  const [activeSubTab, setActiveSubTab] = useState<'general' | 'attendance' | 'pool' | 'weights' | 'backup-import' | 'access-control'>('general');
 
   // --- ACCESS CONTROL AND KEY MANAGEMENT ---
   const [keysList, setKeysList] = useState<any[]>([]);
@@ -171,6 +171,12 @@ export default function SettingsControl({ data, theme, onSaveSettings, onRefresh
   const [vlrTeamName, setVlrTeamName] = useState(data.settings.vlr?.teamName || '');
   const [confirmOnSave, setConfirmOnSave] = useState(data.settings.confirmOnSave ?? true);
   const [confirmOnDelete, setConfirmOnDelete] = useState(data.settings.confirmOnDelete ?? true);
+  const [attendanceGraceMinutes, setAttendanceGraceMinutes] = useState(data.settings.attendanceGraceMinutes ?? 10);
+  const [attendanceCheckInOpenMinutes, setAttendanceCheckInOpenMinutes] = useState(data.settings.attendanceCheckInOpenMinutes ?? 60);
+  const [attendanceCheckInCloseMinutes, setAttendanceCheckInCloseMinutes] = useState(data.settings.attendanceCheckInCloseMinutes ?? 180);
+  const [attendanceStrikesPerRedDot, setAttendanceStrikesPerRedDot] = useState(data.settings.attendanceStrikesPerRedDot ?? 3);
+  const [attendanceRedDotCost, setAttendanceRedDotCost] = useState(data.settings.attendanceRedDotCost ?? 0);
+  const [attendanceCurrency, setAttendanceCurrency] = useState(data.settings.attendanceCurrency ?? 'EGP');
 
   // Raw inputs advanced toggle fallback
   const [showRawTextarea, setShowRawTextarea] = useState(false);
@@ -293,6 +299,12 @@ export default function SettingsControl({ data, theme, onSaveSettings, onRefresh
       },
       confirmOnSave,
       confirmOnDelete,
+      attendanceGraceMinutes: Number(attendanceGraceMinutes),
+      attendanceCheckInOpenMinutes: Number(attendanceCheckInOpenMinutes),
+      attendanceCheckInCloseMinutes: Number(attendanceCheckInCloseMinutes),
+      attendanceStrikesPerRedDot: Number(attendanceStrikesPerRedDot),
+      attendanceRedDotCost: Number(attendanceRedDotCost),
+      attendanceCurrency: attendanceCurrency.trim() || 'EGP',
       vlr: {
         baseUrl: vlrBaseUrl,
         teamId: vlrTeamId,
@@ -328,6 +340,7 @@ export default function SettingsControl({ data, theme, onSaveSettings, onRefresh
         <div className={`p-5 rounded-xl border ${isLight ? 'bg-white border-slate-200 text-slate-800' : 'bg-white/5 border-white/10'} h-fit lg:col-span-1 space-y-1 text-xs`}>
           {[
             { id: 'general', label: 'General & API Integrations', icon: Info },
+            { id: 'attendance', label: 'Attendance Rules', icon: Clock3 },
             { id: 'pool', label: 'Rosters & Map Pools', icon: Sliders },
             { id: 'weights', label: 'Calculator Weights & Stats', icon: Key },
             { id: 'access-control', label: 'Access Keys', icon: UserCheck },
@@ -489,6 +502,38 @@ export default function SettingsControl({ data, theme, onSaveSettings, onRefresh
                     </label>
                   </div>
                 </div>
+              </div>
+            )}
+
+            {activeSubTab === 'attendance' && (
+              <div className="space-y-6">
+                <div>
+                  <h4 className="text-xs uppercase font-black tracking-widest text-[#ff4655] font-mono border-b border-white/5 pb-1">Attendance rules · Cairo time</h4>
+                  <p className="mt-2 text-xs leading-relaxed text-gray-400">Players check themselves in from their own account. The server decides on-time versus late in Africa/Cairo time, so changing a device clock cannot change the result.</p>
+                </div>
+                <div className="grid grid-cols-1 gap-4 md:grid-cols-3">
+                  <label className="space-y-1 text-[10px] font-black uppercase text-gray-400">Check-in opens before
+                    <div className="relative"><input aria-label="Check-in opens minutes before" type="number" min="0" max="1440" value={attendanceCheckInOpenMinutes} onChange={event => setAttendanceCheckInOpenMinutes(Number(event.target.value))} className="ui-field w-full p-2.5 text-sm" /><span className="absolute right-3 top-3 text-[9px] text-gray-500">MIN</span></div>
+                  </label>
+                  <label className="space-y-1 text-[10px] font-black uppercase text-gray-400">On-time grace period
+                    <div className="relative"><input aria-label="Attendance grace minutes" type="number" min="0" max="120" value={attendanceGraceMinutes} onChange={event => setAttendanceGraceMinutes(Number(event.target.value))} className="ui-field w-full p-2.5 text-sm" /><span className="absolute right-3 top-3 text-[9px] text-gray-500">MIN</span></div>
+                  </label>
+                  <label className="space-y-1 text-[10px] font-black uppercase text-gray-400">Check-in closes after
+                    <div className="relative"><input aria-label="Check-in closes minutes after" type="number" min="10" max="1440" value={attendanceCheckInCloseMinutes} onChange={event => setAttendanceCheckInCloseMinutes(Number(event.target.value))} className="ui-field w-full p-2.5 text-sm" /><span className="absolute right-3 top-3 text-[9px] text-gray-500">MIN</span></div>
+                  </label>
+                </div>
+                <div className="grid grid-cols-1 gap-4 border-t border-white/5 pt-5 md:grid-cols-3">
+                  <label className="space-y-1 text-[10px] font-black uppercase text-gray-400">Strikes per red dot
+                    <input aria-label="Strikes per red dot" type="number" min="1" max="20" value={attendanceStrikesPerRedDot} onChange={event => setAttendanceStrikesPerRedDot(Number(event.target.value))} className="ui-field w-full p-2.5 text-sm" />
+                  </label>
+                  <label className="space-y-1 text-[10px] font-black uppercase text-gray-400">Cost per active red dot
+                    <input aria-label="Red dot cost" type="number" min="0" max="1000000" step="0.01" value={attendanceRedDotCost} onChange={event => setAttendanceRedDotCost(Number(event.target.value))} className="ui-field w-full p-2.5 text-sm" />
+                  </label>
+                  <label className="space-y-1 text-[10px] font-black uppercase text-gray-400">Currency
+                    <input aria-label="Attendance currency" maxLength={12} value={attendanceCurrency} onChange={event => setAttendanceCurrency(event.target.value.toUpperCase())} className="ui-field w-full p-2.5 text-sm" />
+                  </label>
+                </div>
+                <div className="rounded-xl border border-emerald-400/20 bg-emerald-400/5 p-4 text-xs leading-relaxed text-emerald-100"><strong>Green dots are coach-issued credits.</strong> Each active green dot cancels one earned red dot, but the original attendance history stays visible. Pracc schedule sync and WhatsApp/Telegram reminders can attach to this ledger later without changing its rules.</div>
               </div>
             )}
 

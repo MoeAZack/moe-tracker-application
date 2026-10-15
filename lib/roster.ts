@@ -27,6 +27,7 @@ export const SEASON_COLLECTION_POLICY = {
     'rosterPlayers', 'coreMemberships', 'tryoutBatches', 'schedule', 'goals',
     'matches', 'playerStats', 'soloq', 'rounds', 'vetos', 'stratRuns', 'vodReviews',
     'practiceBlocks', 'tryoutDecisionNotes',
+    'attendanceCredits',
   ],
   retain: ['seasonArchives', 'lineups', 'authKeys', 'allowedUsers', 'engineAdapters'],
   retainAndSnapshotReferences: ['strats'],

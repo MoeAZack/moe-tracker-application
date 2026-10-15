@@ -14,6 +14,12 @@ export function createSeed() {
     weekStart: 1,
     confirmOnSave: true,
     confirmOnDelete: true,
+    attendanceGraceMinutes: 10,
+    attendanceCheckInOpenMinutes: 60,
+    attendanceCheckInCloseMinutes: 180,
+    attendanceStrikesPerRedDot: 3,
+    attendanceRedDotCost: 0,
+    attendanceCurrency: 'EGP',
     // Core membership is intentionally empty until an owner/coach configures it.
     // This legacy projection is maintained by roster mutations for existing selectors.
     players: [] as string[],
@@ -205,6 +211,7 @@ export function createSeed() {
     seasonArchives: [],
     secrets,
     schedule,
+    attendanceCredits: [],
     goals,
     matches,
     playerStats,

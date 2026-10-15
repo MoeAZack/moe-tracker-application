@@ -26,6 +26,12 @@ export const settingsSchema = z.object({
   weekStart: z.number().int().min(0).max(6).optional(),
   confirmOnSave: z.boolean().optional(),
   confirmOnDelete: z.boolean().optional(),
+  attendanceGraceMinutes: z.number().int().min(0).max(120).optional(),
+  attendanceCheckInOpenMinutes: z.number().int().min(0).max(1440).optional(),
+  attendanceCheckInCloseMinutes: z.number().int().min(10).max(1440).optional(),
+  attendanceStrikesPerRedDot: z.number().int().min(1).max(20).optional(),
+  attendanceRedDotCost: z.number().finite().min(0).max(1000000).optional(),
+  attendanceCurrency: z.string().trim().min(1).max(12).optional(),
   // Player membership is managed only by the roster endpoints. Legacy settings
   // arrays are a server-maintained projection for name-based match selectors.
   maps: z.array(z.string().min(1).max(100)).max(100).optional(),
@@ -46,6 +52,11 @@ export const settingsSchema = z.object({
   vetoActions: z.array(z.string().max(50)).max(20).optional(),
   stats: looseObject.optional()
 });
+
+export const attendanceCheckInSchema = z.object({ scheduleId: z.string().trim().min(1).max(200) }).strict();
+export const attendanceGreenCreditSchema = z.object({ playerId: z.string().uuid(), reason: z.string().trim().min(1).max(500) }).strict();
+export const attendanceCreditRevokeSchema = z.object({ creditId: z.string().uuid(), reason: z.string().trim().min(1).max(500) }).strict();
+export const attendanceCorrectionSchema = z.object({ scheduleId: z.string().trim().min(1).max(200), playerId: z.string().uuid(), status: z.enum(['on-time', 'late', 'excused', 'clear']), reason: z.string().trim().min(1).max(500) }).strict();
 
 const unknownInt = (max: number) => z.number().finite().int().min(0).max(max).nullable().optional();
 const unknownPercent = z.number().finite().min(0).max(100).nullable().optional();
