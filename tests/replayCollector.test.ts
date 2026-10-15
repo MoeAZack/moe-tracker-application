@@ -4,6 +4,7 @@ import fs from 'fs/promises';
 import os from 'os';
 import path from 'path';
 import { localEvidenceDigest } from '../lib/replayEvidence';
+import { VRFKIT_PIN } from '../lib/vrfkitReplayPipeline';
 import { collectorInternals } from '../scripts/replay-collector.mjs';
 
 describe('Windows replay collector boundaries', () => {
@@ -55,8 +56,8 @@ describe('Windows replay collector boundaries', () => {
     const root = await fs.mkdtemp(path.join(os.tmpdir(), 'moetracker-retention-')); const managed = path.join(root, 'managed'); const external = path.join(root, 'external');
     await fs.mkdir(managed); await fs.mkdir(external);
     const deviceId = 'desktop-device-01'; const bytes = Buffer.from('verified raw replay'); const hash = crypto.createHash('sha256').update(bytes).digest('hex');
-    const normalized: any = { schemaVersion: 1, parserInput: { parser: { name: 'vrfkit', version: '0.2.5' }, file: { format: 'vrf' }, identities: [], rounds: [], provenance: { replaySha256: hash } }, scoreboard: { players: [], reviewRequired: true, evidenceCoverage: { status: 'complete' } }, diagnostics: { replaySha256: hash, binarySha256: 'aa55fc410f1596a6ffedc7ab579341da6edb262197c64902e74b4eed485dc23f', binaryVersion: '0.2.5', binaryCommit: 'c4d6cc0e5ec3904fdb64b350b2656b8e3ff33d53' } };
-    const base: any = { schemaVersion: 1, source: { sha256: hash, size: bytes.length, originalName: 'match.vrf', deviceId }, parser: { name: 'vrfkit', version: '0.2.5', binarySha256: normalized.diagnostics.binarySha256, binaryCommit: normalized.diagnostics.binaryCommit }, normalized };
+    const normalized: any = { schemaVersion: 1, parserInput: { parser: { name: 'vrfkit', version: VRFKIT_PIN.version }, file: { format: 'vrf' }, identities: [], rounds: [], provenance: { replaySha256: hash } }, scoreboard: { players: [], reviewRequired: true, evidenceCoverage: { status: 'complete' } }, diagnostics: { replaySha256: hash, binarySha256: VRFKIT_PIN.windowsX64ExeSha256, binaryVersion: VRFKIT_PIN.version, binaryCommit: VRFKIT_PIN.commit } };
+    const base: any = { schemaVersion: 1, source: { sha256: hash, size: bytes.length, originalName: 'match.vrf', deviceId }, parser: { name: 'vrfkit', version: VRFKIT_PIN.version, binarySha256: normalized.diagnostics.binarySha256, binaryCommit: normalized.diagnostics.binaryCommit }, normalized };
     const envelope = { ...base, evidenceSha256: localEvidenceDigest(base) }; const evidence = path.join(root, 'evidence.json'); await fs.writeFile(evidence, JSON.stringify(envelope));
     const old = Date.parse('2026-01-01T00:00:00.000Z'); const managedRaw = path.join(managed, 'match.vrf'); const externalRaw = path.join(external, 'match.vrf'); await fs.writeFile(managedRaw, bytes); await fs.writeFile(externalRaw, bytes);
     const state: any = { files: { managed: { path: managedRaw, sha256: hash, size: bytes.length, mtimeMs: old, evidencePath: evidence, processedAt: '2026-01-01T00:00:00.000Z' }, external: { path: externalRaw, sha256: hash, size: bytes.length, mtimeMs: old, evidencePath: evidence, processedAt: '2026-01-01T00:00:00.000Z' } } };
@@ -69,8 +70,8 @@ describe('Windows replay collector boundaries', () => {
   it('never deletes an expired managed replay whose current bytes differ from the verified evidence', async () => {
     const root = await fs.mkdtemp(path.join(os.tmpdir(), 'moetracker-retention-mismatch-')); const managed = path.join(root, 'managed'); await fs.mkdir(managed);
     const deviceId = 'desktop-device-01'; const verified = Buffer.from('verified raw replay'); const changed = Buffer.alloc(verified.length, 0x78); const hash = crypto.createHash('sha256').update(verified).digest('hex');
-    const normalized: any = { schemaVersion: 1, parserInput: { parser: { name: 'vrfkit', version: '0.2.5' }, file: { format: 'vrf' }, identities: [], rounds: [], provenance: { replaySha256: hash } }, scoreboard: { players: [], reviewRequired: true, evidenceCoverage: { status: 'complete' } }, diagnostics: { replaySha256: hash, binarySha256: 'aa55fc410f1596a6ffedc7ab579341da6edb262197c64902e74b4eed485dc23f', binaryVersion: '0.2.5', binaryCommit: 'c4d6cc0e5ec3904fdb64b350b2656b8e3ff33d53' } };
-    const base: any = { schemaVersion: 1, source: { sha256: hash, size: verified.length, originalName: 'match.vrf', deviceId }, parser: { name: 'vrfkit', version: '0.2.5', binarySha256: normalized.diagnostics.binarySha256, binaryCommit: normalized.diagnostics.binaryCommit }, normalized };
+    const normalized: any = { schemaVersion: 1, parserInput: { parser: { name: 'vrfkit', version: VRFKIT_PIN.version }, file: { format: 'vrf' }, identities: [], rounds: [], provenance: { replaySha256: hash } }, scoreboard: { players: [], reviewRequired: true, evidenceCoverage: { status: 'complete' } }, diagnostics: { replaySha256: hash, binarySha256: VRFKIT_PIN.windowsX64ExeSha256, binaryVersion: VRFKIT_PIN.version, binaryCommit: VRFKIT_PIN.commit } };
+    const base: any = { schemaVersion: 1, source: { sha256: hash, size: verified.length, originalName: 'match.vrf', deviceId }, parser: { name: 'vrfkit', version: VRFKIT_PIN.version, binarySha256: normalized.diagnostics.binarySha256, binaryCommit: normalized.diagnostics.binaryCommit }, normalized };
     const evidence = path.join(root, 'evidence.json'); const raw = path.join(managed, 'match.vrf'); await fs.writeFile(evidence, JSON.stringify({ ...base, evidenceSha256: localEvidenceDigest(base) })); await fs.writeFile(raw, changed);
     const old = Date.parse('2026-01-01T00:00:00.000Z'); const state: any = { files: { managed: { path: raw, sha256: hash, size: verified.length, mtimeMs: old, evidencePath: evidence, processedAt: '2026-01-01T00:00:00.000Z' } } };
     try {
@@ -120,9 +121,9 @@ describe('Windows replay collector boundaries', () => {
 describe('unsupported VALORANT patches', () => {
   it('explains a replay newer than the pinned parser instead of a raw error', async () => {
     const { describeParserFailure, unsupportedReplayBranch } = await import('../scripts/replay-collector.mjs');
-    const error = Object.assign(new Error('Command failed: vrfkit export'), { stderr: Buffer.from("error: unsupported branch: unsupported replay branch: no payload transform is registered for replay branch '++Ares-Core+release-13.08'; known branches: ++Ares-Core+release-13.06") });
-    expect(unsupportedReplayBranch(error)).toBe('++Ares-Core+release-13.08');
-    expect(describeParserFailure(error)).toMatch(/patch 13\.08.*13\.06.*screenshot capture/);
+    const error = Object.assign(new Error('Command failed: vrfkit export'), { stderr: Buffer.from("error: unsupported branch: unsupported replay branch: no payload transform is registered for replay branch '++Ares-Core+release-13.09'; known branches: ++Ares-Core+release-13.08") });
+    expect(unsupportedReplayBranch(error)).toBe('++Ares-Core+release-13.09');
+    expect(describeParserFailure(error)).toMatch(/patch 13\.09.*13\.08.*screenshot capture/);
     expect(describeParserFailure(new Error('other failure'))).toBe('other failure');
   });
 });

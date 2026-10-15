@@ -292,6 +292,9 @@ export interface PlayerStats {
   headshots?: number | null;
   headshotEligibleKills?: number | null;
   orbPoints?: number | null;
+  ultimateUses?: number | null;
+  kastSuccessful?: number | null;
+  kastCovered?: number | null;
   fk?: number | null;
   fd?: number | null;
   rating?: string | number | null;

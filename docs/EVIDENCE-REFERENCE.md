@@ -19,7 +19,7 @@ A derived claim (a summary value, a later review signal or assignment) links to 
 | `screenshot` | `artifactId`, `imageSha256`, `captureKind` (`scoreboard`/`performance`/`head-to-head`/`round`), `cropRegionId`. | `replayIntake.screenshots[*]`, OCR region IDs |
 | `replay` | `sha256` (required) and parser `evidenceSha256`. | replay SHA-256, `rawEvidenceHash` |
 | `vod` | `vodReviewId`, `noteId`, `atSeconds`. | `VodReview.id`, `VodNote.id` |
-| `producer` | `parser`, `ocr`, `capture` version labels. | `vrfkit@0.2.5`, `tesseract-local@tesseract-7/eng/parser-v1` |
+| `producer` | `parser`, `ocr`, `capture` version labels. | `vrfkit@0.2.6-moe.1`, `tesseract-local@tesseract-7/eng/parser-v1` |
 | `capturedAt`, `acceptedAt` | ISO instants normalized to UTC; the UI presents them in Africa/Cairo. | `sourceMetadata.capturedAt`, `confirmedAt`, replay `acceptedAt` |
 | `observedIdentities` | Up to 20 `{ playerId, observedName, agent, team }` snapshots taken at capture/acceptance time. | `PlayerStats.displayNameSnapshot`, `agent`, review mappings |
 | `confidence` | Optional `confirmed`/`high`/`medium`/`low`. | `RoundScreenshotEvidence.confidence` |

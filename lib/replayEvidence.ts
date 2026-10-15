@@ -8,7 +8,7 @@ export const MAX_LOCAL_EVIDENCE_BYTES = 4 * 1024 * 1024;
 export type LocalReplayEvidenceEnvelope = {
   schemaVersion: 1;
   source: { sha256: string; size: number; originalName: string; deviceId: string };
-  parser: { name: 'vrfkit'; version: '0.2.5'; binarySha256: string; binaryCommit: string };
+  parser: { name: 'vrfkit'; version: string; binarySha256: string; binaryCommit: string };
   normalized: VrfkitNormalizedResult;
   evidenceSha256: string;
 };

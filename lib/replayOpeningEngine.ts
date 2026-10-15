@@ -177,6 +177,9 @@ export interface ReplayOpeningReviewDraft {
       plants: number | null;
       defuses: number | null;
       orbCaptures: number | null;
+      kastSuccessful: number | null;
+      kastCovered: number | null;
+      kastRate: number | null;
       headshotKills: number | null;
       eligibleHeadshotKills: number | null;
       headshotPercentage: number | null;
@@ -693,6 +696,7 @@ function buildEvidence(
   const allEliminations = completeEliminations
     ? analyses.flatMap(analysis => analysis.eliminations)
     : [];
+  const derivedRounds = input.rounds.map(round => deriveRoundEvidence(round, identities, tradeWindowMs, evidenceAllowed, capabilities));
   const killDetailsComplete = completeEliminations && capabilities.complete('kill-details', 'event-log')
     && allEliminations.every(item => item.killSource && item.killSource !== 'unknown'
       && (item.killSource !== 'weapon' || typeof item.headshot === 'boolean'));
@@ -701,6 +705,19 @@ function buildEvidence(
     const eligibleKills = killDetailsComplete
       ? allEliminations.filter(item => item.killerPlayerId === playerId && item.killSource === 'weapon') : null;
     const headshotKills = eligibleKills?.filter(item => item.headshot === true).length ?? null;
+    const roundsForPlayer = playerRounds(playerId);
+    const kastComplete = completeEliminations && playerSignalComplete('assists', playerId)
+      && roundsForPlayer.length > 0 && derivedRounds.every(round => round.derived.tradedDeathPlayerIds !== null);
+    const kastSuccessful = kastComplete ? roundsForPlayer.filter(round => {
+      const roundEvidence = derivedRounds.find(item => item.roundNumber === round.roundNumber)!;
+      const eliminations = roundEvidence.events;
+      const killed = eliminations.some(item => item.killerPlayerId === playerId);
+      const assisted = explicitEventFacts('assists', playerId).some(item => item.roundNumber === round.roundNumber);
+      const survived = !eliminations.some(item => item.victimPlayerId === playerId);
+      const traded = roundEvidence.derived.tradedDeathPlayerIds!.includes(playerId);
+      return killed || assisted || survived || traded;
+    }).length : null;
+    const kastCovered = kastComplete ? roundsForPlayer.length : null;
     return ({
     playerId,
     kills: completeEliminations && coveredPlayers.has(playerId) ? allEliminations.filter(item => item.killerPlayerId === playerId).length : null,
@@ -713,6 +730,9 @@ function buildEvidence(
     plants: countMetric('plant', playerId),
     defuses: countMetric('defuse', playerId),
     orbCaptures: countMetric('orb-capture', playerId),
+    kastSuccessful,
+    kastCovered,
+    kastRate: kastSuccessful === null || !kastCovered ? null : kastSuccessful / kastCovered,
     headshotKills,
     eligibleHeadshotKills: eligibleKills?.length ?? null,
     headshotPercentage: eligibleKills === null || eligibleKills.length === 0 ? null
@@ -725,7 +745,7 @@ function buildEvidence(
     observationIssues: validated.issues,
     coverageBySignal,
     playerMetrics,
-    rounds: input.rounds.map(round => deriveRoundEvidence(round, identities, tradeWindowMs, evidenceAllowed, capabilities)),
+    rounds: derivedRounds,
   };
 }
 

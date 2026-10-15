@@ -29,6 +29,18 @@ describe('strict screenshot pairing', () => {
     expect(store.screenshots.screenshot.suggestions[0]).toEqual({ parserPlayerId: 'parser-0', displayName: 'Screenshot player 0', rosterPlayerId: null });
     expect(store.parserJobs).toEqual(before);
   });
+  it('carries unique exact OCR roster matches into the coach draft without duplicating an identity', () => {
+    const store = storeFixture();
+    const rosterPlayers = raw().players.slice(5).map((player, index) => ({ id: `roster-${index + 5}`, displayName: player.name }));
+    store.screenshots.screenshot.draft = buildScreenshotReviewDraft(raw(), { model: 'mock', capturedAt: new Date().toISOString(), rosterPlayers });
+    pairReplayScreenshots(store);
+    expect(store.screenshots.screenshot.suggestions.slice(5).map((row: any) => row.rosterPlayerId)).toEqual(['roster-5', 'roster-6', 'roster-7', 'roster-8', 'roster-9']);
+    expect(store.screenshots.screenshot.suggestions.slice(0, 5).every((row: any) => row.rosterPlayerId === null)).toBe(true);
+    store.screenshots.screenshot.draft.stats[6].matchedPlayerId = 'roster-5';
+    store.screenshots.screenshot.draft.stats[6].rosterMatch = { status: 'matched', candidatePlayerIds: ['roster-5'], candidatePlayerNames: ['Screenshot player 5'] };
+    pairReplayScreenshots(store);
+    expect(store.screenshots.screenshot.suggestions.filter((row: any) => row.rosterPlayerId === 'roster-5')).toHaveLength(0);
+  });
   it('links a names-and-KDA-only crop while taking map and final score from replay evidence', () => {
     const store = storeFixture(); store.screenshots.screenshot.draft.match.map = null; store.screenshots.screenshot.draft.match.ourScore = null; store.screenshots.screenshot.draft.match.theirScore = null;
     pairReplayScreenshots(store); expect(store.screenshots.screenshot).toMatchObject({ status: 'linked', replaySha256: hash });

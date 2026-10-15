@@ -25,6 +25,7 @@ RELEVANT = {
     "AssignedTeamState", "AggregateKills", "AggregateDeaths", "AggregateAssists",
     "BombPlantedRPC.BombPlanter", "BombDefusedRPC.DefusingCharacter", "Wins",
     "OrbPickedUpRPC.Orb Gatherer", "OrbPickedUpRPC.Collectable Orb",
+    "bUltimateActive",
 }
 # VALORANT internal map codenames -> display names. Unknown assets stay null
 # (reviewed by the coach) rather than guessed.
@@ -234,8 +235,65 @@ def verified_orb_captures(fields, pawn_to_player, round_by_time, quality_complet
     return True, sorted(captures)
 
 
+def verified_ultimate_uses(fields, events, actor_to_player, pawn_to_player, round_by_time, quality_complete):
+    """Use replicated inactive->active state as authority, with Event as a cross-check.
+
+    CharacterUltimateUsed can be repeated, so raw Event rows are deliberately not
+    counted. Every accepted active transition must have a same-player Event within
+    100 ms; otherwise the entire signal remains unavailable rather than undercounted.
+    """
+    if not quality_complete:
+        return False, []
+    by_player = defaultdict(list)
+    for row in events:
+        if row.get("group") != "characterUltimateUsed":
+            continue
+        player_id = pawn_to_player.get(row.get("word0"))
+        if player_id and isinstance(row.get("time1"), int):
+            by_player[player_id].append(row["time1"])
+    uses = set()
+    for row in fields:
+        if row.get("field_name") != "bUltimateActive" or row.get("value_bool") is not True:
+            continue
+        player_id = actor_to_player.get(row.get("actor_net_guid"))
+        time_ms = row.get("time_ms")
+        round_number = round_by_time(time_ms) if isinstance(time_ms, int) else None
+        if not player_id or round_number is None or not any(abs(time_ms - event_time) <= 100 for event_time in by_player[player_id]):
+            return False, []
+        uses.add((time_ms, row.get("actor_net_guid"), player_id, round_number))
+    return True, sorted(uses)
+
+
+def verified_assists(fields, actor_to_player, valid_players, round_by_time, quality_complete):
+    """Expand monotonic AggregateAssists updates into round-scoped assist facts."""
+    if not quality_complete:
+        return False, []
+    by_player = defaultdict(list)
+    for row in fields:
+        player_id = actor_to_player.get(row.get("actor_net_guid"))
+        if row.get("field_name") == "AggregateAssists" and player_id:
+            by_player[player_id].append(row)
+    # A player with no update might truly have zero assists, but this stream does
+    # not emit an initial zero. Keep KAST unavailable rather than guessing zero.
+    if set(by_player) != set(valid_players):
+        return False, []
+    facts = []
+    for player_id, rows in by_player.items():
+        previous = 0
+        for row in sorted(rows, key=lambda item: (item.get("time_ms"), item.get("packet_id"))):
+            current = row.get("value_i64")
+            time_ms = row.get("time_ms")
+            round_number = round_by_time(time_ms) if isinstance(time_ms, int) else None
+            if not isinstance(current, int) or current <= previous or round_number is None:
+                return False, []
+            for ordinal in range(current - previous):
+                facts.append((time_ms, row.get("actor_net_guid"), player_id, round_number, previous + ordinal + 1))
+            previous = current
+    return True, facts
+
+
 def read_relevant_fields(export: Path):
-    columns = ["time_ms", "packet_id", "actor_net_guid", "field_name", "bit_count", "raw_bits", "value_i64", "value_str"]
+    columns = ["time_ms", "packet_id", "actor_net_guid", "field_name", "bit_count", "raw_bits", "value_i64", "value_str", "value_bool"]
     rows = []
     for batch in pq.ParquetFile(export / "fields.parquet").iter_batches(batch_size=65536, columns=columns):
         for row in batch.to_pylist():
@@ -446,6 +504,34 @@ def build(args):
                 "attributes": {"sourceField": "BaseGameState_C:OrbPickedUpRPC typed parameters"},
             })
 
+    ultimate_complete, ultimate_uses = verified_ultimate_uses(
+        fields, events, actor_to_player, pawn_to_player, round_by_time,
+        quality_complete and manifest_mapping_valid)
+    if ultimate_complete:
+        for time_ms, actor, player_id, round_number in ultimate_uses:
+            observations.append({
+                "observationId": hashlib.sha256(f"ultimate:{time_ms}:{actor}:{player_id}".encode()).hexdigest()[:24],
+                "roundNumber": round_number, "signal": "ultimate-use", "grade": "event-log",
+                "explicitlyPresent": True, "confidence": 1.0, "occurredAtMs": time_ms,
+                "playerId": player_id, "teamId": player_team[player_id],
+                "attributes": {"sourceField": "BombPlayerState.bUltimateActive false-to-true",
+                               "crossCheck": "characterUltimateUsed within 100ms"},
+            })
+
+    assists_complete, assist_facts = verified_assists(
+        fields, actor_to_player, valid_players, round_by_time,
+        quality_complete and manifest_mapping_valid)
+    if assists_complete:
+        for time_ms, actor, player_id, round_number, aggregate_value in assist_facts:
+            observations.append({
+                "observationId": hashlib.sha256(f"assist:{time_ms}:{actor}:{player_id}:{aggregate_value}".encode()).hexdigest()[:24],
+                "roundNumber": round_number, "signal": "assists", "grade": "event-log",
+                "explicitlyPresent": True, "confidence": 1.0, "occurredAtMs": time_ms,
+                "playerId": player_id, "teamId": player_team[player_id],
+                "attributes": {"sourceField": "BombPlayerState.AggregateAssists",
+                               "aggregateValue": aggregate_value},
+            })
+
     capabilities = []
     capabilities.append({"signal": "eliminations", "support": "complete" if elimination_complete else "unsupported",
                          "grade": "event-log", "details": "characterDeath events with exact replay identity joins"})
@@ -458,6 +544,10 @@ def build(args):
                              "grade": "event-log", "details": "authoritative objective event count cross-checked to typed RPC actor"})
     capabilities.append({"signal": "orb-capture", "support": "complete" if orb_complete else "unsupported",
                          "grade": "event-log", "details": "paired typed OrbPickedUpRPC gatherer and collectable-orb parameters"})
+    capabilities.append({"signal": "ultimate-use", "support": "complete" if ultimate_complete else "unsupported",
+                         "grade": "event-log", "details": "bUltimateActive true transition cross-checked to same-player characterUltimateUsed event"})
+    capabilities.append({"signal": "assists", "support": "complete" if assists_complete else "unsupported",
+                         "grade": "event-log", "details": "monotonic AggregateAssists changes assigned to their replay rounds"})
     # Hit location is available through vrfkit's derived damage-event view, but
     # that view is not emitted by the pinned export command used by this normalizer.
     # Do not infer headshots from damage values or weapon multipliers.

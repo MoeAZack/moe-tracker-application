@@ -1,0 +1,14 @@
+{
+  "schemaVersion": 1,
+  "repository": "MoeAZack/vrfkit",
+  "upstreamRepository": "yakisoba0728/vrfkit",
+  "tag": "v0.2.6-moe.1",
+  "version": "0.2.6-moe.1",
+  "commit": "4bacfdc2b766caec02d830cc65f8c4e2ea9dc14c",
+  "windowsX64ZipSha256": "1708748fdb87adea30c91c0f53f0272c3ae54eba771ea7222904e71d89f9c543",
+  "windowsX64ExeSha256": "ea20f413ebe909ef45e49a6d2890f3d341aede69f22b42be8ea6acc357fc41a3",
+  "supportedPatches": {
+    "min": "11.06",
+    "max": "13.08"
+  }
+}

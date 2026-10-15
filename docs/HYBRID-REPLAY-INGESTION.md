@@ -2,7 +2,7 @@
 
 ## Safe default: local evidence
 
-The Windows collector defaults to `local-evidence`. It hashes the stable `.vrf`, checks the pinned vrfkit v0.2.5 executable and `build-info.json`, runs vrfkit and the checked-in normalizer locally, validates the bounded schema, and hashes the evidence envelope. The API revalidates its claimed parser identity, source SHA-256, original size, device binding, provenance, structure, and envelope checksum. This is **device-attested evidence**, not cryptographic proof that an uncompromised parser produced it: a compromised enrolled device can forge content and recompute the checksum. Coach review is the trust boundary. A successful submission creates a **coach-review draft**; it never accepts a match or rating automatically.
+The Windows collector defaults to `local-evidence`. It hashes the stable `.vrf`, checks the owned and pinned `MoeAZack/vrfkit` v0.2.6-moe.1 executable and `build-info.json`, runs vrfkit and the checked-in normalizer locally, validates the bounded schema, and hashes the evidence envelope. The API revalidates its claimed parser identity, source SHA-256, original size, device binding, provenance, structure, and envelope checksum. This is **device-attested evidence**, not cryptographic proof that an uncompromised parser produced it: a compromised enrolled device can forge content and recompute the checksum. Coach review is the trust boundary. A successful submission creates a **coach-review draft**; it never accepts a match or rating automatically.
 
 Configure all three absolute runtime paths before approving an upload:
 

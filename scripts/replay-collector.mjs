@@ -19,7 +19,8 @@ const EVIDENCE_DIR = path.join(APP_DIR, 'evidence');
 const LOCK_DIR = path.join(APP_DIR, 'collector.lock');
 const DEFAULT_DEMO = path.join(process.env.LOCALAPPDATA || '', 'VALORANT', 'Saved', 'Demos');
 const REPLAY_TYPE = 'application/vnd.valorant.replay';
-const VRFKIT_PIN = { version: '0.2.5', tag: 'v0.2.5', commit: 'c4d6cc0e5ec3904fdb64b350b2656b8e3ff33d53', binarySha256: 'aa55fc410f1596a6ffedc7ab579341da6edb262197c64902e74b4eed485dc23f' };
+const runtimePin = JSON.parse(fs.readFileSync(new URL('./replay-runtime-pin.json', import.meta.url), 'utf8'));
+const VRFKIT_PIN = { ...runtimePin, binarySha256: runtimePin.windowsX64ExeSha256 };
 const MAX_EVIDENCE_BYTES = 4 * 1024 * 1024;
 
 function option(args, name) { const index = args.indexOf(name); return index >= 0 ? args[index + 1] : undefined; }
@@ -164,7 +165,7 @@ export function describeParserFailure(error) {
   const branch = unsupportedReplayBranch(error);
   if (branch) {
     const patch = branch.replace(/^\+\+Ares-Core\+release-/, '');
-    return `This replay is from VALORANT patch ${patch}. The bundled parser (vrfkit ${VRFKIT_PIN.version}) reads patches 11.06 to 13.06 only. Use the post-match screenshot capture for this match.`;
+    return `This replay is from VALORANT patch ${patch}. The bundled parser (vrfkit ${VRFKIT_PIN.version}) reads patches ${VRFKIT_PIN.supportedPatches.min} to ${VRFKIT_PIN.supportedPatches.max} only. Use the post-match screenshot capture for this match.`;
   }
   return String(error?.message || error).slice(0, 500);
 }
@@ -326,7 +327,7 @@ async function main() {
       const candidates = all.filter(item => !item.unsupportedBuild);
       if (!candidates.length) {
         const patches = [...new Set(all.map(item => String(item.unsupportedBuild).replace(/^\+\+Ares-Core\+release-/, '')))].join(', ');
-        return { state: 'unsupported-patch', unsupported: all.length, message: `All ${all.length} replay${all.length === 1 ? ' is' : 's are'} from VALORANT patch ${patches}. The bundled parser (vrfkit ${VRFKIT_PIN.version}) reads patches 11.06 to 13.06 only. Use the post-match screenshot capture for these matches.` };
+        return { state: 'unsupported-patch', unsupported: all.length, message: `All ${all.length} replay${all.length === 1 ? ' is' : 's are'} from VALORANT patch ${patches}. The bundled parser (vrfkit ${VRFKIT_PIN.version}) reads patches ${VRFKIT_PIN.supportedPatches.min} to ${VRFKIT_PIN.supportedPatches.max} only. Use the post-match screenshot capture for these matches.` };
       }
       const latest = candidates[0];
       let local;
