@@ -254,7 +254,7 @@ describe('explicit match statistics save contract', () => {
   it('keeps the complete scoreboard when round analytics cover only some players', async () => {
     const seeded = fixture();
     seeded.playerStats = ['Alpha', 'Bravo', 'Charlie', 'Delta', 'Echo'].map((player, index) => ({
-      id: `stat-${index + 1}`, matchId: 'match-1', player, kills: 10 - index, source: 'screenshot',
+      id: `stat-${index + 1}`, matchId: 'match-1', playerId: `player-${index + 1}`, player, kills: 10 - index, source: 'screenshot',
     }));
     await fs.writeFile(dbPath, JSON.stringify(seeded));
     const token = await login(adminKey);
@@ -268,8 +268,8 @@ describe('explicit match statistics save contract', () => {
           screenshotEvidence: {
             schemaVersion: 1, reviewStatus: 'confirmed', eventsComplete: false, events: [],
             players: [
-              { displayName: 'Alpha', team: 'ours', equippedWeapon: 'Vandal' },
-              { displayName: 'Bravo', team: 'ours', equippedWeapon: 'Phantom' },
+              { playerId: 'player-1', displayName: 'Alpha', team: 'ours', equippedWeapon: 'Vandal' },
+              { playerId: 'player-2', displayName: 'Bravo', team: 'ours', equippedWeapon: 'Phantom' },
             ],
           },
         }],

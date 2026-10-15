@@ -1,4 +1,4 @@
-import { buildMapRoundIntelligence } from './mapRoundAnalytics';
+import { buildAcceptedMatchAggregatePlan, buildCanonicalAnalyticsExport } from './aggregateVersioning';
 
 const PRIVATE_TOP_LEVEL_KEYS = new Set(['authKeys', 'allowedUsers', 'secretValues', '_storage']);
 const PRIVATE_SETTING_KEYS = new Set(['discordWebhook', 'gridApiKey', 'henrikApiKey']);
@@ -19,15 +19,20 @@ export function toPublicTrackerData(db: Record<string, any>, role: 'coach' | 'pl
   // and mutable review overlays. Engine adapters contain private rating inputs and
   // replay observations. Both have dedicated role-aware endpoints and must never
   // hitchhike in the broad tracker payload, including for coaches.
-  delete publicData.replayIntake;
-  delete publicData.engineAdapters;
   if (Array.isArray(publicData.matches) && Array.isArray(publicData.rounds)) {
     publicData.matches = publicData.matches.map((match: any) => {
-      if (match.roundAnalytics?.schemaVersion === 1) return match;
-      const roundAnalytics = buildMapRoundIntelligence([match], publicData.rounds.filter((round: any) => round.matchId === match.id))[0];
-      return roundAnalytics ? { ...match, roundAnalytics } : match;
+      const plan = buildAcceptedMatchAggregatePlan(publicData, match.id);
+      return plan.build.status === 'recomputed' && plan.match ? plan.match : match;
     });
   }
+  if (role === 'coach' && db.workspace && Array.isArray(db.matches)) {
+    publicData.canonicalAnalytics = db.matches.map((match: any) => {
+      const { canonicalJson: _canonicalJson, ...exported } = buildCanonicalAnalyticsExport(db, match.id);
+      return exported;
+    });
+  }
+  delete publicData.replayIntake;
+  delete publicData.engineAdapters;
   if (Array.isArray(publicData.seasonArchives)) publicData.seasonArchives = publicData.seasonArchives.map((archive: any) => {
     const { accessIdentities: _privateAccessIdentities, engineAdapters: _privateEngineAdapters, replayIntake: _privateReplayIntake, ...safeArchive } = archive || {};
     return safeArchive;

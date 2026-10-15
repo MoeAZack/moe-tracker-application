@@ -94,7 +94,8 @@ instead of recalculating percentages independently in each screen.
   to historical evidence even after roster status changes or archival. Contract:
   [`IDENTITY-SNAPSHOT.md`](./IDENTITY-SNAPSHOT.md).
 - **S0.6 Migration/versioning** — Version aggregate builders and make existing
-  accepted matches reproducibly recomputable.
+  accepted matches reproducibly recomputable. Contract:
+  [`AGGREGATE-VERSIONING.md`](./AGGREGATE-VERSIONING.md).
 
 ### Acceptance gate
 

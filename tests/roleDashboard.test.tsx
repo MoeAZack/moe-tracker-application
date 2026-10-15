@@ -29,4 +29,11 @@ describe('role-aware dashboard', () => {
     expect(html).toContain('Coach comparison');
     expect(html).not.toContain('My performance');
   });
+
+  it('does not infer an unpaired player identity from a matching display name', () => {
+    const unpaired = { ...data, rosterPlayers: [] };
+    const html = renderToStaticMarkup(<Dashboard data={unpaired} theme={theme} role="player" username="Ahmed" onOpenMatch={() => {}} />);
+    expect(html).toContain('no personal evidence is inferred from its display name');
+    expect(html).not.toContain('20 / 10 / 5');
+  });
 });

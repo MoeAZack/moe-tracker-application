@@ -57,7 +57,7 @@ describe('scrim screenshot analytics', () => {
     const spaced = round({ screenshotEvidence: { ...round().screenshotEvidence, players: [{ playerId: 'name:rafblack', displayName: 'RAF BLACK', team: 'ours', equippedWeapon: 'Vandal', kills: 1, assists: 0, survived: true }] } });
     const metric = buildPlayerScreenshotMetrics([spaced] as any)[0];
     expect(metric.identity).toBe('name:rafblack');
-    expect(combineStoredScreenshotMetrics([{ player: 'RAF BLACK', screenshotMetrics: metric } as any])[0].identity).toBe('name:rafblack');
+    expect(combineStoredScreenshotMetrics([{ id: 'legacy-row', player: 'RAF BLACK', screenshotMetrics: metric } as any])[0].identity).toBe('unlinked:legacy-row');
   });
   it('attributes kills to the event weapon while keeping equipped-round results separate', () => {
     const mixedWeapon = round({ screenshotEvidence: { ...round().screenshotEvidence, events: [
@@ -73,6 +73,16 @@ describe('scrim screenshot analytics', () => {
     const metric: any = buildPlayerScreenshotMetrics([round()] as any)[0];
     const { identity: _identity, displayName: _displayName, ...stored } = metric;
     expect(combineStoredScreenshotMetrics([{ playerId: 'p1', player: 'Alpha', screenshotMetrics: stored }, { playerId: 'p1', player: 'Alpha', screenshotMetrics: stored }])[0]).toMatchObject({ coveredRounds: 2, lowBudgetWins: 2, weapons: [{ weapon: 'Sheriff', rounds: 2, wins: 2, kills: 4 }] });
+  });
+  it('keeps same-name unlinked stored appearances separate', () => {
+    const metric: any = buildPlayerScreenshotMetrics([round()] as any)[0];
+    const { identity: _identity, displayName: _displayName, ...stored } = metric;
+    const combined = combineStoredScreenshotMetrics([
+      { id: 'row-a', player: 'Same Name', screenshotMetrics: stored },
+      { id: 'row-b', player: 'Same Name', screenshotMetrics: stored },
+    ]);
+    expect(combined.map(item => item.identity)).toEqual(['unlinked:row-a', 'unlinked:row-b']);
+    expect(combined.every(item => item.coveredRounds === 1)).toBe(true);
   });
   it('derives pistol, eco and earned bonus conversion by side from rounds', () => {
     const rows = [
