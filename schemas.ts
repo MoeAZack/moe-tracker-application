@@ -64,6 +64,7 @@ const playerStatSchema = looseObject.extend({
   displayNameSnapshot: z.string().trim().min(1).max(200).optional(),
   appearanceType: z.enum(['core', 'tryout', 'standIn']).optional(),
   agent: z.string().max(100).nullable().optional(),
+  roleSnapshot: z.string().trim().min(1).max(100).optional(),
   kAtt: unknownInt(200), kDef: unknownInt(200), dAtt: unknownInt(200), dDef: unknownInt(200),
   aAtt: unknownInt(200), aDef: unknownInt(200), kills: unknownInt(400), deaths: unknownInt(400), assists: unknownInt(400),
   acs: unknownInt(1000), adr: unknownInt(1000), hs: unknownPercent, headshots: unknownInt(400), headshotEligibleKills: unknownInt(400), orbPoints: unknownInt(100), fk: unknownInt(100), fd: unknownInt(100),
@@ -101,6 +102,7 @@ export const saveMatchSchema = z.object({
     date: z.string().max(20).optional(),
     type: z.string().max(100).optional(),
     opponent: z.string().max(200).optional(),
+    opponentCategory: z.string().trim().min(1).max(100).optional(),
     map: z.string().max(100).nullable().optional(),
     attW: unknownInt(100), attL: unknownInt(100), defW: unknownInt(100), defL: unknownInt(100),
     ourScore: unknownInt(100), theirScore: unknownInt(100),
@@ -119,7 +121,7 @@ export const saveVetoSchema = z.object({ matchId: nonEmpty, meta: looseObject, a
 
 export const setSecretSchema = z.object({ name: z.string().min(1).max(100), value: z.string().max(8000).optional().nullable() });
 
-export const accessAddSchema = z.object({ email: z.string().email().max(200), role: z.enum(['coach', 'player']).optional(), name: z.string().max(200).optional() });
+export const accessAddSchema = z.object({ email: z.string().email().max(200), role: z.enum(['coach', 'player']).optional(), name: z.string().max(200).optional(), playerId: z.string().uuid().optional() });
 export const accessRemoveSchema = z.object({ email: z.string().min(1).max(200) });
 export const createKeySchema = z.object({ label: z.string().trim().min(1).max(200), role: roleSchema, playerId: z.string().trim().min(1).max(200).optional() });
 export const playerPasswordSchema = z.object({ playerId: z.string().uuid(), password: z.string().trim().min(3).max(128) }).strict();
@@ -148,6 +150,16 @@ export const seasonArchiveResetSchema = z.object({
   newSeasonName: rosterName,
 });
 export const seasonArchiveRestoreSchema = z.object({ archiveId: rosterId });
+
+export const practiceBlockSaveSchema = z.object({
+  id: rosterId.optional(), name: rosterName, matchIds: z.array(z.string().trim().min(1).max(200)).min(1).max(100),
+}).strict();
+export const practiceBlockSplitSchema = z.object({
+  id: rosterId, name: rosterName, remainingName: rosterName.optional(), matchIds: z.array(z.string().trim().min(1).max(200)).min(1).max(99),
+}).strict();
+export const practiceBlockMergeSchema = z.object({ ids: z.array(rosterId).min(2).max(20), name: rosterName }).strict();
+export const tryoutDecisionNoteSchema = z.object({ id: rosterId.optional(), playerId: rosterId, text: z.string().trim().min(1).max(5000) }).strict();
+export const tryoutDecisionNoteRemoveSchema = z.object({ id: rosterId }).strict();
 
 export const vodSaveSchema = z.object({ review: looseObject });
 export const vodNoteSchema = z.object({ reviewId: nonEmpty, seconds: z.number().optional(), timeLabel: z.string().max(20).optional(), text: shortText });

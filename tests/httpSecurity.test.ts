@@ -105,8 +105,8 @@ describe('HTTP authentication and authorization boundary', () => {
   it('serves a reduced website summary without raw or detailed desktop evidence', async () => {
     const token = await login(adminKey); const response = await request('/api/website-summary', token); expect(response.status).toBe(200);
     const data = await response.json();
-    expect(data.matches).toEqual([{ id: 'visible-match' }]);
-    expect(data.playerStats).toEqual([{ id: 'visible-stat', matchId: 'visible-match', player: 'Ahmed', kills: 12 }]);
+    expect(data.matches).toEqual([{ id: 'visible-match', comparisonEvidence: { accepted: false } }]);
+    expect(data.playerStats).toEqual([{ id: 'visible-stat', matchId: 'visible-match', player: 'Ahmed', kills: 12, comparisonEvidence: { openingAccepted: false } }]);
     expect(data.rounds).toEqual([]); expect(data.vodReviews).toEqual([]); expect(data.seasonArchives).toEqual([]); expect(data.secrets).toEqual({});
     expect(JSON.stringify(data)).not.toMatch(/private match note|private-vod-url|private round note|private-coach|PRIVATE-REPLAY/);
   });

@@ -29,11 +29,12 @@ const ScrimImport = lazy(() => import('./components/ScrimImport'));
 const ReplayWorkspace = lazy(() => import('./components/ReplayWorkspace'));
 const WebsiteMatchLog = lazy(() => import('./components/WebsiteMatchLog'));
 const WebsiteMapSummary = lazy(() => import('./components/WebsiteMapSummary'));
+const TryoutComparisons = lazy(() => import('./components/TryoutComparisons'));
 
 import {
   ShieldAlert, RefreshCw, Trophy, Calendar, Swords, Compass,
   Layers, Users, Settings as SettingsIcon, Image, Activity, Sparkles,
-  Film, Crosshair, Coins, FileCheck2
+  Film, Crosshair, Coins, FileCheck2, GitCompareArrows
 } from 'lucide-react';
 
 export default function App() {
@@ -54,7 +55,7 @@ export default function App() {
   const [error, setError] = useState<string | null>(null);
   
   // Navigation
-  const [activeTab, setActiveTab] = useState<'dashboard' | 'calendar' | 'matches' | 'replays' | 'maps' | 'comps' | 'roster' | 'settings' | 'livelogger' | 'aitactical' | 'vod' | 'lineups' | 'economy'>('dashboard');
+  const [activeTab, setActiveTab] = useState<'dashboard' | 'calendar' | 'matches' | 'replays' | 'maps' | 'comps' | 'roster' | 'settings' | 'livelogger' | 'aitactical' | 'vod' | 'lineups' | 'economy' | 'comparisons'>('dashboard');
   const [reviewMatchId, setReviewMatchId] = useState<string | null>(null);
   const [manualReplayDraft, setManualReplayDraft] = useState<ScreenshotReviewDraft | null>(null);
   const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
@@ -371,6 +372,7 @@ export default function App() {
     { id: 'vod', label: 'VOD Review', icon: Film },
     { id: 'lineups', label: 'Lineup Library', icon: Crosshair },
     { id: 'economy', label: 'Economy', icon: Coins },
+    { id: 'comparisons', label: 'Tryout comparisons', icon: GitCompareArrows },
     { id: 'aitactical', label: 'AI Coach Hub', icon: Sparkles },
     { id: 'livelogger', label: 'Live Logger 🔴', icon: Activity },
     { id: 'maps', label: 'Map Analysis', icon: Compass },
@@ -380,7 +382,7 @@ export default function App() {
   ] as const;
 
   const visibleTabs = useMemo(() => {
-    const surfaceTabs = desktopMode ? tabsList : tabsList.filter(tab => ['dashboard', 'calendar', 'matches', 'economy', 'maps', 'roster'].includes(tab.id));
+    const surfaceTabs = desktopMode ? tabsList : tabsList.filter(tab => ['dashboard', 'calendar', 'matches', 'economy', 'maps', 'roster', 'comparisons'].includes(tab.id));
     if (role === 'player') return surfaceTabs.filter(tab => !['settings', 'livelogger', 'vod'].includes(tab.id));
     return surfaceTabs;
   }, [desktopMode, role]);
@@ -593,7 +595,7 @@ export default function App() {
 
         <div className="aurora-utility-bar"><div className="aurora-utility-context"><span className="aurora-eyebrow">{data && activeTryoutPhase(data) ? `Tryouts · ${activeTryoutPhase(data)?.name}` : 'Team workspace'}</span><span className="aurora-version-badge" title="Installed MoeTracker version">v{__APP_VERSION__}</span></div>{data && <TeamSyncIndicator teamName={data.settings.teamName || 'MoeTracker team'} role={role} desktopMode={desktopMode} />}</div>
         {analyticsProjection && <AnalyticsScopeControl scope={analyticsMapScope} context={analyticsProjection.context} onChange={setAnalyticsMapScope} />}
-        {data && ['dashboard', 'economy', 'maps', 'comps', 'roster'].includes(activeTab) && (data.tryoutBatches || []).some(batch => batch.status === 'archived') && <label className="mx-auto flex max-w-7xl w-full flex-wrap items-center gap-2 px-6 text-sm text-slate-300">Analytics history<select aria-label="Analytics phase" className="ui-field min-h-11 px-3" value={historicalTryoutId} onChange={event => setHistoricalTryoutId(event.target.value)}><option value="">Current workspace</option>{data.tryoutBatches.filter(batch => batch.status === 'archived').map(batch => <option key={batch.id} value={batch.id}>Archived tryouts · {batch.name}</option>)}</select>{historicalTryoutId && <span className="text-xs text-cyan-300">Viewing archived results only; new entries still use the current workspace.</span>}</label>}
+        {data && ['dashboard', 'economy', 'maps', 'comps', 'roster', 'comparisons'].includes(activeTab) && (data.tryoutBatches || []).some(batch => batch.status === 'archived') && <label className="mx-auto flex max-w-7xl w-full flex-wrap items-center gap-2 px-6 text-sm text-slate-300">Analytics history<select aria-label="Analytics phase" className="ui-field min-h-11 px-3" value={historicalTryoutId} onChange={event => setHistoricalTryoutId(event.target.value)}><option value="">Current workspace</option>{data.tryoutBatches.filter(batch => batch.status === 'archived').map(batch => <option key={batch.id} value={batch.id}>Archived tryouts · {batch.name}</option>)}</select>{historicalTryoutId && <span className="text-xs text-cyan-300">Viewing archived results only; new entries still use the current workspace.</span>}</label>}
 
         {/* Main Workspace Frame */}
         <main className="flex-grow p-4 sm:p-6 lg:p-8 overflow-hidden max-w-7xl w-full mx-auto flex flex-col gap-6">
@@ -654,6 +656,9 @@ export default function App() {
             )}
             {activeTab === 'economy' && analyticsData && (
               <EconomyAnalytics data={analyticsData} theme={theme} />
+            )}
+            {activeTab === 'comparisons' && analyticsData && (
+              <TryoutComparisons data={analyticsData} role={role} theme={theme} onRefresh={fetchDatabase} mapScope={analyticsProjection!.context} />
             )}
             {activeTab === 'aitactical' && analyticsData && (
               <AITacticalHub data={analyticsData} theme={theme} onUpsert={handleUpsert} onRemove={handleRemove} />

@@ -104,7 +104,9 @@ describe('roster domain', () => {
     const batch = createTryoutBatch(db, 'October trials', idFactory, now); addTryoutCandidate(db, batch.id, player.id);
     promoteTryoutCandidate(db, batch.id, player.id, idFactory, now);
     db.authKeys.push({ id: 'key', playerId: player.id });
+    db.authKeys.push({ id: 'legacy-name-key', role: 'player', label: 'Candidate A' }, { id: 'other-key', role: 'player', label: 'Different Player' });
     db.allowedUsers.push({ email: 'player@example.com', playerId: player.id, role: 'player' });
+    db.allowedUsers.push({ email: 'legacy@example.com', name: 'Candidate A', role: 'player' }, { email: 'other@example.com', name: 'Different Player', role: 'player' });
     db.replayIntake.devices.device = { owner: { playerId: player.id }, revokedAt: null };
     db.engineAdapters.ranked.consents.consent = { playerId: player.id, revokedAt: null };
     db.playerStats.push({ id: 'historical', playerId: player.id, matchId: 'm1', kills: 10 });
@@ -113,8 +115,8 @@ describe('roster domain', () => {
     expect(player.retiredAt).toBe(now());
     expect(db.coreMemberships[0].endedAt).toBe(now());
     expect(batch.candidatePlayerIds).toEqual([player.id]);
-    expect(db.authKeys).toEqual([]);
-    expect(db.allowedUsers).toEqual([]);
+    expect(db.authKeys).toEqual([{ id: 'other-key', role: 'player', label: 'Different Player' }]);
+    expect(db.allowedUsers).toEqual([{ email: 'other@example.com', name: 'Different Player', role: 'player' }]);
     expect(db.replayIntake.devices.device.revokedAt).toBe(now());
     expect(db.engineAdapters.ranked.consents.consent.revokedAt).toBe(now());
     expect(db.playerStats).toContainEqual(expect.objectContaining({ id: 'historical', playerId: player.id }));
@@ -295,9 +297,15 @@ describe('roster HTTP and concurrency boundary', () => {
     expect(stored.rosterPlayers).toHaveLength(1);
     expect(stored.settings.players).toEqual(['Stable Name']);
 
+    expect((await coachPost('/api/access/add', { email: 'player@example.com', role: 'player' })).status).toBe(400);
+    const googleAccessResponse = await coachPost('/api/access/add', { email: 'player@example.com', role: 'player', playerId: created.id });
+    expect(googleAccessResponse.status).toBe(200);
+    expect(await googleAccessResponse.json()).toContainEqual(expect.objectContaining({ email: 'player@example.com', role: 'player', playerId: created.id }));
     const keyResponse = await fetch(`${origin}/api/keys/create`, { method: 'POST', headers: { Authorization: `Bearer ${coachToken}`, 'Content-Type': 'application/json' }, body: JSON.stringify({ label: 'Stable player', role: 'player', playerId: created.id }) });
     expect(keyResponse.status).toBe(200); const playerAccess = await keyResponse.json(); const activePlayerSession = await login(playerAccess.key);
     expect((await fetch(`${origin}/api/data`, { headers: { Authorization: `Bearer ${activePlayerSession}` } })).status).toBe(200);
+    expect((await postPlayer(activePlayerSession)).status).toBe(403);
+    expect((await fetch(`${origin}/api/roster/tryouts/mode`, { method: 'POST', headers: { Authorization: `Bearer ${activePlayerSession}`, 'Content-Type': 'application/json' }, body: JSON.stringify({ enabled: false }) })).status).toBe(403);
     expect((await fetch(`${origin}/api/roster/players/remove`, { method: 'POST', headers: { Authorization: `Bearer ${coachToken}`, 'Content-Type': 'application/json' }, body: JSON.stringify({ playerId: created.id }) })).status).toBe(200);
     expect((await fetch(`${origin}/api/data`, { headers: { Authorization: `Bearer ${activePlayerSession}` } })).status).toBe(401);
     expect((await fetch(`${origin}/api/login-key`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ key: playerAccess.key }) })).status).toBe(401);

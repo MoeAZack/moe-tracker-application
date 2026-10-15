@@ -105,8 +105,8 @@ describe('public tracker data', () => {
       rounds: [{ id: 'r1', matchId: 'm1', notes: 'private round detail' }], vetos: [{ id: 'v1' }], strats: [{ id: 's1', notes: 'private strat' }], stratRuns: [{ id: 'sr1' }],
       vodReviews: [{ id: 'vod1', notes: [{ text: 'private review' }] }], lineups: [{ id: 'l1', imageUrl: 'private-image' }], seasonArchives: [{ id: 'a1' }],
     });
-    expect(result.matches).toEqual([{ id: 'm1', date: '2026-10-13', type: 'Scrim', opponent: 'Other', map: 'Haven', ourScore: 13, theirScore: 9 }]);
-    expect(result.playerStats).toEqual([{ id: 'p1', matchId: 'm1', player: 'Alpha', kills: 20, deaths: 10 }]);
+    expect(result.matches).toEqual([{ id: 'm1', date: '2026-10-13', type: 'Scrim', opponent: 'Other', map: 'Haven', ourScore: 13, theirScore: 9, comparisonEvidence: { accepted: false } }]);
+    expect(result.playerStats).toEqual([{ id: 'p1', matchId: 'm1', player: 'Alpha', kills: 20, deaths: 10, comparisonEvidence: { openingAccepted: false } }]);
     expect(result).toMatchObject({ rounds: [], vetos: [], strats: [], stratRuns: [], vodReviews: [], lineups: [], seasonArchives: [], secrets: {} });
     expect(JSON.stringify(result)).not.toMatch(/private coach note|private-vod|private round detail|private strat|private review|private-image|private-calendar|private-coach|TAG/);
   });
