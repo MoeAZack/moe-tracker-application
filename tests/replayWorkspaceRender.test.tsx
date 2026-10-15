@@ -64,7 +64,7 @@ describe('replay review workspace semantics', () => {
   });
 
   it('loads local screenshots through the CSP-allowed data URL path rather than blocked blob URLs', () => {
-    const source = fs.readFileSync('src/components/ReplayWorkspace.tsx', 'utf8');
+    const source = fs.readFileSync('src/utils/localScoreboard.ts', 'utf8');
     expect(source).toContain('reader.readAsDataURL(file)');
     expect(source).not.toContain('URL.createObjectURL(file)');
   });
