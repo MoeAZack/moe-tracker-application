@@ -103,6 +103,44 @@ describe('S0.2 canonical derived-metric envelope', () => {
     ]) });
   });
 
+  it('requires unknown reasons to agree with sample, denominator and coverage facts', () => {
+    const sampled = mutable(derivedMetricFromCount({ total: null, samples: 1 }, options()));
+    sampled.unknownReason = 'no-samples';
+    expect(validateDerivedMetric(sampled)).toMatchObject({ ok: false, issues: expect.arrayContaining([
+      { path: 'unknownReason', code: 'inconsistent-with-facts' },
+    ]) });
+
+    const scalar = mutable(derivedMetricFromCount({ total: null, samples: 0 }, options()));
+    scalar.unknownReason = 'denominator-zero';
+    expect(validateDerivedMetric(scalar)).toMatchObject({ ok: false, issues: expect.arrayContaining([
+      { path: 'unknownReason', code: 'inconsistent-with-facts' },
+    ]) });
+
+    const nonzeroDenominator = mutable(derivedMetricFromRatio({
+      value: null, numerator: 1, denominator: 2, samples: 1,
+    }, options()));
+    nonzeroDenominator.unknownReason = 'denominator-zero';
+    expect(validateDerivedMetric(nonzeroDenominator)).toMatchObject({ ok: false, issues: expect.arrayContaining([
+      { path: 'unknownReason', code: 'inconsistent-with-facts' },
+    ]) });
+
+    const complete = mutable(derivedMetricFromCount({ total: null, samples: 1 }, options()));
+    complete.unknownReason = 'incomplete-coverage';
+    expect(validateDerivedMetric(complete)).toMatchObject({ ok: false, issues: expect.arrayContaining([
+      { path: 'unknownReason', code: 'inconsistent-with-facts' },
+    ]) });
+
+    expect(derivedMetricFromCount({ total: null, samples: 0 }, options())).toMatchObject({
+      sampleCount: 0, unknownReason: 'no-samples',
+    });
+    expect(derivedMetricFromRatio({ value: null, numerator: 1, denominator: 0, samples: 1 }, options())).toMatchObject({
+      denominator: 0, unknownReason: 'denominator-zero',
+    });
+    expect(derivedMetricFromCount({ total: null, samples: 1 }, options({
+      coverage: { covered: 1, total: 2 }, unknownReason: 'incomplete-coverage',
+    }))).toMatchObject({ coverage: { covered: 1, total: 2 }, unknownReason: 'incomplete-coverage' });
+  });
+
   it('rejects invalid sample counts, coverage and confidence', () => {
     const base = mutable(derivedMetricFromCount({ total: 2, samples: 2 }, options()));
     for (const [path, mutate, code] of [
