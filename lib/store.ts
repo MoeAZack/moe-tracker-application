@@ -3,6 +3,7 @@ import path from 'path';
 import crypto from 'crypto';
 import { createSeed } from './seed';
 import { assertSeasonArchivesStorageSize } from './roster';
+import { ensureWorkspaceIdentity } from './evidenceReference';
 import { decodeFirestoreDocuments, encodeFirestoreDocuments, ensureStorageSchema, planFirestoreWriteBatches, planRevisionActivation, STORAGE_SCHEMA_VERSION, validateTrackerState } from './storageSchema';
 
 // Runtime state never defaults to the repository's historical/demo db.json.
@@ -46,6 +47,7 @@ function attachVersion<T extends Record<string, any>>(data: T, version: string |
 function hashText(text: string) { return crypto.createHash('sha256').update(text).digest('hex'); }
 
 async function writeJsonFile(data: any, expected: string | undefined, allowCreate: boolean) {
+  ensureWorkspaceIdentity(data);
   assertSeasonArchivesStorageSize(data.seasonArchives || []);
   validateTrackerState(data, { jsonFile: true });
   let currentText: string | null = null;
@@ -85,7 +87,7 @@ async function deleteFirestoreRevision(revisionId: string) {
 
 async function activateFirestoreRevision(data: any, expected: number | undefined, mode: 'ordinary' | 'initialize' | 'replace') {
   const firestore = await getFirestore();
-  removeLegacySecrets(data); ensureStorageSchema(data); assertSeasonArchivesStorageSize(data.seasonArchives || []); validateTrackerState(data);
+  removeLegacySecrets(data); ensureStorageSchema(data); ensureWorkspaceIdentity(data); assertSeasonArchivesStorageSize(data.seasonArchives || []); validateTrackerState(data);
   if (mode === 'ordinary' && expected === undefined) throw Object.assign(new Error('Database revision is required for ordinary writes.'), { status: 409 });
   const revisionId = crypto.randomUUID();
   const metaRef = firestore!.collection(META_COLLECTION).doc('meta');
@@ -204,7 +206,7 @@ async function ensureD1Tables() {
 }
 
 function d1Chunks(data: any) {
-  removeLegacySecrets(data); ensureStorageSchema(data); assertSeasonArchivesStorageSize(data.seasonArchives || []); validateTrackerState(data);
+  removeLegacySecrets(data); ensureStorageSchema(data); ensureWorkspaceIdentity(data); assertSeasonArchivesStorageSize(data.seasonArchives || []); validateTrackerState(data);
   const serialized = JSON.stringify(data);
   const chunks: string[] = [];
   for (let offset = 0; offset < serialized.length;) {
