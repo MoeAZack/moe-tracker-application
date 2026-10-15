@@ -59,6 +59,7 @@ export interface SeasonArchive {
   practiceBlocks?: PracticeBlock[];
   tryoutDecisionNotes?: TryoutDecisionNote[];
   schedule: Schedule[];
+  attendanceCredits?: AttendanceCredit[];
   goals: Goal[];
   matches: Match[];
   playerStats: PlayerStats[];
@@ -91,6 +92,12 @@ export interface Settings {
   weekStart: number;
   confirmOnSave: boolean;
   confirmOnDelete: boolean;
+  attendanceGraceMinutes?: number;
+  attendanceCheckInOpenMinutes?: number;
+  attendanceCheckInCloseMinutes?: number;
+  attendanceStrikesPerRedDot?: number;
+  attendanceRedDotCost?: number;
+  attendanceCurrency?: string;
   tryoutsMode?: boolean;
   activeTryoutBatchId?: string | null;
   players: string[];
@@ -128,8 +135,36 @@ export interface Schedule {
   secondary?: string;
   notes?: string;
   attendance: Record<string, string>;
+  startTime?: string;
+  attendanceEnabled?: boolean;
+  requiredPlayerIds?: string[];
+  attendanceCheckIns?: AttendanceCheckIn[];
+  source?: 'manual' | 'pracc';
+  sourceEventId?: string;
   calendarKey?: string;
   gcalEventId?: string;
+}
+
+export interface AttendanceCheckIn {
+  id: string;
+  playerId: string;
+  checkedInAt: string;
+  status: 'on-time' | 'late' | 'excused';
+  correctionReason?: string;
+  correctedAt?: string;
+  correctedBy?: string;
+}
+
+export interface AttendanceCredit {
+  id: string;
+  playerId: string;
+  kind: 'green';
+  reason: string;
+  createdAt: string;
+  createdBy: string;
+  revokedAt?: string;
+  revokedBy?: string;
+  revokeReason?: string;
 }
 
 export interface Goal {
@@ -501,6 +536,7 @@ export interface TrackerData {
   seasonArchives: SeasonArchive[];
   secrets: Record<string, boolean>;
   schedule: Schedule[];
+  attendanceCredits?: AttendanceCredit[];
   goals: Goal[];
   matches: Match[];
   playerStats: PlayerStats[];

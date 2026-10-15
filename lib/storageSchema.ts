@@ -3,7 +3,7 @@ import { assertWorkspaceIdentityShape } from './evidenceReference';
 import { migrateAcceptedMatchAggregates } from './aggregateVersioning';
 import { materializeFirstDeathsFromRoundEvidence, materializeRoundOpeningsFromScreenshotEvidence, materializeRoundPlantsFromScreenshotEvidence } from './scrimRoundAnalytics';
 
-export const STORAGE_SCHEMA_VERSION = 6;
+export const STORAGE_SCHEMA_VERSION = 7;
 export const MAX_ENTITY_BYTES = 840 * 1024;
 export const MAX_DOCUMENT_BYTES = 900 * 1024;
 export const MAX_JSON_DATABASE_BYTES = 64 * 1024 * 1024;
@@ -20,6 +20,7 @@ const CORE_ARRAYS = [
   'matches', 'playerStats', 'seasonArchives', 'rounds', 'schedule', 'authKeys', 'allowedUsers',
   'goals', 'soloq', 'vetos', 'strats', 'stratRuns', 'rosterPlayers', 'coreMemberships',
   'tryoutBatches', 'vodReviews', 'lineups', 'practiceBlocks', 'tryoutDecisionNotes',
+  'attendanceCredits',
 ] as const;
 
 export type StorageMetadata = {
@@ -86,6 +87,7 @@ export function ensureStorageSchema(input: any, now = new Date().toISOString()) 
     }
     migrateAcceptedMatchAggregates(input);
     for (const archive of input.seasonArchives || []) migrateAcceptedMatchAggregates(archive);
+    if (!Array.isArray(input.attendanceCredits)) input.attendanceCredits = [];
     ledger.push({ from: declared, to: STORAGE_SCHEMA_VERSION, at: now });
   }
   input._storage = { schemaVersion: STORAGE_SCHEMA_VERSION, migratedAt: declared < STORAGE_SCHEMA_VERSION ? now : String(input._storage?.migratedAt || now), migrationLedger: ledger } satisfies StorageMetadata;

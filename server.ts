@@ -264,6 +264,7 @@ export async function createApp(serveFrontend = true) {
 
     // Players are read-only. Lineup comments remain shared; coach VOD notes and replies are private.
     const playerWritable = req.method === 'POST' && (req.path === '/lineup/comment'
+      || req.path === '/attendance/check-in'
       || req.path === '/engine-adapters/ranked/consent' || req.path === '/engine-adapters/ranked/revoke'
       || req.path === '/replay-intake/devices/enroll' || req.path === '/replay-intake/devices/revoke'
       || req.path === '/replay-intake/pairing-codes'
