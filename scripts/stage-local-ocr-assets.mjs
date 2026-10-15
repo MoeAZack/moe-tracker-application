@@ -33,7 +33,7 @@ for (const [sourceRelative, destinationRelative, expectedSha256] of assets) {
 console.log(`Staged ${assets.length} verified local OCR assets.`);
 
 await mkdir(collectorDestination, { recursive: true });
-for (const name of ['setup-replay-collector.ps1', 'install-replay-collector.ps1', 'replay-collector-launch.ps1', 'replay-collector.mjs', 'normalize-vrfkit-export.py']) {
+for (const name of ['setup-replay-collector.ps1', 'install-replay-collector.ps1', 'replay-collector-launch.ps1', 'replay-collector.mjs', 'replay-runtime-pin.json', 'normalize-vrfkit-export.py']) {
   await copyFile(path.join(root, 'scripts', name), path.join(collectorDestination, name));
 }
 console.log('Staged the Windows replay collector setup package.');

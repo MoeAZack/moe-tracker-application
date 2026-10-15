@@ -6,7 +6,7 @@ import { spawnSync } from 'child_process';
 import { afterEach, describe, expect, it } from 'vitest';
 import {
   loadVrfkitPipelineConfig, runVrfkitReplayPipeline, validateVrfkitNormalizedResult, vrfkitPipelineInternals,
-  type VrfkitPipelineConfig,
+  type VrfkitPipelineConfig, VRFKIT_PIN,
 } from '../lib/vrfkitReplayPipeline';
 import { buildReplayOpeningReviewDraft } from '../lib/replayOpeningEngine';
 
@@ -35,7 +35,7 @@ function normalized(replaySha256: string, binarySha256: string, manifestSha256: 
   return {
     schemaVersion: 1,
     parserInput: {
-      parser: { name: 'vrfkit', version: '0.2.5' }, provenance: { replaySha256 }, file: { format: 'vrf', support: 'supported' },
+      parser: { name: 'vrfkit', version: VRFKIT_PIN.version }, provenance: { replaySha256 }, file: { format: 'vrf', support: 'supported' },
       identities: [{ playerId: 'a', teamId: 'team-red' }, { playerId: 'b', teamId: 'team-blue' }],
       summary: { roundCount: 1, finalScore: { teamA: 1, teamB: 0 }, players: [{ playerId: 'a', kills: 1, deaths: 0 }, { playerId: 'b', kills: 0, deaths: 1 }] },
       rounds: [{ roundNumber: 1, sequenceCompleteFromStart: true, participantPlayerIds: ['a', 'b'], participantCoverage: { status: 'complete', expectedPlayerCount: 2 }, winnerTeamId: 'team-red', events: [{ eventId: 'e1', roundNumber: 1, sequence: 1, timestampMs: 5, kind: 'player-elimination', killerPlayerId: 'a', victimPlayerId: 'b', killerTeamId: 'team-red', victimTeamId: 'team-blue', identityStatus: 'resolved' }] }],
@@ -48,7 +48,7 @@ function normalized(replaySha256: string, binarySha256: string, manifestSha256: 
       finalScore: { teamA: { teamId: 'team-red', score: available(1) }, teamB: { teamId: 'team-blue', score: available(0) } },
       players: [], unavailableFields: ['map.friendlyName'],
     },
-    diagnostics: { replaySha256, binarySha256, binaryVersion: '0.2.5', binaryCommit: 'c4d6cc0e5ec3904fdb64b350b2656b8e3ff33d53', manifestSha256, replayBuild: 'fixture', outputFileCount: 0, outputBytes: 0, identityMappingComplete: true, duplicateActorMappings: 0, duplicatePawnMappings: 0 },
+    diagnostics: { replaySha256, binarySha256, binaryVersion: VRFKIT_PIN.version, binaryCommit: VRFKIT_PIN.commit, manifestSha256, replayBuild: 'fixture', outputFileCount: 0, outputBytes: 0, identityMappingComplete: true, duplicateActorMappings: 0, duplicatePawnMappings: 0 },
   };
 }
 
@@ -133,7 +133,7 @@ describe('pinned vrfkit pipeline', () => {
   it('rejects unpinned production configuration and false parser provenance', async () => {
     const previousNodeEnv = process.env.NODE_ENV; const previousHash = process.env.VRFKIT_BINARY_SHA256; const previousOverride = process.env.VRFKIT_TEST_ALLOW_UNPINNED_BINARY;
     process.env.NODE_ENV = 'production'; process.env.VRFKIT_BINARY_SHA256 = '0'.repeat(64); process.env.VRFKIT_TEST_ALLOW_UNPINNED_BINARY = 'true';
-    try { expect(() => loadVrfkitPipelineConfig(path.resolve('private-test'))).toThrow('accepted vrfkit v0.2.5'); }
+    try { expect(() => loadVrfkitPipelineConfig(path.resolve('private-test'))).toThrow(`accepted vrfkit ${VRFKIT_PIN.version}`); }
     finally {
       process.env.NODE_ENV = previousNodeEnv;
       if (previousHash === undefined) delete process.env.VRFKIT_BINARY_SHA256; else process.env.VRFKIT_BINARY_SHA256 = previousHash;
@@ -181,5 +181,13 @@ describe('pinned vrfkit pipeline', () => {
     const result = spawnSync('python', ['-c', probe], { encoding: 'utf8' });
     expect(result.status, result.stderr).toBe(0);
     expect(JSON.parse(result.stdout)).toEqual({ ok: true, captures: [[100, 7, 99, 123, 1]], bad: false });
+  });
+
+  it('counts ultimate state transitions only when a same-player replay event corroborates them', () => {
+    const normalizerPath = path.resolve('scripts', 'normalize-vrfkit-export.py');
+    const probe = `import sys,types,importlib.util,json; sys.dont_write_bytecode=True; p=types.ModuleType('pyarrow'); q=types.ModuleType('pyarrow.parquet'); p.parquet=q; sys.modules['pyarrow']=p; sys.modules['pyarrow.parquet']=q; s=importlib.util.spec_from_file_location('n',r'''${normalizerPath}'''); n=importlib.util.module_from_spec(s); s.loader.exec_module(n); fields=[{'time_ms':1008,'actor_net_guid':7,'field_name':'bUltimateActive','value_bool':True},{'time_ms':4000,'actor_net_guid':7,'field_name':'bUltimateActive','value_bool':False}]; events=[{'group':'characterUltimateUsed','time1':1000,'word0':99},{'group':'characterUltimateUsed','time1':1001,'word0':99}]; ok,u=n.verified_ultimate_uses(fields,events,{7:'player-a'},{99:'player-a'},lambda _:1,True); bad,_=n.verified_ultimate_uses(fields,[{'group':'characterUltimateUsed','time1':2000,'word0':99}],{7:'player-a'},{99:'player-a'},lambda _:1,True); print(json.dumps({'ok':ok,'uses':u,'bad':bad}))`;
+    const result = spawnSync('python', ['-c', probe], { encoding: 'utf8' });
+    expect(result.status, result.stderr).toBe(0);
+    expect(JSON.parse(result.stdout)).toEqual({ ok: true, uses: [[1008, 7, 'player-a', 1]], bad: false });
   });
 });

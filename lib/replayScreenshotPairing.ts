@@ -5,7 +5,7 @@ export type ScreenshotPairing = {
   id: string; deviceId: string; imageSha256: string; createdAt: string; createdBy: string;
   status: 'pending' | 'linked' | 'ambiguous' | 'incomplete'; reviewRequired: true;
   draft: ScreenshotReviewDraft; replaySha256: string | null;
-  suggestions: Array<{ parserPlayerId: string; displayName: string; rosterPlayerId: null }>;
+  suggestions: Array<{ parserPlayerId: string; displayName: string; rosterPlayerId: string | null }>;
   reason: string;
 };
 export const SCREENSHOT_LIMIT = 100;
@@ -44,6 +44,11 @@ function tuple(row: any) { return [row.kills, row.deaths, row.assists].every(int
 // Agent (from scoreboard portraits and the replay's character class) breaks
 // ties between identical K/D/A lines without weakening the uniqueness rule.
 function agentTuple(row: any) { const base = tuple(row); const agent = typeof row.agent === 'string' ? row.agent.trim().toLowerCase() : ''; return base && agent ? `${base}|${agent}` : null; }
+function safeSuggestions(rows: Array<{ parserPlayerId: string; displayName: string; rosterPlayerId: string | null }>) {
+  const counts = new Map<string, number>();
+  for (const row of rows) if (row.rosterPlayerId) counts.set(row.rosterPlayerId, (counts.get(row.rosterPlayerId) || 0) + 1);
+  return rows.map(row => row.rosterPlayerId && counts.get(row.rosterPlayerId)! > 1 ? { ...row, rosterPlayerId: null } : row);
+}
 
 /** Recompute suggestions separately from immutable parser evidence and accepted coach overlays. */
 export function pairReplayScreenshots(store: any) {
@@ -74,7 +79,10 @@ export function pairReplayScreenshots(store: any) {
       if (!totals.every(integer) || (scores && totals.sort((a, b) => a - b).join(':') !== scores) || board.players?.length !== 10) continue;
       const rows = board.players.map((row: any) => { const line = { kills: field(row.kills), deaths: field(row.deaths), assists: field(row.assists), agent: field(row.agent) }; return { id: row.playerId, key: useAgents ? agentTuple(line) : tuple(line) }; });
       if (rows.some((row: any) => !row.key || typeof row.id !== 'string' || !row.id) || new Set(rows.map((row: any) => row.key)).size !== 10 || new Set(rows.map((row: any) => row.id)).size !== 10 || rows.some((row: any) => !screenshotKeys.includes(row.key))) continue;
-      candidates.push({ sha256, suggestions: rows.map((row: any) => ({ parserPlayerId: row.id, displayName: stats[screenshotKeys.indexOf(row.key)].extractedName.trim(), rosterPlayerId: null })) });
+      candidates.push({ sha256, suggestions: safeSuggestions(rows.map((row: any) => {
+        const stat = stats[screenshotKeys.indexOf(row.key)];
+        return { parserPlayerId: row.id, displayName: stat.extractedName.trim(), rosterPlayerId: stat.rosterMatch?.status === 'matched' ? stat.matchedPlayerId : null };
+      })) });
     }
     if (candidates.length > 1) { record.status = 'ambiguous'; record.reason = 'More than one replay matches. No names were assigned.'; }
     else if (candidates.length === 1) { record.status = 'linked'; record.reason = 'Unique scoreboard match. Coach review is still required.'; record.replaySha256 = candidates[0].sha256; record.suggestions = candidates[0].suggestions; }

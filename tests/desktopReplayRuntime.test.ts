@@ -1,16 +1,23 @@
 import path from 'node:path';
+import fs from 'node:fs';
 import { createRequire } from 'node:module';
 import { describe, expect, it } from 'vitest';
+import runtimePin from '../scripts/replay-runtime-pin.json';
 
 const require = createRequire(import.meta.url);
 const { resolveReplayRuntime } = require('../desktop/replay-runtime.cjs');
 
 describe('desktop replay runtime selection', () => {
+  it('packages the runtime pin beside the installed collector script', () => {
+    const pkg = JSON.parse(fs.readFileSync(path.resolve('package.json'), 'utf8'));
+    const scripts = pkg.build.extraResources.find((item: any) => item.from === 'scripts');
+    expect(scripts?.filter).toContain('replay-runtime-pin.json');
+  });
   it('ignores a partial bundled parser and selects a complete fallback runtime', () => {
     const applicationRoot = path.resolve('C:/Program Files/Moe Tracker Application/resources');
     const collectorRoot = path.resolve('C:/Users/test/AppData/Local/MoeTracker/ReplayCollector');
     const localAppData = path.resolve('C:/Users/test/AppData/Local');
-    const fallbackRoot = path.join(collectorRoot, 'runtime', 'vrfkit-v0.2.5');
+    const fallbackRoot = path.join(collectorRoot, 'runtime', `vrfkit-${runtimePin.version}`);
     const existing = new Set([
       path.join(applicationRoot, 'replay-runtime', 'vrfkit', 'vrfkit.exe'),
       path.join(fallbackRoot, 'vrfkit.exe'),

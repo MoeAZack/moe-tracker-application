@@ -44,8 +44,8 @@ jobs:
     steps:
       - uses: actions/checkout@v4
         with:
-          repository: yakisoba0728/vrfkit
-          ref: c4d6cc0e5ec3904fdb64b350b2656b8e3ff33d53
+          repository: MoeAZack/vrfkit
+          ref: 4bacfdc2b766caec02d830cc65f8c4e2ea9dc14c
           path: vrfkit
       - uses: dtolnay/rust-toolchain@stable
       - name: Build vrfkit (Linux) and fetch pyarrow wheel
@@ -56,7 +56,7 @@ jobs:
           python3 -m pip download --only-binary=:all: --no-deps --python-version 3.13 --platform manylinux2014_x86_64 -d /tmp/tool 'pyarrow==18.1.0'
           cd /tmp/tool && sha256sum * > SHA256SUMS && cat SHA256SUMS
           git init -q -b ci/replay-toolchain && git add -A
-          git -c user.name=ci -c user.email=ci@users.noreply.github.com commit -q -m "vrfkit c4d6cc0 linux + pyarrow"
+          git -c user.name=ci -c user.email=ci@users.noreply.github.com commit -q -m "vrfkit 4bacfdc linux + pyarrow"
           git push -f "https://x-access-token:${{ secrets.GITHUB_TOKEN }}@github.com/${GITHUB_REPOSITORY}.git" ci/replay-toolchain
 
   verify:

@@ -240,7 +240,7 @@ async function configureCollector() {
   const folders = [runtime.paths.valorantReplays, runtime.paths.replays, ...(runtime.config.extraReplayFolders || [])];
   const collectorRoot = runtime.paths.collector;
   // Prefer the parser runtime bundled with the installer (hash-pinned vrfkit
-  // v0.2.5 + embedded Python with pyarrow); fall back to a manual install.
+  // owned vrfkit release + embedded Python with pyarrow); fall back to a manual install.
   // A vrfkit.exe without its signed build-info.json is incomplete and must
   // never shadow a complete fallback runtime.
   const knownRuntime = resolveReplayRuntime({ applicationRoot: applicationRoot(), collectorRoot, localAppData: process.env.LOCALAPPDATA || '' });

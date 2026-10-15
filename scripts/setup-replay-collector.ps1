@@ -29,22 +29,26 @@ $setup = Join-Path $root "setup"
 $runtime = Join-Path $root "runtime"
 New-Item -ItemType Directory -Path $setup -Force | Out-Null
 New-Item -ItemType Directory -Path $runtime -Force | Out-Null
-foreach ($file in @("replay-collector.mjs", "normalize-vrfkit-export.py", "replay-collector-launch.ps1", "install-replay-collector.ps1")) {
+foreach ($file in @("replay-collector.mjs", "replay-runtime-pin.json", "normalize-vrfkit-export.py", "replay-collector-launch.ps1", "install-replay-collector.ps1")) {
   Invoke-WebRequest -Uri "$Server/collector/$file" -OutFile (Join-Path $setup $file)
 }
+$pin = Get-Content -LiteralPath (Join-Path $setup 'replay-runtime-pin.json') -Raw | ConvertFrom-Json
 
-$zip = Join-Path $runtime "vrfkit-v0.2.5-windows-x64.zip"
-$extract = Join-Path $runtime "vrfkit-v0.2.5"
+$archiveName = "vrfkit-$($pin.tag)-windows-x64.zip"
+$zip = Join-Path $runtime $archiveName
+$extract = Join-Path $runtime "vrfkit-$($pin.version)"
 if (-not (Test-Path -LiteralPath (Join-Path $extract "vrfkit.exe") -PathType Leaf)) {
-  Invoke-WebRequest -Uri "https://github.com/yakisoba0728/vrfkit/releases/download/v0.2.5/vrfkit-v0.2.5-windows-x64.zip" -OutFile $zip
+  Invoke-WebRequest -Uri "https://github.com/$($pin.repository)/releases/download/$($pin.tag)/$archiveName" -OutFile $zip
   $hash = (Get-FileHash -LiteralPath $zip -Algorithm SHA256).Hash.ToLowerInvariant()
-  if ($hash -ne "2cf8375191f7de8b8199f84a69e91a02e5e4d5b541c242e466c9d9aa24ef7494") { throw "The replay parser download failed verification." }
+  if ($hash -ne $pin.windowsX64ZipSha256) { throw "The replay parser download failed verification." }
   if (Test-Path -LiteralPath $extract) { Remove-Item -LiteralPath $extract -Recurse -Force }
   Expand-Archive -LiteralPath $zip -DestinationPath $extract
 }
 $binary = Join-Path $extract "vrfkit.exe"
 $binaryHash = (Get-FileHash -LiteralPath $binary -Algorithm SHA256).Hash.ToLowerInvariant()
-if ($binaryHash -ne "aa55fc410f1596a6ffedc7ab579341da6edb262197c64902e74b4eed485dc23f") { throw "The replay parser executable failed verification." }
+if ($binaryHash -ne $pin.windowsX64ExeSha256) { throw "The replay parser executable failed verification." }
+$buildInfo = Get-Content -LiteralPath (Join-Path $extract 'build-info.json') -Raw | ConvertFrom-Json
+if ($buildInfo.tag -ne $pin.tag -or $buildInfo.commit -ne $pin.commit -or $buildInfo.executable_sha256 -ne $pin.windowsX64ExeSha256) { throw 'The replay parser build metadata failed verification.' }
 
 & (Join-Path $setup "install-replay-collector.ps1") -Server $Server -DeviceId $DeviceId -VrfkitBinary $binary -PythonPath $python
 Write-Host "Setup complete. New replays will appear automatically after VALORANT finishes writing them." -ForegroundColor Green

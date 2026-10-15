@@ -8,7 +8,7 @@ import { Transform } from 'stream';
 import { readDB, saveDB, DB_PATH } from '../store';
 import { publishVerifiedReplayTemp, reserveReplayUpload, sha256ReplayFile } from '../replayIntakeSafety';
 import { buildReplayOpeningReviewDraft } from '../replayOpeningEngine';
-import { loadVrfkitPipelineConfig, runVrfkitReplayPipeline } from '../vrfkitReplayPipeline';
+import { loadVrfkitPipelineConfig, runVrfkitReplayPipeline, VRFKIT_PIN } from '../vrfkitReplayPipeline';
 import { calculateShadowPlayerRating, type PlayerRatingInput } from '../playerRatingEngine';
 import { validateLocalReplayEvidence } from '../replayEvidence';
 import { extractScoreboardScreenshot } from './aiVision';
@@ -72,7 +72,7 @@ type ReplayParserJob = {
   id: string; sha256: string; requestedBy: string; status: 'queued' | 'running' | 'completed' | 'failed';
   sourceDeviceIds: string[];
   createdAt: string; startedAt: string | null; completedAt: string | null;
-  parser: { name: 'vrfkit'; version: '0.2.5' }; reviewStatus: 'review-required';
+  parser: { name: 'vrfkit'; version: string }; reviewStatus: 'review-required';
   result?: { scoreboard: any; reviewDraft: any; diagnostics: any };
   failure?: { code: string; message: string };
   lease?: { owner: string; expiresAt: string; heartbeatAt: string; fence: number } | null;
@@ -258,7 +258,7 @@ function acceptReviewIntoEngines(db: any, store: ReplayStore, job: ReplayParserJ
   const activeCoreIds = new Set((db.coreMemberships || []).filter((item: any) => !item.endedAt).map((item: any) => item.playerId));
   const acceptedRows = [...mapping.entries()].map(([parserPlayerId, overlay]) => {
     const raw: any = rawRows.get(parserPlayerId) || {}; const metrics: any = metricRows.get(parserPlayerId) || {}; const existing: any = existingRows.get(overlay.rosterPlayerId);
-    const corrected = correctedFields(existing); const replay: Record<string, any> = { kills: evidenceNumber(raw.kills) ?? metrics.kills ?? null, deaths: evidenceNumber(raw.deaths) ?? metrics.deaths ?? null, assists: evidenceNumber(raw.assists) ?? metrics.assists ?? null, acs: null, adr: metrics.damage === null || metrics.damage === undefined || !draft.coverage?.playedRounds ? null : metrics.damage / draft.coverage.playedRounds, hs: metrics.headshotPercentage ?? null, headshots: metrics.headshotKills ?? null, headshotEligibleKills: metrics.eligibleHeadshotKills ?? null, orbPoints: metrics.orbCaptures ?? null, fk: evidenceNumber(raw.firstBloods), fd: evidenceNumber(raw.firstDeaths), plants: evidenceNumber(raw.plants), defuses: evidenceNumber(raw.defuses) };
+    const corrected = correctedFields(existing); const replay: Record<string, any> = { kills: evidenceNumber(raw.kills) ?? metrics.kills ?? null, deaths: evidenceNumber(raw.deaths) ?? metrics.deaths ?? null, assists: evidenceNumber(raw.assists) ?? metrics.assists ?? null, acs: null, adr: metrics.damage === null || metrics.damage === undefined || !draft.coverage?.playedRounds ? null : metrics.damage / draft.coverage.playedRounds, hs: metrics.headshotPercentage ?? null, headshots: metrics.headshotKills ?? null, headshotEligibleKills: metrics.eligibleHeadshotKills ?? null, orbPoints: metrics.orbCaptures ?? null, ultimateUses: metrics.ultimateUses ?? null, kastSuccessful: metrics.kastSuccessful ?? null, kastCovered: metrics.kastCovered ?? null, fk: evidenceNumber(raw.firstBloods), fd: evidenceNumber(raw.firstDeaths), plants: evidenceNumber(raw.plants), defuses: evidenceNumber(raw.defuses) };
     const facts = Object.fromEntries(Object.entries(replay).map(([field, value]) => [field, mergeVerifiedField(existing, field, value, corrected)]));
     const accepted = { ...existing, id: existing?.id || `replay:${review.matchId}:${overlay.rosterPlayerId}`, matchId: review.matchId, playerId: overlay.rosterPlayerId, player: overlay.displayName, displayNameSnapshot: overlay.displayName, appearanceType: existing?.appearanceType || (activeCoreIds.has(overlay.rosterPlayerId) ? 'core' : 'standIn'), agent: evidenceText(raw.agent) || existing?.agent || 'Unknown', ...facts, sourceMetadata: { method: 'provider-import', capturedAt: acceptedAt, provider: 'vrfkit', externalId: review.sha256 }, corrections: [...(existing?.corrections || []), { correctedAt: review.updatedAt, correctedBy: user.username, fields: ['player-name-mapping'] }] };
     return preserveIdentitySnapshot(existing, accepted);
@@ -301,7 +301,7 @@ function acceptReviewIntoEngines(db: any, store: ReplayStore, job: ReplayParserJ
       const parserId = [...mapping.entries()].find(([, item]) => item.rosterPlayerId === row.playerId)?.[0];
       const metric = parserId ? metricRows.get(parserId) as any : undefined; const raw = parserId ? rawRows.get(parserId) as any : undefined;
       const count = (value: any) => typeof value === 'number' && Number.isFinite(value) && rounds > 0 ? { value: value / rounds, samples: rounds } : { value: null, samples: 0 };
-      const input: PlayerRatingInput = { context: { playerId: row.playerId, displayName: historicalPlayerLabel(row), mode, source: structuredClone(config.baseline.source), appearance: row.appearanceType || 'unclassified', rosterKind: match.rosterContext?.kind || 'unclassified', tryoutBatchId: match.rosterContext?.tryoutBatchId || null, matchIds: [review.matchId], rounds, maps: [map || match.map].filter(Boolean), agents: row.agent && row.agent !== 'Unknown' ? [row.agent] : [], roles: [] }, metrics: { killsPerRound: count(evidenceNumber(raw?.kills) ?? metric?.kills), deathsPerRound: count(evidenceNumber(raw?.deaths) ?? metric?.deaths), assistsPerRound: count(evidenceNumber(raw?.assists) ?? metric?.assists), averageDamagePerRound: count(metric?.damage), kastRate: { value: null, samples: 0 }, firstKillsPerRound: count(evidenceNumber(raw?.firstBloods)), firstDeathsPerRound: count(evidenceNumber(raw?.firstDeaths)) } };
+      const input: PlayerRatingInput = { context: { playerId: row.playerId, displayName: historicalPlayerLabel(row), mode, source: structuredClone(config.baseline.source), appearance: row.appearanceType || 'unclassified', rosterKind: match.rosterContext?.kind || 'unclassified', tryoutBatchId: match.rosterContext?.tryoutBatchId || null, matchIds: [review.matchId], rounds, maps: [map || match.map].filter(Boolean), agents: row.agent && row.agent !== 'Unknown' ? [row.agent] : [], roles: [] }, metrics: { killsPerRound: count(evidenceNumber(raw?.kills) ?? metric?.kills), deathsPerRound: count(evidenceNumber(raw?.deaths) ?? metric?.deaths), assistsPerRound: count(evidenceNumber(raw?.assists) ?? metric?.assists), averageDamagePerRound: count(metric?.damage), kastRate: typeof metric?.kastRate === 'number' && typeof metric?.kastCovered === 'number' ? { value: metric.kastRate, samples: metric.kastCovered } : { value: null, samples: 0 }, firstKillsPerRound: count(evidenceNumber(raw?.firstBloods)), firstDeathsPerRound: count(evidenceNumber(raw?.firstDeaths)) } };
       // This handoff creates one review artifact per accepted match. The general
       // rating adapter may intentionally replace an aggregate series snapshot, but
       // replay acceptance must not erase the prior match's auditable source input.
@@ -670,7 +670,7 @@ export function registerReplayDeviceUploadRoute(app: Express) {
         return res.status(200).json({ ...uploadPublic(association, existing), evidenceSha256: validated.envelope.evidenceSha256, reviewRequired: existing.reviewStatus !== 'accepted', idempotent: true });
       }
       const jobId = crypto.randomUUID();
-      const job: ReplayParserJob = { id: jobId, sha256: expectedHash, requestedBy: device.owner.actorId, sourceDeviceIds: [device.id], status: 'completed', createdAt: now, startedAt: now, completedAt: now, parser: { name: 'vrfkit', version: '0.2.5' }, reviewStatus: 'review-required', result: validated.retained, lease: null };
+      const job: ReplayParserJob = { id: jobId, sha256: expectedHash, requestedBy: device.owner.actorId, sourceDeviceIds: [device.id], status: 'completed', createdAt: now, startedAt: now, completedAt: now, parser: { name: 'vrfkit', version: VRFKIT_PIN.version }, reviewStatus: 'review-required', result: validated.retained, lease: null };
       const blob: ReplayBlob = { sha256: expectedHash, size: source.size, storedAt: existing?.storedAt || now, ingestionMode: 'local-evidence', uploadStatus: 'processed', parserStatus: 'parsed-review-required', parserJobId: jobId, reviewStatus: 'review-required', matchId: existing?.matchId || null, rawObject: null };
       const association: ReplayAssociation = ownAssociation || { id: crypto.randomUUID(), sha256: expectedHash, size: source.size, originalName, deviceId: device.id, owner: device.owner, receivedAt: now };
       store.parserJobs[jobId] = job; store.blobs[expectedHash] = blob; store.associations[ownKey] = association; device.lastSeenAt = now;
@@ -718,7 +718,7 @@ export function registerReplayDeviceUploadRoute(app: Express) {
       const rawObject: RawReplayObject = { bucket: session.bucket, object: session.object, generation: verified.generation, size: session.size, sha256: session.sha256, uploadId, status: 'verified', expiresAt: session.expiresAt };
       const blob = store.blobs[session.sha256]; if (!blob || blob.size !== session.size) return res.status(409).json({ error: 'Raw replay metadata is inconsistent.' });
       const sourceDeviceIds = [device.id]; const admission = parserAdmission(store, device.owner.actorId, sourceDeviceIds); if (!admission.ok) return res.status(429).json({ error: admission.error });
-      const now = new Date().toISOString(); const job: ReplayParserJob = { id: crypto.randomUUID(), sha256: session.sha256, requestedBy: device.owner.actorId, sourceDeviceIds, status: 'queued', createdAt: now, startedAt: null, completedAt: null, parser: { name: 'vrfkit', version: '0.2.5' }, reviewStatus: 'review-required', rawObject };
+      const now = new Date().toISOString(); const job: ReplayParserJob = { id: crypto.randomUUID(), sha256: session.sha256, requestedBy: device.owner.actorId, sourceDeviceIds, status: 'queued', createdAt: now, startedAt: null, completedAt: null, parser: { name: 'vrfkit', version: VRFKIT_PIN.version }, reviewStatus: 'review-required', rawObject };
       const response = { ...parserJobPublic(job), ingestionMode: 'coach-raw', uploadStatus: 'verified', rawObjectStatus: 'verified' };
       store.parserJobs[job.id] = job; blob.rawObject = rawObject; blob.ingestionMode = 'coach-raw'; blob.uploadStatus = 'verified'; blob.parserStatus = 'pending'; blob.parserJobId = job.id; delete store.rawSessions[uploadId]; store.rawReceipts[uploadId] = { uploadId, deviceId: device.id, response, createdAt: now }; pruneRawReceipts(store); device.lastSeenAt = now;
       await saveDB(db); const timer = rawSessionTimers.get(uploadId); if (timer) clearTimeout(timer); rawSessionTimers.delete(uploadId); res.status(202).json(response); requestParserPump();
@@ -820,7 +820,7 @@ export async function registerReplayDeviceRoutes(app: Express) {
         return res.json({ sha256: expectedHash, parserStatus: existing.parserStatus, reviewStatus: existing.reviewStatus, matchId: existing.matchId, idempotent: true });
       }
       const now = new Date().toISOString(); const jobId = crypto.randomUUID();
-      const job: ReplayParserJob = { id: jobId, sha256: expectedHash, requestedBy: user.actorId, sourceDeviceIds: [sourceDeviceId], status: 'completed', createdAt: now, startedAt: now, completedAt: now, parser: { name: 'vrfkit', version: '0.2.5' }, reviewStatus: 'review-required', result: validated.retained, lease: null };
+      const job: ReplayParserJob = { id: jobId, sha256: expectedHash, requestedBy: user.actorId, sourceDeviceIds: [sourceDeviceId], status: 'completed', createdAt: now, startedAt: now, completedAt: now, parser: { name: 'vrfkit', version: VRFKIT_PIN.version }, reviewStatus: 'review-required', result: validated.retained, lease: null };
       const blob: ReplayBlob = { sha256: expectedHash, size: source.size, storedAt: existing?.storedAt || now, ingestionMode: 'local-evidence', uploadStatus: 'processed', parserStatus: 'parsed-review-required', parserJobId: jobId, evidenceHash: incomingEvidenceHash, reviewStatus: existing?.reviewStatus || 'review-required', matchId: existing?.matchId || null, rawObject: null };
       const key = associationKey(sourceDeviceId, expectedHash);
       store.parserJobs[jobId] = job; store.blobs[expectedHash] = blob;
@@ -1026,7 +1026,7 @@ export async function registerReplayDeviceRoutes(app: Express) {
       const job: ReplayParserJob = {
         id: crypto.randomUUID(), sha256, requestedBy: user.actorId, sourceDeviceIds, status: 'queued',
         createdAt: now, startedAt: null, completedAt: null,
-        parser: { name: 'vrfkit', version: '0.2.5' }, reviewStatus: 'review-required',
+        parser: { name: 'vrfkit', version: VRFKIT_PIN.version }, reviewStatus: 'review-required',
         ...(blob.rawObject && blob.rawObject.status !== 'deleted' ? { rawObject: blob.rawObject } : {}),
       };
       store.parserJobs[job.id] = job; blob.parserStatus = 'pending'; blob.parserJobId = job.id; await saveDB(db);
@@ -1045,9 +1045,9 @@ export async function registerReplayDeviceRoutes(app: Express) {
       const db = await readDB(); const store = replayStore(db); const blob = store.blobs[sha256];
       if (!blob || !actorCanSeeReplay(user, store, sha256)) return res.status(404).json({ error: 'Private replay not found.' });
       const job = blob.parserJobId ? store.parserJobs[blob.parserJobId] : null;
-      if (user.role !== 'coach') return res.json(job ? parserJobStatusPublic(job, blob.reviewStatus) : { sha256, status: blob.parserStatus, reviewStatus: blob.reviewStatus, parser: { name: 'vrfkit', version: '0.2.5' } });
+      if (user.role !== 'coach') return res.json(job ? parserJobStatusPublic(job, blob.reviewStatus) : { sha256, status: blob.parserStatus, reviewStatus: blob.reviewStatus, parser: { name: 'vrfkit', version: VRFKIT_PIN.version } });
       const screenshotPairings = Object.values(store.screenshots).filter(item => item.status === 'linked' && item.replaySha256 === sha256).map(screenshotPairingPublic);
-      res.json(job ? { ...parserJobPublic(job), review: replayReviewPublic(store.reviews[sha256]), screenshotPairings } : { sha256, status: blob.parserStatus, reviewStatus: blob.reviewStatus, parser: { name: 'vrfkit', version: '0.2.5' }, review: replayReviewPublic(store.reviews[sha256]), screenshotPairings });
+      res.json(job ? { ...parserJobPublic(job), review: replayReviewPublic(store.reviews[sha256]), screenshotPairings } : { sha256, status: blob.parserStatus, reviewStatus: blob.reviewStatus, parser: { name: 'vrfkit', version: VRFKIT_PIN.version }, review: replayReviewPublic(store.reviews[sha256]), screenshotPairings });
     } catch (error: any) { res.status(500).json({ error: 'Replay parser status is unavailable.' }); }
   });
 

@@ -518,18 +518,20 @@ export default function ReplayWorkspace({
     setSavedReview(prior);
     setMatchId(prior?.matchId || currentUpload?.matchId || "");
     setTeamId(prior?.teamId || teams[0] || "");
-    const screenshotNames = new Map<string, string>(
+    const screenshotSuggestions = new Map<string, Mapping>(
       (detail.screenshotPairings || [])
         .flatMap((item) => item.suggestions || [])
-        .map((item) => [item.parserPlayerId, item.displayName]),
+        .map((item) => [item.parserPlayerId, item]),
     );
+    const suggestedTeams = new Set(parsedPlayers.filter((player: any) => screenshotSuggestions.get(player.playerId)?.rosterPlayerId).map((player: any) => player.teamId));
+    if (!prior?.teamId && suggestedTeams.size === 1) setTeamId([...suggestedTeams][0]);
     setMappings(
       prior?.mappings ||
         parsedPlayers.map((player: any, index: number) => ({
           parserPlayerId: player.playerId,
-          rosterPlayerId: null,
+          rosterPlayerId: screenshotSuggestions.get(player.playerId)?.rosterPlayerId || null,
           displayName:
-            screenshotNames.get(player.playerId) ||
+            screenshotSuggestions.get(player.playerId)?.displayName ||
             evidence(player.displayName) ||
             `Anonymous player ${index + 1}`,
         })),
@@ -1434,7 +1436,7 @@ export function ReplayReviewEvidence({
               {accepted ? "Accepted" : "Coach review draft"}
             </Pill>
             <span className="text-[11px] text-slate-500">
-              vrfkit {detail.parser?.version || "0.2.5"}
+              vrfkit {detail.parser?.version || "0.2.6-moe.1"}
             </span>
           </span>
           <h2 className="mt-2 text-xl font-bold">
@@ -1530,7 +1532,7 @@ export function ReplayReviewEvidence({
           )}
         </div>
         <div className="ui-table-shell mt-2">
-          <table className="w-full min-w-[940px] text-left text-xs">
+          <table className="w-full min-w-[1080px] text-left text-xs">
             <thead className="text-slate-500">
               <tr>
                 <th className="px-3 py-2 font-medium">Replay identity</th>
@@ -1541,6 +1543,8 @@ export function ReplayReviewEvidence({
                 <th className="px-3 py-2 text-right font-medium">K / D / A</th>
                 <th className="px-3 py-2 text-right font-medium">HS</th>
                 <th className="px-3 py-2 text-right font-medium">Orbs</th>
+                <th className="px-3 py-2 text-right font-medium">Ults</th>
+                <th className="px-3 py-2 text-right font-medium">KAST</th>
                 <th className="px-3 py-2 text-right font-medium">FK / FD</th>
                 <th className="px-3 py-2 text-right font-medium">P / D</th>
               </tr>
@@ -1633,6 +1637,14 @@ export function ReplayReviewEvidence({
                     </td>
                     <td className="px-3 py-2 text-right font-mono">
                       {metrics?.orbCaptures ?? "—"}
+                    </td>
+                    <td className="px-3 py-2 text-right font-mono">
+                      {metrics?.ultimateUses ?? "—"}
+                    </td>
+                    <td className="px-3 py-2 text-right font-mono">
+                      {typeof metrics?.kastRate === "number"
+                        ? `${Math.round(metrics.kastRate * 100)}% (${metrics.kastSuccessful}/${metrics.kastCovered})`
+                        : "—"}
                     </td>
                     <td className="px-3 py-2 text-right font-mono">
                       <FieldValue value={player.firstBloods} /> /{" "}

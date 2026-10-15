@@ -5,14 +5,9 @@ import path from 'path';
 import { spawn } from 'child_process';
 import { pipeline } from 'stream/promises';
 import type { ReplayParserDraftInput } from './replayOpeningEngine';
+import runtimePin from '../scripts/replay-runtime-pin.json';
 
-export const VRFKIT_PIN = {
-  tag: 'v0.2.5',
-  version: '0.2.5',
-  commit: 'c4d6cc0e5ec3904fdb64b350b2656b8e3ff33d53',
-  windowsX64ZipSha256: '2cf8375191f7de8b8199f84a69e91a02e5e4d5b541c242e466c9d9aa24ef7494',
-  windowsX64ExeSha256: 'aa55fc410f1596a6ffedc7ab579341da6edb262197c64902e74b4eed485dc23f',
-} as const;
+export const VRFKIT_PIN = Object.freeze(runtimePin);
 
 const HEX_SHA256 = /^[a-f0-9]{64}$/;
 const MAX_STDIO_BYTES = 64 * 1024;
@@ -105,7 +100,7 @@ export function loadVrfkitPipelineConfig(privateStorageRoot: string): VrfkitPipe
   const testOverride = process.env.NODE_ENV === 'test' && process.env.VRFKIT_TEST_ALLOW_UNPINNED_BINARY === 'true';
   const binarySha256 = String(process.env.VRFKIT_BINARY_SHA256 || VRFKIT_PIN.windowsX64ExeSha256).toLowerCase();
   if (!HEX_SHA256.test(binarySha256)) throw Object.assign(new Error('VRFKIT_BINARY_SHA256 must be a SHA-256 digest.'), { code: 'parser-misconfigured' });
-  if (!testOverride && binarySha256 !== VRFKIT_PIN.windowsX64ExeSha256) throw Object.assign(new Error('VRFKIT_BINARY_SHA256 must match the accepted vrfkit v0.2.5 artifact.'), { code: 'parser-misconfigured' });
+  if (!testOverride && binarySha256 !== VRFKIT_PIN.windowsX64ExeSha256) throw Object.assign(new Error(`VRFKIT_BINARY_SHA256 must match the accepted vrfkit ${VRFKIT_PIN.version} artifact.`), { code: 'parser-misconfigured' });
   const jobsRoot = path.resolve(process.env.VRFKIT_JOBS_DIR || path.join(privateStorageRoot, '.parser-jobs'));
   const relative = path.relative(path.resolve(privateStorageRoot), jobsRoot);
   if (!relative || relative.startsWith('..') || path.isAbsolute(relative)) throw Object.assign(new Error('VRFKIT_JOBS_DIR must be a private child of REPLAY_STORAGE_DIR.'), { code: 'parser-misconfigured' });
@@ -162,17 +157,27 @@ function normalizedFsPath(value: string) {
   return process.platform === 'win32' ? resolved.toLowerCase() : resolved;
 }
 
-async function measureTree(root: string, maxFiles: number, maxBytes: number) {
+async function measureTree(root: string, maxFiles: number, maxBytes: number, transientPathsMayDisappear = false) {
   let files = 0; let bytes = 0;
   const rootReal = await fsp.realpath(root);
   if (normalizedFsPath(rootReal) !== normalizedFsPath(root)) throw new Error('Parser output root may not be a reparse path.');
   const visit = async (directory: string): Promise<void> => {
-    for (const entry of await fsp.readdir(directory, { withFileTypes: true })) {
+    let entries;
+    try { entries = await fsp.readdir(directory, { withFileTypes: true }); }
+    catch (error: any) {
+      if (transientPathsMayDisappear && error?.code === 'ENOENT' && normalizedFsPath(directory) !== normalizedFsPath(root)) return;
+      throw error;
+    }
+    for (const entry of entries) {
       const target = path.resolve(directory, entry.name);
       if (!inside(root, target)) throw new Error('Parser output escaped its job directory.');
-      const stat = await fsp.lstat(target);
+      let stat;
+      try { stat = await fsp.lstat(target); }
+      catch (error: any) { if (transientPathsMayDisappear && error?.code === 'ENOENT') continue; throw error; }
       if (entry.isSymbolicLink() || stat.isSymbolicLink()) throw new Error('Parser output may not contain symbolic links or reparse points.');
-      const real = await fsp.realpath(target);
+      let real;
+      try { real = await fsp.realpath(target); }
+      catch (error: any) { if (transientPathsMayDisappear && error?.code === 'ENOENT') continue; throw error; }
       if (normalizedFsPath(real) !== normalizedFsPath(target) || !inside(rootReal, real)) throw new Error('Parser output may not contain reparse points or realpath escapes.');
       if (stat.isDirectory()) await visit(target);
       else if (stat.isFile()) {
@@ -261,7 +266,7 @@ async function runBounded(command: string, args: string[], cwd: string, outputRo
     const timeout = setTimeout(() => { void stop(new Error('Replay parser timed out.')); }, config.timeoutMs);
     const monitor = setInterval(async () => {
       if (measuring || settled) return; measuring = true;
-      try { await measureTree(outputRoot, config.maxOutputFiles, config.maxOutputBytes); } catch (error: any) { await stop(error); } finally { measuring = false; }
+      try { await measureTree(outputRoot, config.maxOutputFiles, config.maxOutputBytes, true); } catch (error: any) { await stop(error); } finally { measuring = false; }
     }, 250);
     child.on('error', error => { void stop(new Error(`Replay parser could not start: ${error.message}`)); });
     child.on('close', code => {
@@ -342,12 +347,12 @@ export async function runVrfkitReplayPipeline(replayPath: string, replaySha256: 
   if (actualBinaryHash !== config.binarySha256) throw new Error('Configured vrfkit binary failed its pinned SHA-256 check.');
   const testOverride = process.env.NODE_ENV === 'test' && config.testOnlyAllowUnpinnedBinary === true;
   if (!testOverride) {
-    if (config.binarySha256 !== VRFKIT_PIN.windowsX64ExeSha256 || actualBinaryHash !== VRFKIT_PIN.windowsX64ExeSha256) throw new Error('Configured vrfkit binary is not the accepted v0.2.5 artifact.');
+    if (config.binarySha256 !== VRFKIT_PIN.windowsX64ExeSha256 || actualBinaryHash !== VRFKIT_PIN.windowsX64ExeSha256) throw new Error(`Configured vrfkit binary is not the accepted ${VRFKIT_PIN.version} artifact.`);
     const buildInfoPath = path.resolve(path.dirname(config.binaryPath), 'build-info.json');
     const buildInfo = JSON.parse((await readBoundedRegularFile(buildInfoPath, path.dirname(config.binaryPath), 64 * 1024)).toString('utf8'));
     if (buildInfo?.tag !== VRFKIT_PIN.tag || buildInfo?.commit !== VRFKIT_PIN.commit
       || buildInfo?.executable_sha256 !== VRFKIT_PIN.windowsX64ExeSha256 || buildInfo?.target !== 'x86_64-pc-windows-msvc') {
-      throw new Error('Configured vrfkit build metadata does not match the accepted v0.2.5 artifact.');
+      throw new Error(`Configured vrfkit build metadata does not match the accepted ${VRFKIT_PIN.version} artifact.`);
     }
   }
   if (actualReplayHash !== replaySha256) throw new Error('Private replay failed integrity verification before parsing.');
