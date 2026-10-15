@@ -118,7 +118,8 @@ describe('S0.6 aggregate migration', () => {
     const backupData = buildShareableBackupPayload(data);
     const exported = buildCanonicalAnalyticsExport(data, 'm1');
     const economy = buildEconomySpecialConversions(data.matches, data.rounds);
-    const personal = selectDashboardPersonalRows(data, 'Same');
+    data.authenticatedViewer = { playerId: 'p1' };
+    const personal = selectDashboardPersonalRows(data);
     expect(publicData.matches[0].roundAnalytics.pistol).toEqual(builder.pistol);
     expect(publicData.matches[0].roundAnalytics.postPistol).toEqual(builder.postPistol);
     expect(websiteData.matches[0].roundAnalytics.pistol).toEqual(builder.pistol);
@@ -130,6 +131,19 @@ describe('S0.6 aggregate migration', () => {
     expect(compositionMatchOutcome(data.matches[0])).toBe('win');
     expect(personal.viewer?.id).toBe('p1');
     expect(personal.rows.map(row => row.id)).toEqual(['s1']);
+  });
+
+  it('selects personal dashboard rows only from the authenticated stable player ID', () => {
+    const base: any = {
+      rosterPlayers: [{ id: 'p1', displayName: 'Renamed Player' }],
+      playerStats: [{ id: 's1', matchId: 'm1', playerId: 'p1', player: 'Old Label' }],
+    };
+    expect(selectDashboardPersonalRows({ ...base, authenticatedViewer: { playerId: null } })).toEqual({ viewer: null, rows: [] });
+    const bound = selectDashboardPersonalRows({ ...base, authenticatedViewer: { playerId: 'p1' } });
+    expect(bound.viewer?.displayName).toBe('Renamed Player');
+    expect(bound.rows.map(row => row.id)).toEqual(['s1']);
+    base.rosterPlayers[0].displayName = 'Renamed Again';
+    expect(selectDashboardPersonalRows({ ...base, authenticatedViewer: { playerId: 'p1' } }).rows.map(row => row.id)).toEqual(['s1']);
   });
 
   it('applies storage schema 3 once and records the versioned migration', () => {

@@ -18,7 +18,8 @@ export function registerDataRoutes(app: Express, options: { websiteSummaryOnly?:
     try {
       const db = await readDB();
       const role = (req as any).user?.role === 'coach' ? 'coach' : 'player';
-      res.json(options.websiteSummaryOnly ? toWebsiteTrackerData(db, role) : toPublicTrackerData(db, role));
+      const authenticatedPlayerId = (req as any).user?.playerId ?? null;
+      res.json(options.websiteSummaryOnly ? toWebsiteTrackerData(db, role, authenticatedPlayerId) : toPublicTrackerData(db, role, authenticatedPlayerId));
     } catch (err: any) {
       res.status(500).json({ error: err.message });
     }
@@ -27,7 +28,7 @@ export function registerDataRoutes(app: Express, options: { websiteSummaryOnly?:
   app.get('/api/website-summary', async (req, res) => {
     try {
       const db = await readDB();
-      res.json(toWebsiteTrackerData(db, (req as any).user?.role === 'coach' ? 'coach' : 'player'));
+      res.json(toWebsiteTrackerData(db, (req as any).user?.role === 'coach' ? 'coach' : 'player', (req as any).user?.playerId ?? null));
     } catch (err: any) {
       res.status(500).json({ error: err.message });
     }

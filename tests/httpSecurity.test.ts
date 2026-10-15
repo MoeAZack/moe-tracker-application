@@ -49,7 +49,7 @@ beforeEach(async () => {
     coreMemberships: [],
     seasonArchives: [{ id: 'archive-1', name: 'Private archive', vodReviews: [{ id: 'private-archived-vod' }] }],
     vodReviews: [{ id: 'active-vod' }],
-    authKeys: [{ id: 'player-1', keyHash: crypto.createHash('sha256').update(playerKey).digest('hex'), label: 'Test player', role: 'player' }],
+    authKeys: [{ id: 'player-1', keyHash: crypto.createHash('sha256').update(playerKey).digest('hex'), label: 'Test player', role: 'player', playerId: '11111111-1111-4111-8111-111111111111' }],
     allowedUsers: [{ email: 'private@example.invalid', role: 'coach' }],
     secretValues: { token: 'private-token' },
     replayIntake: { devices: { one: { tokenHash: 'PRIVATE-REPLAY-TOKEN-HASH', owner: { actorId: 'PRIVATE-REPLAY-OWNER' } } }, reviews: { one: { mappings: ['PRIVATE-REPLAY-MAPPING'] } } },
@@ -90,6 +90,7 @@ describe('HTTP authentication and authorization boundary', () => {
     expect(response.status).toBe(200);
     expect(response.headers.get('cache-control')).toBe('no-store');
     const data = await response.json();
+    expect(data.authenticatedViewer).toEqual({ playerId: '11111111-1111-4111-8111-111111111111' });
     expect(data.matches).toEqual([{ id: 'visible-match' }]);
     for (const key of ['authKeys', 'allowedUsers', 'secretValues']) expect(data).not.toHaveProperty(key);
     expect(data.settings).toMatchObject({ teamName: 'Test team' });
@@ -97,6 +98,8 @@ describe('HTTP authentication and authorization boundary', () => {
     expect(JSON.stringify(data)).not.toContain('private-archived-vod');
     expect(data.vodReviews).toEqual([]);
     expect(data).not.toHaveProperty('replayIntake'); expect(data).not.toHaveProperty('engineAdapters'); expect(JSON.stringify(data)).not.toContain('PRIVATE-REPLAY');
+    const websiteData = await (await request('/api/website-summary', token)).json();
+    expect(websiteData.authenticatedViewer).toEqual({ playerId: '11111111-1111-4111-8111-111111111111' });
   });
 
   it('serves a reduced website summary without raw or detailed desktop evidence', async () => {

@@ -456,6 +456,7 @@ export interface StratRun {
 }
 
 export interface TrackerData {
+  authenticatedViewer?: { playerId: string | null };
   settings: Settings;
   rosterPlayers: RosterPlayer[];
   coreMemberships: CoreMembership[];

@@ -5,6 +5,14 @@ const savedEnv = { ...process.env };
 afterEach(() => { process.env = { ...savedEnv }; });
 
 describe('public tracker data', () => {
+  it('uses only server-supplied stable identity for the authenticated viewer', () => {
+    const db = { authenticatedViewer: { playerId: 'spoofed' }, settings: {}, rosterPlayers: [], playerStats: [] };
+    expect(toPublicTrackerData(db, 'player')).not.toHaveProperty('authenticatedViewer');
+    expect(toPublicTrackerData(db, 'player', ' player-1 ')).toMatchObject({ authenticatedViewer: { playerId: 'player-1' } });
+    expect(toWebsiteTrackerData(db, 'player', 'player-1')).toMatchObject({ authenticatedViewer: { playerId: 'player-1' } });
+    expect(toPublicTrackerData(db, 'coach', 'player-1')).toMatchObject({ authenticatedViewer: { playerId: null } });
+  });
+
   it('projects legacy player selectors from canonical active core membership', () => {
     const result = toPublicTrackerData({
       settings: { players: ['Player1', 'Player2'], inactivePlayers: ['Former'] },
