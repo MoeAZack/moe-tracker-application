@@ -115,7 +115,7 @@ in this block, and what should we inspect first?”
 
 ### Work items
 
-- **S1.1 Block model** — Group matches by explicit block when supplied, with a
+- **S1.1 Block model** — **Complete (tryout-priority dependency).** Group matches by explicit block when supplied, with a
   Cairo-date/time fallback and a coach control to merge, split, or rename blocks.
 - **S1.2 Block header** — Opponents, maps, match/round coverage, roster statuses,
   result, capture sources, and evidence health.
@@ -239,21 +239,21 @@ Support roster decisions with matched samples instead of raw leaderboard totals.
 
 ### Work items
 
-- **S4.1 Comparison selector** — Player vs player, tryout vs core average,
+- **S4.1 Comparison selector** — **Complete.** Player vs player, tryout vs core average,
   player vs own previous period, block vs block, agent split, map split, and
   ATT vs DEF.
-- **S4.2 Mirrored metrics** — K/D/A, K/D, KDA, ACS, ADR, HS, FK/FD, opening
+- **S4.2 Mirrored metrics** — **Complete.** K/D/A, K/D, KDA, ACS, ADR, HS, FK/FD, opening
   success, KAST, objectives, multikills, economy outcomes, weapon observations,
   and team record.
-- **S4.3 Signed deltas** — Show direction, magnitude, samples, and confidence;
+- **S4.3 Signed deltas** — **Complete.** Show direction, magnitude, samples, and confidence;
   do not color non-directional metrics as good/bad.
-- **S4.4 Context matching** — Offer fair filters for map, side, agent/role,
+- **S4.4 Context matching** — **Complete.** Offer fair filters for map, side, agent/role,
   composition, opponent category, and date window.
-- **S4.5 Team rank** — Rank only metrics with sufficient comparable coverage and
+- **S4.5 Team rank** — **Complete.** Rank only metrics with sufficient comparable coverage and
   label small samples.
-- **S4.6 Decision notes** — Allow private staff notes and a deliberate status
+- **S4.6 Decision notes** — **Complete.** Allow private staff notes and a deliberate status
   change among Core, Stand-in, Tryout, and Archived.
-- **S4.7 Export** — Create an evaluation sheet that states evidence limitations.
+- **S4.7 Export** — **Complete.** Create an evaluation sheet that states evidence limitations.
 
 ### Acceptance gate
 

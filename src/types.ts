@@ -56,6 +56,8 @@ export interface SeasonArchive {
   rosterPlayers: RosterPlayer[];
   coreMemberships: CoreMembership[];
   tryoutBatches: TryoutBatch[];
+  practiceBlocks?: PracticeBlock[];
+  tryoutDecisionNotes?: TryoutDecisionNote[];
   schedule: Schedule[];
   goals: Goal[];
   matches: Match[];
@@ -144,6 +146,7 @@ export interface Match {
   date: string;
   type: string;
   opponent: string;
+  opponentCategory?: string;
   map: string;
   attW: number | null;
   attL: number | null;
@@ -165,6 +168,8 @@ export interface Match {
   sourceMetadata?: EntrySourceMetadata;
   corrections?: EntryCorrectionMetadata[];
   reviewConfirmation?: ScreenshotReviewConfirmation;
+  /** Derived website-safe acceptance fact; contains no reviewer identity or raw provenance. */
+  comparisonEvidence?: { accepted: boolean };
   /** Team-only round conversion summary synchronized without raw screenshot evidence. */
   roundAnalytics?: Record<string, unknown>;
 }
@@ -201,11 +206,37 @@ export interface MatchRosterContext {
   tryoutBatchId?: string;
 }
 
+export interface PracticeBlock {
+  schema: 'moetracker.practice-block/v1';
+  id: string;
+  name: string;
+  matchIds: string[];
+  createdAt: string;
+  createdBy: string;
+  updatedAt: string;
+  updatedBy: string;
+}
+
+export interface TryoutDecisionNote {
+  schema: 'moetracker.tryout-decision-note/v1';
+  id: string;
+  playerId: string;
+  text: string;
+  createdAt: string;
+  createdBy: string;
+  updatedAt: string;
+  updatedBy: string;
+  history?: Array<{ text: string; changedAt: string; changedBy: string }>;
+  removedAt?: string;
+  removedBy?: string;
+}
+
 export interface PlayerStats {
   id: string;
   matchId: string;
   player: string;
   agent: string;
+  roleSnapshot?: string;
   kAtt: number | null;
   kDef: number | null;
   dAtt: number | null;
@@ -242,6 +273,8 @@ export interface PlayerStats {
   appearanceType?: AppearanceType;
   rowOperation?: 'create';
   sourceMetadata?: EntrySourceMetadata;
+  /** Derived website-safe opening-stat provenance; contains no actor or provider detail. */
+  comparisonEvidence?: { openingAccepted: boolean };
   corrections?: EntryCorrectionMetadata[];
   /** Coach-accepted aggregates derived from round screenshots. Raw images stay local. */
   screenshotMetrics?: PlayerScreenshotMetrics;
@@ -461,6 +494,8 @@ export interface TrackerData {
   rosterPlayers: RosterPlayer[];
   coreMemberships: CoreMembership[];
   tryoutBatches: TryoutBatch[];
+  practiceBlocks?: PracticeBlock[];
+  tryoutDecisionNotes?: TryoutDecisionNote[];
   seasonArchives: SeasonArchive[];
   secrets: Record<string, boolean>;
   schedule: Schedule[];

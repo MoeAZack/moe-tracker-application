@@ -1058,6 +1058,11 @@ export default function MatchLogRounds({ data, theme, onSaveMatch, onRemove, onS
               </div>
 
               <div className="space-y-1">
+                <label className="text-[10px] uppercase font-black text-gray-400 font-mono">Opponent Category</label>
+                <input type="text" maxLength={100} placeholder="Optional · academy, tier 2, mixed…" aria-label="Opponent category" value={editingMatch.opponentCategory || ''} onChange={e => setEditingMatch({ ...editingMatch, opponentCategory: e.target.value || undefined })} className="w-full p-2 bg-black/20 rounded border border-white/10 text-xs text-white" />
+              </div>
+
+              <div className="space-y-1">
                 <label className="text-[10px] uppercase font-black text-gray-400 font-mono">Map Selected</label>
                 <select
                   required
@@ -1248,6 +1253,7 @@ export default function MatchLogRounds({ data, theme, onSaveMatch, onRemove, onS
                         <option value="">Choose agent…</option>
                         {agents.map(a => <option key={a} value={a}>{a}</option>)}
                       </select>
+                      <input type="text" maxLength={100} aria-label={`${st.displayNameSnapshot || st.player} role context`} placeholder="Role context (optional)" value={st.roleSnapshot || ''} onChange={event => { const updated=[...editingStats]; updated[sIdx]={...updated[sIdx],roleSnapshot:event.target.value||undefined}; setEditingStats(updated); }} className="mt-1 w-full p-1 bg-black text-white border border-white/10 rounded" />
                     </div>
 
                     {/* Numeric fields */}

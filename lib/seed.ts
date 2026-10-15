@@ -200,6 +200,8 @@ export function createSeed() {
     rosterPlayers: [],
     coreMemberships: [],
     tryoutBatches: [],
+    practiceBlocks: [],
+    tryoutDecisionNotes: [],
     seasonArchives: [],
     secrets,
     schedule,

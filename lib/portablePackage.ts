@@ -3,7 +3,7 @@ import { toPublicTrackerData } from './publicData';
 
 export const PORTABLE_PACKAGE_FORMAT = 'moetracker-package/v1';
 export const PORTABLE_PACKAGE_MAX_BYTES = 9 * 1024 * 1024;
-const COLLECTIONS = ['matches', 'playerStats', 'rounds', 'rosterPlayers', 'coreMemberships', 'schedule', 'goals', 'soloq', 'vetos', 'strats', 'stratRuns', 'tryoutBatches', 'vodReviews', 'lineups', 'seasonArchives'] as const;
+const COLLECTIONS = ['matches', 'playerStats', 'rounds', 'rosterPlayers', 'coreMemberships', 'schedule', 'goals', 'soloq', 'vetos', 'strats', 'stratRuns', 'tryoutBatches', 'vodReviews', 'lineups', 'seasonArchives', 'practiceBlocks'] as const;
 
 function canonical(value: unknown): string {
   return JSON.stringify(value, (_key, nested) => nested && typeof nested === 'object' && !Array.isArray(nested)
@@ -20,6 +20,8 @@ export type PortablePackageSelection = { scope?: 'team' | 'player' | 'match' | '
 export function createPortablePackage(db: any, sourceDeviceId: string, createdAt = new Date().toISOString(), selection: PortablePackageSelection = {}) {
   const safe = toPublicTrackerData(db, 'coach');
   const collections = Object.fromEntries(COLLECTIONS.map(key => [key, Array.isArray(safe[key]) ? structuredClone(safe[key]) : []]));
+  collections.practiceBlocks = collections.practiceBlocks.map(({ createdBy: _createdBy, updatedBy: _updatedBy, ...block }: any) => block);
+  collections.seasonArchives = collections.seasonArchives.map(({ tryoutDecisionNotes: _privateNotes, ...archive }: any) => ({ ...archive, practiceBlocks: (archive.practiceBlocks || []).map(({ createdBy: _createdBy, updatedBy: _updatedBy, ...block }: any) => block) }));
   const scope = selection.scope || 'team'; const selectedId = selection.id || null; let matchIds: Set<string> | null = null;
   if (scope === 'player') {
     if (!selectedId) throw Object.assign(new Error('Player package requires a player identity.'), { status: 400 });
