@@ -76,7 +76,8 @@ instead of recalculating percentages independently in each screen.
 
 - **S0.1 Canonical evidence reference** — Define a reference containing team,
   match, round, capture session, screenshot/replay artifact, source type,
-  acceptance state, parser/capture version, and captured-at time.
+  acceptance state, parser/capture version, and captured-at time. Contract:
+  [`EVIDENCE-REFERENCE.md`](./EVIDENCE-REFERENCE.md).
 - **S0.2 Derived-metric envelope** — Standardize `value`, numerator,
   denominator, coverage, confidence, unknown reason, source references, and
   calculation version.
