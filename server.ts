@@ -275,6 +275,13 @@ export async function createApp(serveFrontend = true) {
     next();
   });
 
+  // Lightweight liveness check used by the client to notice revoked keys even
+  // while the user is idle. Authentication above re-reads the active key list.
+  app.get('/api/session', (req, res) => {
+    const user = (req as any).user;
+    res.json({ authenticated: true, role: user.role, username: user.username });
+  });
+
   // Authenticated, application-owned storage telemetry. This deliberately reports
   // measured MoeTracker payload bytes rather than pretending to be the provider's
   // billable figure (Firestore indexes/metadata are visible only in Cloud billing).
