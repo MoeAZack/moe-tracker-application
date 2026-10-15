@@ -1,7 +1,7 @@
 # Aggregate migration and versioning
 
-Schema: `moetracker.aggregate-migration/v1`  
-Canonical analytics export: `moetracker.canonical-analytics/v1`  
+Schema: `moetracker.aggregate-migration/v1`
+Canonical analytics export: `moetracker.canonical-analytics/v1`
 Roadmap: S0.6
 
 Every accepted-match aggregate is built from retained source rows by an
@@ -20,10 +20,12 @@ materialized output is excluded from that input.
 - Screenshot drafts are excluded. Duplicate match identities fail closed as
   contradictory evidence.
 - A legacy aggregate without retained source rows is preserved but marked
-  `source-unavailable`; it is never treated as reproducible input.
+  `source-unavailable` in private storage; public, website, and shareable
+  projections quarantine it. It is never treated as reproducible input.
 - Player screenshot aggregates join only through an explicit stable
   `playerId`. Names never create links, and missing identity snapshots are not
-  backfilled.
+  backfilled. Raw unlinked observations are scoped to their match, so the same
+  name in two matches remains two appearances.
 - Archived season containers pass through the same migration independently.
 
 Storage schema 3 runs this migration once for older state. Ordinary round saves

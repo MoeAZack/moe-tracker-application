@@ -118,4 +118,28 @@ describe('public tracker data', () => {
     expect(result.matches[0].roundAnalytics).toMatchObject({ schemaVersion: 1, map: 'Ascent', coveredRounds: 3, postPistol: { won: 1, total: 1 }, earnedBonus: { won: 0, total: 1 } });
     expect(JSON.stringify(result.matches[0].roundAnalytics)).not.toContain('screenshotEvidence');
   });
+
+  it('quarantines stale materialized aggregates unless retained sources reproduce them', () => {
+    const stale = { schemaVersion: 1, calculationVersion: 'map-round-intelligence/v1', sourceHash: 'a'.repeat(64), map: 'Ascent', coveredRounds: 99 };
+    const sourceRemoved: any = {
+      settings: {}, matches: [{ id: 'gone', date: '2026-10-14', type: 'Scrim', opponent: 'Other', map: 'Ascent', roundAnalytics: stale }],
+      playerStats: [{ id: 'stat', matchId: 'gone', playerId: 'p1', player: 'Alpha', screenshotMetrics: { schemaVersion: 1, calculationVersion: 'player-screenshot-metrics/v1', sourceHash: 'a'.repeat(64), coveredRounds: 99 } }], rounds: [],
+    };
+    expect(toPublicTrackerData(sourceRemoved).matches[0]).not.toHaveProperty('roundAnalytics');
+    expect(toWebsiteTrackerData(sourceRemoved).matches[0]).not.toHaveProperty('roundAnalytics');
+    expect(toWebsiteTrackerData(sourceRemoved).playerStats[0]).not.toHaveProperty('screenshotMetrics');
+
+    const retained: any = { ...sourceRemoved, matches: [{ ...sourceRemoved.matches[0], id: 'kept', roundAnalytics: { ...stale, calculationVersion: 'old/v0', sourceHash: 'b'.repeat(64) } }], playerStats: [], rounds: [{ id: 'r1', matchId: 'kept', roundNo: 1, side: 'Attack', result: 'W' }] };
+    const publicResult = toPublicTrackerData(retained); const websiteResult = toWebsiteTrackerData(retained);
+    expect(publicResult.matches[0].roundAnalytics).toMatchObject({ calculationVersion: 'map-round-intelligence/v1', coveredRounds: 1 });
+    expect(publicResult.matches[0].roundAnalytics.sourceHash).not.toBe('b'.repeat(64));
+    expect(websiteResult.matches[0].roundAnalytics.sourceHash).toBe(publicResult.matches[0].roundAnalytics.sourceHash);
+
+    retained.matches[0].roundAnalytics = { ...stale, sourceHash: 'c'.repeat(64) };
+    expect(toPublicTrackerData(retained).matches[0].roundAnalytics.sourceHash).not.toBe('c'.repeat(64));
+
+    const draft = { ...retained, matches: [{ ...retained.matches[0], sourceMetadata: { method: 'screenshot', capturedAt: '2026-10-14T10:00:00.000Z' } }] };
+    expect(toPublicTrackerData(draft).matches[0]).not.toHaveProperty('roundAnalytics');
+    expect(toWebsiteTrackerData(draft).matches[0]).not.toHaveProperty('roundAnalytics');
+  });
 });
