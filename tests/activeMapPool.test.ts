@@ -101,5 +101,10 @@ describe('analytics scope UI and routing', () => {
     }
     expect(app).toMatch(/<MapBestStats[^>]*evidenceData=\{workspaceData \|\| data\}/);
     expect(app).not.toContain('activeWorkspaceData');
+    expect(app).not.toContain('<AnalyticsScopeControl');
+    expect(app).toMatch(/<SettingsControl[^>]*analyticsMapScope=\{analyticsMapScope\}/);
+    const settings = fs.readFileSync('src/components/SettingsControl.tsx', 'utf8');
+    expect(settings).toContain('<AnalyticsScopeControl scope={analyticsMapScope}');
+    expect(settings).not.toContain('<AccessControl');
   });
 });

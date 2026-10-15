@@ -5,16 +5,20 @@ import { apiFetch } from '../utils/api';
 import StorageIndicator from './StorageIndicator';
 import DesktopDeviceSettings from './DesktopDeviceSettings';
 import DesktopIntegrationSecrets from './DesktopIntegrationSecrets';
-import AccessControl from './AccessControl';
+import AnalyticsScopeControl from './AnalyticsScopeControl';
+import type { AnalyticsMapScope, AnalyticsMapScopeContext } from '../utils/activeMapPool';
 
 interface ComponentProps {
   data: TrackerData;
   theme: any;
   onSaveSettings: (settings: Settings) => Promise<any>;
   onRefresh: () => Promise<void>;
+  analyticsMapScope: AnalyticsMapScope;
+  analyticsMapScopeContext: AnalyticsMapScopeContext;
+  onAnalyticsMapScopeChange: (scope: AnalyticsMapScope) => void;
 }
 
-export default function SettingsControl({ data, theme, onSaveSettings, onRefresh }: ComponentProps) {
+export default function SettingsControl({ data, theme, onSaveSettings, onRefresh, analyticsMapScope, analyticsMapScopeContext, onAnalyticsMapScopeChange }: ComponentProps) {
   const isLight = data.settings.theme === 'daylight';
   const [activeSubTab, setActiveSubTab] = useState<'general' | 'pool' | 'weights' | 'backup-import' | 'access-control'>('general');
 
@@ -326,7 +330,7 @@ export default function SettingsControl({ data, theme, onSaveSettings, onRefresh
             { id: 'general', label: 'General & API Integrations', icon: Info },
             { id: 'pool', label: 'Rosters & Map Pools', icon: Sliders },
             { id: 'weights', label: 'Calculator Weights & Stats', icon: Key },
-            { id: 'access-control', label: 'Access Control & Keys', icon: UserCheck },
+            { id: 'access-control', label: 'Access Keys', icon: UserCheck },
             { id: 'backup-import', label: 'Device, Sync & Storage', icon: Database }
           ].map(sb => {
             const Icon = sb.icon;
@@ -491,6 +495,7 @@ export default function SettingsControl({ data, theme, onSaveSettings, onRefresh
             {/* SUB TAB: POOL */}
             {activeSubTab === 'pool' && (
               <div className="space-y-6">
+                <AnalyticsScopeControl scope={analyticsMapScope} context={analyticsMapScopeContext} onChange={onAnalyticsMapScopeChange} />
                 <div className="liquid-subtle space-y-3 rounded-xl border border-cyan-400/20 p-4">
                   <div className="flex flex-wrap items-center justify-between gap-3"><div><h4 className="text-xs font-black uppercase tracking-widest text-cyan-300">Tryouts mode</h4><p className="mt-1 text-[10px] text-gray-400">Run repeatable candidate phases without changing the core roster.</p></div><span className={`rounded-full px-2 py-1 text-[10px] font-bold uppercase ${tryoutsMode ? 'bg-emerald-500/15 text-emerald-300' : 'bg-white/10 text-gray-400'}`}>{tryoutsMode ? 'On' : 'Off'}</span></div>
                   {!tryoutsMode ? <div className="flex flex-col gap-2 sm:flex-row"><input aria-label="New tryout phase name" value={tryoutPhaseName} onChange={event => setTryoutPhaseName(event.target.value)} maxLength={100} placeholder="Phase name, e.g. October trials" className="ui-field min-h-11 flex-1 px-3" /><button type="button" disabled={tryoutModeBusy || !tryoutPhaseName.trim()} onClick={() => updateTryoutsMode(true)} className="ui-button ui-button-primary min-h-11 px-4 text-xs disabled:opacity-50">Start fresh phase</button></div> : <div className="space-y-2"><p className="text-xs text-amber-200">Turning Tryouts mode off archives the current phase and hides the active tryout workspace. Candidate history is preserved; nothing is deleted and core membership stays unchanged.</p><button type="button" disabled={tryoutModeBusy} onClick={() => updateTryoutsMode(false)} className="ui-button min-h-11 px-4 text-xs disabled:opacity-50">Turn off and archive phase</button></div>}
@@ -1457,13 +1462,12 @@ function syncTable(sheetName, items, headers) {
             {/* SUB TAB: ACCESS CONTROL */}
             {activeSubTab === 'access-control' && (
               <div className="space-y-6">
-                <AccessControl theme={theme} rosterPlayers={data.rosterPlayers || []} />
                 <div className="border-b border-white/5 pb-2">
                   <h4 className="text-xs uppercase font-black tracking-widest text-[#ff4655] font-mono">
                     Access Keys & Panel Control
                   </h4>
                   <p className="text-[10px] text-gray-500 font-mono mt-1">
-                    Control who has access to your Scrim Hub. You can create custom login keys or immediately revoke access to instantly boot unauthorized users.
+                    Create login keys for coaches or players. Revoking a key invalidates its active session and returns that user to the lock screen on their next request.
                   </p>
                 </div>
 

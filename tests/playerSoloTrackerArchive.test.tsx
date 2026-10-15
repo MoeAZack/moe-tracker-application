@@ -2,6 +2,7 @@ import React from 'react';
 import { renderToStaticMarkup } from 'react-dom/server';
 import { describe, expect, it } from 'vitest';
 import PlayerSoloTracker from '../src/components/PlayerSoloTracker';
+import fs from 'node:fs';
 
 const baseData: any = {
   settings: { theme: 'midnight', players: [], maps: [] }, coreMemberships: [], tryoutBatches: [], matches: [], rounds: [],
@@ -39,5 +40,11 @@ describe('player overview archive action', () => {
   it('does not expose roster mutation to players', () => {
     const html = renderToStaticMarkup(<PlayerSoloTracker data={baseData} theme={{ cardBg: '', border: '' }} role="player" onSyncSoloQ={async () => null} onRefresh={async () => {}} />);
     expect(html).not.toContain('Archive');
+  });
+
+  it('presents expanded evidence as labeled metric tiles instead of dense inline strings', () => {
+    const source = fs.readFileSync('src/components/PlayerSoloTracker.tsx', 'utf8');
+    for (const label of ['Core combat output', 'First-duel pressure', 'First deaths', 'Round-winning actions', 'High-leverage round outcomes']) expect(source).toContain(label);
+    expect(source).not.toContain("card.body.map");
   });
 });
