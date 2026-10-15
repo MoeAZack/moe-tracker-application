@@ -2,8 +2,9 @@ import crypto from 'crypto';
 import { assertWorkspaceIdentityShape } from './evidenceReference';
 import { migrateAcceptedMatchAggregates } from './aggregateVersioning';
 import { materializeFirstDeathsFromRoundEvidence, materializeRoundOpeningsFromScreenshotEvidence, materializeRoundPlantsFromScreenshotEvidence } from './scrimRoundAnalytics';
+import { ensureScheduleCalendars } from './schedule';
 
-export const STORAGE_SCHEMA_VERSION = 7;
+export const STORAGE_SCHEMA_VERSION = 8;
 export const MAX_ENTITY_BYTES = 840 * 1024;
 export const MAX_DOCUMENT_BYTES = 900 * 1024;
 export const MAX_JSON_DATABASE_BYTES = 64 * 1024 * 1024;
@@ -94,6 +95,7 @@ export function ensureStorageSchema(input: any, now = new Date().toISOString()) 
   if (input.settings && Array.isArray(input.settings.agents)) {
     input.settings.agents = [...new Set([...input.settings.agents.filter((agent: unknown) => typeof agent === 'string' && agent.trim()), ...CURRENT_VALORANT_AGENTS])].sort((left, right) => String(left).localeCompare(String(right)));
   }
+  if (input.settings) ensureScheduleCalendars(input.settings);
   return input;
 }
 
