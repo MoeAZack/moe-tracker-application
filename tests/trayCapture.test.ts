@@ -13,6 +13,14 @@ describe('S6 tray-first capture contract', () => {
     expect(main).toContain("safety: 'post-match-only'");
   });
 
+  it('exposes a trusted manual recovery point and reports verified backup freshness', () => {
+    const preload = read('desktop/preload.cjs'); const main = read('desktop/main.cjs');
+    expect(preload).toContain('desktop:create-recovery-backup');
+    expect(main).toContain("handleTrusted('desktop:create-recovery-backup'");
+    expect(main).toContain('createRecoveryBackup(true)');
+    expect(main).toContain('verifiedRecent: recoveryVerified');
+  });
+
   it('passes the bounded window/display profile into the post-match helper and records it in the manifest', () => {
     const main = read('desktop/main.cjs'); const script = read('scripts/scrim-capture.ps1');
     expect(main).toContain('MOE_CAPTURE_PROFILE'); expect(main).toContain('MOE_CAPTURE_DISPLAY');
