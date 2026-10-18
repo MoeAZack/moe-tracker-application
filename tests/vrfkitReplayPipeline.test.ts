@@ -13,7 +13,14 @@ import { buildReplayOpeningReviewDraft } from '../lib/replayOpeningEngine';
 const roots: string[] = [];
 afterEach(async () => { while (roots.length) await fs.rm(roots.pop()!, { recursive: true, force: true }); });
 
-async function tempRoot() { const root = await fs.mkdtemp(path.join(os.tmpdir(), 'moetracker-vrfkit-')); roots.push(root); return root; }
+async function tempRoot() {
+  // Windows CI can expose %TEMP% through an 8.3 alias (RUNNER~1) while
+  // realpath returns the long owner name. Canonicalize the fixture root so
+  // the tests exercise actual link/reparse rejection, not alias spelling.
+  const root = await fs.realpath(await fs.mkdtemp(path.join(os.tmpdir(), 'moetracker-vrfkit-')));
+  roots.push(root);
+  return root;
+}
 async function hash(file: string) { return crypto.createHash('sha256').update(await fs.readFile(file)).digest('hex'); }
 
 async function fakeConfig(root: string, parserSource: string, normalizerSource?: string, overrides: Partial<VrfkitPipelineConfig> = {}) {
