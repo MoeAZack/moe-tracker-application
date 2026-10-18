@@ -1,11 +1,47 @@
 import type { Express } from 'express';
-import { readDB } from '../store';
+import { readDB, saveDB } from '../store';
 import { buildScheduleIcs } from '../calendarExport';
+import { fetchPraccCalendar, reconcilePraccSchedule, validatePraccCalendarUrl } from '../praccCalendar';
 
 // Integrations: secrets, calendar mocks, HenrikDev (Riot verify + Solo Q sync),
 // VLR.gg scraping, and GRID match import. All protected routes (registered after
 // the auth middleware).
 export function registerIntegrationRoutes(app: Express) {
+  const requireCoach = (req: any, res: any) => {
+    if (req.user?.role === 'coach') return true;
+    res.status(403).json({ error: 'Only a coach can configure the PRACC calendar.' });
+    return false;
+  };
+
+  const praccStatus = (settings: any) => ({
+    configured: Boolean(settings?.praccCalendarUrl),
+    url: settings?.praccCalendarUrl || '',
+    lastAttemptAt: settings?.praccCalendarLastAttemptAt || null,
+    lastSyncedAt: settings?.praccCalendarLastSyncedAt || null,
+    lastError: settings?.praccCalendarLastError || null,
+  });
+
+  const syncPraccCalendar = async (db: any, force = false) => {
+    const url = db.settings?.praccCalendarUrl;
+    if (!url) return { skipped: true, reason: 'not-configured', ...praccStatus(db.settings) };
+    const lastAttempt = Date.parse(db.settings.praccCalendarLastAttemptAt || '');
+    if (!force && Number.isFinite(lastAttempt) && Date.now() - lastAttempt < 10 * 60_000) return { skipped: true, reason: 'recently-checked', ...praccStatus(db.settings) };
+    db.settings.praccCalendarLastAttemptAt = new Date().toISOString();
+    try {
+      const events = await fetchPraccCalendar(url);
+      const result = reconcilePraccSchedule(db.schedule || [], events, url);
+      db.schedule = result.schedule;
+      db.settings.praccCalendarLastSyncedAt = new Date().toISOString();
+      db.settings.praccCalendarLastError = '';
+      await saveDB(db);
+      return { ...result, skipped: false, ...praccStatus(db.settings) };
+    } catch (error: any) {
+      db.settings.praccCalendarLastError = error?.message || 'PRACC calendar sync failed.';
+      await saveDB(db);
+      throw Object.assign(error instanceof Error ? error : new Error(db.settings.praccCalendarLastError), { status: error?.status || 502, pracc: praccStatus(db.settings) });
+    }
+  };
+
   // GET secret status
   app.get('/api/secret-status', async (req, res) => {
     try {
@@ -24,6 +60,7 @@ export function registerIntegrationRoutes(app: Express) {
   // GET integration status for the UI health panel
   app.get('/api/integrations-status', async (req, res) => {
     try {
+      const db = await readDB();
       const has = (v: any) => !!v;
       res.json({
         gemini: { configured: has(process.env.GEMINI_API_KEY), note: 'AI coach, tactical hub, screenshot OCR (needs active billing)' },
@@ -31,6 +68,7 @@ export function registerIntegrationRoutes(app: Express) {
         grid: { configured: has(process.env.GRID_API_KEY), note: has(process.env.GRID_API_KEY) ? 'Key available; GRID ingestion remains gated until provider activation and schema acceptance' : 'Add the key locally or as a Cloudflare secret; ingestion still requires provider activation' },
         discord: { configured: has(process.env.DISCORD_WEBHOOK_URL), note: 'Automatic match report broadcasts' },
         vlr: { configured: false, note: 'Disabled until team-side mapping and idempotency are verified' },
+        pracc: { configured: has(db.settings?.praccCalendarUrl), note: db.settings?.praccCalendarLastError || (db.settings?.praccCalendarUrl ? 'Connected to Schedule & Goals' : 'Add the private .ics feed in Settings → Attendance Rules') },
         dailySync: { configured: false, note: 'Legacy scheduled ranked sync disabled' }
       });
     } catch (err: any) {
@@ -62,6 +100,35 @@ export function registerIntegrationRoutes(app: Express) {
       res.setHeader('Content-Disposition', 'attachment; filename="moe-tracker-schedule.ics"');
       res.send(buildScheduleIcs(db.schedule || []));
     } catch (err: any) { res.status(500).json({ error: err.message }); }
+  });
+
+  app.get('/api/pracc/calendar', async (req, res) => {
+    try { if (!requireCoach(req, res)) return; const db = await readDB(); res.json(praccStatus(db.settings)); }
+    catch (err: any) { res.status(500).json({ error: err.message }); }
+  });
+
+  app.post('/api/pracc/calendar/configure', async (req, res) => {
+    try {
+      if (!requireCoach(req, res)) return;
+      const url = validatePraccCalendarUrl(req.body?.url);
+      const db = await readDB(); db.settings.praccCalendarUrl = url;
+      const result = await syncPraccCalendar(db, true);
+      res.json(result);
+    } catch (err: any) { res.status(err?.status || 500).json({ error: err.message, ...(err?.pracc || {}) }); }
+  });
+
+  app.post('/api/pracc/calendar/sync', async (req, res) => {
+    try { if (!requireCoach(req, res)) return; const db = await readDB(); res.json(await syncPraccCalendar(db, req.body?.force === true)); }
+    catch (err: any) { res.status(err?.status || 500).json({ error: err.message, ...(err?.pracc || {}) }); }
+  });
+
+  app.post('/api/pracc/calendar/disconnect', async (req, res) => {
+    try {
+      if (!requireCoach(req, res)) return;
+      const db = await readDB();
+      delete db.settings.praccCalendarUrl; delete db.settings.praccCalendarLastAttemptAt; delete db.settings.praccCalendarLastSyncedAt; delete db.settings.praccCalendarLastError;
+      await saveDB(db); res.json(praccStatus(db.settings));
+    } catch (err: any) { res.status(err?.status || 500).json({ error: err.message }); }
   });
 
   // POST HenrikDev Verify Riot ID

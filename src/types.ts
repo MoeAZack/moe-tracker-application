@@ -99,6 +99,11 @@ export interface Settings {
   attendanceStrikesPerRedDot?: number;
   attendanceRedDotCost?: number;
   attendanceCurrency?: string;
+  /** Private server-side PRACC feed settings are exposed only through coach integration endpoints. */
+  praccCalendarUrl?: string;
+  praccCalendarLastAttemptAt?: string;
+  praccCalendarLastSyncedAt?: string;
+  praccCalendarLastError?: string;
   tryoutsMode?: boolean;
   activeTryoutBatchId?: string | null;
   players: string[];
@@ -155,6 +160,7 @@ export interface Schedule {
   attendanceCheckIns?: AttendanceCheckIn[];
   source?: 'manual' | 'pracc';
   sourceEventId?: string;
+  sourceCalendarHash?: string;
   calendarKey?: string;
   gcalEventId?: string;
 }
