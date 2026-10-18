@@ -182,6 +182,10 @@ export interface Schedule {
   sourceCalendarHash?: string;
   calendarKey?: string;
   gcalEventId?: string;
+  practiceBlockId?: string;
+  linkedGoalIds?: string[];
+  progressLinkedAt?: string;
+  progressLinkedBy?: string;
 }
 
 export interface AttendanceCheckIn {
