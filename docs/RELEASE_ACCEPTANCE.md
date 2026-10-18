@@ -1,25 +1,25 @@
 # Desktop release acceptance
 
-Last updated: 18 October 2026, 23:20 Cairo (`Africa/Cairo`).
+Last updated: 18 October 2026, 23:34 Cairo (`Africa/Cairo`).
 
-This record distinguishes the current installed coach build from a publicly signed release. Version 0.1.55 is accepted for this PC and merged to `main`; it is **not** claimed as a signed public release or as independently accepted on a second physical PC.
+This record distinguishes the current installed coach build from a publicly signed release. Version 0.1.56 is accepted for this PC and merged to `main`; it is **not** claimed as a signed public release or as independently accepted on a second physical PC.
 
 ## Accepted installed head
 
-- Main commit: `661f68b68c5b4fb4429168a4d7df2e5155894e4a` (PR #52).
-- Ordered audit increments merged through PRs #48–52: analytics trust, connected player profiles, unified match review, PRACC practice-to-progress, and internal release/adoption readiness.
+- Main commit: `8a9d25d3ff19e1dd7fd2d7c178b635bbcef8dda6` (PR #54).
+- Ordered audit increments merged through PRs #48–54: analytics trust, connected player profiles, unified match review, PRACC practice-to-progress, internal release/adoption readiness, and the empty-roster economy identity correction.
 - GitHub checks on every increment: `verify` passed and `windows-lifecycle` passed.
-- Final local verification: lint, type checking, production build, 106 test files and 719 tests passed.
+- Final local verification: lint, type checking, production build, 106 test files and 722 tests passed.
 - Automated accessibility audit: desktop/mobile coach and player surfaces passed with zero blocking WCAG 2.2 A/AA violations.
 
 ## Windows artifact and upgrade evidence
 
-- Artifact: `Moe-Tracker-Application-0.1.55-Setup.exe`.
-- Size: 363,318,627 bytes.
-- SHA-256: `3693252AC322588FD66FB0525AA9CE316A60FA20B0E598BDA4611F25C348C5B8`.
-- Silent in-place upgrade from 0.1.54 completed with exit code 0.
+- Artifact: `Moe-Tracker-Application-0.1.56-Setup.exe`.
+- Size: 363,318,496 bytes.
+- SHA-256: `5CDDF2B134E76D2E5D2636DB160D4F5869587C0983584C15F0B71904270DC1E0`.
+- Silent in-place upgrade from 0.1.55 completed with exit code 0.
 - Installed executable: `C:\Program Files\Moe Tracker Application\Moe Tracker Application.exe`.
-- Installed product version: `0.1.55.0`.
+- Installed product version: `0.1.56.0`.
 - Main window, local service, and replay watcher launched from the installed path.
 - A timestamped pre-upgrade database backup was created before installation.
 
@@ -37,11 +37,13 @@ The post-upgrade workspace retained 8 matches and 40 player-stat rows. Each obse
 
 This verifies preservation on the owner's current PC. It is not evidence for cross-device synchronization or a second-PC migration.
 
+The screenshot-derived economy view was also evaluated directly against the installed workspace after the upgrade. It returns exactly five participants with 64 confirmed rounds each. The former dexle split is reconciled from 54 unlinked rounds plus 10 stable-identity rounds into one 64-round row; no ambiguous same-name identity is merged automatically.
+
 ## Public distribution state
 
 - Latest published GitHub release: v0.1.40.
 - The release environment and repository currently expose no configured signing secrets.
-- Windows reports the installed 0.1.55 executable as `NotSigned`.
+- Windows reports the installed 0.1.56 executable as `NotSigned`.
 - The release workflow correctly refuses publication without `WINDOWS_CSC_LINK` and `WINDOWS_CSC_KEY_PASSWORD`, verifies Authenticode before installation, and publishes only after those checks pass.
 - Automatic updates remain staged: checking is automatic, while download and restart/install remain explicit user actions.
 
@@ -51,4 +53,4 @@ This verifies preservation on the owner's current PC. It is not evidence for cro
 2. Run install, post-match capture, offline restart, pairing, synchronization, update, rollback, keyboard-only, high-contrast, 200% zoom, and assistive-technology acceptance on a second physical Windows PC.
 3. Publish the exact verified signed artifact and confirm the staged update path from the previous public version.
 
-Until those three items have independent evidence, 0.1.55 is the current verified installed coach build—not a fully accepted public release.
+Until those three items have independent evidence, 0.1.56 is the current verified installed coach build—not a fully accepted public release.
