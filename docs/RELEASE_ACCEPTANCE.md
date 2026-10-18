@@ -1,33 +1,54 @@
-# Desktop-primary release acceptance
+# Desktop release acceptance
 
-Accepted 13 October 2026, 13:31 Cairo (`Africa/Cairo`).
+Last updated: 18 October 2026, 23:20 Cairo (`Africa/Cairo`).
 
-## Accepted head
+This record distinguishes the current installed coach build from a publicly signed release. Version 0.1.55 is accepted for this PC and merged to `main`; it is **not** claimed as a signed public release or as independently accepted on a second physical PC.
 
-- Main commit: `1ebc91d` (PR #8)
-- CI: exact-head `verify` passed
-- Local verification: lint, type checking, production build, 52 test files and 418 tests passed
-- Focused collector, synchronization, and portable-package backtest: 10 consecutive passes
-- Local production-browser checks: OCR worker passed; reduced website passed at desktop and mobile widths
-- Packaged Windows check: isolated hidden launch, local workspace creation, and single-instance behavior passed
+## Accepted installed head
 
-## Windows artifact
+- Main commit: `661f68b68c5b4fb4429168a4d7df2e5155894e4a` (PR #52).
+- Ordered audit increments merged through PRs #48–52: analytics trust, connected player profiles, unified match review, PRACC practice-to-progress, and internal release/adoption readiness.
+- GitHub checks on every increment: `verify` passed and `windows-lifecycle` passed.
+- Final local verification: lint, type checking, production build, 106 test files and 719 tests passed.
+- Automated accessibility audit: desktop/mobile coach and player surfaces passed with zero blocking WCAG 2.2 A/AA violations.
 
-- File: `Moe-Tracker-Application-0.1.0-Setup.exe`
-- Size: 179,290,943 bytes
-- SHA-256: `82D4FCE518C0A9BC6D43618E1B54DD0AA30F533EC402FA193D55A4717CFA321D`
-- The real user workspace was not used or modified during acceptance.
+## Windows artifact and upgrade evidence
 
-## Production cutover
+- Artifact: `Moe-Tracker-Application-0.1.55-Setup.exe`.
+- Size: 363,318,627 bytes.
+- SHA-256: `3693252AC322588FD66FB0525AA9CE316A60FA20B0E598BDA4611F25C348C5B8`.
+- Silent in-place upgrade from 0.1.54 completed with exit code 0.
+- Installed executable: `C:\Program Files\Moe Tracker Application\Moe Tracker Application.exe`.
+- Installed product version: `0.1.55.0`.
+- Main window, local service, and replay watcher launched from the installed path.
+- A timestamped pre-upgrade database backup was created before installation.
 
-- Public portal: `https://moetracker-site.pages.dev`
-- Pages deployment: `953cf5ea`
-- API Worker version: `a0e0542d-8435-4acc-8eaa-be8ff04a0b0b`
-- Live health, anonymous-auth boundary, reduced bundle, CSP, and desktop/mobile login surface passed.
-- Previous Pages rollback deployment: `538cde1b-681d-4ea0-a100-880771432cf1`
-- Previous Worker rollback version: `015e2c64-e9ea-409d-b875-affd7e6b6379`
+## Preserved live workspace evidence
 
-## Deliberately gated
+The post-upgrade workspace retained 8 matches and 40 player-stat rows. Each observed player retained all 8 matches and the same aggregate K/D/A:
 
-- Automatic updates are staged: background checks are enabled in packaged builds, but download is user-triggered and installation requires an explicit restart.
-- Automated WCAG 2.2 A/AA auditing and cached post-update health rollback are implemented. A trusted signing certificate, signed public release, and independent physical-PC/assistive-technology acceptance remain external release gates.
+| Player | Matches | K / D / A |
+|---|---:|---:|
+| bellatrix | 8 | 123 / 127 / 64 |
+| caelia | 8 | 143 / 138 / 37 |
+| dexle | 8 | 137 / 113 / 32 |
+| majusia | 8 | 155 / 116 / 43 |
+| Sandra | 8 | 130 / 113 / 61 |
+
+This verifies preservation on the owner's current PC. It is not evidence for cross-device synchronization or a second-PC migration.
+
+## Public distribution state
+
+- Latest published GitHub release: v0.1.40.
+- The release environment and repository currently expose no configured signing secrets.
+- Windows reports the installed 0.1.55 executable as `NotSigned`.
+- The release workflow correctly refuses publication without `WINDOWS_CSC_LINK` and `WINDOWS_CSC_KEY_PASSWORD`, verifies Authenticode before installation, and publishes only after those checks pass.
+- Automatic updates remain staged: checking is automatic, while download and restart/install remain explicit user actions.
+
+## External gates still open
+
+1. Obtain a publicly trusted Windows code-signing certificate and configure the protected release secrets.
+2. Run install, post-match capture, offline restart, pairing, synchronization, update, rollback, keyboard-only, high-contrast, 200% zoom, and assistive-technology acceptance on a second physical Windows PC.
+3. Publish the exact verified signed artifact and confirm the staged update path from the previous public version.
+
+Until those three items have independent evidence, 0.1.55 is the current verified installed coach build—not a fully accepted public release.
