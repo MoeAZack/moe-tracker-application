@@ -1,9 +1,10 @@
-import type { Match, PlayerStats, VodSubmission, VodSubmissionPlayer } from '../src/types';
+import type { Match, PlayerStats, VodSubmission, VodSubmissionPlayer, VodTimelineEvidence } from '../src/types';
 
 type SubmissionInput = {
   vodUrl: string; imageSha256: string; matchId?: string; playerId: string; date: string; map: string | null; opponent: string | null;
   ourScore: number | null; theirScore: number | null;
   players: Array<Omit<VodSubmissionPlayer, 'rosterPlayerId' | 'rosterDisplayName'>>;
+  timelineEvidence?: VodTimelineEvidence | null;
 };
 
 const METRIC_FIELDS = ['kills', 'deaths', 'assists', 'acs', 'adr', 'hs', 'fk', 'fd', 'plants', 'defuses', 'trades'] as const;
@@ -62,7 +63,8 @@ function appearanceType(db: any, playerId: string) {
 export function integrateVodSubmission(db: any, input: SubmissionInput, actorName: string, ids: { submissionId: string; matchId: string; statId: () => string; reviewId: string }, now = new Date().toISOString()): VodSubmission {
   db.vodSubmissions ||= [];
   const duplicate = db.vodSubmissions.find((item: VodSubmission) => item.submittedByPlayerId === input.playerId && item.imageSha256 === input.imageSha256 && item.vodUrl === input.vodUrl);
-  if (duplicate) return duplicate;
+  if (duplicate && (!input.timelineEvidence || duplicate.timelineEvidence)) return duplicate;
+  if (duplicate) { input.matchId = duplicate.linkedMatchId; ids.submissionId = duplicate.id; }
   const players = resolveFive(db, input.players);
   if (!players.some(row => row.rosterPlayerId === input.playerId)) throw Object.assign(new Error('The submitting player must be one of the five identified players.'), { status: 403 });
   const requested = input.matchId ? (db.matches || []).find((match: Match) => match.id === input.matchId) : null;
@@ -100,11 +102,30 @@ export function integrateVodSubmission(db: any, input: SubmissionInput, actorNam
       else if (candidate !== null) preservedFields += 1;
     }
     filledFields += fields.length;
-    stat.vodEvidence = { submissionIds: [...new Set([...(stat.vodEvidence?.submissionIds || []), ids.submissionId])], fields: [...new Set([...(stat.vodEvidence?.fields || []), ...fields])], updatedAt: now };
+    const timelineMetric = input.timelineEvidence?.playerMetrics.find(metric => similarVodName(metric.playerName, observed.observedName) || similarVodName(metric.playerName, observed.rosterDisplayName));
+    const timelineFields: string[] = [];
+    const support = input.timelineEvidence?.coverage.signals || {};
+    const setTimelineMetric = (field: keyof PlayerStats, candidate: number | null, signal: string) => {
+      if (support[signal] !== 'complete' || candidate === null || candidate === undefined) return;
+      if ((stat as any)[field] === null || (stat as any)[field] === undefined) { (stat as any)[field] = candidate; fields.push(String(field)); timelineFields.push(String(field)); }
+      else preservedFields += 1;
+    };
+    if (timelineMetric) {
+      setTimelineMetric('trades', timelineMetric.trades, 'trades');
+      setTimelineMetric('ultimateUses', timelineMetric.ultimateUses ?? null, 'ultimateUse');
+      setTimelineMetric('orbPoints', timelineMetric.orbCaptures ?? null, 'orbCapture');
+      setTimelineMetric('kastSuccessful', timelineMetric.kastSuccessful ?? null, 'kast');
+      setTimelineMetric('kastCovered', timelineMetric.kastCovered ?? null, 'kast');
+    }
+    stat.vodEvidence = {
+      submissionIds: [...new Set([...(stat.vodEvidence?.submissionIds || []), ids.submissionId])], fields: [...new Set([...(stat.vodEvidence?.fields || []), ...fields])], updatedAt: now,
+      ...(timelineMetric && input.timelineEvidence ? { timeline: { submissionId: ids.submissionId, grade: 'video-observation' as const, coverage: input.timelineEvidence.coverage.signals, metrics: { observedKills: timelineMetric.kills, observedDeaths: timelineMetric.deaths, trades: timelineMetric.trades, ultimateUses: timelineMetric.ultimateUses ?? null, orbCaptures: timelineMetric.orbCaptures ?? null, kastSuccessful: timelineMetric.kastSuccessful ?? null, kastCovered: timelineMetric.kastCovered ?? null } } } : {}),
+    };
+    filledFields += timelineFields.length;
   }
   db.vodReviews ||= [];
   if (!db.vodReviews.some((review: any) => review.matchId === match!.id && review.vodUrl === input.vodUrl)) db.vodReviews.unshift({ id: ids.reviewId, matchId: match.id, title: `${players.find(row => row.rosterPlayerId === input.playerId)?.rosterDisplayName || actorName} VOD · ${match.map}`, vodUrl: input.vodUrl, date: input.date, createdAt: now, notes: [] });
-  const submission: VodSubmission = { schema: 'moetracker.vod-submission/v1', id: ids.submissionId, submittedByPlayerId: input.playerId, submittedByName: players.find(row => row.rosterPlayerId === input.playerId)?.rosterDisplayName || actorName, vodUrl: input.vodUrl, imageSha256: input.imageSha256, date: input.date, map: input.map, opponent: input.opponent, ourScore: input.ourScore, theirScore: input.theirScore, requestedMatchId: input.matchId || null, linkedMatchId: match.id, linkMode: createdMatch ? 'new-match' : 'existing-match', status: 'integrated', rosterMatchCount: 5, players, integration: { createdMatch, createdStats, filledFields, preservedFields }, createdAt: now, integratedAt: now };
-  db.vodSubmissions.unshift(submission);
-  return submission;
+  const submission: VodSubmission = { schema: 'moetracker.vod-submission/v1', id: ids.submissionId, submittedByPlayerId: input.playerId, submittedByName: players.find(row => row.rosterPlayerId === input.playerId)?.rosterDisplayName || actorName, vodUrl: input.vodUrl, imageSha256: input.imageSha256, date: input.date, map: input.map, opponent: input.opponent, ourScore: input.ourScore, theirScore: input.theirScore, requestedMatchId: input.matchId || null, linkedMatchId: match.id, linkMode: createdMatch ? 'new-match' : 'existing-match', status: 'integrated', rosterMatchCount: 5, players, timelineEvidence: input.timelineEvidence || null, integration: { createdMatch, createdStats, filledFields, preservedFields }, createdAt: now, integratedAt: now };
+  if (duplicate) { Object.assign(duplicate, { timelineEvidence: submission.timelineEvidence, integration: submission.integration, integratedAt: now }); return duplicate; }
+  db.vodSubmissions.unshift(submission); return submission;
 }

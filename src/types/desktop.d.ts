@@ -33,6 +33,9 @@ declare global {
       downloadUpdate(): Promise<DesktopStatus['update']>;
       installUpdate(): Promise<{ installing: boolean }>;
       processMatch(): Promise<{ state: string; message: string; items?: any[] }>;
+      chooseVodFile(): Promise<{ canceled: boolean; path?: string; name?: string }>;
+      analyzeVod(input: { vodUrl?: string; localPath?: string; povPlayerName?: string | null; players: Array<{ name: string; team: 'ours' | 'theirs'; expectedKills?: number | null; expectedDeaths?: number | null }> }): Promise<any>;
+      onVodAnalysisProgress(callback: (progress: { stage: string; percent: number | null; message: string }) => void): () => void;
       deleteReplay(replayPath: string): Promise<{ deleted: boolean; message: string }>;
       syncNow(): Promise<{ state: string; message: string }>;
       pairDevice(input: { server: string; code: string }): Promise<{ paired: boolean; server: string; device: any }>;

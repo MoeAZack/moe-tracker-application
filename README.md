@@ -1,5 +1,7 @@
 # Moe Tracker Application
 
+Version 0.1.43 adds local full-timeline VOD analysis for YouTube and original video files. It samples the complete video, extracts timestamped kill-feed, objective, orb, and ultimate observations, derives supported trades/KAST evidence, and links the result through the same five-player match workflow. See [VOD timeline analysis](docs/VOD-TIMELINE-ANALYSIS.md) for coverage and evidence limits.
+
 Windows-first, offline-first practice analysis for a VALORANT team. The desktop application watches replay folders, keeps detailed evidence on the PC, supports local scoreboard OCR, and synchronizes only accepted summaries to the lightweight team website.
 
 The primary workflow is: capture completed practice → review accepted evidence → assign a coaching action → evaluate it only against a later comparable practice sample.
