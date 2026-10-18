@@ -18,6 +18,7 @@ const { collectChildOutput, collectJson } = require('./collector-command.cjs');
 const { canonical, refreshScreenshotOutboxFromData } = require('./sync-outbox.cjs');
 const { hasRecentRecoveryBackup } = require('./recovery-backup.cjs');
 const { isTrustedSenderUrl, sessionIsFresh } = require('./session-security.cjs');
+const { loginCredentials } = require('./session-credentials.cjs');
 const { analyzeVodTimeline } = require('./vod-timeline-analyzer.cjs');
 
 let mainWindow;
@@ -288,17 +289,18 @@ function superviseRestart(name, start) {
 
 async function bootstrapSession(force = false) {
   if (!force && sessionIsFresh(runtime.session)) return runtime.session;
-  const credentials = { key: runtime.config.adminPassword };
-  if (runtime.config.identity) credentials.desktopIdentity = runtime.config.identity;
+  const credentials = loginCredentials(runtime.config);
   const response = await fetch(`http://127.0.0.1:${runtime.port}/api/login-key`, { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify(credentials) });
-  if (!response.ok) throw new Error('Local coach session could not be created.');
-  runtime.session = await response.json();
+  const result = await response.json().catch(() => ({}));
+  if (!response.ok) throw new Error(result.error || `Local coach session could not be created (HTTP ${response.status}).`);
+  runtime.session = result;
   return runtime.session;
 }
 async function bootstrapCoachSession(force = false) {
   if (!force && sessionIsFresh(runtime.coachSession)) return runtime.coachSession;
-  const response = await fetch(`http://127.0.0.1:${runtime.port}/api/login-key`, { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ key: runtime.config.adminPassword }) });
-  if (!response.ok) throw new Error('Local privileged session could not be created.'); runtime.coachSession = await response.json(); return runtime.coachSession;
+  const response = await fetch(`http://127.0.0.1:${runtime.port}/api/login-key`, { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify(loginCredentials(runtime.config, true)) });
+  const result = await response.json().catch(() => ({}));
+  if (!response.ok) throw new Error(result.error || `Local privileged session could not be created (HTTP ${response.status}).`); runtime.coachSession = result; return runtime.coachSession;
 }
 
 async function localApiFetch(pathname, init = {}, coach = false) {
