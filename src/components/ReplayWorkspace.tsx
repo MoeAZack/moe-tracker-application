@@ -271,11 +271,13 @@ export default function ReplayWorkspace({
   role,
   onAccepted,
   onManualFallback,
+  preferredMatchId,
 }: {
   data: TrackerData;
   role: string | null;
   onAccepted: () => Promise<void> | void;
   onManualFallback?: (draft: ScreenshotPairing) => void;
+  preferredMatchId?: string | null;
 }) {
   const [devices, setDevices] = useState<Device[]>([]);
   const [cropFile, setCropFile] = useState<File | null>(null);
@@ -328,6 +330,11 @@ export default function ReplayWorkspace({
   );
   const currentUpload =
     uploads.find((item) => item.sha256 === selected) || null;
+  useEffect(() => {
+    if (!preferredMatchId) return;
+    const preferred = uploads.find(item => item.matchId === preferredMatchId);
+    if (preferred && preferred.sha256 !== selectedRef.current) { selectedRef.current = preferred.sha256; setSelected(preferred.sha256); }
+  }, [preferredMatchId, uploads]);
   const dirty =
     !savedReview ||
     reviewEditorSnapshot(matchId, teamId, mappings) !==
