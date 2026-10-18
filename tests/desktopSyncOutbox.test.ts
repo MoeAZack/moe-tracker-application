@@ -18,4 +18,14 @@ describe('desktop screenshot sync outbox', () => {
     expect(state.outbox.some((item: any) => item.matchId === 'deleted')).toBe(false);
     expect(state.outbox.some((item: any) => item.id === 'replay')).toBe(true);
   });
+
+  it('keeps only the newest replay evidence for each replay hash', () => {
+    const state: any = { outbox: [
+      { id: 'old', kind: 'replay-evidence', sha256: 'same', createdAt: '2026-10-15T10:00:00.000Z' },
+      { id: 'other', kind: 'replay-evidence', sha256: 'other', createdAt: '2026-10-15T10:30:00.000Z' },
+      { id: 'new', kind: 'replay-evidence', sha256: 'same', createdAt: '2026-10-15T11:00:00.000Z' },
+    ] };
+    refreshScreenshotOutboxFromData(state, { matches: [], playerStats: [] });
+    expect(state.outbox.map((item: any) => item.id).sort()).toEqual(['new', 'other']);
+  });
 });

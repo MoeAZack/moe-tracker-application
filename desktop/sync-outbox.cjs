@@ -21,7 +21,14 @@ function refreshScreenshotOutboxFromData(state, data, updatedAt = new Date().toI
     const digest = crypto.createHash('sha256').update(canonical(summary)).digest('hex');
     latest.set(matchId, { ...item, id: `screenshot-summary:${matchId}:${digest}`, summary, createdAt: item.createdAt || updatedAt, attempts: 0, lastError: null });
   }
-  state.outbox = [...other, ...latest.values()];
+  const latestReplayEvidence = new Map();
+  const remaining = [];
+  for (const item of other) {
+    if (item?.kind !== 'replay-evidence' || !item?.sha256) { remaining.push(item); continue; }
+    const prior = latestReplayEvidence.get(item.sha256);
+    if (!prior || Date.parse(item.createdAt || '') >= Date.parse(prior.createdAt || '')) latestReplayEvidence.set(item.sha256, item);
+  }
+  state.outbox = [...remaining, ...latestReplayEvidence.values(), ...latest.values()];
   return state;
 }
 

@@ -755,7 +755,7 @@ export function registerReplayDeviceUploadRoute(app: Express) {
         return res.status(200).json({ ...uploadPublic(association, existing), evidenceSha256: validated.envelope.evidenceSha256, reviewRequired: existing.reviewStatus !== 'accepted', idempotent: true });
       }
       const jobId = crypto.randomUUID();
-      const job: ReplayParserJob = { id: jobId, sha256: expectedHash, requestedBy: device.owner.actorId, sourceDeviceIds: [device.id], status: 'completed', createdAt: now, startedAt: now, completedAt: now, parser: { name: 'vrfkit', version: VRFKIT_PIN.version }, reviewStatus: 'review-required', result: validated.retained, lease: null };
+      const job: ReplayParserJob = { id: jobId, sha256: expectedHash, requestedBy: device.owner.actorId, sourceDeviceIds: [device.id], status: 'completed', createdAt: now, startedAt: now, completedAt: now, parser: { name: 'vrfkit', version: validated.envelope.parser.version }, reviewStatus: 'review-required', result: validated.retained, lease: null };
       const blob: ReplayBlob = { sha256: expectedHash, size: source.size, storedAt: existing?.storedAt || now, ingestionMode: 'local-evidence', uploadStatus: 'processed', parserStatus: 'parsed-review-required', parserJobId: jobId, reviewStatus: 'review-required', matchId: existing?.matchId || null, rawObject: null };
       const association: ReplayAssociation = ownAssociation || { id: crypto.randomUUID(), sha256: expectedHash, size: source.size, originalName, deviceId: device.id, owner: device.owner, receivedAt: now };
       store.parserJobs[jobId] = job; store.blobs[expectedHash] = blob; store.associations[ownKey] = association; device.lastSeenAt = now;
