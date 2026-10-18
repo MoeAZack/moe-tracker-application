@@ -137,38 +137,44 @@ const METRIC_POLICIES: Record<CoachingSignal['type'], { direction: 'increase' | 
   'evidence-health': { direction: 'increase', relativeTarget: 1.2, minimumSamples: 2, minimumDelta: 10 },
 };
 
+export const COACHING_CHECK_POLICY_VERSION = 3 as const;
+
 export function buildActionCheck(signalRecord: CoachingSignal): NonNullable<CoachingAction['check']> {
   const policy = METRIC_POLICIES[signalRecord.type];
   const relative = signalRecord.metric.value * policy.relativeTarget;
   const rawTarget = policy.direction === 'increase' ? Math.max(relative, signalRecord.metric.value + policy.minimumDelta) : Math.min(relative, signalRecord.metric.value - policy.minimumDelta);
   const target = signalRecord.metric.unit === '%' ? Math.min(100, Math.max(0, rawTarget)) : Math.max(0, rawTarget);
-  return { policyVersion: 2, signalType: signalRecord.type, baseline: signalRecord.metric.value, target: Math.round(target * 10) / 10, direction: policy.direction, unit: signalRecord.metric.unit, minimumSamples: policy.minimumSamples, sourceBlockId: signalRecord.blockId, context: structuredClone(signalRecord.context) };
+  return { policyVersion: COACHING_CHECK_POLICY_VERSION, signalType: signalRecord.type, baseline: signalRecord.metric.value, target: Math.round(target * 10) / 10, direction: policy.direction, unit: signalRecord.metric.unit, minimumSamples: policy.minimumSamples, sourceBlockId: signalRecord.blockId, context: structuredClone(signalRecord.context) };
 }
 
 export function migrateLegacyActionChecks(actions: readonly CoachingAction[], signals: readonly CoachingSignal[], actor = 'system', now = new Date().toISOString(), summaries: readonly PracticeBlockSummary[] = []) {
   const byId = new Map(signals.map(signalRecord => [signalRecord.id, signalRecord]));
   return actions.map(action => {
-    if (!action.check || action.check.policyVersion === 2) return action;
+    if (!action.check || Number(action.check.policyVersion || 0) >= COACHING_CHECK_POLICY_VERSION) return action;
+    const priorVersion = Number(action.check.policyVersion || 1);
+    const repairReason = priorVersion === 2
+      ? 'Repaired coaching metric policy v2 from its original source evidence; prior values retained for audit.'
+      : 'Migrated from the legacy coaching metric policy; original values retained for audit.';
     const source = byId.get(action.sourceSignalId);
     const sourceSummary = source ? summaries.find(summary => summary.blockId === source.blockId) : null;
     const provisional = source ? buildActionCheck(source) : null;
     const recalculated = sourceSummary && provisional ? observedMetric(sourceSummary, provisional) : null;
     if (!source || !recalculated) return {
       ...action,
-      checkHistory: [...(action.checkHistory || []), { migratedAt: now, migratedBy: actor, reason: 'Legacy evaluation blocked because its original evidence could not be recalculated.', check: structuredClone(action.check), outcome: structuredClone(action.outcome) }],
+      checkHistory: [...(action.checkHistory || []), { migratedAt: now, migratedBy: actor, reason: `${priorVersion === 2 ? 'Policy v2 repair' : 'Legacy evaluation'} blocked because its original evidence could not be recalculated.`, check: structuredClone(action.check), outcome: structuredClone(action.outcome) }],
       check: null,
-      outcome: { status: 'inconclusive' as const, baseline: action.check.baseline, later: null, change: null, confidence: 'low' as const, evaluatedAt: now, reason: 'This legacy action is blocked until its original evidence can be recalculated under the current metric definition.' },
+      outcome: { status: 'inconclusive' as const, baseline: action.check.baseline, later: null, change: null, confidence: 'low' as const, evaluatedAt: now, reason: `This policy v${priorVersion} action is blocked until its original evidence can be recalculated under the current metric definition.` },
       updatedAt: now,
-      audit: [...action.audit, { at: now, by: actor, from: action.state, to: action.state, reason: 'Legacy evaluation blocked pending evidence recalculation.' }],
+      audit: [...action.audit, { at: now, by: actor, from: action.state, to: action.state, reason: `Coaching metric policy v${priorVersion} blocked pending evidence recalculation.` }],
     };
     const recalculatedSignal = { ...source, metric: recalculated, context: provisional.context || source.context };
     return {
       ...action,
-      checkHistory: [...(action.checkHistory || []), { migratedAt: now, migratedBy: actor, reason: 'Migrated from the legacy coaching metric policy; original values retained for audit.', check: structuredClone(action.check), outcome: structuredClone(action.outcome) }],
+      checkHistory: [...(action.checkHistory || []), { migratedAt: now, migratedBy: actor, reason: repairReason, check: structuredClone(action.check), outcome: structuredClone(action.outcome) }],
       check: buildActionCheck(recalculatedSignal),
-      outcome: { status: 'inconclusive' as const, baseline: recalculated.value, later: null, change: null, confidence: 'low' as const, evaluatedAt: now, reason: 'Legacy evaluation invalidated and recalculated from its original evidence under coaching metric policy v2.' },
+      outcome: { status: 'inconclusive' as const, baseline: recalculated.value, later: null, change: null, confidence: 'low' as const, evaluatedAt: now, reason: `Policy v${priorVersion} evaluation invalidated and recalculated from its original evidence under coaching metric policy v${COACHING_CHECK_POLICY_VERSION}.` },
       updatedAt: now,
-      audit: [...action.audit, { at: now, by: actor, from: action.state, to: action.state, reason: 'Legacy evaluation migrated to coaching metric policy v2.' }],
+      audit: [...action.audit, { at: now, by: actor, from: action.state, to: action.state, reason: `Coaching metric policy v${priorVersion} repaired to v${COACHING_CHECK_POLICY_VERSION}.` }],
     };
   });
 }

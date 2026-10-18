@@ -93,7 +93,7 @@ describe('observed roster dashboard', () => {
       ],
     } as any);
     expect(rows).toHaveLength(1);
-    expect(rows[0]).toMatchObject({ displayName: 'bellatrix', playerId: null, status: 'tryout', matches: 6, recordedRows: 6, kills: 60, deaths: 30, assists: 12 });
+    expect(rows[0]).toMatchObject({ displayName: 'bellatrix', playerId: null, status: 'tryout', matches: 6, recordedRows: 6, kills: 60, deaths: 30, assists: 12, sourceRowIds: ['old', 'new-0', 'new-1', 'new-2', 'new-3', 'new-4'] });
   });
 
   it('reconciles duplicate rows per match without inflating combat totals and keeps unknown counters unknown', () => {
@@ -124,6 +124,28 @@ describe('observed roster dashboard', () => {
       playerStats: [{ id: 'a', matchId: 'm1', playerId: 'p1', player: 'Same' }, { id: 'b', matchId: 'm2', playerId: 'p2', player: 'same' }],
     } as any);
     expect(rows.map(row => row.playerId)).toEqual(['p2', 'p1']);
+  });
+
+  it('never lets equal names override conflicting stable screenshot identities', () => {
+    const rows = aggregateObservedPlayerDashboard({
+      rosterPlayers: [{ id: 'p1', displayName: 'Same', createdAt: '2026-10-01' }, { id: 'p2', displayName: 'same', createdAt: '2026-10-02' }], coreMemberships: [], tryoutBatches: [],
+      matches: [{ id: 'm1', date: '2026-10-18' }],
+      playerStats: [{ id: 'a', matchId: 'm1', playerId: 'p1', player: 'Same' }, { id: 'b', matchId: 'm1', playerId: 'p2', player: 'same' }],
+      rounds: [{ id: 'r1', matchId: 'm1', roundNo: 1, result: 'W', screenshotEvidence: { reviewStatus: 'confirmed', players: [{ playerId: 'p1', displayName: 'Same', team: 'ours', survived: true }, { playerId: 'p2', displayName: 'same', team: 'ours', survived: true }], eventsComplete: true, events: [{ sequence: 1, killerPlayerId: 'p1', victimPlayerId: 'enemy', killerTeam: 'ours', victimTeam: 'theirs' }] } }],
+    } as any);
+    const first = rows.find(row => row.playerId === 'p1')!; const second = rows.find(row => row.playerId === 'p2')!;
+    expect(first).toMatchObject({ firstKills: 1, evidence: { screenshotRounds: 1 }, sourceRowIds: ['a'] });
+    expect(second).toMatchObject({ firstKills: 0, evidence: { screenshotRounds: 1 }, sourceRowIds: ['b'] });
+  });
+
+  it('does not guess an unlinked same-name screenshot when multiple stable candidates exist', () => {
+    const rows = aggregateObservedPlayerDashboard({
+      rosterPlayers: [{ id: 'p1', displayName: 'Same', createdAt: '2026-10-01' }, { id: 'p2', displayName: 'same', createdAt: '2026-10-02' }], coreMemberships: [], tryoutBatches: [],
+      matches: [{ id: 'm1', date: '2026-10-18' }],
+      playerStats: [{ id: 'a', matchId: 'm1', playerId: 'p1', player: 'Same' }, { id: 'b', matchId: 'm1', playerId: 'p2', player: 'same' }],
+      rounds: [{ id: 'r1', matchId: 'm1', roundNo: 1, result: 'W', screenshotEvidence: { reviewStatus: 'confirmed', players: [{ displayName: 'Same', team: 'ours', survived: true }], eventsComplete: true, events: [] } }],
+    } as any);
+    expect(rows.map(row => row.evidence.screenshotRounds)).toEqual([0, 0]);
   });
 
   it('surfaces scoreboard, opening, economy, weapon, map and evidence metrics for unmatched names', () => {

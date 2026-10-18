@@ -1,6 +1,6 @@
 # Moe Tracker Application
 
-Version 0.1.56 keeps screenshot-derived economy metrics visible when the active roster is empty and safely joins an unlinked observed name to one unambiguous stable identity. Version 0.1.55 adds in-app automatic-workflow readiness and encrypted recovery guidance. Version 0.1.54 connects PRACC sessions to coach-confirmed matches and goals, while 0.1.53 carries shared match/round context across review surfaces. See [VOD timeline analysis](docs/VOD-TIMELINE-ANALYSIS.md) for VOD coverage and evidence limits.
+Version 0.1.57 isolates same-name stable identities, keeps connected-profile totals and drill-down history on the same contributing rows, synchronizes VOD selection with shared review context, repairs policy-v2 coaching checks from retained evidence, and makes practice linking conservative around ambiguous or overlapping matches. Version 0.1.56 keeps screenshot-derived economy metrics visible when the active roster is empty and safely joins an unlinked observed name to one unambiguous stable identity. See [VOD timeline analysis](docs/VOD-TIMELINE-ANALYSIS.md) for VOD coverage and evidence limits.
 
 Windows-first, offline-first practice analysis for a VALORANT team. The desktop application watches replay folders, keeps detailed evidence on the PC, supports local scoreboard OCR, and synchronizes only accepted summaries to the lightweight team website.
 

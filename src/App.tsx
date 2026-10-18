@@ -691,7 +691,7 @@ export default function App() {
               />
             )}
             {activeTab === 'vod' && data && (
-              <VodReview data={workspaceData || data} theme={theme} role={role} onRefresh={fetchDatabase} initialMatchId={reviewMatchId} selectedRoundNo={reviewRoundNo} />
+              <VodReview data={workspaceData || data} theme={theme} role={role} onRefresh={fetchDatabase} initialMatchId={reviewMatchId} selectedRoundNo={reviewRoundNo} onReviewContextChange={(matchId, roundNo) => { setReviewMatchId(matchId); setReviewRoundNo(roundNo); }} />
             )}
             {activeTab === 'vodsubmit' && data && (
               <VodSubmission data={workspaceData || data} role={role} onRefresh={fetchDatabase} />

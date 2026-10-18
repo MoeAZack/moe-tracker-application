@@ -23,8 +23,16 @@ describe('shared match review context', () => {
     expect(app).toContain('moetracker-review-match');
     expect(app).toContain('preferredMatchId={reviewMatchId}');
     expect(app).toContain('selectedRoundNo={reviewRoundNo}');
+    expect(app).toContain('onReviewContextChange={(matchId, roundNo)');
     expect(app).toContain('focusedMatchId={reviewMatchId} focusedRoundNo={reviewRoundNo}');
     const matches = fs.readFileSync('src/components/MatchLogRounds.tsx', 'utf8');
     expect(matches).toContain('onReviewContextChange?.(selectedMatch.id, r.roundNo)');
+    const vod = fs.readFileSync('src/components/VodReview.tsx', 'utf8');
+    expect(vod).toContain('onReviewContextChange?.(review.matchId || null, null)');
+    expect(vod).toContain('has no confirmed VOD timestamp yet');
+    expect(vod).toContain('onReviewContextChange?.(focusedMatch.id, round.roundNo)');
+    const players = fs.readFileSync('src/components/PlayerSoloTracker.tsx', 'utf8');
+    expect(players).toContain('const contributingRowIds = new Set(row.sourceRowIds)');
+    expect(players).not.toContain('stat.playerId === row.playerId');
   });
 });
