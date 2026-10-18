@@ -18,6 +18,7 @@ const { collectChildOutput, collectJson } = require('./collector-command.cjs');
 const { canonical, refreshScreenshotOutboxFromData } = require('./sync-outbox.cjs');
 const { hasRecentRecoveryBackup } = require('./recovery-backup.cjs');
 const { isTrustedSenderUrl, sessionIsFresh } = require('./session-security.cjs');
+const { analyzeVodTimeline } = require('./vod-timeline-analyzer.cjs');
 
 let mainWindow;
 let tray;
@@ -35,6 +36,7 @@ let syncStateMutation = Promise.resolve();
 let runtime;
 let updateController;
 let quitting = false;
+const approvedVodPaths = new Set();
 
 // Keep Windows taskbar/notification identity aligned with the owl-branded
 // executable instead of inheriting an older Electron/VALORANT-style cache.
@@ -580,6 +582,22 @@ handleTrusted('desktop:process-match', async event => {
   const imported = await importEvidenceFile(processed.evidencePath);
   const skippedNote = processed.skippedUnsupported ? ` Skipped ${processed.skippedUnsupported} newer replay${processed.skippedUnsupported === 1 ? '' : 's'} from an unsupported VALORANT patch; use screenshot capture for those.` : '';
   return { state: imported.automatic ? 'processed' : 'review-ready', message: `${imported.automatic ? 'Replay, player names, and available statistics were processed automatically. You can edit the saved match later.' : imported.idempotent ? 'This replay was already in the local review inbox.' : 'Replay parsed locally. It will finish automatically when the matching scoreboard is available.'}${skippedNote}`, items: first, processed, imported };
+});
+handleTrusted('desktop:choose-vod-file', async () => {
+  const result = await dialog.showOpenDialog(mainWindow, { properties: ['openFile'], title: 'Choose a VALORANT VOD', filters: [{ name: 'Video files', extensions: ['mp4', 'mkv', 'mov', 'webm', 'avi', 'm4v'] }] });
+  if (result.canceled || !result.filePaths[0]) return { canceled: true };
+  const selected = path.resolve(result.filePaths[0]); approvedVodPaths.add(selected);
+  return { canceled: false, path: selected, name: path.basename(selected) };
+});
+handleTrusted('desktop:analyze-vod', async (event, input = {}) => {
+  const players = Array.isArray(input.players) ? input.players.slice(0, 10).map(item => ({ name: String(item?.name || '').trim().slice(0, 100), team: item?.team === 'theirs' ? 'theirs' : 'ours', expectedKills: Number.isInteger(item?.expectedKills) && item.expectedKills >= 0 ? item.expectedKills : null, expectedDeaths: Number.isInteger(item?.expectedDeaths) && item.expectedDeaths >= 0 ? item.expectedDeaths : null })).filter(item => item.name) : [];
+  if (players.length < 5) throw new Error('Timeline analysis needs at least five identified scoreboard names.');
+  const localPath = input.localPath ? path.resolve(String(input.localPath)) : null;
+  if (localPath && !approvedVodPaths.has(localPath)) throw new Error('Choose the local VOD through Moe Tracker before analyzing it.');
+  const progress = payload => { if (!event.sender.isDestroyed()) event.sender.send('desktop:vod-analysis-progress', payload); };
+  try {
+    return await analyzeVodTimeline({ vodUrl: String(input.vodUrl || '').trim(), localPath, players, povPlayerName: String(input.povPlayerName || '').trim() || null }, { progress, workRoot: path.join(runtime.paths.local, 'Vod Analysis') });
+  } finally { if (localPath) approvedVodPaths.delete(localPath); }
 });
 handleTrusted('desktop:sync-now', syncNow);
 handleTrusted('desktop:pair-device', (event, input) => { requireTrustedSender(event); return pairDevice(input || {}); });
