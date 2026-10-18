@@ -827,8 +827,7 @@ export function registerReplayDeviceUploadRoute(app: Express) {
       if (!reservation.ok) return res.status(reservation.status).json({ error: reservation.error });
       releaseReservation = reservation.release;
       const incomingEvidenceHash = contentHash(validated.retained); const priorEvidenceHash = retainedEvidenceHash(store, expectedHash, existing);
-      if (existing && existing.size !== source.size) return res.status(409).json({ error: 'This replay hash already has conflicting evidence.' });
-      if (existing && priorEvidenceHash && priorEvidenceHash !== incomingEvidenceHash) {
+      if (existing && (existing.size !== source.size || priorEvidenceHash && priorEvidenceHash !== incomingEvidenceHash)) {
         // A newer local parser may produce a richer normalized envelope for
         // the same immutable replay bytes. Never replace already accepted
         // evidence, but let the device finish its outbox and receive the
