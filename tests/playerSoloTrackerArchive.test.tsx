@@ -47,4 +47,10 @@ describe('player overview archive action', () => {
     for (const label of ['Core combat output', 'First-duel pressure', 'First deaths', 'Round-winning actions', 'High-leverage round outcomes']) expect(source).toContain(label);
     expect(source).not.toContain("card.body.map");
   });
+
+  it('exposes connected profiles, evidence history and reversible identity controls', () => {
+    const source = fs.readFileSync('src/components/PlayerSoloTracker.tsx', 'utf8');
+    for (const label of ['Connected player profile', 'Evidence-linked match history', 'Identity correction', 'Relink evidence', 'Reverse']) expect(source).toContain(label);
+    expect(source).toContain('/api/roster/identity-corrections/revert');
+  });
 });

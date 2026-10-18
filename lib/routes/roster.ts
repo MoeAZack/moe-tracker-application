@@ -19,6 +19,8 @@ import {
   setTryoutAlias,
   setTryoutsMode,
   setObservedRosterStatus,
+  correctObservedIdentity,
+  revertObservedIdentityCorrection,
 } from '../roster';
 
 function requireCoach(req: Request, res: Response) {
@@ -58,6 +60,16 @@ export function registerRosterRoutes(app: Express) {
   app.post('/api/roster/players/status', (req, res) => {
     const body = validate(schemas.observedRosterStatusSchema, req.body, res); if (!body) return;
     return mutate(req, res, db => setObservedRosterStatus(db, body));
+  });
+
+  app.post('/api/roster/identity-corrections', (req, res) => {
+    const body = validate(schemas.identityCorrectionSchema, req.body, res); if (!body) return;
+    return mutate(req, res, db => correctObservedIdentity(db, body, (req as any).user?.username || 'Coach'));
+  });
+
+  app.post('/api/roster/identity-corrections/revert', (req, res) => {
+    const body = validate(schemas.identityCorrectionRevertSchema, req.body, res); if (!body) return;
+    return mutate(req, res, db => revertObservedIdentityCorrection(db, body.correctionId, body.reason, (req as any).user?.username || 'Coach'));
   });
 
   app.post('/api/roster/core/add', (req, res) => {

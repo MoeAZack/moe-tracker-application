@@ -5,7 +5,7 @@ import { materializeFirstDeathsFromRoundEvidence, materializeRoundOpeningsFromSc
 import { ensureScheduleCalendars } from './schedule';
 import { buildAllPracticeBlockSummaries, migrateLegacyActionChecks } from './coachingWorkflow';
 
-export const STORAGE_SCHEMA_VERSION = 10;
+export const STORAGE_SCHEMA_VERSION = 11;
 export const MAX_ENTITY_BYTES = 840 * 1024;
 export const MAX_DOCUMENT_BYTES = 900 * 1024;
 export const MAX_JSON_DATABASE_BYTES = 64 * 1024 * 1024;
@@ -21,7 +21,7 @@ const GROWTH_TREES = new Set(['replayIntake', 'engineAdapters', 'analyticsBuilds
 const CORE_ARRAYS = [
   'matches', 'playerStats', 'seasonArchives', 'rounds', 'schedule', 'authKeys', 'allowedUsers',
   'goals', 'soloq', 'vetos', 'strats', 'stratRuns', 'rosterPlayers', 'coreMemberships',
-  'tryoutBatches', 'vodReviews', 'lineups', 'practiceBlocks', 'tryoutDecisionNotes',
+  'tryoutBatches', 'vodReviews', 'lineups', 'practiceBlocks', 'tryoutDecisionNotes', 'identityCorrectionBatches',
   'vodSubmissions',
   'attendanceCredits',
   'coachingSignals', 'coachingActions', 'dashboardViews',
