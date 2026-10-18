@@ -17,10 +17,10 @@ async function jsonRequest(route: string, token?: string, body?: unknown) {
   return fetch(`${origin}${route}`, { method: body === undefined ? 'GET' : 'POST', headers: { ...(token ? { Authorization: `Bearer ${token}` } : {}), ...(body === undefined ? {} : { 'Content-Type': 'application/json' }) }, ...(body === undefined ? {} : { body: JSON.stringify(body) }) });
 }
 async function login(key: string) { const response = await jsonRequest('/api/login-key', undefined, { key }); expect(response.status).toBe(200); return (await response.json()).key as string; }
-function evidenceEnvelope(sha256: string, size: number, deviceId: string) {
+function evidenceEnvelope(sha256: string, size: number, deviceId: string, artifact = { version: VRFKIT_PIN.version, binarySha256: VRFKIT_PIN.windowsX64ExeSha256, binaryCommit: VRFKIT_PIN.commit }) {
   const available = (value: number) => ({ value, status: 'available', source: 'device-fixture', confidence: 1 });
-  const normalized: any = { schemaVersion: 1, parserInput: { parser: { name: 'vrfkit', version: VRFKIT_PIN.version }, provenance: { replaySha256: sha256 }, file: { format: 'vrf', support: 'supported' }, identities: [{ playerId: 'a', teamId: 'red' }], summary: { roundCount: 1, finalScore: { teamA: 1, teamB: 0 }, players: [] }, rounds: [{ roundNumber: 1, sequenceCompleteFromStart: true, participantPlayerIds: ['a'], participantCoverage: { status: 'complete', expectedPlayerCount: 1 }, winnerTeamId: 'red', events: [] }], capabilities: [] }, scoreboard: { reviewRequired: true, evidenceCoverage: { status: 'complete', reason: null }, map: { value: null, status: 'unavailable', source: 'fixture', confidence: null }, durationMs: available(1), finalScore: { teamA: { teamId: 'red', score: available(1) }, teamB: { teamId: 'blue', score: available(0) } }, players: [], unavailableFields: [] }, diagnostics: { replaySha256: sha256, binarySha256: VRFKIT_PIN.windowsX64ExeSha256, binaryVersion: VRFKIT_PIN.version, binaryCommit: VRFKIT_PIN.commit, manifestSha256: 'f'.repeat(64), replayBuild: null, outputFileCount: 1, outputBytes: 1, identityMappingComplete: true, duplicateActorMappings: 0, duplicatePawnMappings: 0 } };
-  const base: any = { schemaVersion: 1, source: { sha256, size, originalName: `${sha256.slice(0, 8)}.vrf`, deviceId }, parser: { name: 'vrfkit', version: VRFKIT_PIN.version, binarySha256: VRFKIT_PIN.windowsX64ExeSha256, binaryCommit: VRFKIT_PIN.commit }, normalized };
+  const normalized: any = { schemaVersion: 1, parserInput: { parser: { name: 'vrfkit', version: artifact.version }, provenance: { replaySha256: sha256 }, file: { format: 'vrf', support: 'supported' }, identities: [{ playerId: 'a', teamId: 'red' }], summary: { roundCount: 1, finalScore: { teamA: 1, teamB: 0 }, players: [] }, rounds: [{ roundNumber: 1, sequenceCompleteFromStart: true, participantPlayerIds: ['a'], participantCoverage: { status: 'complete', expectedPlayerCount: 1 }, winnerTeamId: 'red', events: [] }], capabilities: [] }, scoreboard: { reviewRequired: true, evidenceCoverage: { status: 'complete', reason: null }, map: { value: null, status: 'unavailable', source: 'fixture', confidence: null }, durationMs: available(1), finalScore: { teamA: { teamId: 'red', score: available(1) }, teamB: { teamId: 'blue', score: available(0) } }, players: [], unavailableFields: [] }, diagnostics: { replaySha256: sha256, binarySha256: artifact.binarySha256, binaryVersion: artifact.version, binaryCommit: artifact.binaryCommit, manifestSha256: 'f'.repeat(64), replayBuild: null, outputFileCount: 1, outputBytes: 1, identityMappingComplete: true, duplicateActorMappings: 0, duplicatePawnMappings: 0 } };
+  const base: any = { schemaVersion: 1, source: { sha256, size, originalName: `${sha256.slice(0, 8)}.vrf`, deviceId }, parser: { name: 'vrfkit', ...artifact }, normalized };
   return { ...base, evidenceSha256: localEvidenceDigest(base) };
 }
 
@@ -52,6 +52,16 @@ describe('private replay intake', () => {
     const first = await jsonRequest('/api/desktop/replay-evidence', coach, envelope); expect(first.status).toBe(201); expect(await first.json()).toMatchObject({ sha256: hash, parserStatus: 'parsed-review-required', reviewStatus: 'review-required', idempotent: false });
     const retry = await jsonRequest('/api/desktop/replay-evidence', coach, envelope); expect(retry.status).toBe(200); expect(await retry.json()).toMatchObject({ sha256: hash, idempotent: true });
     const stored = JSON.parse(await fs.readFile(dbPath, 'utf8')); expect(Object.keys(stored.replayIntake.blobs)).toEqual([hash]); expect(Object.keys(stored.replayIntake.parserJobs)).toHaveLength(1); expect(stored.replayIntake.blobs[hash].rawObject).toBeNull();
+  });
+
+  it('accepts the exact previously shipped parser artifact for queued migration evidence', async () => {
+    const coach = await login(adminKey); const hash = '6'.repeat(64);
+    const enrollment = await (await jsonRequest('/api/replay-intake/devices/enroll', coach, { name: 'Legacy evidence PC' })).json();
+    const legacy = { version: '0.2.5', binarySha256: 'aa55fc410f1596a6ffedc7ab579341da6edb262197c64902e74b4eed485dc23f', binaryCommit: 'c4d6cc0e5ec3904fdb64b350b2656b8e3ff33d53' };
+    const response = await fetch(`${origin}/api/replay-intake/evidence/${hash}`, { method: 'POST', headers: { 'Content-Type': 'application/json', 'X-Device-Id': enrollment.device.id, 'X-Device-Token': enrollment.credential.token }, body: JSON.stringify(evidenceEnvelope(hash, 100, enrollment.device.id, legacy)) });
+    expect(response.status).toBe(201);
+    const stored = JSON.parse(await fs.readFile(dbPath, 'utf8')); const blob = stored.replayIntake.blobs[hash];
+    expect(stored.replayIntake.parserJobs[blob.parserJobId].parser).toEqual({ name: 'vrfkit', version: '0.2.5' });
   });
 
   it('preserves the existing desktop review when a migrated parser envelope differs', async () => {
