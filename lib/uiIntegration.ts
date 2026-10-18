@@ -1,6 +1,7 @@
 import type { CoreMembership, Match, PlayerStats, TrackerData, VodReview } from '../src/types';
 import { toCairoDateKey } from './coachAnalytics';
 import { buildPlayerScreenshotMetrics, combinePlayerScreenshotMetrics, combineStoredScreenshotMetrics } from './scrimRoundAnalytics';
+import { confusableCaptureKey, normalizeCaptureName } from './scrimCaptureImport';
 
 export type IntegrationReadiness =
   | { status: 'ready'; detail: string }
@@ -90,19 +91,38 @@ export function aggregateObservedPlayerDashboard(data: Pick<TrackerData, 'player
   const playerById = new Map((data.rosterPlayers || []).map(player => [player.id, player]));
   const activeCore = new Set((data.coreMemberships || []).filter(item => !item.endedAt).map(item => item.playerId));
   const activeTryouts = new Set((data.tryoutBatches || []).filter(batch => batch.status === 'active').flatMap(batch => batch.candidatePlayerIds));
-  const activePlayerByName = new Map((data.rosterPlayers || []).filter(player => !player.retiredAt).map(player => [normalizedObservedName(player.displayName), player.id]));
+  const dashboardNameKey = (value: string) => confusableCaptureKey(normalizeCaptureName(value));
+  const activePlayersByName = new Map<string, typeof data.rosterPlayers>();
+  for (const player of (data.rosterPlayers || []).filter(player => !player.retiredAt)) {
+    const key = dashboardNameKey(player.displayName); if (!key) continue;
+    activePlayersByName.set(key, [...(activePlayersByName.get(key) || []), player]);
+  }
   const liveScreenshotByIdentity = new Map(combinePlayerScreenshotMetrics(buildPlayerScreenshotMetrics(data.rounds || []))
     .map(metric => [metric.identity, metric]));
   const groups = new Map<string, { playerId: string | null; displayName: string; rows: PlayerStats[] }>();
   for (const row of (data.playerStats || [])) {
     const displayName = observedName(row);
-    const matchedPlayerId = row.playerId?.trim() || activePlayerByName.get(normalizedObservedName(displayName)) || null;
-    const identity = matchedPlayerId || `unlinked-name:${normalizedObservedName(displayName)}`;
+    const nameKey = dashboardNameKey(displayName) || normalizedObservedName(displayName);
+    const directlyActive = row.playerId?.trim() ? playerById.get(row.playerId.trim()) : undefined;
+    const nameCandidates = activePlayersByName.get(nameKey) || [];
+    const matchedPlayer = directlyActive && !directlyActive.retiredAt ? directlyActive : nameCandidates.length === 1 ? nameCandidates[0] : null;
+    // Replay/name repair can leave historical rows carrying different orphaned
+    // IDs for the same observed person. Active roster IDs remain authoritative;
+    // otherwise merge exact/OCR-equivalent names for this read-only dashboard.
+    const matchedPlayerId = matchedPlayer?.id || null;
+    const identity = matchedPlayerId ? `player:${matchedPlayerId}` : `observed-name:${nameKey}`;
     const group = groups.get(identity) || { playerId: matchedPlayerId, displayName, rows: [] };
     group.rows.push(row); groups.set(identity, group);
   }
   return [...groups.entries()].map(([identity, group]) => {
     const rows = group.rows; const matchIds = [...new Set(rows.map(row => row.matchId))];
+    const stored = group.playerId ? playerById.get(group.playerId) : undefined;
+    if (stored?.displayName) group.displayName = stored.displayName;
+    else {
+      const names = new Map<string, { value: string; count: number; last: number }>();
+      rows.forEach((row, index) => { const value = observedName(row); const key = normalizedObservedName(value); const current = names.get(key) || { value, count: 0, last: index }; current.count += 1; current.last = index; names.set(key, current); });
+      group.displayName = [...names.values()].sort((a, b) => b.count - a.count || b.last - a.last)[0]?.value || group.displayName;
+    }
     const outcomes = matchIds.map(id => matchWon(matches.get(id))); const wins = outcomes.filter(value => value === true).length; const losses = outcomes.filter(value => value === false).length;
     const paired = rows.filter(row => knownNumber(row.kills) && knownNumber(row.deaths));
     const kills = rows.reduce((sum, row) => sum + (knownNumber(row.kills) ? row.kills : 0), 0);
@@ -118,9 +138,11 @@ export function aggregateObservedPlayerDashboard(data: Pick<TrackerData, 'player
     }
     const agents = [...agentMap].map(([name, item]) => ({ name, matches: item.matches.size, wins: item.wins })).sort((a, b) => b.matches - a.matches || a.name.localeCompare(b.name));
     const maps = [...mapMap].map(([name, item]) => ({ name, matches: item.matches.size, wins: item.wins })).sort((a, b) => b.matches - a.matches || a.name.localeCompare(b.name));
-    const liveScreenshot = liveScreenshotByIdentity.get(group.playerId || `unlinked-name:${normalizedObservedName(group.displayName)}`);
+    const liveIdentities = new Set(rows.flatMap(row => row.playerId?.trim() ? [row.playerId.trim()] : [`unlinked-name:${normalizedObservedName(observedName(row))}`]));
+    if (group.playerId) liveIdentities.add(group.playerId);
+    const liveScreenshots = [...liveIdentities].map(item => liveScreenshotByIdentity.get(item)).filter((item): item is NonNullable<typeof item> => !!item);
     const storedScreenshot = combineStoredScreenshotMetrics(rows);
-    const screenshot = liveScreenshot ? [liveScreenshot] : storedScreenshot;
+    const screenshot = liveScreenshots.length ? liveScreenshots : storedScreenshot;
     const recordedTrades = rows.map(row => row.trades).filter(knownNumber);
     const weapons = new Map<string, { rounds: number; wins: number; kills: number; deaths: number }>();
     for (const metric of screenshot) for (const weapon of metric.weapons || []) { const item = weapons.get(weapon.weapon) || { rounds: 0, wins: 0, kills: 0, deaths: 0 }; item.rounds += weapon.rounds; item.wins += weapon.wins; item.kills += weapon.kills; item.deaths += weapon.deaths; weapons.set(weapon.weapon, item); }
@@ -131,8 +153,10 @@ export function aggregateObservedPlayerDashboard(data: Pick<TrackerData, 'player
     const directKastRows = rows.filter(row => !row.screenshotMetrics && knownNumber(row.kastSuccessful) && knownNumber(row.kastCovered) && row.kastCovered > 0);
     const kastSuccessful = screenshot.reduce((sum, item) => sum + (item.kast?.successful || 0), 0) + directKastRows.reduce((sum, row) => sum + row.kastSuccessful!, 0);
     const kastCovered = screenshot.reduce((sum, item) => sum + (item.kast?.covered || 0), 0) + directKastRows.reduce((sum, row) => sum + row.kastCovered!, 0);
-    const stored = group.playerId ? playerById.get(group.playerId) : undefined;
-    const status = (group.playerId && activeCore.has(group.playerId) ? 'core' : stored?.rosterStatus || (group.playerId && activeTryouts.has(group.playerId) ? 'tryout' : rows.find(row => row.appearanceType)?.appearanceType)) || 'tryout';
+    const appearanceCounts = new Map<'core' | 'standIn' | 'tryout', { count: number; last: number }>();
+    rows.forEach((row, index) => { if (!row.appearanceType) return; const current = appearanceCounts.get(row.appearanceType) || { count: 0, last: index }; current.count += 1; current.last = index; appearanceCounts.set(row.appearanceType, current); });
+    const observedStatus = [...appearanceCounts].sort((a, b) => b[1].count - a[1].count || b[1].last - a[1].last)[0]?.[0];
+    const status = (group.playerId && activeCore.has(group.playerId) ? 'core' : stored?.rosterStatus || (group.playerId && activeTryouts.has(group.playerId) ? 'tryout' : observedStatus)) || 'tryout';
     return {
       identity, playerId: group.playerId, displayName: group.displayName, recordedRows: rows.length, pairedSamples: paired.length,
       matches: matchIds.length, wins, losses, winRate: outcomes.some(value => value !== null) ? wins / outcomes.filter(value => value !== null).length : null,
