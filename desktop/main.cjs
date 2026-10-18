@@ -444,10 +444,10 @@ async function syncNow() {
   if (syncPromise) return syncPromise;
   syncPromise = syncOnce().finally(() => { syncPromise = null; }); return syncPromise;
 }
-async function createRecoveryBackup() {
+async function createRecoveryBackup(force = false) {
   const cutoff = Date.now() - 24 * 60 * 60 * 1000;
   const last = Date.parse(runtime.config.lastBackupAt || '');
-  if (Number.isFinite(last) && last >= cutoff && await hasRecentRecoveryBackup(runtime.paths.backups, cutoff)) return { skipped: true };
+  if (!force && Number.isFinite(last) && last >= cutoff && await hasRecentRecoveryBackup(runtime.paths.backups, cutoff)) return { skipped: true };
   const response = await localApiFetch('/api/desktop/backup', { method: 'POST' }, true); const result = await response.json().catch(() => ({}));
   if (!response.ok) throw new Error(result.error || 'Automatic recovery backup failed.'); runtime.config.lastBackupAt = new Date().toISOString(); await saveRuntimeConfig(); return result;
 }
@@ -470,6 +470,8 @@ async function desktopStatus() {
   const replays = await replayInventory();
   const pendingScoreboards = await allPendingScoreboards();
   const localSync = await syncState();
+  const recoveryCutoff = Date.now() - 24 * 60 * 60 * 1000;
+  const recoveryVerified = await hasRecentRecoveryBackup(runtime.paths.backups, recoveryCutoff);
   let collector = null;
   try { collector = await collectorJsonCommand(['status']); } catch (error) { collector = { error: error.message }; }
   const collectorText = JSON.stringify(collector || {}); const matchDetected = /observing|locked/i.test(collectorText); const capturing = captureActivity?.state === 'capturing' && Date.now() - captureActivity.startedAt < 5 * 60 * 1000;
@@ -489,6 +491,7 @@ async function desktopStatus() {
     replayCount: replays.length,
     replays,
     pendingScoreboards: pendingScoreboards.length,
+    recovery: { lastBackupAt: runtime.config.lastBackupAt || null, verifiedRecent: recoveryVerified },
     latestReplay: replays[0] || null,
     collector,
     sync: { paired: !!runtime.config.cloudPairing, server: runtime.config.cloudPairing?.server || null, pending: localSync.outbox.length, received: localSync.inbox.length },
@@ -565,6 +568,10 @@ function handleTrusted(channel, listener) {
 
 handleTrusted('desktop:bootstrap-session', (event, force) => { requireTrustedSender(event); return bootstrapSession(force === true); });
 handleTrusted('desktop:get-status', desktopStatus);
+handleTrusted('desktop:create-recovery-backup', async () => {
+  const result = await createRecoveryBackup(true);
+  return { ...result, message: 'Encrypted recovery point created on this PC.' };
+});
 handleTrusted('desktop:check-for-updates', () => updateController?.check() || { state: 'disabled', message: 'Update service is not ready.' });
 handleTrusted('desktop:download-update', () => updateController?.download() || Promise.reject(new Error('Update service is not ready.')));
 handleTrusted('desktop:install-update', () => updateController?.install() || Promise.reject(new Error('Update service is not ready.')));

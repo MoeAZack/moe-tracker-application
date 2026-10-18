@@ -14,6 +14,7 @@ type DesktopStatus = {
   replayCount: number;
   replays: Array<{ name: string; path: string; size: number; modifiedAt: string }>;
   pendingScoreboards: number;
+  recovery: { lastBackupAt: string | null; verifiedRecent: boolean };
   latestReplay: null | { name: string; path: string; size: number; modifiedAt: string };
   localService: 'online' | 'offline';
   update: { state: 'disabled' | 'current' | 'checking' | 'available' | 'downloading' | 'downloaded' | 'error'; version: string | null; percent: number | null; message: string };
@@ -29,6 +30,7 @@ declare global {
     moeDesktop?: {
       bootstrapSession(force?: boolean): Promise<{ key: string; role: string; username: string; expiresAt?: string }>;
       getStatus(): Promise<DesktopStatus>;
+      createRecoveryBackup(): Promise<{ backupId?: string; createdAt?: string; message: string }>;
       checkForUpdates(): Promise<DesktopStatus['update']>;
       downloadUpdate(): Promise<DesktopStatus['update']>;
       installUpdate(): Promise<{ installing: boolean }>;
