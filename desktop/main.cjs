@@ -132,7 +132,7 @@ function scoreboardRoots() {
 }
 
 async function allPendingScoreboards() {
-  const lists = await Promise.all(scoreboardRoots().map(root => scoreboardInventory(root, runtime.config.processedScoreboardIds || [])));
+  const lists = await Promise.all(scoreboardRoots().map(root => scoreboardInventory(root, runtime.config.processedScoreboardIds || [], runtime.config.processedScoreboardHashes || [])));
   return lists.flat().sort((left, right) => left.modifiedAt.localeCompare(right.modifiedAt));
 }
 
@@ -569,12 +569,14 @@ ipcMain.handle('desktop:complete-scoreboard', async (_event, id) => {
   if (!/^[a-f0-9]{64}$/.test(String(id || ''))) throw new Error('Unknown scoreboard image.');
   const record = (await allPendingScoreboards()).find(item => item.id === id);
   if (!record) throw new Error('The scoreboard image is no longer pending.');
-  runtime.config.processedScoreboardIds = [...new Set([...(runtime.config.processedScoreboardIds || []), id])].slice(-1000);
+  const loaded = await readScoreboardRecord(record);
+  runtime.config.processedScoreboardIds = [...new Set([...(runtime.config.processedScoreboardIds || []), id])].slice(-50_000);
+  runtime.config.processedScoreboardHashes = [...new Set([...(runtime.config.processedScoreboardHashes || []), loaded.imageSha256])].slice(-50_000);
   await saveRuntimeConfig(); return { completed: true };
 });
 ipcMain.handle('desktop:start-scrim-capture', async (_event, input = {}) => {
-  const roundCount = Number(input.roundCount);
-  if (!Number.isInteger(roundCount) || roundCount < 1 || roundCount > 32) throw new Error('Round count must be between 1 and 32.');
+  const roundCount = input.roundCount === undefined || input.roundCount === null || input.roundCount === '' ? 0 : Number(input.roundCount);
+  if (!Number.isInteger(roundCount) || roundCount < 0 || roundCount > 32) throw new Error('Round count must be automatic or between 1 and 32.');
   const launcher = path.join(applicationRoot(), 'scripts', 'start-scrim-capture.cmd');
   if (!path.isAbsolute(launcher) || !fs.existsSync(launcher)) throw new Error('The built-in capture helper is missing. Reinstall Moe Tracker.');
   const command = "$process = Start-Process -FilePath $env:MOE_CAPTURE_LAUNCHER -Verb RunAs -ArgumentList @($env:MOE_CAPTURE_ROUNDS, 'elevated') -PassThru; if (-not $process) { exit 1 }";
@@ -589,7 +591,7 @@ ipcMain.handle('desktop:start-scrim-capture', async (_event, input = {}) => {
     child.on('error', reject);
     child.on('exit', code => code === 0 ? resolve() : reject(new Error(stderr.trim() || 'Windows did not start the capture helper.')));
   });
-  return { started: true, message: `Capture started for ${roundCount} rounds. Approve Windows elevation, then return to VALORANT before the countdown ends.` };
+  return { started: true, message: `Capture started${roundCount ? ` for ${roundCount} rounds` : ' with automatic round detection'}. Approve Windows elevation, then return to VALORANT before the countdown ends.` };
 });
 ipcMain.handle('desktop:delete-replay', async (_event, replayPath) => {
   const requested = path.resolve(String(replayPath || ''));

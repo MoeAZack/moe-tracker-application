@@ -13,6 +13,7 @@ import { classifyValorantScoreboardAgents } from '../../lib/localAgentClassifier
 import { captureConsistencyReport, findDuplicateScoreboardMatch } from '../../lib/screenshotEvidence';
 import { extractCaptureSession, INFORMATIONAL_ROUND_ISSUES } from '../../lib/captureSessionPipeline';
 import { buildOpponentHistory } from '../../lib/opponentHistory';
+import { getCachedRecognitions, putCachedRecognitions, sha256Base64 } from '../utils/ocrRecognitionCache';
 
 interface Props {
   data: TrackerData;
@@ -122,11 +123,22 @@ export default function ScrimImport({ data, theme, onSaveMatch, onSaveRounds, on
         ? data.rosterPlayers.map(player => ({ id: player.id, displayName: player.displayName }))
         : roster.map(displayName => ({ displayName }));
       adapter = await createBrowserLocalTesseractAdapter();
+      const hashes = new Map<string, Promise<string>>();
       const extracted = await extractCaptureSession({
         captures: session.captures,
         rosterPlayers,
         adapter,
         loadImage: capture => imageFromBase64(capture.base64, capture.mediaType),
+        knownMaps: maps,
+        recognize: async (capture, image, profile) => {
+          const identity = `${capture.kind}:${capture.round || 0}:${capture.name || ''}`;
+          const hash = await (hashes.get(identity) || (() => { const pending = sha256Base64(capture.base64); hashes.set(identity, pending); return pending; })());
+          const cached = await getCachedRecognitions(hash, profile);
+          if (cached) return cached;
+          const recognitions = await adapter!.recognize(image, profile);
+          await putCachedRecognitions(hash, profile, recognitions);
+          return recognitions;
+        },
         progress: setCaptureProgress,
       });
       const { draft, players: resolvedPlayers, rounds: extractedRounds } = extracted;

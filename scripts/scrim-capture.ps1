@@ -1,7 +1,7 @@
 [CmdletBinding()]
 param(
-  [ValidateRange(1, 32)]
-  [int]$RoundCount = 22,
+  [ValidateRange(0, 32)]
+  [int]$RoundCount = 0,
 
   [ValidateSet('without-performance', 'with-performance')]
   [string]$Template = 'without-performance',
@@ -37,9 +37,10 @@ if ($DryRun) {
     requestedTemplate = $Template
     templateDetection = 'automatic from visible Summary tabs'
     roundCount = $RoundCount
+    automaticRoundDetection = $RoundCount -eq 0
     outputRoot = $OutputRoot
-    captures = @('scoreboard', 'performance-if-present', 'head-to-head') + (1..$RoundCount | ForEach-Object { "round-$('{0:d2}' -f $_)" })
-    timelinePasses = @(@{ edge = 'left'; captured = [Math]::Min($RoundCount, 24) }) + $(if ($RoundCount -gt 24) { @(@{ edge = 'right'; captured = $RoundCount - 24 }) })
+    captures = @('scoreboard', 'performance-if-present', 'head-to-head') + $(if ($RoundCount -gt 0) { 1..$RoundCount | ForEach-Object { "round-$('{0:d2}' -f $_)" } })
+    timelinePasses = if ($RoundCount -eq 0) { @(@{ edge = 'left'; captured = 'detected' }, @{ edge = 'right'; captured = 'up-to-8-ot-check' }) } else { @(@{ edge = 'left'; captured = [Math]::Min($RoundCount, 24) }) + $(if ($RoundCount -gt 24) { @(@{ edge = 'right'; captured = $RoundCount - 24 }) }) }
   }
   $plan | ConvertTo-Json -Depth 5
   exit 0
@@ -373,6 +374,7 @@ try {
     createdAt = (Get-Date).ToUniversalTime().ToString('o')
     resolution = @{ width = $window.ViewWidth; height = $window.ViewHeight }
     requestedRounds = $RoundCount
+    automaticRoundDetection = $RoundCount -eq 0
     template = $effectiveTemplate
     requestedTemplate = $Template
     detectedTabs = $tabCenters
@@ -423,14 +425,17 @@ try {
 
   Invoke-TimelineScroll $window 120
   $leftTiles = @(Get-VisibleTimelineTiles $window)
-  $firstCount = [Math]::Min($RoundCount, 24)
-  if ($leftTiles.Count -lt $firstCount) {
+  $firstCount = if ($RoundCount -eq 0) { $leftTiles.Count } else { [Math]::Min($RoundCount, 24) }
+  if ($RoundCount -gt 0 -and $leftTiles.Count -lt $firstCount) {
     throw "Only $($leftTiles.Count) timeline tiles were visible at the left edge; expected at least $firstCount."
   }
   $manifest.timelinePasses += @{ edge = 'left'; tiles = $leftTiles.Count; captured = $firstCount }
   Capture-RoundTiles @($leftTiles | Select-Object -First $firstCount) 'left' ([ref]$captureIndex)
 
-  $tailCount = $RoundCount - $firstCount
+  # A full left viewport may hide overtime. In automatic mode, capture the
+  # final eight right-edge tiles; printed ROUND N headers later de-duplicate
+  # regulation rows and reveal the actual match length.
+  $tailCount = if ($RoundCount -eq 0 -and $leftTiles.Count -ge 24) { 8 } elseif ($RoundCount -eq 0) { 0 } else { $RoundCount - $firstCount }
   if ($tailCount -gt 0) {
     Invoke-TimelineScroll $window -120
     Invoke-TimelineScroll $window -120
@@ -443,7 +448,7 @@ try {
   }
 
   $detectedRoundCount = $captureIndex
-  if ($detectedRoundCount -ne $RoundCount) { throw "Captured $detectedRoundCount rounds; expected $RoundCount." }
+  if ($RoundCount -gt 0 -and $detectedRoundCount -ne $RoundCount) { throw "Captured $detectedRoundCount rounds; expected $RoundCount." }
   $manifest.roundNumbering = 'capture-order'
   $manifest.detectedRounds = $detectedRoundCount
 

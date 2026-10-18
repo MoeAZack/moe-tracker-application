@@ -166,6 +166,7 @@ export default function SettingsControl({ data, theme, onSaveSettings, onRefresh
 
   // Advanced configurations
   const [aiModel, setAiModel] = useState(data.settings.ai?.model || 'gemini-2.5-flash');
+  const [ocrFallback, setOcrFallback] = useState<'local-only' | 'local-then-cloud'>(data.settings.ai?.ocrFallback || 'local-only');
   const [vlrBaseUrl, setVlrBaseUrl] = useState(data.settings.vlr?.baseUrl || '');
   const [vlrTeamId, setVlrTeamId] = useState(data.settings.vlr?.teamId || '');
   const [vlrTeamName, setVlrTeamName] = useState(data.settings.vlr?.teamName || '');
@@ -311,7 +312,8 @@ export default function SettingsControl({ data, theme, onSaveSettings, onRefresh
         teamName: vlrTeamName
       },
       ai: {
-        model: aiModel
+        model: aiModel,
+        ocrFallback
       }
     };
 
@@ -431,6 +433,12 @@ export default function SettingsControl({ data, theme, onSaveSettings, onRefresh
                       <p className="text-[9px] text-gray-500 leading-relaxed">
                         Select which Google Gemini reasoning engine powers the OCR scoreboard parser, strategy creator, and post-match tactical logs.
                       </p>
+                      <label className="mt-3 block text-[10px] uppercase font-black text-gray-500">Unresolved OCR fallback</label>
+                      <select value={ocrFallback} onChange={event => setOcrFallback(event.target.value as 'local-only' | 'local-then-cloud')} className="w-full p-2.5 bg-black/25 text-white border border-white/10 rounded text-xs font-bold">
+                        <option value="local-only">Local only · private</option>
+                        <option value="local-then-cloud">Local first, Gemini only for unresolved captures</option>
+                      </select>
+                      <p className="text-[9px] text-gray-500 leading-relaxed">Cloud fallback is off by default. When enabled, only an unresolved scoreboard is sent after local recognition fails; round screenshots stay local.</p>
                     </div>
 
                     <div className="space-y-1.5">

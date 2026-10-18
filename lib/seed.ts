@@ -32,7 +32,7 @@ export function createSeed() {
     calendars: DEFAULT_SCHEDULE_CALENDARS.map(calendar => ({ ...calendar })),
     riotIds: {} as Record<string, { name: string; tag: string; region?: string; level?: number }>,
     vlr: { baseUrl: '', teamId: '', teamName: '' },
-    ai: { model: 'gemini-2.5-flash' },
+    ai: { model: 'gemini-2.5-flash', ocrFallback: 'local-only' as const },
     weights: { mapWin: 25, attWin: 12.5, defWin: 12.5, pistol: 20, eco: 10, bonus: 10, kd: 10 },
     buyTypes: ['Full', 'Half', 'Force', 'Bonus', 'Eco'],
     winReasons: ['Elimination', 'Post-plant', 'Defuse', 'Retake', 'Time', 'Spike'],
