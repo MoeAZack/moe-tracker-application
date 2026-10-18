@@ -15,7 +15,7 @@ export function refreshCoachingWorkflow(db: any, who = 'system', now = new Date(
     const related = (db.coachingActions || []).find((action: CoachingAction) => !['resolved', 'cancelled'].includes(action.state) && action.check?.signalType === signal.type && coachingContextMatches(action.check.context, signal.context) && action.sourceSignalId !== signal.id && Date.parse(action.createdAt) < Date.parse(signal.createdAt));
     if (related) signal.relatedActionId = related.id;
   }
-  db.coachingActions = migrateLegacyActionChecks(db.coachingActions || [], db.coachingSignals, who, now).map((action: CoachingAction) => evaluateAction(action, summaries, db.coachingSignals, now));
+  db.coachingActions = migrateLegacyActionChecks(db.coachingActions || [], db.coachingSignals, who, now, summaries).map((action: CoachingAction) => evaluateAction(action, summaries, db.coachingSignals, now));
   return { summaries, signals: db.coachingSignals, actions: db.coachingActions };
 }
 

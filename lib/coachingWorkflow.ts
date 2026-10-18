@@ -40,7 +40,7 @@ export interface PracticeBlockSummary {
   generatedAt: string;
   practiceStartAt: string | null;
   practiceEndAt: string | null;
-  coverage: { matches: number; acceptedMatches: number; rounds: number; knownRounds: number; playerRows: number; evidenceHealth: 'complete' | 'partial' | 'empty' };
+  coverage: { matches: number; acceptedMatches: number; acceptedMatchRate: number | null; rounds: number; knownRounds: number; roundCompletenessRate: number | null; playerRows: number; evidenceHealth: 'complete' | 'partial' | 'empty' };
   header: { opponents: string[]; maps: string[]; result: { wins: number; losses: number; undecided: number }; sources: string[]; rosterStatuses: string[] };
   openings: { pistols: Record<'ATT' | 'DEF', { wins: number; samples: number; rate: number | null }>; firstThree: Record<'ATT' | 'DEF', { wins: number; samples: number; rate: number | null }>; firstKills: number; firstDeaths: number; recoveriesAfterFirstDeath: number | null; firstDeathSamples: number };
   economy: { lowBuyWins: number; lowBuyRounds: number; fullBuyLosses: number; fullBuyRounds: number; antiEcoLosses: number; antiEcoRounds: number; knownBuyRounds: number; totalRounds: number; weaponObservations: number };
@@ -67,7 +67,7 @@ export function buildPracticeBlockSummary(data: WorkflowData, block: Pick<Practi
   })).sort((a, b) => b.kills - a.kills || a.player.localeCompare(b.player));
   const compositionGroups = new Map<string, { agents: string[]; matches: number; wins: number; losses: number }>();
   for (const match of acceptedMatches) { const agents = [...new Set(stats.filter(row => row.matchId === match.id).map(row => row.agent).filter(Boolean))].sort(); if (!agents.length) continue; const key = agents.join('|'); const current = compositionGroups.get(key) || { agents, matches: 0, wins: 0, losses: 0 }; current.matches += 1; const result = score(match); if (result && result.ours > result.theirs) current.wins += 1; else if (result && result.ours < result.theirs) current.losses += 1; compositionGroups.set(key, current); }
-  const mapGroups = new Map<string, { map: string; matches: number; wins: number; losses: number; active: boolean }>(); const inactiveMaps = new Set(data.settings.inactiveMaps || []);
+  const mapGroups = new Map<string, { map: string; matches: number; wins: number; losses: number; active: boolean }>(); const inactiveMaps = new Set(data.settings?.inactiveMaps || []);
   for (const match of acceptedMatches) { const map = match.map || 'Unknown'; const current = mapGroups.get(map) || { map, matches: 0, wins: 0, losses: 0, active: !inactiveMaps.has(map) }; current.matches += 1; const result = score(match); if (result && result.ours > result.theirs) current.wins += 1; else if (result && result.ours < result.theirs) current.losses += 1; mapGroups.set(map, current); }
   const fdRounds = rounds.filter(round => !!round.firstDeathBy && knownResult(round));
   const practiceTimes = matches.map(match => Date.parse(match.sourceMetadata?.capturedAt || match.date)).filter(Number.isFinite).sort((a, b) => a - b);
@@ -75,7 +75,7 @@ export function buildPracticeBlockSummary(data: WorkflowData, block: Pick<Practi
     schema: COACHING_WORKFLOW_VERSION, blockId: block.id, name: block.name, matchIds: [...block.matchIds], generatedAt: now,
     practiceStartAt: practiceTimes.length ? new Date(practiceTimes[0]).toISOString() : null,
     practiceEndAt: practiceTimes.length ? new Date(practiceTimes.at(-1)!).toISOString() : null,
-    coverage: { matches: matches.length, acceptedMatches: acceptedMatches.length, rounds: rounds.length, knownRounds: knownRounds.length, playerRows: stats.length, evidenceHealth: !acceptedMatches.length ? 'empty' : acceptedMatches.length === matches.length && knownRounds.length === rounds.length ? 'complete' : 'partial' },
+    coverage: { matches: matches.length, acceptedMatches: acceptedMatches.length, acceptedMatchRate: rate(acceptedMatches.length, matches.length), rounds: rounds.length, knownRounds: knownRounds.length, roundCompletenessRate: rate(knownRounds.length, rounds.length), playerRows: stats.length, evidenceHealth: !acceptedMatches.length ? 'empty' : acceptedMatches.length === matches.length && rounds.length > 0 && knownRounds.length === rounds.length ? 'complete' : 'partial' },
     header: { opponents: [...new Set(acceptedMatches.map(match => match.opponent).filter(Boolean))].sort(), maps: [...new Set(acceptedMatches.map(match => match.map).filter(Boolean))].sort(), result: { wins: decided.filter(item => item.score.ours > item.score.theirs).length, losses: decided.filter(item => item.score.ours < item.score.theirs).length, undecided: acceptedMatches.length - decided.length }, sources: [...new Set(acceptedMatches.map(match => match.sourceMetadata?.method || match.source || 'unknown'))].sort(), rosterStatuses: [...new Set(stats.map(row => row.appearanceType || 'unclassified'))].sort() },
     openings: { pistols: { ATT: pistol('ATT'), DEF: pistol('DEF') }, firstThree: { ATT: firstThree('ATT'), DEF: firstThree('DEF') }, firstKills: total(stats, 'fk'), firstDeaths: total(stats, 'fd'), recoveriesAfterFirstDeath: fdRounds.length ? fdRounds.filter(won).length : null, firstDeathSamples: fdRounds.length },
     economy: { lowBuyWins: rounds.filter(round => ['eco', 'low', 'half', 'force'].includes(buy(round)) && won(round)).length, lowBuyRounds: rounds.filter(round => ['eco', 'low', 'half', 'force'].includes(buy(round)) && knownResult(round)).length, fullBuyLosses: rounds.filter(round => buy(round) === 'full' && !won(round) && knownResult(round)).length, fullBuyRounds: rounds.filter(round => buy(round) === 'full' && knownResult(round)).length, antiEcoLosses: rounds.filter(round => enemyBuy(round) === 'eco' && !won(round) && knownResult(round)).length, antiEcoRounds: rounds.filter(round => enemyBuy(round) === 'eco' && knownResult(round)).length, knownBuyRounds: rounds.filter(round => !!round.buy).length, totalRounds: rounds.length, weaponObservations: stats.reduce((sum, row) => sum + (row.screenshotMetrics?.weapons?.length || 0), 0) },
@@ -94,7 +94,11 @@ function signal(block: PracticeBlockSummary, type: CoachingSignal['type'], sever
 
 export function generateReviewSignalDrafts(summary: PracticeBlockSummary, thresholds: { minimumSamples?: number; fullBuyLosses?: number; antiEcoLosses?: number; firstDeathCollapseRate?: number } = {}) {
   const drafts: SignalDraft[] = []; const min = Math.max(1, thresholds.minimumSamples || 2);
-  if (summary.coverage.evidenceHealth !== 'complete') drafts.push(signal(summary, 'evidence-health', 'warning', 'Evidence needs review', `${summary.coverage.acceptedMatches}/${summary.coverage.matches} matches and ${summary.coverage.knownRounds}/${summary.coverage.rounds} rounds are accepted and complete.`, { value: Number(rate(summary.coverage.acceptedMatches, summary.coverage.matches) || 0), samples: summary.coverage.matches, unit: '%' }));
+  if (summary.coverage.evidenceHealth !== 'complete') {
+    const matchRate = summary.coverage.acceptedMatchRate ?? 0; const roundRate = summary.coverage.roundCompletenessRate ?? 0;
+    const dimension = roundRate <= matchRate ? 'round-completeness' : 'match-acceptance';
+    drafts.push(signal(summary, 'evidence-health', 'warning', 'Evidence needs review', `${summary.coverage.acceptedMatches}/${summary.coverage.matches} matches accepted · ${summary.coverage.knownRounds}/${summary.coverage.rounds} rounds complete.`, { value: dimension === 'round-completeness' ? roundRate : matchRate, samples: dimension === 'round-completeness' ? summary.coverage.rounds : summary.coverage.matches, unit: '%' }, { evidenceDimension: dimension }));
+  }
   for (const sideName of ['ATT', 'DEF'] as const) { const pistol = summary.openings.pistols[sideName]; if (pistol.samples >= min && pistol.rate !== null && pistol.rate < 50) drafts.push(signal(summary, 'pistol-conversion', 'warning', `${sideName} pistol conversion`, `${sideName} pistol rounds were won ${pistol.wins}/${pistol.samples} times.`, { value: pistol.rate, samples: pistol.samples, unit: '%' }, { side: sideName })); }
   if (summary.economy.fullBuyLosses >= (thresholds.fullBuyLosses || 2)) drafts.push(signal(summary, 'full-buy-loss', 'critical', 'Repeated full-buy losses', `${summary.economy.fullBuyLosses}/${summary.economy.fullBuyRounds} covered full-buy rounds were lost.`, { value: Number(rate(summary.economy.fullBuyLosses, summary.economy.fullBuyRounds)), samples: summary.economy.fullBuyRounds, unit: '%' }, { economy: 'full' }));
   if (summary.economy.antiEcoLosses >= (thresholds.antiEcoLosses || 1)) drafts.push(signal(summary, 'anti-eco-loss', 'critical', 'Anti-eco loss', `${summary.economy.antiEcoLosses}/${summary.economy.antiEcoRounds} covered rounds were lost against a known enemy eco.`, { value: Number(rate(summary.economy.antiEcoLosses, summary.economy.antiEcoRounds)), samples: summary.economy.antiEcoRounds, unit: '%' }, { economy: 'anti-eco' }));
@@ -141,17 +145,28 @@ export function buildActionCheck(signalRecord: CoachingSignal): NonNullable<Coac
   return { policyVersion: 2, signalType: signalRecord.type, baseline: signalRecord.metric.value, target: Math.round(target * 10) / 10, direction: policy.direction, unit: signalRecord.metric.unit, minimumSamples: policy.minimumSamples, sourceBlockId: signalRecord.blockId, context: structuredClone(signalRecord.context) };
 }
 
-export function migrateLegacyActionChecks(actions: readonly CoachingAction[], signals: readonly CoachingSignal[], actor = 'system', now = new Date().toISOString()) {
+export function migrateLegacyActionChecks(actions: readonly CoachingAction[], signals: readonly CoachingSignal[], actor = 'system', now = new Date().toISOString(), summaries: readonly PracticeBlockSummary[] = []) {
   const byId = new Map(signals.map(signalRecord => [signalRecord.id, signalRecord]));
   return actions.map(action => {
     if (!action.check || action.check.policyVersion === 2) return action;
     const source = byId.get(action.sourceSignalId);
-    if (!source) return { ...action, outcome: { status: 'inconclusive' as const, baseline: action.check.baseline, later: null, change: null, confidence: 'low' as const, evaluatedAt: now, reason: 'This legacy action cannot be recalculated until its original evidence is available.' } };
+    const sourceSummary = source ? summaries.find(summary => summary.blockId === source.blockId) : null;
+    const provisional = source ? buildActionCheck(source) : null;
+    const recalculated = sourceSummary && provisional ? observedMetric(sourceSummary, provisional) : null;
+    if (!source || !recalculated) return {
+      ...action,
+      checkHistory: [...(action.checkHistory || []), { migratedAt: now, migratedBy: actor, reason: 'Legacy evaluation blocked because its original evidence could not be recalculated.', check: structuredClone(action.check), outcome: structuredClone(action.outcome) }],
+      check: null,
+      outcome: { status: 'inconclusive' as const, baseline: action.check.baseline, later: null, change: null, confidence: 'low' as const, evaluatedAt: now, reason: 'This legacy action is blocked until its original evidence can be recalculated under the current metric definition.' },
+      updatedAt: now,
+      audit: [...action.audit, { at: now, by: actor, from: action.state, to: action.state, reason: 'Legacy evaluation blocked pending evidence recalculation.' }],
+    };
+    const recalculatedSignal = { ...source, metric: recalculated, context: provisional.context || source.context };
     return {
       ...action,
       checkHistory: [...(action.checkHistory || []), { migratedAt: now, migratedBy: actor, reason: 'Migrated from the legacy coaching metric policy; original values retained for audit.', check: structuredClone(action.check), outcome: structuredClone(action.outcome) }],
-      check: buildActionCheck(source),
-      outcome: { status: 'inconclusive' as const, baseline: source.metric.value, later: null, change: null, confidence: 'low' as const, evaluatedAt: now, reason: 'Legacy evaluation invalidated and recalculated under coaching metric policy v2.' },
+      check: buildActionCheck(recalculatedSignal),
+      outcome: { status: 'inconclusive' as const, baseline: recalculated.value, later: null, change: null, confidence: 'low' as const, evaluatedAt: now, reason: 'Legacy evaluation invalidated and recalculated from its original evidence under coaching metric policy v2.' },
       updatedAt: now,
       audit: [...action.audit, { at: now, by: actor, from: action.state, to: action.state, reason: 'Legacy evaluation migrated to coaching metric policy v2.' }],
     };
@@ -170,7 +185,10 @@ function observedMetric(summary: PracticeBlockSummary, check: NonNullable<Coachi
   if (check.signalType === 'first-death-collapse') return summary.openings.recoveriesAfterFirstDeath === null ? null : { value: 100 - Number(rate(summary.openings.recoveriesAfterFirstDeath, summary.openings.firstDeathSamples)), samples: summary.openings.firstDeathSamples, unit: '%' };
   if (check.signalType === 'repeated-player-first-death') { const player = summary.roster.find(row => context.playerId ? row.playerId === context.playerId : row.player === context.player); return player && player.fk + player.fd ? { value: Number(rate(player.fd, player.fk + player.fd)), samples: player.fk + player.fd, unit: '%' } : null; }
   if (check.signalType === 'map-underperformance') { const map = summary.mapResults.find(row => row.map === context.map); return map ? { value: Number(rate(map.wins, map.matches)), samples: map.matches, unit: '%' } : null; }
-  if (check.signalType === 'evidence-health') return summary.coverage.matches ? { value: Number(rate(summary.coverage.acceptedMatches, summary.coverage.matches)), samples: summary.coverage.matches, unit: '%' } : null;
+  if (check.signalType === 'evidence-health') {
+    if (context.evidenceDimension === 'match-acceptance') return summary.coverage.matches ? { value: summary.coverage.acceptedMatchRate!, samples: summary.coverage.matches, unit: '%' } : null;
+    return summary.coverage.rounds ? { value: summary.coverage.roundCompletenessRate!, samples: summary.coverage.rounds, unit: '%' } : null;
+  }
   return null;
 }
 

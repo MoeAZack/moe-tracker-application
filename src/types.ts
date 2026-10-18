@@ -286,7 +286,7 @@ export interface CoachingSignal {
   title: string;
   explanation: string;
   metric: { value: number; samples: number; unit: string };
-  context: { map?: string; side?: string; economy?: string; playerId?: string; player?: string; agent?: string; composition?: string };
+  context: { map?: string; side?: string; economy?: string; playerId?: string; player?: string; agent?: string; composition?: string; evidenceDimension?: 'match-acceptance' | 'round-completeness' };
   evidence: { matchIds: string[]; roundIds?: string[]; sourceTypes: string[]; confidence: 'high' | 'medium' | 'low' };
   relatedActionId?: string;
   classificationCorrections?: Array<{ at: string; by: string; reason: string; original: { type: CoachingSignal['type']; context: CoachingSignal['context'] }; corrected: { type: CoachingSignal['type']; context: CoachingSignal['context'] } }>;
@@ -704,7 +704,7 @@ export interface VodTimelineEvidence {
   schema: 'moetracker.vod-timeline-evidence/v1';
   grade: 'video-observation';
   source: { kind: 'youtube' | 'local-file'; videoId?: string | null; sha256: string; width: number; height: number; durationMs: number; analyzedAt: string };
-  coverage: { durationMs: number; killFeedSnapshots: number; objectiveSnapshots: number; ultimateSnapshots: number; resolvedEliminations: number; inferredRoundGroups: number; signals: Record<string, 'complete' | 'partial' | 'unsupported'> };
+  coverage: { durationMs: number; killFeedSnapshots: number; objectiveSnapshots: number; ultimateSnapshots: number; resolvedEliminations: number; inferredRoundGroups: number; temporalAmbiguities?: number; signals: Record<string, 'complete' | 'partial' | 'unsupported'> };
   observations: Array<{ id: string; kind: string; timestampMs: number; confidence?: number | null; grade: 'video-observation' | 'ocr'; killer?: string; victim?: string; player?: string; rawText?: string; [key: string]: unknown }>;
   rounds: Array<{ roundNumber: number; startedAtMs: number; endedAtMs: number; events: unknown[] }>;
   playerMetrics: Array<{ playerName: string; team: 'ours' | 'theirs'; kills: number; deaths: number; trades: number; ultimateUses?: number | null; orbCaptures?: number | null; kastSuccessful?: number | null; kastCovered?: number | null; kastRate?: number | null }>;

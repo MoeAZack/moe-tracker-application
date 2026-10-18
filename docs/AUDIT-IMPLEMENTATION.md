@@ -26,12 +26,18 @@ Repository rules require a pull request, one approval, resolved review threads, 
 
 ## Next product increments
 
-1. Round/event-linked embedded VOD playback with stored synchronization offsets and automated timeline sampling beyond the submitted scoreboard frame.
-2. Discord delivery for accepted summaries and assignments, including deduplication, quiet hours, delivery status, and permission-aware links.
-3. Calendar export first, then optional provider synchronization with cancellation and conflict handling.
-4. Versioned JSON/CSV import with mapping preview, duplicate detection, provenance, and partial-import explanations.
-5. Versioned tactical boards and map assets linked to reviewed rounds.
-6. Official Riot integration only after product registration, production approval, and player opt-in.
+The two October product audits are consolidated into this order. Trust and traceability stay ahead of new breadth.
+
+1. **Analytics trust and safe ingestion (0.1.51).** Reconcile duplicate player rows per match, preserve mixed historical/current screenshot coverage, keep unavailable metrics unknown, expose identity confidence, separate match acceptance from round completeness, prevent sampled VOD timing from claiming complete trade/KAST/ultimate evidence, and add cancel/timeout/disk guards to long VOD analysis.
+2. **Connected player profiles.** Make every player row open one profile with source identities, aliases, match history, evidence coverage, and reversible identity corrections. Add metric-level evidence explanations without crowding the summary table.
+3. **Unified match review.** Share the selected round and evidence context across scoreboard, round log, replay, VOD, economy, and coaching surfaces. Store media synchronization offsets and keep unsupported evidence visibly unavailable.
+4. **Practice-to-progress.** Attach PRACC calendar blocks to actual matches, lineups, goals, attendance, review findings, and follow-up measurements so coaches can judge whether a practice objective improved.
+5. **Release and adoption.** Complete signed Windows publishing and independent second-PC acceptance, then add onboarding and recovery guidance for the zero-manual-confirmation workflow.
+6. Discord delivery for accepted summaries and assignments, including deduplication, quiet hours, delivery status, and permission-aware links.
+7. Calendar export first, then optional provider synchronization with cancellation and conflict handling.
+8. Versioned JSON/CSV import with mapping preview, duplicate detection, provenance, and partial-import explanations.
+9. Versioned tactical boards and map assets linked to reviewed rounds.
+10. Official Riot integration only after product registration, production approval, and player opt-in.
 
 ## External acceptance gates
 

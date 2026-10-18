@@ -96,6 +96,28 @@ describe('observed roster dashboard', () => {
     expect(rows[0]).toMatchObject({ displayName: 'bellatrix', playerId: null, status: 'tryout', matches: 6, recordedRows: 6, kills: 60, deaths: 30, assists: 12 });
   });
 
+  it('reconciles duplicate rows per match without inflating combat totals and keeps unknown counters unknown', () => {
+    const [row] = aggregateObservedPlayerDashboard({
+      rosterPlayers: [], coreMemberships: [], tryoutBatches: [], rounds: [], matches: [{ id: 'm1', date: '2026-10-18', map: 'Ascent' }],
+      playerStats: [
+        { id: 'a', matchId: 'm1', playerId: 'orphan-a', displayNameSnapshot: 'Alpha', kills: 10, deaths: 5, assists: 2, plants: null, defuses: null },
+        { id: 'b', matchId: 'm1', playerId: 'orphan-b', displayNameSnapshot: 'alpha', kills: 10, deaths: 5, assists: 2, plants: null, defuses: null },
+      ],
+    } as any);
+    expect(row).toMatchObject({ matches: 1, kills: 10, deaths: 5, assists: 2, plants: null, defuses: null, multikills: { two: null, three: null, four: null, ace: null }, evidence: { duplicateRowsReconciled: 1 } });
+  });
+
+  it('reconciles screenshot metrics per match instead of dropping stored history when live rounds exist', () => {
+    const stored = { schemaVersion: 1, coveredRounds: 2, wins: 1, losses: 1, firstKills: 1, firstDeaths: 0, trades: 0, multikills: { two: 1, three: 0, four: 0, ace: 0 }, lowBudgetWins: 0, highBudgetLosses: 0, antiEcoLosses: 0, kast: { successful: 1, covered: 2 }, weapons: [] };
+    const [row] = aggregateObservedPlayerDashboard({
+      rosterPlayers: [], coreMemberships: [], tryoutBatches: [], matches: [{ id: 'm1', date: '2026-10-17' }, { id: 'm2', date: '2026-10-18' }],
+      playerStats: [{ id: 'a', matchId: 'm1', playerId: 'p1', displayNameSnapshot: 'Alpha', screenshotMetrics: stored }, { id: 'b', matchId: 'm2', playerId: 'p1', displayNameSnapshot: 'Alpha' }],
+      rounds: [{ id: 'r1', matchId: 'm2', roundNo: 1, result: 'W', screenshotEvidence: { reviewStatus: 'confirmed', players: [{ playerId: 'p1', displayName: 'Alpha', team: 'ours', survived: true }], eventsComplete: true, events: [] } }],
+    } as any);
+    expect(row.evidence.screenshotRounds).toBe(3);
+    expect(row.multikills.two).toBe(1);
+  });
+
   it('does not merge distinct active roster identities that share a normalized name', () => {
     const rows = aggregateObservedPlayerDashboard({
       rosterPlayers: [{ id: 'p1', displayName: 'Same', createdAt: '2026-10-01' }, { id: 'p2', displayName: 'same', createdAt: '2026-10-02' }], coreMemberships: [], tryoutBatches: [], matches: [],

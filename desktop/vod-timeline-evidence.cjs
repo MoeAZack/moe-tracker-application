@@ -76,12 +76,15 @@ function parseUltimateSnapshots(snapshots, playerName) {
     const previous = states.at(-1);
     if (!previous || previous.current !== current || previous.required !== required) states.push({ id: observationId('ultimate-state', snapshot.timestampMs, `${current}/${required}`), kind: 'ultimate-state', timestampMs: snapshot.timestampMs, confidence: snapshot.confidence ?? .7, grade: 'ocr', player: playerName, current, required, rawText: snapshot.text });
   }
-  const uses = [];
+  const uses = []; const candidates = [];
   for (let index = 1; index < states.length; index += 1) {
     const before = states[index - 1]; const after = states[index];
-    if (before.current >= before.required - 1 && after.current <= 1 && after.timestampMs - before.timestampMs < 20_000) uses.push({ id: observationId('ultimate-use', after.timestampMs, playerName), kind: 'ultimate-use', timestampMs: after.timestampMs, confidence: Math.min(before.confidence, after.confidence, .86), grade: 'video-observation', player: playerName });
+    const gap = after.timestampMs - before.timestampMs;
+    if (after.required !== before.required || after.current > 1 || gap <= 0 || gap >= 20_000) continue;
+    if (before.current === before.required) uses.push({ id: observationId('ultimate-use', after.timestampMs, playerName), kind: 'ultimate-use', timestampMs: after.timestampMs, confidence: Math.min(before.confidence, after.confidence, .86), grade: 'video-observation', player: playerName });
+    else if (before.current === before.required - 1) candidates.push({ id: observationId('ultimate-use-candidate', after.timestampMs, playerName), kind: 'ultimate-use-candidate', timestampMs: after.timestampMs, confidence: Math.min(before.confidence, after.confidence, .55), grade: 'ocr', player: playerName, reason: 'not-confirmed-ready' });
   }
-  return { states, uses };
+  return { states, uses, candidates };
 }
 
 function dedupeEvents(events, windowMs = 5_000) {
@@ -107,7 +110,7 @@ function groupRounds(eliminations, gapMs = 22_000) {
 function aggregateVideoEvidence({ players, killFeedSnapshots = [], objectiveSnapshots = [], ultimateSnapshots = [], povPlayerName = null, durationMs = 0 }) {
   const eliminations = dedupeEvents(killFeedSnapshots.flatMap(snapshot => parseKillFeedSnapshot(snapshot, players)));
   const objectives = dedupeEvents(objectiveSnapshots.flatMap(parseObjectiveSnapshot));
-  const ultimate = povPlayerName ? parseUltimateSnapshots(ultimateSnapshots, povPlayerName) : { states: [], uses: [] };
+  const ultimate = povPlayerName ? parseUltimateSnapshots(ultimateSnapshots, povPlayerName) : { states: [], uses: [], candidates: [] };
   const rounds = groupRounds(eliminations);
   const metrics = players.map(player => {
     const kills = eliminations.filter(event => event.killer === player.name).length;
@@ -130,14 +133,18 @@ function aggregateVideoEvidence({ players, killFeedSnapshots = [], objectiveSnap
   const coverage = {
     durationMs, killFeedSnapshots: killFeedSnapshots.length, objectiveSnapshots: objectiveSnapshots.length, ultimateSnapshots: ultimateSnapshots.length,
     resolvedEliminations: eliminations.length, inferredRoundGroups: rounds.length,
+    temporalAmbiguities: [...new Set(eliminations.map(event => event.timestampMs))].filter(timestamp => eliminations.filter(event => event.timestampMs === timestamp).length > 1).length,
     signals: {
       eliminations: eliminationComplete ? 'complete' : killFeedSnapshots.length ? (eliminations.length ? 'partial' : 'unsupported') : 'unsupported',
-      trades: eliminationComplete ? 'complete' : rounds.length ? 'partial' : 'unsupported', kast: rounds.length ? 'partial' : 'unsupported',
+      // Scoreboard reconciliation proves event counts, not the exact ordering
+      // needed for a five-second trade window. Sampled OCR remains reviewable
+      // evidence but can never promote a zero/positive trade count as complete.
+      trades: rounds.length ? 'partial' : 'unsupported', kast: rounds.length ? 'partial' : 'unsupported',
       objectives: objectiveSnapshots.length ? 'partial' : 'unsupported', ultimateUse: ultimate.states.length >= 2 ? 'partial' : 'unsupported',
       orbCapture: objectives.some(event => event.kind === 'orb-capture') ? 'partial' : 'unsupported', throws: 'unsupported',
     },
   };
-  return { schema: 'moetracker.vod-timeline-evidence/v1', grade: 'video-observation', coverage, observations: [...eliminations, ...objectives, ...ultimate.states, ...ultimate.uses].sort((a, b) => a.timestampMs - b.timestampMs), rounds, playerMetrics: metrics, throwCandidates: [], limitations: ['Round groups inferred from covered kill-feed activity are not authoritative round boundaries.', 'Invisible or unreadable HUD events remain unknown.', 'Throw intent is never inferred as fact.'] };
+  return { schema: 'moetracker.vod-timeline-evidence/v1', grade: 'video-observation', coverage, observations: [...eliminations, ...objectives, ...ultimate.states, ...ultimate.uses, ...ultimate.candidates].sort((a, b) => a.timestampMs - b.timestampMs), rounds, playerMetrics: metrics, throwCandidates: [], limitations: ['Round groups inferred from covered kill-feed activity are not authoritative round boundaries.', 'Sampled kill-feed frames do not prove exact five-second trade timing.', 'Ultimate counter resets remain candidates unless the counter was confirmed fully ready.', 'Invisible or unreadable HUD events remain unknown.', 'Throw intent is never inferred as fact.'] };
 }
 
 module.exports = { normalizeName, nameAppears, parseKillFeedSnapshot, parseObjectiveSnapshot, parseUltimateSnapshots, dedupeEvents, groupRounds, aggregateVideoEvidence };

@@ -3,7 +3,7 @@ import { assertWorkspaceIdentityShape } from './evidenceReference';
 import { migrateAcceptedMatchAggregates } from './aggregateVersioning';
 import { materializeFirstDeathsFromRoundEvidence, materializeRoundOpeningsFromScreenshotEvidence, materializeRoundPlantsFromScreenshotEvidence } from './scrimRoundAnalytics';
 import { ensureScheduleCalendars } from './schedule';
-import { migrateLegacyActionChecks } from './coachingWorkflow';
+import { buildAllPracticeBlockSummaries, migrateLegacyActionChecks } from './coachingWorkflow';
 
 export const STORAGE_SCHEMA_VERSION = 10;
 export const MAX_ENTITY_BYTES = 840 * 1024;
@@ -94,7 +94,7 @@ export function ensureStorageSchema(input: any, now = new Date().toISOString()) 
     if (!Array.isArray(input.attendanceCredits)) input.attendanceCredits = [];
     if (!Array.isArray(input.coachingSignals)) input.coachingSignals = [];
     if (!Array.isArray(input.coachingActions)) input.coachingActions = [];
-    input.coachingActions = migrateLegacyActionChecks(input.coachingActions, input.coachingSignals, 'storage-migration', now);
+    input.coachingActions = migrateLegacyActionChecks(input.coachingActions, input.coachingSignals, 'storage-migration', now, buildAllPracticeBlockSummaries(input, now));
     if (!Array.isArray(input.vodSubmissions)) input.vodSubmissions = [];
     if (!Array.isArray(input.dashboardViews)) input.dashboardViews = [];
     ledger.push({ from: declared, to: STORAGE_SCHEMA_VERSION, at: now });
