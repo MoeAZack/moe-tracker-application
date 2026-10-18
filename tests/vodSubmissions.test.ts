@@ -33,4 +33,25 @@ describe('player VOD submission integration', () => {
     const db = fixture(); const invalid = { ...input, players: input.players.map((row, index) => index === 4 ? { ...row, observedName: 'unknown-player' } : row) };
     expect(() => integrateVodSubmission(db, invalid, 'caelia', ids)).toThrow(/match exactly one active roster player/i);
   });
+
+  it('retains partial timeline observations but promotes metrics only with complete signal coverage', () => {
+    const db = fixture(); const timeline: any = {
+      schema: 'moetracker.vod-timeline-evidence/v1', grade: 'video-observation', source: { kind: 'youtube', videoId: 'abcdefghijk', sha256: 'b'.repeat(64), width: 1920, height: 1080, durationMs: 600000, analyzedAt: '2026-10-18T14:00:00Z' },
+      coverage: { durationMs: 600000, killFeedSnapshots: 40, objectiveSnapshots: 10, ultimateSnapshots: 20, resolvedEliminations: 25, inferredRoundGroups: 12, signals: { eliminations: 'partial', trades: 'complete', kast: 'complete', ultimateUse: 'partial', orbCapture: 'unsupported', throws: 'unsupported' } },
+      observations: [], rounds: [], throwCandidates: [], limitations: [],
+      playerMetrics: [{ playerName: 'caelia', team: 'ours', kills: 5, deaths: 4, trades: 3, ultimateUses: 2, orbCaptures: null, kastSuccessful: 8, kastCovered: 10, kastRate: 80 }],
+    };
+    const submission = integrateVodSubmission(db, { ...input, matchId: 'm1', timelineEvidence: timeline }, 'caelia', ids, '2026-10-18T14:00:00Z');
+    expect(submission.timelineEvidence?.coverage.signals.trades).toBe('complete');
+    expect(db.playerStats[0]).toMatchObject({ trades: 2, kastSuccessful: 8, kastCovered: 10 });
+    expect(db.playerStats[0].ultimateUses).toBeUndefined(); expect(db.playerStats[0].orbPoints).toBeUndefined();
+    expect(db.playerStats[0].vodEvidence.timeline).toMatchObject({ grade: 'video-observation', metrics: { observedKills: 5, ultimateUses: 2 } });
+  });
+
+  it('upgrades an existing scoreboard-only submission with later timeline evidence instead of duplicating it', () => {
+    const db = fixture(); const first = integrateVodSubmission(db, { ...input, matchId: 'm1' }, 'caelia', ids, '2026-10-18T14:00:00Z');
+    const timeline: any = { schema: 'moetracker.vod-timeline-evidence/v1', grade: 'video-observation', source: { kind: 'youtube', videoId: 'abcdefghijk', sha256: 'b'.repeat(64), width: 1920, height: 1080, durationMs: 60_000, analyzedAt: '2026-10-18T14:10:00Z' }, coverage: { durationMs: 60_000, killFeedSnapshots: 2, objectiveSnapshots: 0, ultimateSnapshots: 0, resolvedEliminations: 1, inferredRoundGroups: 1, signals: { eliminations: 'partial', trades: 'partial', kast: 'partial', objectives: 'unsupported', ultimateUse: 'unsupported', orbCapture: 'unsupported', throws: 'unsupported' } }, observations: [], rounds: [], playerMetrics: [], throwCandidates: [], limitations: [] };
+    const upgraded = integrateVodSubmission(db, { ...input, timelineEvidence: timeline }, 'caelia', { ...ids, submissionId: 'should-not-be-used' }, '2026-10-18T14:10:00Z');
+    expect(upgraded.id).toBe(first.id); expect(upgraded.timelineEvidence).toBeTruthy(); expect(db.vodSubmissions).toHaveLength(1);
+  });
 });

@@ -27,6 +27,7 @@ export function registerVodSubmissionRoutes(app: Express) {
         vodUrl: body.vodUrl, imageSha256: body.imageSha256, ...(body.matchId ? { matchId: body.matchId } : {}), playerId,
         date: body.date, map: body.map || null, opponent: body.opponent || null, ourScore: metric(body.ourScore), theirScore: metric(body.theirScore),
         players: body.players.map(row => ({ observedName: row.observedName, agent: row.agent || null, kills: metric(row.kills), deaths: metric(row.deaths), assists: metric(row.assists), acs: metric(row.acs), adr: metric(row.adr), hs: metric(row.hs), fk: metric(row.fk), fd: metric(row.fd), plants: metric(row.plants), defuses: metric(row.defuses), trades: metric(row.trades) })),
+        timelineEvidence: body.timelineEvidence || null,
       }, rosterPlayer.displayName, { submissionId: uid(), matchId: uid(), statId: uid, reviewId: uid() });
       await saveDB(db);
       res.status(201).json({ submission });

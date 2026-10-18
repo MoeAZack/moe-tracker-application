@@ -177,6 +177,16 @@ export const vodNoteSchema = z.object({ reviewId: nonEmpty, seconds: z.number().
 export const vodNoteRemoveSchema = z.object({ reviewId: nonEmpty, noteId: nonEmpty });
 export const vodReplySchema = z.object({ reviewId: nonEmpty, noteId: nonEmpty, text: shortText });
 const vodMetric = z.number().finite().int().min(0).max(2000).nullable();
+const vodSignalSupport = z.enum(['complete', 'partial', 'unsupported']);
+const vodTimelineEvidenceSchema = z.object({
+  schema: z.literal('moetracker.vod-timeline-evidence/v1'), grade: z.literal('video-observation'),
+  source: z.object({ kind: z.enum(['youtube', 'local-file']), videoId: z.string().max(30).nullable().optional(), sha256: z.string().regex(/^[a-f0-9]{64}$/), width: z.number().int().positive().max(16384), height: z.number().int().positive().max(16384), durationMs: z.number().int().positive().max(14_400_000), analyzedAt: z.string().datetime({ offset: true }) }).strict(),
+  coverage: z.object({ durationMs: z.number().int().positive().max(14_400_000), killFeedSnapshots: z.number().int().min(0).max(5000), objectiveSnapshots: z.number().int().min(0).max(5000), ultimateSnapshots: z.number().int().min(0).max(5000), resolvedEliminations: z.number().int().min(0).max(1000), inferredRoundGroups: z.number().int().min(0).max(200), signals: z.record(z.string().max(50), vodSignalSupport) }).strict(),
+  observations: z.array(z.object({ id: z.string().max(100), kind: z.string().max(50), timestampMs: z.number().int().min(0).max(14_400_000), confidence: z.number().min(0).max(1).nullable(), grade: z.enum(['video-observation', 'ocr']), killer: z.string().max(100).optional(), victim: z.string().max(100).optional(), player: z.string().max(100).optional(), rawText: z.string().max(1000).optional() }).passthrough()).max(2000),
+  rounds: z.array(z.object({ roundNumber: z.number().int().min(1).max(200), startedAtMs: z.number().int().min(0), endedAtMs: z.number().int().min(0), events: z.array(z.unknown()).max(50) }).strict()).max(200),
+  playerMetrics: z.array(z.object({ playerName: z.string().max(100), team: z.enum(['ours', 'theirs']), kills: z.number().int().min(0).max(500), deaths: z.number().int().min(0).max(500), trades: z.number().int().min(0).max(500), ultimateUses: vodMetric, orbCaptures: vodMetric, kastSuccessful: vodMetric, kastCovered: vodMetric, kastRate: z.number().min(0).max(100).nullable() }).strict()).max(10),
+  throwCandidates: z.array(z.unknown()).max(200), limitations: z.array(z.string().max(500)).max(20),
+}).strict();
 export const vodSubmissionSchema = z.object({
   vodUrl: z.string().trim().url().max(2000).refine(value => /^https?:\/\//i.test(value), 'VOD links must use HTTP or HTTPS.'),
   imageSha256: z.string().regex(/^[a-f0-9]{64}$/),
@@ -193,6 +203,7 @@ export const vodSubmissionSchema = z.object({
     kills: vodMetric, deaths: vodMetric, assists: vodMetric, acs: vodMetric, adr: vodMetric,
     hs: vodMetric, fk: vodMetric, fd: vodMetric, plants: vodMetric, defuses: vodMetric, trades: vodMetric,
   }).strict()).length(5),
+  timelineEvidence: vodTimelineEvidenceSchema.nullable().optional(),
 }).strict();
 
 export const lineupSaveSchema = z.object({ lineup: looseObject });

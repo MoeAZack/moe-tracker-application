@@ -57,7 +57,7 @@ try {
     for (const key of ['rounds', 'vetos', 'strats', 'stratRuns', 'seasonArchives', 'vodReviews', 'lineups']) if (!Array.isArray(summary[key]) || summary[key].length) throw new Error(`Website summary exposed ${key}.`);
     if (Object.keys(summary.secrets || {}).length) throw new Error('Website summary exposed secret capability flags.');
     await page.getByRole('button', { name: 'VOD Submission' }).click();
-    await page.getByRole('heading', { name: 'Submit a personal VOD' }).waitFor({ state: 'visible' });
+    await page.getByRole('heading', { name: 'Submit and analyze a personal VOD' }).waitFor({ state: 'visible' });
     await page.close();
   }
   console.log('Website production browser smoke passed at desktop and mobile widths with summary-only data.');
