@@ -30,6 +30,7 @@ export default function CalendarGoals({ data, theme, role, onUpsert, onRemove, o
   const [now, setNow] = useState(() => new Date());
   const [attendanceBusy, setAttendanceBusy] = useState('');
   const [attendanceMessage, setAttendanceMessage] = useState('');
+  const exportCalendar = async () => { try { const response = await apiFetch('/api/calendar.ics'); if (!response.ok) throw new Error('Calendar export failed.'); const blob = await response.blob(); const url = URL.createObjectURL(blob); const link = document.createElement('a'); link.href = url; link.download = 'moe-tracker-schedule.ics'; link.click(); URL.revokeObjectURL(url); setAttendanceMessage('Calendar export downloaded.'); } catch (error: any) { setAttendanceMessage(error.message || 'Calendar export failed.'); } };
 
   // --- GOALS STATE ---
   const [goalFilter, setGoalFilter] = useState<string>('All');
@@ -281,7 +282,7 @@ export default function CalendarGoals({ data, theme, role, onUpsert, onRemove, o
               <button type="button" aria-pressed={calendarView === 'month'} onClick={() => setCalendarView('month')} className={`min-h-10 rounded-lg px-4 text-[10px] font-black uppercase tracking-wider ${calendarView === 'month' ? 'bg-white/10 text-white shadow' : 'text-gray-400 hover:text-white'}`}><CalendarDays className="mr-1.5 inline h-3.5 w-3.5" /> Month</button>
               <button type="button" aria-pressed={calendarView === 'day'} onClick={() => setCalendarView('day')} className={`min-h-10 rounded-lg px-4 text-[10px] font-black uppercase tracking-wider ${calendarView === 'day' ? 'bg-white/10 text-white shadow' : 'text-gray-400 hover:text-white'}`}><Clock className="mr-1.5 inline h-3.5 w-3.5" /> Day</button>
             </div>
-            <p className="text-[10px] text-gray-500">Day timeline: 12:00 PM–12:00 AM · Cairo</p>
+            <div className="flex items-center gap-2"><p className="text-[10px] text-gray-500">Day timeline: 12:00 PM–12:00 AM · Cairo</p><button type="button" className="ui-button min-h-10 px-3 text-[10px]" onClick={() => void exportCalendar()}>Export calendar</button></div>
           </div>
           <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
           {/* Calendar Grid Frame */}

@@ -33,7 +33,7 @@ jobs:
           CSC_KEY_PASSWORD: ${{ secrets.WINDOWS_CSC_KEY_PASSWORD }}
         run: |
           if (-not $env:CSC_LINK -or -not $env:CSC_KEY_PASSWORD) { throw 'Public Windows signing secrets are not configured.' }
-      - name: Build, sign, and publish
+      - name: Build and sign without publishing
         shell: pwsh
         env:
           CSC_LINK: ${{ secrets.WINDOWS_CSC_LINK }}
@@ -41,7 +41,7 @@ jobs:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
           npm run build
-          npx electron-builder --win nsis --publish always
+          npx electron-builder --win nsis --publish never
       - name: Verify Authenticode signature
         shell: pwsh
         run: |
@@ -49,6 +49,26 @@ jobs:
           if (-not $installer) { throw 'Installer was not created.' }
           $signature = Get-AuthenticodeSignature $installer.FullName
           if ($signature.Status -ne 'Valid') { throw "Installer signature is $($signature.Status), expected Valid." }
+      - name: Verify clean Windows installation
+        shell: pwsh
+        run: |
+          $installer = Get-ChildItem release\Moe-Tracker-Application-*-Setup.exe | Select-Object -First 1
+          $installDir = Join-Path $env:RUNNER_TEMP 'MoeTrackerAcceptance'
+          $process = Start-Process -FilePath $installer.FullName -ArgumentList '/S', "/D=$installDir" -Wait -PassThru
+          if ($process.ExitCode -ne 0) { throw "Silent install failed with exit code $($process.ExitCode)." }
+          $executable = Get-ChildItem $installDir -Filter '*.exe' | Where-Object Name -NotMatch 'Uninstall' | Select-Object -First 1
+          if (-not $executable) { throw 'Installed application executable was not found.' }
+          $installedSignature = Get-AuthenticodeSignature $executable.FullName
+          if ($installedSignature.Status -ne 'Valid') { throw "Installed application signature is $($installedSignature.Status), expected Valid." }
+      - name: Publish verified release assets
+        shell: pwsh
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          $tag = '${{ github.ref_name }}'
+          gh release view $tag 2>$null
+          if ($LASTEXITCODE -ne 0) { gh release create $tag --title $tag --generate-notes --verify-tag }
+          gh release upload $tag release\Moe-Tracker-Application-*-Setup.exe release\Moe-Tracker-Application-*-Setup.exe.blockmap release\latest.yml --clobber
       - uses: actions/upload-artifact@v4
         with:
           name: signed-windows-installer

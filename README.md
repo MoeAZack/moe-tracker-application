@@ -2,6 +2,8 @@
 
 Windows-first, offline-first practice analysis for a VALORANT team. The desktop application watches replay folders, keeps detailed evidence on the PC, supports local scoreboard OCR, and synchronizes only accepted summaries to the lightweight team website.
 
+The primary workflow is: capture completed practice → review accepted evidence → assign a coaching action → evaluate it only against a later comparable practice sample.
+
 Completed `Scrim-*` screenshot sessions are detected in both the Documents inbox and the `%LOCALAPPDATA%` fallback. Confirmed rounds feed confidence-aware player weapon, economy, opening-duel, multi-kill, and KAST summaries; accepted compact summaries appear on the website. A one-click ZIP support bundle packages diagnostics and the latest capture evidence when capture, OCR, update, or synchronization fails.
 
 ## Product split
@@ -26,6 +28,8 @@ The application creates these folders automatically:
 
 It also watches `%LOCALAPPDATA%\VALORANT\Saved\Demos` when that folder exists.
 
+For normal use, download the latest Windows installer from the repository's Releases page. Public builds remain explicitly marked unsigned until the external code-signing certificate gate is complete.
+
 For private practice matches where replay or match-history access is unavailable, an optional standalone 1920 x 1080 post-match capture helper is documented in [docs/SCRIM-CAPTURE.md](docs/SCRIM-CAPTURE.md).
 
 ## Build the Windows installer
@@ -35,10 +39,10 @@ npm run check
 npm run desktop:installer
 ```
 
-The installer is written to `release/`. Signing is intentionally not configured yet; unsigned development builds can trigger Windows reputation warnings.
+The installer is written to `release/`. The public workflow refuses to publish until Authenticode verification and a clean Windows installation check pass. Local development installers are unsigned and can trigger Windows reputation warnings.
 
 ## Safety boundary
 
 Moe Tracker reads completed replay files and user-selected screenshots. It does not inject into VALORANT, inspect process memory, automate gameplay, or provide live behavior-changing information.
 
-See [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) and [docs/ROADMAP.md](docs/ROADMAP.md).
+See [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md), [docs/ROADMAP.md](docs/ROADMAP.md), [docs/AUDIT-IMPLEMENTATION.md](docs/AUDIT-IMPLEMENTATION.md), and [SECURITY.md](SECURITY.md).

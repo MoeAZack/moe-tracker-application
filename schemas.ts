@@ -135,7 +135,7 @@ export const setSecretSchema = z.object({ name: z.string().min(1).max(100), valu
 export const accessAddSchema = z.object({ email: z.string().email().max(200), role: z.enum(['coach', 'player']).optional(), name: z.string().max(200).optional(), playerId: z.string().uuid().optional() });
 export const accessRemoveSchema = z.object({ email: z.string().min(1).max(200) });
 export const createKeySchema = z.object({ label: z.string().trim().min(1).max(200), role: roleSchema, playerId: z.string().trim().min(1).max(200).optional() });
-export const playerPasswordSchema = z.object({ playerId: z.string().uuid(), password: z.string().trim().min(3).max(128) }).strict();
+export const playerPasswordSchema = z.object({ playerId: z.string().uuid(), password: z.string().trim().min(10).max(128) }).strict();
 
 const rosterName = z.string().trim().min(1).max(100);
 const rosterId = z.string().uuid();
@@ -173,7 +173,7 @@ export const tryoutDecisionNoteSchema = z.object({ id: rosterId.optional(), play
 export const tryoutDecisionNoteRemoveSchema = z.object({ id: rosterId }).strict();
 
 export const vodSaveSchema = z.object({ review: looseObject });
-export const vodNoteSchema = z.object({ reviewId: nonEmpty, seconds: z.number().optional(), timeLabel: z.string().max(20).optional(), text: shortText });
+export const vodNoteSchema = z.object({ reviewId: nonEmpty, seconds: z.number().min(0).max(86_400).optional(), timeLabel: z.string().max(20).optional(), roundNo: z.number().int().min(1).max(100).optional(), text: shortText });
 export const vodNoteRemoveSchema = z.object({ reviewId: nonEmpty, noteId: nonEmpty });
 export const vodReplySchema = z.object({ reviewId: nonEmpty, noteId: nonEmpty, text: shortText });
 

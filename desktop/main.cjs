@@ -283,8 +283,9 @@ function superviseRestart(name, start) {
   setTimeout(() => { if (!quitting) void start().catch(error => recordLocalCrash(`${name}-restart-failed`, error)); }, delay);
 }
 
-async function bootstrapSession() {
-  if (runtime.session) return runtime.session;
+function sessionIsFresh(session) { return !!session?.key && Date.parse(session.expiresAt || '') > Date.now() + 5 * 60 * 1000; }
+async function bootstrapSession(force = false) {
+  if (!force && sessionIsFresh(runtime.session)) return runtime.session;
   const credentials = { key: runtime.config.adminPassword };
   if (runtime.config.identity) credentials.desktopIdentity = runtime.config.identity;
   const response = await fetch(`http://127.0.0.1:${runtime.port}/api/login-key`, { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify(credentials) });
@@ -292,16 +293,27 @@ async function bootstrapSession() {
   runtime.session = await response.json();
   return runtime.session;
 }
-async function bootstrapCoachSession() {
-  if (runtime.coachSession) return runtime.coachSession;
+async function bootstrapCoachSession(force = false) {
+  if (!force && sessionIsFresh(runtime.coachSession)) return runtime.coachSession;
   const response = await fetch(`http://127.0.0.1:${runtime.port}/api/login-key`, { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ key: runtime.config.adminPassword }) });
   if (!response.ok) throw new Error('Local privileged session could not be created.'); runtime.coachSession = await response.json(); return runtime.coachSession;
 }
 
+async function localApiFetch(pathname, init = {}, coach = false) {
+  const getSession = coach ? bootstrapCoachSession : bootstrapSession;
+  for (let attempt = 0; attempt < 2; attempt += 1) {
+    const session = await getSession(attempt > 0);
+    const headers = new Headers(init.headers || {}); headers.set('authorization', `Bearer ${session.key}`);
+    const response = await fetch(`http://127.0.0.1:${runtime.port}${pathname}`, { ...init, headers });
+    if (response.status !== 401 || attempt > 0) return response;
+    if (coach) runtime.coachSession = null; else runtime.session = null;
+  }
+  throw new Error('Local session renewal failed.');
+}
+
 async function importEvidenceFile(file) {
-  const session = await bootstrapSession();
   const evidence = JSON.parse(await fsp.readFile(file, 'utf8'));
-  const response = await fetch(`http://127.0.0.1:${runtime.port}/api/desktop/replay-evidence`, { method: 'POST', headers: { authorization: `Bearer ${session.key}`, 'content-type': 'application/json' }, body: JSON.stringify(evidence) });
+  const response = await localApiFetch('/api/desktop/replay-evidence', { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify(evidence) });
   const result = await response.json().catch(() => ({}));
   if (!response.ok) throw new Error(result.error || 'Local replay evidence could not be added to the review inbox.');
   await enqueueSyncEvidence(evidence);
@@ -380,8 +392,7 @@ async function pairDevice({ server, code }) {
 async function syncOnce() {
   const pairing = cloudCredential(); let state;
   try {
-    const session = await bootstrapCoachSession();
-    const response = await fetch(`http://127.0.0.1:${runtime.port}/api/data`, { headers: { authorization: `Bearer ${session.key}` } });
+    const response = await localApiFetch('/api/data', {}, true);
     const data = response.ok ? await response.json() : null;
     state = await mutateSyncState(current => { if (data) refreshScreenshotOutboxFromData(current, data); });
   } catch (error) { console.warn(`[sync] Local screenshot queue refresh failed: ${error.message}`); }
@@ -416,7 +427,7 @@ async function syncOnce() {
   const received = inboxResult.items.filter(item => !state.inbox.some(existing => existing.id === item.id));
   let applyResult = null;
   if (received.length) {
-    const session = await bootstrapCoachSession(); const applyResponse = await fetch(`http://127.0.0.1:${runtime.port}/api/desktop/sync-inbox`, { method: 'POST', headers: { authorization: `Bearer ${session.key}`, 'content-type': 'application/json' }, body: JSON.stringify({ items: received }) });
+    const applyResponse = await localApiFetch('/api/desktop/sync-inbox', { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ items: received }) }, true);
     applyResult = await applyResponse.json().catch(() => ({})); if (!applyResponse.ok) throw new Error(applyResult.error || 'Downloaded team updates could not be applied.');
   }
   state = await mutateSyncState(current => {
@@ -433,7 +444,7 @@ async function createRecoveryBackup() {
   const cutoff = Date.now() - 24 * 60 * 60 * 1000;
   const last = Date.parse(runtime.config.lastBackupAt || '');
   if (Number.isFinite(last) && last >= cutoff && await hasRecentRecoveryBackup(runtime.paths.backups, cutoff)) return { skipped: true };
-  const session = await bootstrapCoachSession(); const response = await fetch(`http://127.0.0.1:${runtime.port}/api/desktop/backup`, { method: 'POST', headers: { authorization: `Bearer ${session.key}` } }); const result = await response.json().catch(() => ({}));
+  const response = await localApiFetch('/api/desktop/backup', { method: 'POST' }, true); const result = await response.json().catch(() => ({}));
   if (!response.ok) throw new Error(result.error || 'Automatic recovery backup failed.'); runtime.config.lastBackupAt = new Date().toISOString(); await saveRuntimeConfig(); return result;
 }
 
@@ -495,6 +506,8 @@ async function createWindow() {
   });
   mainWindow.on('close', event => { if (!quitting) { event.preventDefault(); mainWindow.hide(); } });
   mainWindow.on('closed', () => { mainWindow = null; });
+  mainWindow.webContents.setWindowOpenHandler(() => ({ action: 'deny' }));
+  mainWindow.webContents.on('will-navigate', (event, url) => { if (url !== `http://127.0.0.1:${runtime.port}/?desktop=1` && !url.startsWith(`http://127.0.0.1:${runtime.port}/`)) event.preventDefault(); });
   await mainWindow.loadURL(`http://127.0.0.1:${runtime.port}/?desktop=1`);
   return mainWindow;
 }
@@ -537,12 +550,18 @@ function createTray() {
   tray.on('click', () => { void showMainWindow().catch(error => recordLocalCrash('open-window-failed', error)); });
 }
 
-ipcMain.handle('desktop:bootstrap-session', bootstrapSession);
+function requireTrustedSender(event) {
+  const senderUrl = String(event?.senderFrame?.url || event?.sender?.getURL?.() || '');
+  if (!senderUrl.startsWith(`http://127.0.0.1:${runtime.port}/`)) throw new Error('Desktop request rejected from an untrusted page.');
+}
+
+ipcMain.handle('desktop:bootstrap-session', (event, force) => { requireTrustedSender(event); return bootstrapSession(force === true); });
 ipcMain.handle('desktop:get-status', desktopStatus);
 ipcMain.handle('desktop:check-for-updates', () => updateController?.check() || { state: 'disabled', message: 'Update service is not ready.' });
 ipcMain.handle('desktop:download-update', () => updateController?.download() || Promise.reject(new Error('Update service is not ready.')));
 ipcMain.handle('desktop:install-update', () => updateController?.install() || Promise.reject(new Error('Update service is not ready.')));
-ipcMain.handle('desktop:process-match', async () => {
+ipcMain.handle('desktop:process-match', async event => {
+  requireTrustedSender(event);
   await configureCollector();
   let first = await collectorJsonCommand(['scan']);
   if (first.some(item => item.status === 'observing')) { await new Promise(resolve => setTimeout(resolve, 11_000)); first = await collectorJsonCommand(['scan']); }
@@ -559,7 +578,7 @@ ipcMain.handle('desktop:process-match', async () => {
   return { state: imported.automatic ? 'processed' : 'review-ready', message: `${imported.automatic ? 'Replay, player names, and available statistics were processed automatically. You can edit the saved match later.' : imported.idempotent ? 'This replay was already in the local review inbox.' : 'Replay parsed locally. It will finish automatically when the matching scoreboard is available.'}${skippedNote}`, items: first, processed, imported };
 });
 ipcMain.handle('desktop:sync-now', syncNow);
-ipcMain.handle('desktop:pair-device', (_event, input) => pairDevice(input || {}));
+ipcMain.handle('desktop:pair-device', (event, input) => { requireTrustedSender(event); return pairDevice(input || {}); });
 ipcMain.handle('desktop:set-sync-mode', async (_event, mode) => { if (!['offline-first', 'connected'].includes(mode)) throw new Error('Unknown synchronization mode.'); if (mode === 'connected' && !runtime.config.cloudPairing) throw new Error('Pair this device before enabling connected sync.'); runtime.config.mode = mode; await saveRuntimeConfig(); return { mode }; });
 ipcMain.handle('desktop:set-retention-days', async (_event, value) => { const days = Number(value); if (!Number.isInteger(days) || days < 1 || days > 365) throw new Error('Retention must be between 1 and 365 days.'); runtime.config.retentionDays = days; await saveRuntimeConfig(); await configureCollector(); return { retentionDays: days }; });
 ipcMain.handle('desktop:set-start-with-windows', async (_event, enabled) => { runtime.config.startWithWindows = enabled === true; await saveRuntimeConfig(); applyLoginPreference(); return { startWithWindows: runtime.config.startWithWindows }; });
@@ -621,7 +640,8 @@ ipcMain.handle('desktop:start-scrim-capture', async (_event, input = {}) => {
   });
   return { started: true, message: `Capture started${roundCount ? ` for ${roundCount} rounds` : ' with automatic round detection'}. Approve Windows elevation, then return to VALORANT before the countdown ends.` };
 });
-ipcMain.handle('desktop:delete-replay', async (_event, replayPath) => {
+ipcMain.handle('desktop:delete-replay', async (event, replayPath) => {
+  requireTrustedSender(event);
   const requested = path.resolve(String(replayPath || ''));
   const record = (await replayInventory()).find(item => path.resolve(item.path) === requested);
   if (!record || path.extname(record.path).toLowerCase() !== '.vrf') throw new Error('That replay is no longer in a configured replay folder.');
@@ -633,7 +653,8 @@ ipcMain.handle('desktop:get-integration-secret-status', async () => ({
   configured: Object.fromEntries(['GEMINI_API_KEY', 'GRID_API_KEY', 'DISCORD_WEBHOOK_URL'].map(key => [key, !!runtime.config.integrationSecrets?.[key]])),
   scope: 'local-device',
 }));
-ipcMain.handle('desktop:set-integration-secret', async (_event, input = {}) => {
+ipcMain.handle('desktop:set-integration-secret', async (event, input = {}) => {
+  requireTrustedSender(event);
   const key = String(input.key || ''); const value = String(input.value || '').trim();
   if (!['GEMINI_API_KEY', 'GRID_API_KEY', 'DISCORD_WEBHOOK_URL'].includes(key)) throw new Error('Unknown integration secret.');
   if (!safeStorage.isEncryptionAvailable()) throw new Error('Windows credential encryption is unavailable for this user.');
@@ -676,7 +697,8 @@ ipcMain.handle('desktop:choose-replay-folder', async () => {
   await saveRuntimeConfig(); await configureCollector();
   return { canceled: false, path: result.filePaths[0] };
 });
-ipcMain.handle('desktop:export-team-package', async (_event, input = {}) => {
+ipcMain.handle('desktop:export-team-package', async (event, input = {}) => {
+  requireTrustedSender(event);
   const session = await bootstrapCoachSession();
   const response = await fetch(`http://127.0.0.1:${runtime.port}/api/portable-package/export`, { method: 'POST', headers: { authorization: `Bearer ${session.key}`, 'content-type': 'application/json' }, body: JSON.stringify({ sourceDeviceId: runtime.config.deviceId }) });
   if (!response.ok) throw new Error('Local team package could not be created.');
@@ -685,7 +707,8 @@ ipcMain.handle('desktop:export-team-package', async (_event, input = {}) => {
   await fsp.writeFile(target, password ? await encryptPortablePackage(plaintext, password) : plaintext);
   return { exported: true, encrypted: !!password, path: target };
 });
-ipcMain.handle('desktop:preview-team-package', async (_event, input = {}) => {
+ipcMain.handle('desktop:preview-team-package', async (event, input = {}) => {
+  requireTrustedSender(event);
   runtime.pendingImport = null;
   const selection = await dialog.showOpenDialog(mainWindow, { properties: ['openFile'], title: 'Preview a MoeTracker package', filters: [{ name: 'MoeTracker packages', extensions: ['moetracker'] }] });
   if (selection.canceled || !selection.filePaths[0]) return { canceled: true };
@@ -696,7 +719,8 @@ ipcMain.handle('desktop:preview-team-package', async (_event, input = {}) => {
   runtime.pendingImport = { file, sha256: crypto.createHash('sha256').update(bytes).digest('hex'), packageBytes };
   return { canceled: false, file, preview };
 });
-ipcMain.handle('desktop:import-team-package', async () => {
+ipcMain.handle('desktop:import-team-package', async event => {
+  requireTrustedSender(event);
   if (!runtime.pendingImport) throw new Error('Preview a package before importing it.');
   const bytes = await fsp.readFile(runtime.pendingImport.file); const actual = crypto.createHash('sha256').update(bytes).digest('hex');
   if (actual !== runtime.pendingImport.sha256) throw new Error('The package changed after preview. Preview it again.');

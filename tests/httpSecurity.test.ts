@@ -161,7 +161,7 @@ describe('HTTP authentication and authorization boundary', () => {
   it('lets a coach reset a named player password without storing plaintext and revokes the prior session', async () => {
     const coach = await login(adminKey);
     const playerId = '11111111-1111-4111-8111-111111111111';
-    const firstSet = await request('/api/player-password', coach, { playerId, password: 'xyz' });
+    const firstSet = await request('/api/player-password', coach, { playerId, password: 'secure-xyz' });
     expect(firstSet.status).toBe(200);
     const firstMetadata = await firstSet.json();
     expect(firstMetadata).toMatchObject({ success: true, playerId, playerName: 'Ahmed' });
@@ -170,9 +170,9 @@ describe('HTTP authentication and authorization boundary', () => {
     const stored = db.authKeys.find((entry: any) => entry.id === `player-password:${playerId}`);
     expect(stored).toMatchObject({ role: 'player', playerId, credentialType: 'player-password', credentialVersion: firstMetadata.credentialVersion });
     expect(stored).not.toHaveProperty('key');
-    expect(JSON.stringify(stored)).not.toContain('xyz');
+    expect(JSON.stringify(stored)).not.toContain('secure-xyz');
 
-    const signedIn = await request('/api/login-key', undefined, { playerName: 'Ahmed', key: 'xyz' });
+    const signedIn = await request('/api/login-key', undefined, { playerName: 'Ahmed', key: 'secure-xyz' });
     expect(signedIn.status).toBe(200);
     const oldToken = (await signedIn.json()).key;
     expect(jwt.verify(oldToken, jwtSecret, { algorithms: ['HS256'] })).toMatchObject({ kind: 'key', keyId: `player-password:${playerId}`, credentialVersion: firstMetadata.credentialVersion });
@@ -183,7 +183,7 @@ describe('HTTP authentication and authorization boundary', () => {
     const resetMetadata = await reset.json();
     expect(resetMetadata.credentialVersion).not.toBe(firstMetadata.credentialVersion);
     expect((await request('/api/data', oldToken)).status).toBe(401);
-    expect((await request('/api/login-key', undefined, { playerName: 'Ahmed', key: 'xyz' })).status).toBe(401);
+    expect((await request('/api/login-key', undefined, { playerName: 'Ahmed', key: 'secure-xyz' })).status).toBe(401);
     expect((await request('/api/login-key', undefined, { playerName: 'Ahmed', key: 'new-password' })).status).toBe(200);
     db = JSON.parse(await fs.readFile(dbPath, 'utf8'));
     expect(db.authKeys.find((entry: any) => entry.id === `player-password:${playerId}`).credentialVersion).toBe(resetMetadata.credentialVersion);
@@ -206,13 +206,13 @@ describe('HTTP authentication and authorization boundary', () => {
   it('does not resurrect an old password session after credential deletion and recreation', async () => {
     const coach = await login(adminKey);
     const playerId = '11111111-1111-4111-8111-111111111111';
-    const firstSet = await request('/api/player-password', coach, { playerId, password: 'xyz' });
+    const firstSet = await request('/api/player-password', coach, { playerId, password: 'secure-xyz' });
     const firstVersion = (await firstSet.json()).credentialVersion;
-    const signedIn = await request('/api/login-key', undefined, { playerName: 'Ahmed', key: 'xyz' });
+    const signedIn = await request('/api/login-key', undefined, { playerName: 'Ahmed', key: 'secure-xyz' });
     const oldToken = (await signedIn.json()).key;
     expect((await request('/api/keys/revoke', coach, { id: `player-password:${playerId}` })).status).toBe(200);
     expect((await request('/api/data', oldToken)).status).toBe(401);
-    const recreated = await request('/api/player-password', coach, { playerId, password: 'xyz' });
+    const recreated = await request('/api/player-password', coach, { playerId, password: 'secure-xyz' });
     expect(recreated.status).toBe(200);
     expect((await recreated.json()).credentialVersion).not.toBe(firstVersion);
     expect((await request('/api/data', oldToken)).status).toBe(401);
