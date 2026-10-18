@@ -10,6 +10,8 @@ import { percentageBarClass, percentageTextClass } from '../utils/percentageColo
 interface Props {
   data: TrackerData;
   theme: any;
+  focusedMatchId?: string | null;
+  focusedRoundNo?: number | null;
 }
 
 const pct = (won: number, total: number) => (total > 0 ? Math.round((won / total) * 100) : 0);
@@ -64,9 +66,10 @@ export function buildEconomySpecialConversions(matches: TrackerData['matches'], 
   return acc;
 }
 
-export default function EconomyAnalytics({ data, theme }: Props) {
-  const matches = data.matches || [];
-  const rounds = data.rounds || [];
+export default function EconomyAnalytics({ data, theme, focusedMatchId, focusedRoundNo }: Props) {
+  const matches = focusedMatchId ? (data.matches || []).filter(match => match.id === focusedMatchId) : data.matches || [];
+  const rounds = (data.rounds || []).filter(round => (!focusedMatchId || round.matchId === focusedMatchId) && (!focusedRoundNo || round.roundNo === focusedRoundNo));
+  const reviewData = useMemo(() => ({ ...data, matches, rounds, playerStats: (data.playerStats || []).filter(stat => !focusedMatchId || stat.matchId === focusedMatchId) }), [data, matches, rounds, focusedMatchId]);
   const buyTypes = data.settings?.buyTypes || ['Full', 'Half', 'Force', 'Bonus', 'Eco'];
 
   // Canonical round-backed conversions shared with Map Analysis and exports.
@@ -103,9 +106,10 @@ export default function EconomyAnalytics({ data, theme }: Props) {
   const hasKnownBuys = Object.keys(byBuy).length > 0;
   const screenshotPlayers = useMemo(() => {
     const live = buildPlayerScreenshotMetrics(rounds);
-    const combined = live.length ? combinePlayerScreenshotMetrics(live) : combineStoredScreenshotMetrics(data.playerStats || []);
+    const stored = (data.playerStats || []).filter(stat => !focusedMatchId || stat.matchId === focusedMatchId);
+    const combined = live.length ? combinePlayerScreenshotMetrics(live) : combineStoredScreenshotMetrics(stored);
     return excludeArchivedScreenshotPlayers(combined, data.rosterPlayers || []);
-  }, [rounds, data.playerStats, data.rosterPlayers]);
+  }, [rounds, data.playerStats, data.rosterPlayers, focusedMatchId]);
 
   return (
     <div className="space-y-6">
@@ -114,7 +118,7 @@ export default function EconomyAnalytics({ data, theme }: Props) {
         <h2 className="text-2xl font-black tracking-tight uppercase">Economy Analytics</h2>
       </div>
 
-      <ReplayMatchLog data={data} theme={theme} title="Economy evidence by match" description="Round results are included immediately; buy-type metrics stay unknown until the replay or coach provides them." />
+      <ReplayMatchLog data={reviewData} theme={theme} title="Economy evidence by match" description="Round results are included immediately; buy-type metrics stay unknown until the replay or coach provides them." />
 
       {screenshotPlayers.length > 0 && <section className={`rounded-xl border ${theme.border} ${theme.cardBg} p-5`} aria-labelledby="screenshot-player-metrics"><div className="flex flex-wrap items-end justify-between gap-2"><div><h3 id="screenshot-player-metrics" className="text-xs uppercase font-bold tracking-widest text-gray-500">Screenshot-derived player metrics</h3><p className="mt-1 text-xs text-gray-500">Confirmed round screens only. Weapon means equipped weapon, not a proven purchase.</p></div><span className="text-[10px] text-gray-500">Trades are follow-up kills within 5 seconds</span></div><div className="mt-4 overflow-x-auto"><table className="w-full min-w-[820px] text-left text-xs"><thead className="text-[10px] uppercase tracking-wider text-gray-500"><tr><th className="pb-2">Player</th><th className="pb-2">Rounds</th><th className="pb-2">Openings</th><th className="pb-2">Trades</th><th className="pb-2">Multi-kills</th><th className="pb-2">Low-buy wins</th><th className="pb-2">Full-buy losses</th><th className="pb-2">Anti-eco losses</th><th className="pb-2">Top weapon</th><th className="pb-2">KAST</th></tr></thead><tbody>{screenshotPlayers.map(player => { const weapon = player.weapons[0]; const kast = player.kast?.covered ? Math.round(player.kast.successful / player.kast.covered * 100) : null; return <tr key={player.identity} className="border-t border-white/5"><td className="py-3 font-semibold">{player.displayName}</td><td>{player.coveredRounds}</td><td>{player.firstKills}–{player.firstDeaths}</td><td>{player.trades ?? 'Unknown'}</td><td>{player.multikills.two}×2K · {player.multikills.three}×3K · {player.multikills.four}×4K · {player.multikills.ace} ace</td><td>{player.lowBudgetWins}</td><td>{player.highBudgetLosses}</td><td>{player.antiEcoLosses}</td><td>{weapon ? `${weapon.weapon} · ${weapon.wins}/${weapon.rounds}` : 'Unknown'}</td><td className={percentageTextClass(kast)}>{kast === null ? 'Unknown' : `${kast}% (${player.kast!.covered})`}</td></tr>; })}</tbody></table></div></section>}
 

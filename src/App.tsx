@@ -11,6 +11,7 @@ import { filterTryoutWorkspace, activeTryoutPhase } from './utils/tryoutWorkspac
 import { DEFAULT_ANALYTICS_MAP_SCOPE, projectAnalyticsMapScope, type AnalyticsMapScope } from './utils/activeMapPool';
 import { reportDesktopDiagnostic } from './utils/desktopDiagnostics';
 import DesktopReplayAutomation from './components/DesktopReplayAutomation';
+import ReviewContextBar from './components/ReviewContextBar';
 
 // Heavy route views are code-split so the initial bundle only loads the shell + login.
 const Dashboard = lazy(() => import('./components/Dashboard'));
@@ -61,9 +62,18 @@ export default function App() {
   
   // Navigation
   const [activeTab, setActiveTab] = useState<'dashboard' | 'calendar' | 'matches' | 'replays' | 'maps' | 'comps' | 'roster' | 'settings' | 'livelogger' | 'aitactical' | 'vod' | 'vodsubmit' | 'lineups' | 'economy' | 'comparisons'>('dashboard');
-  const [reviewMatchId, setReviewMatchId] = useState<string | null>(null);
+  const [reviewMatchId, setReviewMatchId] = useState<string | null>(() => sessionStorage.getItem('moetracker-review-match'));
+  const [reviewRoundNo, setReviewRoundNo] = useState<number | null>(() => { const value = Number(sessionStorage.getItem('moetracker-review-round')); return Number.isSafeInteger(value) && value > 0 ? value : null; });
   const [manualReplayDraft, setManualReplayDraft] = useState<ScreenshotReviewDraft | null>(null);
   const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
+
+  useEffect(() => {
+    if (reviewMatchId) sessionStorage.setItem('moetracker-review-match', reviewMatchId); else sessionStorage.removeItem('moetracker-review-match');
+    if (reviewRoundNo) sessionStorage.setItem('moetracker-review-round', String(reviewRoundNo)); else sessionStorage.removeItem('moetracker-review-round');
+  }, [reviewMatchId, reviewRoundNo]);
+  useEffect(() => {
+    if (data && reviewMatchId && !(data.matches || []).some(match => match.id === reviewMatchId)) { setReviewMatchId(null); setReviewRoundNo(null); }
+  }, [data, reviewMatchId]);
 
   // Scrim Auto-Import modal
   const [scrimOpen, setScrimOpen] = useState(false);
@@ -635,6 +645,7 @@ export default function App() {
           )}
 
           {/* Tab Router Switch */}
+          {desktopMode && data && ['matches', 'replays', 'vod', 'economy', 'aitactical'].includes(activeTab) && <ReviewContextBar data={workspaceData || data} value={{ matchId: reviewMatchId, roundNo: reviewRoundNo }} onChange={value => { setReviewMatchId(value.matchId); setReviewRoundNo(value.roundNo); }} onNavigate={tab => setActiveTab(tab)} />}
           <div key={activeTab} className="route-stage flex-grow">
             <Suspense fallback={
               <div className="flex items-center justify-center py-24 text-gray-500 font-mono text-sm gap-3">
@@ -659,11 +670,14 @@ export default function App() {
                 onRefreshDatabase={fetchDatabase}
                 manualReplayDraft={manualReplayDraft}
                 onManualReplayDraftConsumed={() => setManualReplayDraft(null)}
+                reviewMatchId={reviewMatchId}
+                reviewRoundNo={reviewRoundNo}
+                onReviewContextChange={(matchId, roundNo) => { setReviewMatchId(matchId); setReviewRoundNo(roundNo || null); }}
               />
             )}
             {activeTab === 'matches' && workspaceData && !desktopMode && <WebsiteMatchLog data={workspaceData} theme={theme} />}
             {activeTab === 'replays' && data && (
-              <ReplayWorkspace data={workspaceData || data} role={role} onAccepted={fetchDatabase} onManualFallback={(item) => { setManualReplayDraft(item.draft as ScreenshotReviewDraft); setActiveTab('matches'); }} />
+              <ReplayWorkspace data={workspaceData || data} role={role} preferredMatchId={reviewMatchId} onAccepted={fetchDatabase} onManualFallback={(item) => { setManualReplayDraft(item.draft as ScreenshotReviewDraft); setActiveTab('matches'); }} />
             )}
             {activeTab === 'livelogger' && data && (
               <LiveLogger
@@ -677,7 +691,7 @@ export default function App() {
               />
             )}
             {activeTab === 'vod' && data && (
-              <VodReview data={workspaceData || data} theme={theme} role={role} onRefresh={fetchDatabase} initialMatchId={reviewMatchId} />
+              <VodReview data={workspaceData || data} theme={theme} role={role} onRefresh={fetchDatabase} initialMatchId={reviewMatchId} selectedRoundNo={reviewRoundNo} />
             )}
             {activeTab === 'vodsubmit' && data && (
               <VodSubmission data={workspaceData || data} role={role} onRefresh={fetchDatabase} />
@@ -686,7 +700,7 @@ export default function App() {
               <LineupLibrary data={workspaceData} theme={theme} role={role} onRefresh={fetchDatabase} />
             )}
             {activeTab === 'economy' && analyticsData && (
-              <EconomyAnalytics data={analyticsData} theme={theme} />
+              <EconomyAnalytics data={analyticsData} theme={theme} focusedMatchId={reviewMatchId} focusedRoundNo={reviewRoundNo} />
             )}
             {activeTab === 'comparisons' && analyticsData && (
               <TryoutComparisons data={analyticsData} role={role} theme={theme} onRefresh={fetchDatabase} mapScope={analyticsProjection!.context} />

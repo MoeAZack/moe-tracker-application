@@ -24,6 +24,9 @@ interface ComponentProps {
   onRefreshDatabase?: () => Promise<void>;
   manualReplayDraft?: any | null;
   onManualReplayDraftConsumed?: () => void;
+  reviewMatchId?: string | null;
+  reviewRoundNo?: number | null;
+  onReviewContextChange?: (matchId: string, roundNo?: number | null) => void;
 }
 
 const roundFlag = (value: unknown): true | false | null => {
@@ -32,7 +35,7 @@ const roundFlag = (value: unknown): true | false | null => {
   return null;
 };
 
-export default function MatchLogRounds({ data, theme, onSaveMatch, onRemove, onSaveRounds, onSaveVeto, onRefreshDatabase, manualReplayDraft, onManualReplayDraftConsumed }: ComponentProps) {
+export default function MatchLogRounds({ data, theme, onSaveMatch, onRemove, onSaveRounds, onSaveVeto, onRefreshDatabase, manualReplayDraft, onManualReplayDraftConsumed, reviewMatchId, reviewRoundNo, onReviewContextChange }: ComponentProps) {
   const isLight = data.settings.theme === 'daylight';
   
   // --- SUB TAB CONTROL ---
@@ -126,11 +129,11 @@ export default function MatchLogRounds({ data, theme, onSaveMatch, onRemove, onS
   const vetoActions = data.settings.vetoActions || ['ban', 'pick', 'decider'];
 
   // Select a match automatically when opening the view
-  useMemo(() => {
-    if (matches.length > 0 && !selectedMatch) {
-      setSelectedMatch(matches[0]);
-    }
-  }, [matches, selectedMatch]);
+  useEffect(() => {
+    const requested = reviewMatchId ? matches.find(match => match.id === reviewMatchId) : null;
+    if (requested && requested.id !== selectedMatch?.id) setSelectedMatch(requested);
+    else if (matches.length > 0 && !selectedMatch) setSelectedMatch(matches[0]);
+  }, [matches, reviewMatchId, selectedMatch]);
 
   const statsForSelectedMatch = useMemo(() => {
     if (!selectedMatch) return [];
@@ -429,7 +432,7 @@ export default function MatchLogRounds({ data, theme, onSaveMatch, onRemove, onS
               return (
                 <button
                   key={m.id}
-                  onClick={() => setSelectedMatch(m)}
+                  onClick={() => { setSelectedMatch(m); onReviewContextChange?.(m.id, null); }}
                   className={`w-full text-left p-3.5 rounded-xl border transition-all flex flex-col gap-2 relative ${
                     isSelected
                       ? isLight ? 'border-slate-800 bg-slate-100 ring-2 ring-slate-100' : 'border-white bg-white/10 ring-2 ring-white/10'
@@ -645,7 +648,7 @@ export default function MatchLogRounds({ data, theme, onSaveMatch, onRemove, onS
                       <tbody className="divide-y divide-white/5">
                         {roundsForSelectedMatch.map((r) => (
                           <tr key={r.id} className="hover:bg-white/5 transition-colors">
-                            <td className="py-2 px-2.5 font-bold text-gray-400">{r.roundNo}</td>
+                            <td className={`py-2 px-2.5 font-bold ${reviewRoundNo === r.roundNo ? 'text-cyan-300' : 'text-gray-400'}`}><button type="button" onClick={() => onReviewContextChange?.(selectedMatch.id, r.roundNo)} className="min-h-8 min-w-8 rounded hover:bg-white/5">{r.roundNo}</button></td>
                             <td className={`py-2 px-2.5 font-bold ${r.side === 'Att' ? 'text-amber-500' : 'text-cyan-400'}`}>{r.side}</td>
                             <td className="py-2 px-2.5">
                               <span className="text-white font-medium">{r.buy}</span>
