@@ -61,7 +61,7 @@ export const attendanceCorrectionSchema = z.object({ scheduleId: z.string().trim
 const unknownInt = (max: number) => z.number().finite().int().min(0).max(max).nullable().optional();
 const unknownPercent = z.number().finite().min(0).max(100).nullable().optional();
 const sourceMetadataSchema = z.object({
-  method: z.enum(['manual', 'screenshot', 'live-logger', 'provider-import', 'unknown']),
+  method: z.enum(['manual', 'screenshot', 'live-logger', 'provider-import', 'vod-submission', 'unknown']),
   capturedAt: z.string().datetime({ offset: true }),
   provider: z.string().max(100).optional(),
   model: z.string().max(100).optional(),
@@ -176,6 +176,24 @@ export const vodSaveSchema = z.object({ review: looseObject });
 export const vodNoteSchema = z.object({ reviewId: nonEmpty, seconds: z.number().min(0).max(86_400).optional(), timeLabel: z.string().max(20).optional(), roundNo: z.number().int().min(1).max(100).optional(), text: shortText });
 export const vodNoteRemoveSchema = z.object({ reviewId: nonEmpty, noteId: nonEmpty });
 export const vodReplySchema = z.object({ reviewId: nonEmpty, noteId: nonEmpty, text: shortText });
+const vodMetric = z.number().finite().int().min(0).max(2000).nullable();
+export const vodSubmissionSchema = z.object({
+  vodUrl: z.string().trim().url().max(2000).refine(value => /^https?:\/\//i.test(value), 'VOD links must use HTTP or HTTPS.'),
+  imageSha256: z.string().regex(/^[a-f0-9]{64}$/),
+  matchId: z.string().trim().max(200).optional(),
+  playerId: rosterId.optional(),
+  date: z.string().regex(/^\d{4}-\d{2}-\d{2}$/),
+  map: z.string().trim().max(100).nullable(),
+  opponent: z.string().trim().max(160).nullable(),
+  ourScore: z.number().finite().int().min(0).max(100).nullable(),
+  theirScore: z.number().finite().int().min(0).max(100).nullable(),
+  players: z.array(z.object({
+    observedName: z.string().trim().min(1).max(100),
+    agent: z.string().trim().max(100).nullable(),
+    kills: vodMetric, deaths: vodMetric, assists: vodMetric, acs: vodMetric, adr: vodMetric,
+    hs: vodMetric, fk: vodMetric, fd: vodMetric, plants: vodMetric, defuses: vodMetric, trades: vodMetric,
+  }).strict()).length(5),
+}).strict();
 
 export const lineupSaveSchema = z.object({ lineup: looseObject });
 export const lineupCommentSchema = z.object({ lineupId: nonEmpty, text: shortText });

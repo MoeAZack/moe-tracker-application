@@ -25,7 +25,7 @@ export function ensureRoster(db: any) {
 export const SEASON_COLLECTION_POLICY = {
   archive: [
     'rosterPlayers', 'coreMemberships', 'tryoutBatches', 'schedule', 'goals',
-    'matches', 'playerStats', 'soloq', 'rounds', 'vetos', 'stratRuns', 'vodReviews',
+    'matches', 'playerStats', 'soloq', 'rounds', 'vetos', 'stratRuns', 'vodReviews', 'vodSubmissions',
     'practiceBlocks', 'tryoutDecisionNotes',
     'attendanceCredits',
   ],

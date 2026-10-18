@@ -7,6 +7,7 @@ import * as schemas from './schemas';
 import { uid, validate, safeEqual, hashAccessKey, clientIp, cached } from './lib/utils';
 import { clearLoginThrottle, loginThrottleRemaining, readDB, recordLoginThrottleFailure, saveDB } from './lib/store';
 import { registerVodLineupRoutes } from './lib/routes/vodLineup';
+import { registerVodSubmissionRoutes } from './lib/routes/vodSubmissions';
 import { registerIntegrationRoutes } from './lib/routes/integrations';
 import { registerDataRoutes } from './lib/routes/data';
 import { registerRosterRoutes } from './lib/routes/roster';
@@ -275,6 +276,7 @@ export async function createApp(serveFrontend = true) {
     // Players are read-only. Lineup comments remain shared; coach VOD notes and replies are private.
     const playerWritable = req.method === 'POST' && (req.path === '/lineup/comment'
       || req.path === '/attendance/check-in'
+      || req.path === '/vod-submissions'
       || /^\/coaching\/actions\/[^/]+\/status$/.test(req.path)
       || req.path === '/engine-adapters/ranked/consent' || req.path === '/engine-adapters/ranked/revoke'
       || req.path === '/replay-intake/devices/enroll' || req.path === '/replay-intake/devices/revoke'
@@ -494,6 +496,7 @@ export async function createApp(serveFrontend = true) {
 
   // VOD Review + Lineup Library routes (extracted module)
   registerVodLineupRoutes(app);
+  registerVodSubmissionRoutes(app);
 
   // Core data + match logging routes (extracted module)
   registerDataRoutes(app, { websiteSummaryOnly: cloudflareRuntime });

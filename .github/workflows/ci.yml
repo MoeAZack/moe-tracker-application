@@ -33,5 +33,5 @@ jobs:
         shell: pwsh
         run: |
           npm run test:scrim-capture
-          npx vitest run tests/coachingHttp.test.ts tests/replayReviewWorkflow.test.ts tests/replayScreenshotPairing.test.ts tests/desktopSync.test.ts
+          npx vitest run tests/coachingHttp.test.ts tests/replayReviewWorkflow.test.ts tests/replayScreenshotPairing.test.ts tests/desktopSyncOutbox.test.ts tests/desktopSessionSecurity.test.ts
       - run: npm run build

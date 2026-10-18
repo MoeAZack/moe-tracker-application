@@ -69,6 +69,7 @@ export interface SeasonArchive {
   stratRuns: StratRun[];
   strats: Strat[];
   vodReviews: VodReview[];
+  vodSubmissions?: VodSubmission[];
   riotIds: Record<string, RiotIdConfig>;
   legacyPlayers: string[];
   legacyInactivePlayers: string[];
@@ -220,9 +221,10 @@ export interface Match {
   comparisonEvidence?: { accepted: boolean };
   /** Team-only round conversion summary synchronized without raw screenshot evidence. */
   roundAnalytics?: Record<string, unknown>;
+  vodSubmissionIds?: string[];
 }
 
-export type EntrySourceMethod = 'manual' | 'screenshot' | 'live-logger' | 'provider-import' | 'unknown';
+export type EntrySourceMethod = 'manual' | 'screenshot' | 'live-logger' | 'provider-import' | 'vod-submission' | 'unknown';
 
 export interface EntrySourceMetadata {
   method: EntrySourceMethod;
@@ -303,6 +305,7 @@ export interface CoachingAction {
   visibility: 'private' | 'staff' | 'team';
   state: 'planned' | 'assigned' | 'acknowledged' | 'in-progress' | 'review-next-block' | 'resolved' | 'cancelled';
   check: null | {
+    policyVersion?: number;
     signalType: CoachingSignal['type'];
     baseline: number;
     target: number;
@@ -312,6 +315,7 @@ export interface CoachingAction {
     sourceBlockId?: string;
     context?: CoachingSignal['context'];
   };
+  checkHistory?: Array<{ migratedAt: string; migratedBy: string; reason: string; check: CoachingAction['check']; outcome: CoachingAction['outcome'] }>;
   outcome: null | { status: 'satisfied' | 'regressed' | 'inconclusive'; baseline: number; later: number | null; change: number | null; confidence: 'high' | 'medium' | 'low'; evaluatedAt: string; reason: string };
   createdAt: string;
   updatedAt: string;
@@ -395,6 +399,7 @@ export interface PlayerStats {
   corrections?: EntryCorrectionMetadata[];
   /** Coach-accepted aggregates derived from round screenshots. Raw images stay local. */
   screenshotMetrics?: PlayerScreenshotMetrics;
+  vodEvidence?: { submissionIds: string[]; fields: string[]; updatedAt: string };
 }
 
 export type EvidenceConfidence = 'confirmed' | 'high' | 'medium' | 'low';
@@ -632,6 +637,7 @@ export interface TrackerData {
   strats: Strat[];
   stratRuns: StratRun[];
   vodReviews?: VodReview[];
+  vodSubmissions?: VodSubmission[];
   lineups?: Lineup[];
   serverTime: string;
 }
@@ -665,6 +671,47 @@ export interface VodReview {
   createdAt?: string;
   syncOffsetSeconds?: number;
   notes: VodNote[];
+}
+
+export interface VodSubmissionPlayer {
+  observedName: string;
+  rosterPlayerId: string;
+  rosterDisplayName: string;
+  agent: string | null;
+  kills: number | null;
+  deaths: number | null;
+  assists: number | null;
+  acs: number | null;
+  adr: number | null;
+  hs: number | null;
+  fk: number | null;
+  fd: number | null;
+  plants: number | null;
+  defuses: number | null;
+  trades: number | null;
+}
+
+export interface VodSubmission {
+  schema: 'moetracker.vod-submission/v1';
+  id: string;
+  submittedByPlayerId: string;
+  submittedByName: string;
+  vodUrl: string;
+  imageSha256: string;
+  date: string;
+  map: string | null;
+  opponent: string | null;
+  ourScore: number | null;
+  theirScore: number | null;
+  requestedMatchId: string | null;
+  linkedMatchId: string;
+  linkMode: 'existing-match' | 'new-match';
+  status: 'integrated';
+  rosterMatchCount: 5;
+  players: VodSubmissionPlayer[];
+  integration: { createdMatch: boolean; createdStats: number; filledFields: number; preservedFields: number };
+  createdAt: string;
+  integratedAt: string;
 }
 
 export interface Lineup {
