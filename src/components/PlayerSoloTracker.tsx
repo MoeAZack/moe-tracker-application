@@ -53,7 +53,8 @@ function PlayerDetails({ row, data, role, muted, onRefresh }: { row: ObservedPla
   const [reason, setReason] = useState('');
   const [busy, setBusy] = useState(false);
   const [message, setMessage] = useState<string | null>(null);
-  const sourceRows = (data.playerStats || []).filter(stat => stat.playerId ? stat.playerId === row.playerId : row.identityEvidence.sourceIdentities.includes(`unlinked-name:${String(stat.displayNameSnapshot || stat.player || '').trim().toLocaleLowerCase('en')}`));
+  const contributingRowIds = new Set(row.sourceRowIds);
+  const sourceRows = (data.playerStats || []).filter(stat => contributingRowIds.has(stat.id));
   const matchById = new Map((data.matches || []).map(match => [match.id, match]));
   const history = [...sourceRows].sort((left, right) => Date.parse(matchById.get(right.matchId)?.date || '') - Date.parse(matchById.get(left.matchId)?.date || ''));
   const corrections = (data.identityCorrectionBatches || []).filter(item => item.sourceIdentity === row.identity || item.targetPlayerId === row.playerId);

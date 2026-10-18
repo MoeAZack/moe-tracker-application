@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { linkPracticeSession, practiceSessionProgress, suggestedMatchesForSession } from '../lib/practiceSessionProgress';
+import { confidentMatchesForSession, linkPracticeSession, practiceMatchSuggestions, practiceSessionProgress, suggestedMatchesForSession } from '../lib/practiceSessionProgress';
 
 const scheduleId = '00000000-0000-4000-8000-000000000010';
 const data = () => ({
@@ -13,6 +13,15 @@ const data = () => ({
 describe('PRACC practice-to-progress linkage', () => {
   it('suggests same-day matches with the named opponent first', () => {
     expect(suggestedMatchesForSession(data().schedule[0], data().matches).map(match => match.id)).toEqual(['m1', 'm2']);
+    expect(practiceMatchSuggestions(data().schedule[0], data().matches).map(item => [item.match.id, item.confidence])).toEqual([['m1', 'confident'], ['m2', 'possible']]);
+    expect(confidentMatchesForSession(data().schedule[0], data().matches).map(match => match.id)).toEqual(['m1']);
+  });
+
+  it('does not treat an empty opponent or a shared map alone as a confident multi-match link', () => {
+    const fixture = data(); fixture.schedule[0].primary = 'Practice'; fixture.schedule[0].secondary = 'Ascent';
+    fixture.matches = [{ ...fixture.matches[0], opponent: '' }, { ...fixture.matches[1], id: 'm3', opponent: '', map: 'Ascent' }];
+    expect(practiceMatchSuggestions(fixture.schedule[0], fixture.matches).map(item => item.confidence)).toEqual(['possible', 'possible']);
+    expect(confidentMatchesForSession(fixture.schedule[0], fixture.matches)).toEqual([]);
   });
 
   it('persists one practice block and combines match, goal, attendance and finding progress', () => {
@@ -28,5 +37,13 @@ describe('PRACC practice-to-progress linkage', () => {
     const db = data();
     expect(() => linkPracticeSession(db, { scheduleId, matchIds: ['m1'], goalIds: ['missing'] }, 'Coach')).toThrow('unknown goal');
     expect(db.practiceBlocks).toEqual([]);
+  });
+
+  it('rejects an overlapping practice link without mutating the second schedule', () => {
+    const db = data();
+    db.schedule.push({ ...db.schedule[0], id: '00000000-0000-4000-8000-000000000011', primary: 'Later debrief', practiceBlockId: undefined });
+    linkPracticeSession(db, { scheduleId, matchIds: ['m1'] }, 'Coach');
+    expect(() => linkPracticeSession(db, { scheduleId: db.schedule[1].id, matchIds: ['m1'] }, 'Coach')).toThrow('only one explicit practice block');
+    expect(db.schedule[1].practiceBlockId).toBeUndefined();
   });
 });

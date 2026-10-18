@@ -1,5 +1,5 @@
 import React, { useEffect, useState, useMemo } from 'react';
-import { TrackerData } from '../types';
+import { TrackerData, type VodReview as VodReviewRecord } from '../types';
 import { apiFetch } from '../utils/api';
 import { Film, Plus, Trash2, Clock, MessageSquare, Send, ExternalLink, AlertTriangle, CheckCircle2, Database } from 'lucide-react';
 import { cairoDateKeyAt, resolveInitialVodSelection, vodContextMatchId } from '../../lib/uiIntegration';
@@ -12,6 +12,7 @@ interface Props {
   onRefresh: () => Promise<void>;
   initialMatchId?: string | null;
   selectedRoundNo?: number | null;
+  onReviewContextChange?: (matchId: string | null, roundNo: number | null) => void;
 }
 
 // Parse "1:23" or "83" into seconds.
@@ -39,7 +40,7 @@ function timestampedUrl(url: string, seconds: number): string {
   return url;
 }
 
-export default function VodReview({ data, theme, role, onRefresh, initialMatchId, selectedRoundNo }: Props) {
+export default function VodReview({ data, theme, role, onRefresh, initialMatchId, selectedRoundNo, onReviewContextChange }: Props) {
   const reviews = useMemo(() => data.vodReviews || [], [data.vodReviews]);
   const isCoach = role === 'coach';
   const [selectedId, setSelectedId] = useState<string | null>(() => resolveInitialVodSelection(reviews, initialMatchId));
@@ -71,6 +72,16 @@ export default function VodReview({ data, theme, role, onRefresh, initialMatchId
   const focusedStats = useMemo(() => focusedMatch ? (data.playerStats || []).filter(stat => stat.matchId === focusedMatch.id) : [], [data.playerStats, focusedMatch]);
   const completeness = useMemo(() => focusedMatch ? matchPracticeCompleteness(data, focusedMatch.id) : null, [data, focusedMatch]);
   const replayRecord = useMemo(() => (Array.isArray(adapterState?.replay) ? adapterState.replay : []).find((item: any) => item.matchId === focusedMatchId) || null, [adapterState, focusedMatchId]);
+  const selectedRoundAnchor = useMemo(() => selectedRoundNo && selected
+    ? (selected.notes || []).find(note => note.roundNo === selectedRoundNo) || null
+    : null, [selected, selectedRoundNo]);
+
+  const selectReview = (review: VodReviewRecord) => {
+    setExplicitlySelected(true);
+    setSelectedId(review.id);
+    setNoteRound('');
+    onReviewContextChange?.(review.matchId || null, null);
+  };
 
   const loadAdapters = async () => {
     const response = await apiFetch('/api/engine-adapters');
@@ -139,8 +150,8 @@ export default function VodReview({ data, theme, role, onRefresh, initialMatchId
         )}
       </div>
 
-      {focusedMatch && <section className="rounded-xl border border-white/10 bg-white/[0.035] p-4" aria-labelledby="match-context-title"><div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between"><div><p className="text-[10px] font-semibold uppercase tracking-[0.16em] text-gray-500">Focused match</p><h3 id="match-context-title" className="mt-1 text-lg font-semibold">{focusedMatch.opponent} · {focusedMatch.map}</h3><p className="mt-1 text-xs text-gray-500">{focusedMatch.date} · {focusedMatch.type}</p></div><div className="flex gap-2"><EvidencePill label="Round log" value={focusedRounds.length ? `${focusedRounds.length} recorded` : 'Unknown'} available={focusedRounds.length > 0} /><EvidencePill label="Player stats" value={focusedStats.length ? `${focusedStats.length} rows` : 'Unknown'} available={focusedStats.length > 0} /></div></div></section>}
-      {focusedMatch && completeness && <section className="rounded-xl border border-white/10 bg-white/[0.025] p-4 space-y-4" aria-labelledby="practice-completeness-title"><div><p className="text-[10px] font-semibold uppercase tracking-[0.16em] text-gray-500">Post-practice review</p><h3 id="practice-completeness-title" className="mt-1 text-base font-semibold">Evidence completeness and next review actions</h3></div><div className="grid gap-2 sm:grid-cols-2 lg:grid-cols-4"><EvidencePill label="Mapped roster" value={completeness.roster.expected ? `${completeness.roster.mapped}/${completeness.roster.expected} players` : `${completeness.roster.rows} stat rows · roster unknown`} available={completeness.roster.expected ? completeness.roster.mapped === completeness.roster.expected : completeness.roster.rows > 0} /><EvidencePill label="Round coverage" value={completeness.rounds.recorded ? `${completeness.rounds.recorded} recorded` : 'Unknown'} available={completeness.rounds.recorded > 0} /><EvidencePill label="Known economy" value={completeness.rounds.recorded ? `${completeness.rounds.economyKnown}/${completeness.rounds.recorded} rounds` : 'Unknown'} available={completeness.rounds.economyKnown > 0} /><EvidencePill label="Tactical annotations" value={completeness.tactical.rounds.length ? `${completeness.tactical.reviewed} noted · ${completeness.tactical.unreviewed} need notes` : 'No annotated rounds'} available={completeness.tactical.reviewed > 0 && completeness.tactical.unreviewed === 0} /></div>{completeness.tactical.rounds.length > 0 ? <div><p className="text-[10px] font-semibold uppercase tracking-wider text-gray-500">Actionable rounds</p><div className="mt-2 flex flex-wrap gap-2">{completeness.tactical.rounds.map(round => { const anchor = selected?.notes?.find(note => note.roundNo === round.roundNo); return selected && anchor ? <a key={round.id} href={timestampedUrl(selected.vodUrl, anchor.seconds)} target="_blank" rel="noreferrer" className="rounded-lg border border-emerald-500/20 bg-emerald-500/5 px-3 py-2 text-xs text-emerald-300">Round {round.roundNo} · open at {anchor.timeLabel}</a> : <button key={round.id} type="button" onClick={() => { if (selected) { setNoteRound(String(round.roundNo)); document.getElementById('vod-note-time')?.focus(); } }} className="rounded-lg border border-amber-500/20 bg-amber-500/5 px-3 py-2 text-xs text-amber-200">Round {round.roundNo} · {round.signals.join(' + ')} · {selected ? 'set VOD anchor' : 'link VOD first'}</button>; })}</div>{!selected && <p className="mt-2 text-[10px] text-gray-500">Link a VOD review to anchor these rounds.</p>}</div> : <p className="text-xs text-gray-500">No clutch, trade, or throw evidence is recorded for this match. This is unknown coverage, not a clean-practice result.</p>}</section>}
+      {focusedMatch && <section className="rounded-xl border border-white/10 bg-white/[0.035] p-4" aria-labelledby="match-context-title"><div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between"><div><p className="text-[10px] font-semibold uppercase tracking-[0.16em] text-gray-500">Focused match</p><h3 id="match-context-title" className="mt-1 text-lg font-semibold">{focusedMatch.opponent} · {focusedMatch.map}</h3><p className="mt-1 text-xs text-gray-500">{focusedMatch.date} · {focusedMatch.type}</p></div><div className="flex gap-2"><EvidencePill label="Round log" value={focusedRounds.length ? `${focusedRounds.length} recorded` : 'Unknown'} available={focusedRounds.length > 0} /><EvidencePill label="Player stats" value={focusedStats.length ? `${focusedStats.length} rows` : 'Unknown'} available={focusedStats.length > 0} /></div></div>{selectedRoundNo && <div className={`mt-3 rounded-lg border px-3 py-2 text-xs ${selectedRoundAnchor ? 'border-emerald-500/20 bg-emerald-500/5 text-emerald-200' : 'border-amber-500/20 bg-amber-500/5 text-amber-200'}`}>{selectedRoundAnchor && selected ? <a href={timestampedUrl(selected.vodUrl, selectedRoundAnchor.seconds)} target="_blank" rel="noreferrer" className="font-semibold hover:underline">Round {selectedRoundNo} is video-anchored at {selectedRoundAnchor.timeLabel} · open VOD</a> : <>Round {selectedRoundNo} is selected in the shared review context, but it has no confirmed VOD timestamp yet.</>}</div>}</section>}
+      {focusedMatch && completeness && <section className="rounded-xl border border-white/10 bg-white/[0.025] p-4 space-y-4" aria-labelledby="practice-completeness-title"><div><p className="text-[10px] font-semibold uppercase tracking-[0.16em] text-gray-500">Post-practice review</p><h3 id="practice-completeness-title" className="mt-1 text-base font-semibold">Evidence completeness and next review actions</h3></div><div className="grid gap-2 sm:grid-cols-2 lg:grid-cols-4"><EvidencePill label="Mapped roster" value={completeness.roster.expected ? `${completeness.roster.mapped}/${completeness.roster.expected} players` : `${completeness.roster.rows} stat rows · roster unknown`} available={completeness.roster.expected ? completeness.roster.mapped === completeness.roster.expected : completeness.roster.rows > 0} /><EvidencePill label="Round coverage" value={completeness.rounds.recorded ? `${completeness.rounds.recorded} recorded` : 'Unknown'} available={completeness.rounds.recorded > 0} /><EvidencePill label="Known economy" value={completeness.rounds.recorded ? `${completeness.rounds.economyKnown}/${completeness.rounds.recorded} rounds` : 'Unknown'} available={completeness.rounds.economyKnown > 0} /><EvidencePill label="Tactical annotations" value={completeness.tactical.rounds.length ? `${completeness.tactical.reviewed} noted · ${completeness.tactical.unreviewed} need notes` : 'No annotated rounds'} available={completeness.tactical.reviewed > 0 && completeness.tactical.unreviewed === 0} /></div>{completeness.tactical.rounds.length > 0 ? <div><p className="text-[10px] font-semibold uppercase tracking-wider text-gray-500">Actionable rounds</p><div className="mt-2 flex flex-wrap gap-2">{completeness.tactical.rounds.map(round => { const anchor = selected?.notes?.find(note => note.roundNo === round.roundNo); return selected && anchor ? <a key={round.id} href={timestampedUrl(selected.vodUrl, anchor.seconds)} target="_blank" rel="noreferrer" onClick={() => onReviewContextChange?.(focusedMatch.id, round.roundNo)} className="rounded-lg border border-emerald-500/20 bg-emerald-500/5 px-3 py-2 text-xs text-emerald-300">Round {round.roundNo} · open at {anchor.timeLabel}</a> : <button key={round.id} type="button" onClick={() => { onReviewContextChange?.(focusedMatch.id, round.roundNo); if (selected) { setNoteRound(String(round.roundNo)); document.getElementById('vod-note-time')?.focus(); } }} className="rounded-lg border border-amber-500/20 bg-amber-500/5 px-3 py-2 text-xs text-amber-200">Round {round.roundNo} · {round.signals.join(' + ')} · {selected ? 'set VOD anchor' : 'link VOD first'}</button>; })}</div>{!selected && <p className="mt-2 text-[10px] text-gray-500">Link a VOD review to anchor these rounds.</p>}</div> : <p className="text-xs text-gray-500">No clutch, trade, or throw evidence is recorded for this match. This is unknown coverage, not a clean-practice result.</p>}</section>}
       {replayEditor}
 
       {isCoach && showAdd && (
@@ -160,7 +171,7 @@ export default function VodReview({ data, theme, role, onRefresh, initialMatchId
         <div className="space-y-2 lg:col-span-1">
           {reviews.length === 0 && <p className="text-sm text-gray-500 font-mono italic">No VOD reviews yet.</p>}
           {reviews.map((r) => (
-            <button key={r.id} onClick={() => { setExplicitlySelected(true); setSelectedId(r.id); }} className={`w-full min-w-0 text-left p-3 rounded-lg border transition ${selectedId === r.id ? 'border-[#ff4655]/40 bg-[#ff4655]/5' : `${theme.border} ${theme.cardBg}`}`}>
+            <button key={r.id} onClick={() => selectReview(r)} className={`w-full min-w-0 text-left p-3 rounded-lg border transition ${selectedId === r.id ? 'border-[#ff4655]/40 bg-[#ff4655]/5' : `${theme.border} ${theme.cardBg}`}`}>
               <div className="font-bold text-sm truncate">{r.title}</div>
               <div className="text-[10px] text-gray-500 font-mono mt-0.5">{r.date} {r.matchId ? `· ${matchLabel(r.matchId)}` : ''} · {(r.notes || []).length} notes</div>
             </button>
@@ -177,7 +188,7 @@ export default function VodReview({ data, theme, role, onRefresh, initialMatchId
                   <ExternalLink className="w-4 h-4 shrink-0" /> {selected.title}
                 </a>
                 {isCoach && (
-                  <button aria-label="Delete VOD review" onClick={async () => { if (await post('/api/vod/remove', { id: selected.id })) { setExplicitlySelected(true); setSelectedId(null); } }} className="text-gray-500 hover:text-rose-400 cursor-pointer shrink-0"><Trash2 className="w-4 h-4" /></button>
+                  <button aria-label="Delete VOD review" onClick={async () => { if (await post('/api/vod/remove', { id: selected.id })) { setExplicitlySelected(true); setSelectedId(null); onReviewContextChange?.(null, null); } }} className="text-gray-500 hover:text-rose-400 cursor-pointer shrink-0"><Trash2 className="w-4 h-4" /></button>
                 )}
               </div>
 
