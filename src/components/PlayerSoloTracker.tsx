@@ -1,7 +1,7 @@
 import React, { useEffect, useMemo, useState } from 'react';
 import { TrackerData } from '../types';
 import { Activity, Archive, ChevronDown, ChevronRight, ShieldAlert, Users } from 'lucide-react';
-import { aggregateObservedPlayerDashboard, shadowRatingReadiness, rankedIntegrationReadiness, type ObservedPlayerDashboard } from '../../lib/uiIntegration';
+import { activeObservedPlayerStats, aggregateObservedPlayerDashboard, shadowRatingReadiness, rankedIntegrationReadiness, type ObservedPlayerDashboard } from '../../lib/uiIntegration';
 import { apiFetch } from '../utils/api';
 import { practiceDatasetCoverage } from '../../lib/practiceCompleteness';
 import ReplayMatchLog from './ReplayMatchLog';
@@ -15,9 +15,7 @@ const percent = (value: number | null) => value === null ? '—' : `${Math.round
 
 export default function PlayerSoloTracker({ data, theme, role, onRefresh }: Props) {
   const roster = useMemo(() => {
-    const retiredIds = new Set((data.rosterPlayers || []).filter(player => player.retiredAt).map(player => player.id));
-    const retiredNames = new Set((data.rosterPlayers || []).filter(player => player.retiredAt).map(player => player.displayName.trim().toLocaleLowerCase('en')));
-    const playerStats = (data.playerStats || []).filter(row => row.playerId ? !retiredIds.has(row.playerId) : !retiredNames.has((row.displayNameSnapshot || row.player || '').trim().toLocaleLowerCase('en')));
+    const playerStats = activeObservedPlayerStats(data);
     return aggregateObservedPlayerDashboard({ ...data, playerStats });
   }, [data]);
   const [engineState, setEngineState] = useState<any>(null);

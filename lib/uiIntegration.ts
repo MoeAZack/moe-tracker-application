@@ -61,6 +61,26 @@ const observedName = (row: PlayerStats) => row.displayNameSnapshot?.trim() || ro
 const normalizedObservedName = (value: string) => value.trim().toLocaleLowerCase('en');
 const observedIdentity = (row: PlayerStats) => row.playerId?.trim() || `unlinked-name:${normalizedObservedName(observedName(row))}`;
 
+const observedNameKey = (value: string) => confusableCaptureKey(normalizeCaptureName(value)) || normalizedObservedName(value);
+
+/**
+ * Keep archived-only people out of the live dashboard without throwing away a
+ * current player's older appearances. Replay repair can create a new observed
+ * identity after the original roster identity was retired; once that happens,
+ * every OCR-equivalent historical row belongs to the live observed player.
+ */
+export function activeObservedPlayerStats(data: Pick<TrackerData, 'playerStats' | 'rosterPlayers'>): PlayerStats[] {
+  const retiredIds = new Set((data.rosterPlayers || []).filter(player => player.retiredAt).map(player => player.id));
+  const retiredNameKeys = new Set((data.rosterPlayers || []).filter(player => player.retiredAt).map(player => observedNameKey(player.displayName)));
+  const liveNameKeys = new Set<string>();
+  for (const row of (data.playerStats || [])) {
+    const key = observedNameKey(observedName(row));
+    if (!key) continue;
+    if (row.playerId?.trim() ? !retiredIds.has(row.playerId.trim()) : !retiredNameKeys.has(key)) liveNameKeys.add(key);
+  }
+  return (data.playerStats || []).filter(row => liveNameKeys.has(observedNameKey(observedName(row))));
+}
+
 export function aggregateObservedPlayerKd(rows: readonly PlayerStats[]): ObservedPlayerKd[] {
   const groups = new Map<string, { playerId: string | null; displayName: string; rows: PlayerStats[] }>();
   rows.forEach(row => {
@@ -91,7 +111,7 @@ export function aggregateObservedPlayerDashboard(data: Pick<TrackerData, 'player
   const playerById = new Map((data.rosterPlayers || []).map(player => [player.id, player]));
   const activeCore = new Set((data.coreMemberships || []).filter(item => !item.endedAt).map(item => item.playerId));
   const activeTryouts = new Set((data.tryoutBatches || []).filter(batch => batch.status === 'active').flatMap(batch => batch.candidatePlayerIds));
-  const dashboardNameKey = (value: string) => confusableCaptureKey(normalizeCaptureName(value));
+  const dashboardNameKey = observedNameKey;
   const activePlayersByName = new Map<string, typeof data.rosterPlayers>();
   for (const player of (data.rosterPlayers || []).filter(player => !player.retiredAt)) {
     const key = dashboardNameKey(player.displayName); if (!key) continue;
