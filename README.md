@@ -1,6 +1,6 @@
 # Moe Tracker Application
 
-Version 0.1.46 removes redundant regulation-match capture probes and automatically joins synchronized screenshot matches with uniquely matching replay evidence. Version 0.1.45 added the private PRACC `.ics` calendar connection under Settings → Attendance Rules. See [VOD timeline analysis](docs/VOD-TIMELINE-ANALYSIS.md) for VOD coverage and evidence limits.
+Version 0.1.47 removes redundant regulation-match capture probes and automatically joins synchronized screenshot matches with uniquely matching replay evidence. Version 0.1.45 added the private PRACC `.ics` calendar connection under Settings → Attendance Rules. See [VOD timeline analysis](docs/VOD-TIMELINE-ANALYSIS.md) for VOD coverage and evidence limits.
 
 Windows-first, offline-first practice analysis for a VALORANT team. The desktop application watches replay folders, keeps detailed evidence on the PC, supports local scoreboard OCR, and synchronizes only accepted summaries to the lightweight team website.
 
@@ -48,3 +48,4 @@ The installer is written to `release/`. The public workflow refuses to publish u
 Moe Tracker reads completed replay files and user-selected screenshots. It does not inject into VALORANT, inspect process memory, automate gameplay, or provide live behavior-changing information.
 
 See [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md), [docs/ROADMAP.md](docs/ROADMAP.md), [docs/AUDIT-IMPLEMENTATION.md](docs/AUDIT-IMPLEMENTATION.md), and [SECURITY.md](SECURITY.md).
+

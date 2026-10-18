@@ -25,8 +25,20 @@ export function registerPortablePackageRoutes(app: Express) {
           continue;
         }
         if (item?.kind !== 'accepted-match' || !item.match?.id || item.match.id !== item.replay?.matchId) continue;
-        merge('matches', [item.match]); merge('playerStats', Array.isArray(item.playerStats) ? item.playerStats : []); merge('rounds', Array.isArray(item.rounds) ? item.rounds : []);
-        const current = db.engineAdapters.replay[item.match.id]; if (!current) { db.engineAdapters.replay[item.match.id] = structuredClone(item.replay); applied += 1; } else if (JSON.stringify(current) !== JSON.stringify(item.replay)) conflicts.push({ collection: 'acceptedReplays', id: item.match.id });
+        const current = db.engineAdapters.replay[item.match.id];
+        if (!current || Number(item.replay.revision || 0) > Number(current.revision || 0)) {
+          // An accepted replay item is a revisioned snapshot for one match, not
+          // an append-only delta. Replace that match's materialized rows so
+          // screenshot IDs and replay IDs cannot coexist as duplicates.
+          const replaceMatchRows = (collection: 'playerStats' | 'rounds', incoming: any[]) => {
+            db[collection] = [...(db[collection] || []).filter((row: any) => row.matchId !== item.match.id), ...structuredClone(incoming)];
+          };
+          const matchIndex = (db.matches || []).findIndex((row: any) => row.id === item.match.id);
+          if (matchIndex >= 0) db.matches[matchIndex] = structuredClone(item.match); else (db.matches ||= []).push(structuredClone(item.match));
+          replaceMatchRows('playerStats', Array.isArray(item.playerStats) ? item.playerStats : []);
+          replaceMatchRows('rounds', Array.isArray(item.rounds) ? item.rounds : []);
+          db.engineAdapters.replay[item.match.id] = structuredClone(item.replay); applied += 1;
+        } else if (Number(item.replay.revision || 0) === Number(current.revision || 0) && JSON.stringify(current) !== JSON.stringify(item.replay)) conflicts.push({ collection: 'acceptedReplays', id: item.match.id });
       }
       if (applied) await saveDB(db); res.json({ applied, conflicts });
     } catch (error: any) { res.status(error?.status || 400).json({ error: error?.message || 'Sync inbox could not be applied.' }); }

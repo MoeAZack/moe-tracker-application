@@ -340,7 +340,7 @@ function acceptReviewIntoEngines(db: any, store: ReplayStore, job: ReplayParserJ
   db.engineAdapters.replay ||= {}; db.engineAdapters.ratings ||= { configs: {}, records: {}, formulaVersions: {}, baselineVersions: {} }; db.engineAdapters.ratings.records ||= {}; db.engineAdapters.ratings.configs ||= {};
   const priorReplay = db.engineAdapters.replay[review.matchId];
   if (priorReplay?.status === 'accepted' && priorReplay?.provenance?.replaySha256 !== review.sha256) throw Object.assign(new Error('This match already has different accepted replay evidence.'), { status: 409 });
-  db.engineAdapters.replay[review.matchId] = { matchId: review.matchId, status: 'accepted', acceptedAt, acceptedBy: user.actorId, draft: structuredClone(draft), overlay: structuredClone(review), provenance: { replaySha256: review.sha256, rawEvidenceHash: review.rawEvidenceHash, parser: job.parser, screenshotLinks: structuredClone(review.screenshotLinks || []) }, revision: (priorReplay?.revision || 0) + 1, requestId, requestHash, updatedAt: acceptedAt };
+  db.engineAdapters.replay[review.matchId] = { matchId: review.matchId, status: 'accepted', acceptedAt, acceptedBy: user.actorId, draft: structuredClone(draft), overlay: structuredClone(review), provenance: { replaySha256: review.sha256, rawEvidenceHash: review.rawEvidenceHash, parser: job.parser, screenshotLinks: structuredClone(review.screenshotLinks || []), materializationVersion: 2 }, revision: (priorReplay?.revision || 0) + 1, requestId, requestHash, updatedAt: acceptedAt };
   const mode = ratingMode(match); const rounds = draft.coverage?.playedRounds || 0; const ratingDraftKeys: string[] = [];
   for (const config of Object.values(db.engineAdapters.ratings.configs) as any[]) {
     if (config?.baseline?.mode !== mode || !config?.formula || !config?.baseline) continue;
@@ -448,6 +448,23 @@ function autoFinalizeDesktopReplay(db: any, store: ReplayStore, sha256: string, 
   blob.reviewStatus = 'accepted'; blob.matchId = match.id; screenshot.autoProcessedAt = accepted.acceptedAt; screenshot.automaticMatchId = match.id;
   screenshot.reason = 'Automatically processed from a unique exact ten-player K/D/A match. You can edit the saved match later.';
   return { matchId: match.id, acceptedAt: accepted.acceptedAt };
+}
+
+/** Re-materialize an already accepted replay after a newer screenshot-linking
+ * implementation. This is safe only for the same replay and target match; it
+ * creates a new revision so paired desktops replace the old snapshot. */
+function refreshAcceptedReplay(db: any, store: ReplayStore, sha256: string, targetMatchId: string, user: Actor) {
+  const review = store.reviews[sha256]; const blob = store.blobs[sha256];
+  const job = blob?.parserJobId ? store.parserJobs[blob.parserJobId] : null;
+  const adapter = db.engineAdapters?.replay?.[targetMatchId];
+  if (!review || review.status !== 'accepted' || review.matchId !== targetMatchId || !job?.result || job.status !== 'completed'
+    || adapter?.provenance?.replaySha256 !== sha256 || Number(adapter?.provenance?.materializationVersion || 0) >= 2) return null;
+  const now = new Date().toISOString(); const requestId = `refresh:${sha256}:${targetMatchId}:${Number(adapter.revision || 1) + 1}`;
+  const requestHash = contentHash({ mode: 'refresh-accepted-replay', sha256, targetMatchId, revision: Number(adapter.revision || 1) + 1 });
+  const accepted = acceptReviewIntoEngines(db, store, job, review, user, requestId, requestHash);
+  review.revision = Number(review.revision || 1) + 1; review.updatedAt = accepted.acceptedAt; review.acceptedAt = accepted.acceptedAt; review.acceptedBy = user.actorId; review.ratingDraftKeys = accepted.ratingDraftKeys;
+  blob.reviewStatus = 'accepted'; blob.matchId = targetMatchId;
+  return { matchId: targetMatchId, acceptedAt: accepted.acceptedAt, refreshedAt: now };
 }
 
 function actorCanSeeReplay(user: Actor, store: ReplayStore, sha256: string) {
@@ -784,7 +801,10 @@ export function registerReplayDeviceUploadRoute(app: Express) {
         store.screenshots[id] = { id, deviceId: device.id, imageSha256, createdAt: updatedAt, createdBy: device.owner.actorId, status: 'pending', reviewRequired: true, draft, replaySha256: null, suggestions: [], reason: 'Waiting for one matching replay from this desktop.', targetMatchId: matchId };
         pairReplayScreenshots(store);
         const linked = store.screenshots[id].replaySha256;
-        if (linked) autoFinalizeDesktopReplay(db, store, linked, actorForDevice(device));
+        if (linked) {
+          const deviceActor = actorForDevice(device);
+          if (!autoFinalizeDesktopReplay(db, store, linked, deviceActor)) refreshAcceptedReplay(db, store, linked, matchId, deviceActor);
+        }
       }
       device.lastSeenAt = updatedAt; await saveDB(db); res.status(existingRecord ? 200 : 201).json({ accepted: true, idempotent: existingRecord?.digest === digest, revision: db.engineAdapters.screenshot[matchId].revision, replayIntegrated: !!db.engineAdapters.replay?.[matchId] });
     } catch (error: any) { res.status(error?.status || 400).json({ error: error?.message || 'Screenshot summary could not be synchronized.' }); }
