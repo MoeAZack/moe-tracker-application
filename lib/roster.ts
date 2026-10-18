@@ -15,6 +15,7 @@ export function ensureRoster(db: any) {
   if (!Array.isArray(db.coreMemberships)) db.coreMemberships = [];
   if (!Array.isArray(db.tryoutBatches)) db.tryoutBatches = [];
   if (!Array.isArray(db.seasonArchives)) db.seasonArchives = [];
+  if (!Array.isArray(db.identityCorrectionBatches)) db.identityCorrectionBatches = [];
   if (!db.settings) db.settings = {};
   if (typeof db.settings.tryoutsMode !== 'boolean') db.settings.tryoutsMode = false;
   if (typeof db.settings.activeTryoutBatchId !== 'string') db.settings.activeTryoutBatchId = null;
@@ -22,11 +23,70 @@ export function ensureRoster(db: any) {
   return db;
 }
 
+function observedStatIdentity(row: any) {
+  if (typeof row?.playerId === 'string' && row.playerId.trim()) return row.playerId.trim();
+  const name = String(row?.displayNameSnapshot || row?.player || '').trim().toLocaleLowerCase('en');
+  return `unlinked-name:${name}`;
+}
+
+export function correctObservedIdentity(
+  db: any,
+  input: { sourceIdentity: string; targetPlayerId: string; reason: string },
+  actor = 'Coach',
+  idFactory = defaultId,
+  clock = defaultClock,
+) {
+  ensureRoster(db);
+  const target = playerById(db, input.targetPlayerId);
+  if (target.retiredAt) fail('Identity corrections can target only an active roster player.', 409);
+  if (input.sourceIdentity === target.id) fail('The observed evidence is already linked to this player.', 409);
+  const rows = (db.playerStats || []).filter((row: any) => observedStatIdentity(row) === input.sourceIdentity);
+  if (!rows.length) fail('No current player evidence matches this source identity.', 404);
+  const now = clock();
+  const correction = {
+    id: idFactory(), sourceIdentity: input.sourceIdentity, targetPlayerId: target.id, reason: input.reason,
+    affectedRows: rows.map((row: any) => ({ rowId: row.id, beforePlayerId: row.playerId || null, beforePlayer: row.player || '', beforeDisplayNameSnapshot: row.displayNameSnapshot || null })),
+    createdAt: now, createdBy: actor,
+  };
+  for (const row of rows) {
+    row.playerId = target.id;
+    row.corrections = [...(row.corrections || []), { correctedAt: now, correctedBy: actor, fields: ['playerId'], reason: input.reason }];
+  }
+  db.identityCorrectionBatches.push(correction);
+  return { correction, player: target, affectedRows: rows.length };
+}
+
+export function revertObservedIdentityCorrection(
+  db: any,
+  correctionId: string,
+  reason: string,
+  actor = 'Coach',
+  clock = defaultClock,
+) {
+  ensureRoster(db);
+  const correction = db.identityCorrectionBatches.find((item: any) => item.id === correctionId);
+  if (!correction) fail('Identity correction was not found.', 404);
+  if (correction.revertedAt) return { correction, reverted: false };
+  const rows = correction.affectedRows.map((snapshot: any) => (db.playerStats || []).find((row: any) => row.id === snapshot.rowId));
+  if (rows.some((row: any) => !row)) fail('Identity correction cannot be reversed because an affected evidence row is missing.', 409);
+  if (rows.some((row: any) => row.playerId !== correction.targetPlayerId)) fail('Identity correction cannot be reversed because an affected row was corrected again later.', 409);
+  const now = clock();
+  correction.affectedRows.forEach((snapshot: any, index: number) => {
+    const row = rows[index];
+    if (snapshot.beforePlayerId) row.playerId = snapshot.beforePlayerId; else delete row.playerId;
+    row.player = snapshot.beforePlayer;
+    if (snapshot.beforeDisplayNameSnapshot) row.displayNameSnapshot = snapshot.beforeDisplayNameSnapshot; else delete row.displayNameSnapshot;
+    row.corrections = [...(row.corrections || []), { correctedAt: now, correctedBy: actor, fields: ['playerId'], reason: `Reverted identity correction: ${reason}` }];
+  });
+  Object.assign(correction, { revertedAt: now, revertedBy: actor, revertReason: reason });
+  return { correction, reverted: true };
+}
+
 export const SEASON_COLLECTION_POLICY = {
   archive: [
     'rosterPlayers', 'coreMemberships', 'tryoutBatches', 'schedule', 'goals',
     'matches', 'playerStats', 'soloq', 'rounds', 'vetos', 'stratRuns', 'vodReviews', 'vodSubmissions',
-    'practiceBlocks', 'tryoutDecisionNotes',
+    'practiceBlocks', 'tryoutDecisionNotes', 'identityCorrectionBatches',
     'attendanceCredits',
   ],
   retain: ['seasonArchives', 'lineups', 'authKeys', 'allowedUsers', 'engineAdapters'],

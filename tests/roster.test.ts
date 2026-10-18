@@ -17,6 +17,8 @@ import {
   setTryoutAlias,
   setTryoutsMode,
   setObservedRosterStatus,
+  correctObservedIdentity,
+  revertObservedIdentityCorrection,
 } from '../lib/roster';
 import { createSeed } from '../lib/seed';
 
@@ -39,6 +41,36 @@ function rosterDb() {
 }
 
 describe('roster domain', () => {
+  it('records a reversible batch when observed evidence is linked to a roster identity', () => {
+    const db: any = rosterDb();
+    db.playerStats = [
+      { id: 'stat-1', matchId: 'm1', player: 'Observed Name', displayNameSnapshot: 'Observed Name', kills: 10 },
+      { id: 'stat-2', matchId: 'm2', player: 'Observed Name', displayNameSnapshot: 'Observed Name', kills: 12 },
+    ];
+    const idFactory = vi.fn().mockReturnValueOnce(ids[0]).mockReturnValueOnce(ids[1]);
+    const player = createRosterPlayer(db, 'Canonical Name', idFactory, now);
+    const linked = correctObservedIdentity(db, { sourceIdentity: 'unlinked-name:observed name', targetPlayerId: player.id, reason: 'Coach verified both match rows.' }, 'Coach', idFactory, now);
+    expect(linked).toMatchObject({ affectedRows: 2, correction: { id: ids[1], targetPlayerId: ids[0] } });
+    expect(db.playerStats.map((row: any) => row.playerId)).toEqual([ids[0], ids[0]]);
+    expect(db.playerStats[0].corrections.at(-1)).toMatchObject({ fields: ['playerId'], reason: 'Coach verified both match rows.' });
+
+    const reverted = revertObservedIdentityCorrection(db, ids[1], 'The evidence belonged to another account.', 'Coach', now);
+    expect(reverted.reverted).toBe(true);
+    expect(db.playerStats.map((row: any) => row.playerId)).toEqual([undefined, undefined]);
+    expect(db.identityCorrectionBatches[0]).toMatchObject({ revertedAt: now(), revertReason: 'The evidence belonged to another account.' });
+  });
+
+  it('refuses to reverse an identity batch after a later correction changed an affected row', () => {
+    const db: any = rosterDb();
+    db.playerStats = [{ id: 'stat-1', matchId: 'm1', player: 'Observed', kills: 10 }];
+    const idFactory = vi.fn().mockReturnValueOnce(ids[0]).mockReturnValueOnce(ids[1]).mockReturnValueOnce(ids[2]);
+    const first = createRosterPlayer(db, 'First', idFactory, now);
+    const second = createRosterPlayer(db, 'Second', idFactory, now);
+    const linked = correctObservedIdentity(db, { sourceIdentity: 'unlinked-name:observed', targetPlayerId: first.id, reason: 'Initial coach verification.' }, 'Coach', idFactory, now);
+    db.playerStats[0].playerId = second.id;
+    expect(() => revertObservedIdentityCorrection(db, linked.correction.id, 'Undo stale correction.', 'Coach', now)).toThrow('corrected again later');
+  });
+
   it('starts a fresh database with no invented core membership', () => {
     const seed = createSeed();
     expect(seed.rosterPlayers).toEqual([]);
@@ -234,6 +266,8 @@ describe('roster HTTP and concurrency boundary', () => {
     const playerKey = 'test-player-access-key';
     const adminKey = 'test-master-secret-at-least-24-characters';
     const base = createSeed();
+    base.matches.push({ id: 'observed-match', date: '2026-10-18', type: 'Scrim', opponent: 'Team', map: 'Ascent', attW: null, attL: null, defW: null, defL: null });
+    base.playerStats.push({ id: 'observed-stat', matchId: 'observed-match', player: 'Observed Alias', agent: 'Sova', kAtt: null, kDef: null, dAtt: null, dDef: null, aAtt: null, aDef: null, kills: 10, deaths: 8, assists: 4 });
     await fs.writeFile(dbPath, JSON.stringify({
       ...base,
       authKeys: [{
@@ -293,9 +327,17 @@ describe('roster HTTP and concurrency boundary', () => {
       headers: { Authorization: `Bearer ${coachToken}`, 'Content-Type': 'application/json' },
       body: JSON.stringify({ players: ['divergent legacy edit'] }),
     })).status).toBe(200);
+    expect((await fetch(`${origin}/api/roster/identity-corrections`, { method: 'POST', headers: { Authorization: `Bearer ${playerToken}`, 'Content-Type': 'application/json' }, body: JSON.stringify({ sourceIdentity: 'unlinked-name:observed alias', targetPlayerId: created.id, reason: 'Coach checked the account.' }) })).status).toBe(403);
+    const correctionResponse = await coachPost('/api/roster/identity-corrections', { sourceIdentity: 'unlinked-name:observed alias', targetPlayerId: created.id, reason: 'Coach checked the account.' });
+    expect(correctionResponse.status).toBe(200);
+    const correctionResult = await correctionResponse.json();
+    expect(correctionResult).toMatchObject({ affectedRows: 1, correction: { targetPlayerId: created.id } });
+    expect((await coachPost('/api/roster/identity-corrections/revert', { correctionId: correctionResult.correction.id, reason: 'Account mapping was incorrect.' })).status).toBe(200);
     const stored = JSON.parse(await fs.readFile(dbPath, 'utf8'));
     expect(stored.rosterPlayers).toHaveLength(1);
     expect(stored.settings.players).toEqual(['Stable Name']);
+    expect(stored.playerStats[0].playerId).toBeUndefined();
+    expect(stored.identityCorrectionBatches[0]).toMatchObject({ revertedBy: 'Administrator (Master)' });
 
     expect((await coachPost('/api/access/add', { email: 'player@example.com', role: 'player' })).status).toBe(400);
     const googleAccessResponse = await coachPost('/api/access/add', { email: 'player@example.com', role: 'player', playerId: created.id });
