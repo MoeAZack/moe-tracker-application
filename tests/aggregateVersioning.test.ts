@@ -150,7 +150,7 @@ describe('S0.6 aggregate migration', () => {
     const data = fixture();
     data._storage = { schemaVersion: 2, migratedAt: '2026-10-01T00:00:00.000Z', migrationLedger: [] };
     ensureStorageSchema(data, '2026-10-15T10:00:00.000Z');
-    expect(data._storage).toMatchObject({ schemaVersion: 9, migrationLedger: [{ from: 2, to: 9, at: '2026-10-15T10:00:00.000Z' }] });
+    expect(data._storage).toMatchObject({ schemaVersion: 10, migrationLedger: [{ from: 2, to: 10, at: '2026-10-15T10:00:00.000Z' }] });
     expect(data.analyticsBuilds.m1).toMatchObject({ status: 'recomputed', builders: [MAP_ROUND_BUILDER, 'player-screenshot-metrics/v2'] });
     ensureStorageSchema(data, '2026-10-15T11:00:00.000Z');
     expect(data._storage.migrationLedger).toHaveLength(1);

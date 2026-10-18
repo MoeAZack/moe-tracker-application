@@ -9,7 +9,7 @@ import { chromium } from 'playwright-core';
 
 const root = process.cwd();
 const browserPaths = [process.env.LOCAL_OCR_BROWSER, 'C:/Program Files/Google/Chrome/Application/chrome.exe', 'C:/Program Files (x86)/Microsoft/Edge/Application/msedge.exe'].filter(Boolean);
-const retained = ['Dashboard', 'Schedule & Goals', 'Matches Log', 'Economy', 'Map Analysis', 'Roster & Solo Q'];
+const retained = ['Dashboard', 'Schedule & Goals', 'Matches Log', 'VOD Submission', 'Economy', 'Map Analysis', 'Roster & Solo Q'];
 const desktopOnly = ['Replay Evidence', 'VOD Review', 'Lineup Library', 'AI Coach Hub', 'Live Logger', 'Compositions', 'Settings', 'Import scoreboard', 'Scrim Auto-Import'];
 
 async function availablePort() {
@@ -56,6 +56,8 @@ try {
     });
     for (const key of ['rounds', 'vetos', 'strats', 'stratRuns', 'seasonArchives', 'vodReviews', 'lineups']) if (!Array.isArray(summary[key]) || summary[key].length) throw new Error(`Website summary exposed ${key}.`);
     if (Object.keys(summary.secrets || {}).length) throw new Error('Website summary exposed secret capability flags.');
+    await page.getByRole('button', { name: 'VOD Submission' }).click();
+    await page.getByRole('heading', { name: 'Submit a personal VOD' }).waitFor({ state: 'visible' });
     await page.close();
   }
   console.log('Website production browser smoke passed at desktop and mobile widths with summary-only data.');

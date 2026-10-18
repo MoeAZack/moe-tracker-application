@@ -206,6 +206,7 @@ export function createSeed() {
     practiceBlocks: [],
     coachingSignals: [],
     coachingActions: [],
+    vodSubmissions: [],
     dashboardViews: [],
     tryoutDecisionNotes: [],
     seasonArchives: [],

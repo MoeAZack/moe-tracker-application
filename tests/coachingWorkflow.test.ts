@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { buildActionCheck, buildAllPracticeBlockSummaries, buildPracticeBlockSummary, createCoachingAction, evaluateAction, generateReviewSignalDrafts, normalizeDashboardView, reconcileReviewSignals, transitionSignal } from '../lib/coachingWorkflow';
+import { buildActionCheck, buildAllPracticeBlockSummaries, buildPracticeBlockSummary, createCoachingAction, evaluateAction, generateReviewSignalDrafts, migrateLegacyActionChecks, normalizeDashboardView, reconcileReviewSignals, transitionSignal } from '../lib/coachingWorkflow';
 
 const acceptedMatch = (id: string, date = '2026-10-18') => ({ id, date, type: 'Scrim', opponent: 'PYO', map: 'Ascent', attW: 5, attL: 7, defW: 8, defL: 4, sourceMetadata: { method: 'manual', capturedAt: `${date}T12:00:00Z` } });
 const base = () => ({
@@ -42,6 +42,14 @@ describe('S2 deterministic coaching inbox', () => {
 });
 
 describe('S3 coaching actions', () => {
+  it('migrates legacy action checks while preserving their original check and outcome', () => {
+    const summary = buildPracticeBlockSummary(base(), { id: 'b1', name: 'Prac', matchIds: ['m1'] });
+    const source = transitionSignal(reconcileReviewSignals([], generateReviewSignalDrafts(summary, { minimumSamples: 1 }))[0], 'accepted', 'coach');
+    const current = createCoachingAction({ signal: source, kind: 'team-task', ownerIds: [], priority: 'normal', visibility: 'staff' }, 'coach');
+    const legacy: any = { ...current, check: { ...current.check, policyVersion: undefined, direction: 'decrease', target: 0 }, outcome: { status: 'satisfied', baseline: 25, later: 0, change: -25, confidence: 'high', evaluatedAt: '2026-10-18T12:00:00Z', reason: 'legacy' } };
+    const migrated = migrateLegacyActionChecks([legacy], [source], 'system', '2026-10-18T13:00:00Z')[0];
+    expect(migrated.check?.policyVersion).toBe(2); expect(migrated.checkHistory).toHaveLength(1); expect(migrated.checkHistory?.[0].outcome?.status).toBe('satisfied'); expect(migrated.outcome?.status).toBe('inconclusive');
+  });
   it('preserves immutable evidence and evaluates a next-block threshold without mutating its signal', () => {
     const summary = buildPracticeBlockSummary(base(), { id: 'b1', name: 'Prac', matchIds: ['m1'] }, '2026-10-18T15:00:00Z'); const draft = generateReviewSignalDrafts(summary, { minimumSamples: 1 }).find(item => item.type === 'full-buy-loss')!;
     const source = transitionSignal(reconcileReviewSignals([], [draft])[0], 'accepted', 'coach');
@@ -66,6 +74,15 @@ describe('S3 coaching actions', () => {
     const check = buildActionCheck({ ...pistol, id: 'pistol', status: 'accepted', audit: [] });
     expect(check).toMatchObject({ direction: 'increase', unit: '%', sourceBlockId: 'b1', context: { side: 'ATT' } });
     expect(check.target).toBeGreaterThan(check.baseline);
+  });
+
+  it('measures evidence health as comparable coverage and drops stale unconverted signals', () => {
+    const data = base(); data.matches.push({ ...acceptedMatch('m2'), reviewConfirmation: undefined, sourceMetadata: { method: 'screenshot', capturedAt: '2026-10-18T13:00:00Z' } });
+    const summary = buildPracticeBlockSummary(data, { id: 'b1', name: 'Prac', matchIds: ['m1', 'm2'] });
+    const draft = generateReviewSignalDrafts(summary).find(item => item.type === 'evidence-health')!;
+    expect(draft.metric).toEqual({ value: 50, samples: 2, unit: '%' });
+    const stored = reconcileReviewSignals([], [draft])[0];
+    expect(reconcileReviewSignals([stored], [])).toEqual([]);
   });
 });
 

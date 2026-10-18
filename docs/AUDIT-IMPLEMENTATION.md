@@ -19,12 +19,14 @@ This register separates shipped code, automated verification, physical acceptanc
 | 9 | Release ordering and Windows CI | Implemented; certificate gate open | Release order is build/sign, signature check, clean install check, then publish. Normal CI includes Windows capture and workflow tests. |
 | 10 | Review usability | Implemented | Failed loads show Retry, corrections use a bounded evidence/reason panel, and layout controls live behind Edit layout. |
 | 11 | Repository readiness | Implemented | Security reporting, contribution guidance, installation notes, release-state documentation, and an explicit license decision are present. |
+| 12 | Audit closure pass | Implemented | Legacy action checks migrate to policy v2 with immutable history; evidence coverage is percentage-based; stale observations cannot satisfy actions; private action IDs remain private; API credentials use an exact-origin boundary; every privileged IPC handler shares one sender check; D1 throttling increments atomically. |
+| 13 | Player VOD submissions | Implemented | Local OCR retains no raw image on the server; five unique active roster identities are mandatory; evidence can link to an existing screenshot/replay match or create a new match; only unknown stat fields are filled and every contribution retains its VOD submission provenance. |
 
 Repository rules require a pull request, one approval, resolved review threads, and both Linux and Windows checks on `main`; repository administrators retain an explicit emergency bypass. Release tags cannot be created, moved, or deleted without that bypass. Dependabot security updates, secret scanning, push protection, and private vulnerability reporting are enabled.
 
 ## Next product increments
 
-1. Round/event-linked local VOD playback with stored synchronization offsets.
+1. Round/event-linked embedded VOD playback with stored synchronization offsets and automated timeline sampling beyond the submitted scoreboard frame.
 2. Discord delivery for accepted summaries and assignments, including deduplication, quiet hours, delivery status, and permission-aware links.
 3. Calendar export first, then optional provider synchronization with cancellation and conflict handling.
 4. Versioned JSON/CSV import with mapping preview, duplicate detection, provenance, and partial-import explanations.

@@ -1,6 +1,6 @@
 import type { Express, Request, Response } from 'express';
 import type { CoachingAction, CoachingSignal } from '../../src/types';
-import { buildAllPracticeBlockSummaries, coachingContextMatches, createCoachingAction, evaluateAction, generateReviewSignalDrafts, normalizeDashboardView, reconcileReviewSignals, transitionSignal } from '../coachingWorkflow';
+import { buildAllPracticeBlockSummaries, coachingContextMatches, createCoachingAction, evaluateAction, generateReviewSignalDrafts, migrateLegacyActionChecks, normalizeDashboardView, reconcileReviewSignals, transitionSignal } from '../coachingWorkflow';
 import { readDB, saveDB } from '../store';
 
 const actor = (req: Request) => String((req as any).user?.actorId || (req as any).user?.username || 'coach').slice(0, 120);
@@ -15,7 +15,7 @@ export function refreshCoachingWorkflow(db: any, who = 'system', now = new Date(
     const related = (db.coachingActions || []).find((action: CoachingAction) => !['resolved', 'cancelled'].includes(action.state) && action.check?.signalType === signal.type && coachingContextMatches(action.check.context, signal.context) && action.sourceSignalId !== signal.id && Date.parse(action.createdAt) < Date.parse(signal.createdAt));
     if (related) signal.relatedActionId = related.id;
   }
-  db.coachingActions = (db.coachingActions || []).map((action: CoachingAction) => evaluateAction(action, summaries, db.coachingSignals, now));
+  db.coachingActions = migrateLegacyActionChecks(db.coachingActions || [], db.coachingSignals, who, now).map((action: CoachingAction) => evaluateAction(action, summaries, db.coachingSignals, now));
   return { summaries, signals: db.coachingSignals, actions: db.coachingActions };
 }
 
@@ -76,7 +76,7 @@ export function registerCoachingRoutes(app: Express) {
       const db = await readDB(); const index = (db.coachingActions || []).findIndex((item: CoachingAction) => item.id === req.params.id); if (index < 0) return res.status(404).json({ error: 'Coaching action not found.' });
       const current: CoachingAction = db.coachingActions[index]; const role = (req as any).user?.role; const playerId = (req as any).user?.playerId;
       const allowed = ['planned', 'assigned', 'acknowledged', 'in-progress', 'review-next-block', 'resolved', 'cancelled'] as CoachingAction['state'][]; const state = req.body?.state as CoachingAction['state']; if (!allowed.includes(state)) return res.status(400).json({ error: 'Unknown action state.' });
-      if (role !== 'coach' && (!playerId || !current.ownerIds.includes(playerId) || !['acknowledged', 'in-progress'].includes(state))) return res.status(403).json({ error: 'Players may acknowledge or start only their own team-visible actions.' });
+      if (role !== 'coach' && (current.visibility !== 'team' || !playerId || !current.ownerIds.includes(playerId) || !['acknowledged', 'in-progress'].includes(state))) return res.status(403).json({ error: 'Players may acknowledge or start only their own team-visible actions.' });
       const now = new Date().toISOString(); db.coachingActions[index] = { ...current, state, updatedAt: now, audit: [...current.audit, { at: now, by: actor(req), from: current.state, to: state, ...(text(req.body?.reason, 500) ? { reason: text(req.body.reason, 500) } : {}) }] }; await saveDB(db); res.json(db.coachingActions[index]);
     } catch (error: any) { res.status(error.status || 500).json({ error: error.message }); }
   });

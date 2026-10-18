@@ -3,8 +3,9 @@ import { assertWorkspaceIdentityShape } from './evidenceReference';
 import { migrateAcceptedMatchAggregates } from './aggregateVersioning';
 import { materializeFirstDeathsFromRoundEvidence, materializeRoundOpeningsFromScreenshotEvidence, materializeRoundPlantsFromScreenshotEvidence } from './scrimRoundAnalytics';
 import { ensureScheduleCalendars } from './schedule';
+import { migrateLegacyActionChecks } from './coachingWorkflow';
 
-export const STORAGE_SCHEMA_VERSION = 9;
+export const STORAGE_SCHEMA_VERSION = 10;
 export const MAX_ENTITY_BYTES = 840 * 1024;
 export const MAX_DOCUMENT_BYTES = 900 * 1024;
 export const MAX_JSON_DATABASE_BYTES = 64 * 1024 * 1024;
@@ -15,12 +16,13 @@ export const FIRESTORE_BATCH_SAFE_BYTES = 7 * 1024 * 1024;
 export const FIRESTORE_BATCH_MAX_WRITES = 350;
 const CURRENT_VALORANT_AGENTS = ['Astra', 'Breach', 'Brimstone', 'Chamber', 'Clove', 'Cypher', 'Deadlock', 'Fade', 'Gekko', 'Harbor', 'Iso', 'Jett', 'KAY/O', 'Killjoy', 'Miks', 'Neon', 'Omen', 'Phoenix', 'Raze', 'Reyna', 'Sage', 'Skye', 'Sova', 'Tejo', 'Veto', 'Viper', 'Vyse', 'Waylay', 'Yoru'];
 
-const GROWTH_ARRAYS = new Set(['matches', 'playerStats', 'seasonArchives']);
+const GROWTH_ARRAYS = new Set(['matches', 'playerStats', 'vodSubmissions', 'seasonArchives']);
 const GROWTH_TREES = new Set(['replayIntake', 'engineAdapters', 'analyticsBuilds']);
 const CORE_ARRAYS = [
   'matches', 'playerStats', 'seasonArchives', 'rounds', 'schedule', 'authKeys', 'allowedUsers',
   'goals', 'soloq', 'vetos', 'strats', 'stratRuns', 'rosterPlayers', 'coreMemberships',
   'tryoutBatches', 'vodReviews', 'lineups', 'practiceBlocks', 'tryoutDecisionNotes',
+  'vodSubmissions',
   'attendanceCredits',
   'coachingSignals', 'coachingActions', 'dashboardViews',
 ] as const;
@@ -92,6 +94,8 @@ export function ensureStorageSchema(input: any, now = new Date().toISOString()) 
     if (!Array.isArray(input.attendanceCredits)) input.attendanceCredits = [];
     if (!Array.isArray(input.coachingSignals)) input.coachingSignals = [];
     if (!Array.isArray(input.coachingActions)) input.coachingActions = [];
+    input.coachingActions = migrateLegacyActionChecks(input.coachingActions, input.coachingSignals, 'storage-migration', now);
+    if (!Array.isArray(input.vodSubmissions)) input.vodSubmissions = [];
     if (!Array.isArray(input.dashboardViews)) input.dashboardViews = [];
     ledger.push({ from: declared, to: STORAGE_SCHEMA_VERSION, at: now });
   }
