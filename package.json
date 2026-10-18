@@ -1,7 +1,7 @@
 {
   "name": "moe-tracker-application",
   "private": true,
-  "version": "0.1.37",
+  "version": "0.1.38",
   "description": "Offline-first desktop replay analysis and team statistics for VALORANT practice",
   "main": "desktop/main.cjs",
   "type": "module",
@@ -17,6 +17,7 @@
     "typecheck": "tsc --noEmit",
     "test": "vitest run",
     "test:ocr-browser": "npm run build && node scripts/local-ocr-browser-smoke.mjs",
+    "test:ocr-corpus": "node scripts/ocr-corpus-audit.mjs",
     "test:website-browser": "npm run build && node scripts/website-browser-smoke.mjs",
     "test:a11y": "npm run build && node scripts/accessibility-audit.mjs",
     "test:scrim-capture": "powershell.exe -NoProfile -ExecutionPolicy Bypass -File scripts/scrim-capture.ps1 -RoundCount 24 -Template without-performance -DryRun && powershell.exe -NoProfile -ExecutionPolicy Bypass -File scripts/scrim-capture.ps1 -RoundCount 28 -Template with-performance -DryRun",

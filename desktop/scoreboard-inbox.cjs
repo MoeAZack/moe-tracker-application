@@ -41,8 +41,9 @@ async function rootCandidates(folder) {
   return candidates;
 }
 
-async function scoreboardInventory(folder, processedIds = []) {
+async function scoreboardInventory(folder, processedIds = [], processedHashes = []) {
   const processed = new Set(processedIds);
+  const hashes = new Set(processedHashes);
   const records = [];
   for (const candidate of await rootCandidates(folder)) {
     const mediaType = TYPES.get(path.extname(candidate.file).toLowerCase());
@@ -51,7 +52,12 @@ async function scoreboardInventory(folder, processedIds = []) {
     if (!stat) continue;
     if (!stat.isFile() || stat.size <= 0 || stat.size > MAX_IMAGE_BYTES) continue;
     const id = recordId(file, stat); if (processed.has(id)) continue;
-    records.push({ id, name: candidate.name, size: stat.size, modifiedAt: stat.mtime.toISOString(), mediaType, file, capture: candidate.capture });
+    let imageSha256 = null;
+    if (hashes.size) {
+      const bytes = await fsp.readFile(file); imageSha256 = crypto.createHash('sha256').update(bytes).digest('hex');
+      if (hashes.has(imageSha256)) continue;
+    }
+    records.push({ id, imageSha256, name: candidate.name, size: stat.size, modifiedAt: stat.mtime.toISOString(), mediaType, file, capture: candidate.capture });
   }
   return records.sort((left, right) => left.modifiedAt.localeCompare(right.modifiedAt));
 }
@@ -59,7 +65,9 @@ async function scoreboardInventory(folder, processedIds = []) {
 async function readScoreboardRecord(record) {
   const bytes = await fsp.readFile(record.file);
   if (bytes.length !== record.size || imageType(bytes) !== record.mediaType) throw new Error('The scoreboard image changed or its contents do not match its file type.');
-  return { id: record.id, name: record.name, mediaType: record.mediaType, bytes };
+  const imageSha256 = crypto.createHash('sha256').update(bytes).digest('hex');
+  if (record.imageSha256 && record.imageSha256 !== imageSha256) throw new Error('The scoreboard image changed after it entered the inbox.');
+  return { id: record.id, imageSha256, name: record.name, mediaType: record.mediaType, bytes };
 }
 
 async function readCaptureSession(record) {

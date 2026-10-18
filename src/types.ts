@@ -118,6 +118,7 @@ export interface Settings {
   };
   ai: {
     model: string;
+    ocrFallback?: 'local-only' | 'local-then-cloud';
   };
   weights: WeightsConfig;
   buyTypes: string[];

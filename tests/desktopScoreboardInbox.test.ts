@@ -19,6 +19,9 @@ describe('desktop scoreboard folder inbox', () => {
     expect(records).toHaveLength(1); expect(records[0]).toMatchObject({ name: 'score.png', mediaType: 'image/png' });
     expect((await readScoreboardRecord(records[0])).bytes).toHaveLength(9);
     expect(await scoreboardInventory(folder, [records[0].id])).toEqual([]);
+    const loaded = await readScoreboardRecord(records[0]);
+    await fs.copyFile(path.join(folder, 'score.png'), path.join(folder, 'moved-copy.png'));
+    expect(await scoreboardInventory(folder, [], [loaded.imageSha256])).toEqual([]);
   });
 
   it('rejects a file whose extension and signature disagree', async () => {

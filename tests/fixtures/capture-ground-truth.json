@@ -1,9 +1,22 @@
 {
-  "schemaVersion": 1,
+  "schemaVersion": 2,
+  "acceptanceTargets": {
+    "resolution": ["1920x1080", "1600x900"],
+    "layout": ["custom", "competitive"],
+    "clientLanguage": ["en"],
+    "windowsScalePercent": ["100", "125", "150", "200"],
+    "overtime": ["false", "true"]
+  },
   "sessions": [
     {
       "captureId": "Scrim-20261014-153331",
       "resolution": "1920x1080",
+      "layout": "custom",
+      "clientLanguage": "en",
+      "windowsScalePercent": 100,
+      "gpuColorProfile": "unknown",
+      "overtime": false,
+      "labelStatus": "human-verified",
       "map": "Ascent",
       "score": [13, 9],
       "roundCount": 22,

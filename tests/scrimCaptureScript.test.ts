@@ -13,4 +13,12 @@ describe('Windows scrim capture visibility', () => {
     expect(script.indexOf('Show-CaptureConsole', script.indexOf('catch {')))
       .toBeLessThan(script.indexOf('Capture failed:'));
   });
+
+  it('supports automatic round discovery while retaining a bounded manual override', () => {
+    const script = fs.readFileSync(path.resolve('scripts/scrim-capture.ps1'), 'utf8');
+    expect(script).toContain('[ValidateRange(0, 32)]');
+    expect(script).toContain('automaticRoundDetection = $RoundCount -eq 0');
+    expect(script).toContain("$tailCount = if ($RoundCount -eq 0 -and $leftTiles.Count -ge 24) { 8 }");
+    expect(script).toContain("if ($RoundCount -gt 0 -and $detectedRoundCount -ne $RoundCount)");
+  });
 });
