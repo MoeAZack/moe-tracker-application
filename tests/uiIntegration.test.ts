@@ -68,6 +68,27 @@ describe('observed roster dashboard', () => {
     expect(rows[0]).toMatchObject({ displayName: 'bellatrix', matches: 3, recordedRows: 3, kills: 47, deaths: 60, assists: 20 });
   });
 
+  it('merges orphaned replay IDs and OCR-equivalent names into one dashboard player', () => {
+    const rows = aggregateObservedPlayerDashboard({
+      rosterPlayers: [], coreMemberships: [], tryoutBatches: [],
+      matches: Array.from({ length: 6 }, (_, index) => ({ id: `m${index}`, date: `2026-10-${10 + index}`, map: 'Ascent' })),
+      playerStats: [
+        { id: 'old', matchId: 'm0', playerId: 'orphan-a', displayNameSnapshot: 'bellatr1x', appearanceType: 'standIn', kills: 10, deaths: 5, assists: 2 },
+        ...Array.from({ length: 5 }, (_, index) => ({ id: `new-${index}`, matchId: `m${index + 1}`, playerId: 'orphan-b', displayNameSnapshot: 'bellatrix', appearanceType: 'tryout', kills: 10, deaths: 5, assists: 2 })),
+      ],
+    } as any);
+    expect(rows).toHaveLength(1);
+    expect(rows[0]).toMatchObject({ displayName: 'bellatrix', playerId: null, status: 'tryout', matches: 6, recordedRows: 6, kills: 60, deaths: 30, assists: 12 });
+  });
+
+  it('does not merge distinct active roster identities that share a normalized name', () => {
+    const rows = aggregateObservedPlayerDashboard({
+      rosterPlayers: [{ id: 'p1', displayName: 'Same', createdAt: '2026-10-01' }, { id: 'p2', displayName: 'same', createdAt: '2026-10-02' }], coreMemberships: [], tryoutBatches: [], matches: [],
+      playerStats: [{ id: 'a', matchId: 'm1', playerId: 'p1', player: 'Same' }, { id: 'b', matchId: 'm2', playerId: 'p2', player: 'same' }],
+    } as any);
+    expect(rows.map(row => row.playerId)).toEqual(['p2', 'p1']);
+  });
+
   it('surfaces scoreboard, opening, economy, weapon, map and evidence metrics for unmatched names', () => {
     const [row] = aggregateObservedPlayerDashboard({
       rosterPlayers: [], coreMemberships: [], tryoutBatches: [],
