@@ -29,6 +29,24 @@ export interface RosterPlayer {
   retiredAt?: string;
 }
 
+export interface IdentityCorrectionBatch {
+  id: string;
+  sourceIdentity: string;
+  targetPlayerId: string;
+  reason: string;
+  affectedRows: Array<{
+    rowId: string;
+    beforePlayerId: string | null;
+    beforePlayer: string;
+    beforeDisplayNameSnapshot: string | null;
+  }>;
+  createdAt: string;
+  createdBy: string;
+  revertedAt?: string;
+  revertedBy?: string;
+  revertReason?: string;
+}
+
 export interface CoreMembership {
   id: string;
   playerId: string;
@@ -54,6 +72,7 @@ export interface SeasonArchive {
   archivedAt: string;
   schemaVersion: 1;
   rosterPlayers: RosterPlayer[];
+  identityCorrectionBatches?: IdentityCorrectionBatch[];
   coreMemberships: CoreMembership[];
   tryoutBatches: TryoutBatch[];
   practiceBlocks?: PracticeBlock[];
@@ -625,6 +644,7 @@ export interface TrackerData {
   authenticatedViewer?: { playerId: string | null };
   settings: Settings;
   rosterPlayers: RosterPlayer[];
+  identityCorrectionBatches?: IdentityCorrectionBatch[];
   coreMemberships: CoreMembership[];
   tryoutBatches: TryoutBatch[];
   practiceBlocks?: PracticeBlock[];

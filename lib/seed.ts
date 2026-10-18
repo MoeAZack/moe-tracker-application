@@ -209,6 +209,7 @@ export function createSeed() {
     vodSubmissions: [],
     dashboardViews: [],
     tryoutDecisionNotes: [],
+    identityCorrectionBatches: [],
     seasonArchives: [],
     secrets,
     schedule,

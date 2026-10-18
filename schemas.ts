@@ -150,6 +150,15 @@ export const observedRosterArchiveSchema = z.object({
   playerId: rosterId.optional(),
   displayName: rosterName.optional(),
 }).strict().refine(value => Boolean(value.playerId || value.displayName), 'A player identity or observed name is required.');
+export const identityCorrectionSchema = z.object({
+  sourceIdentity: z.string().trim().min(1).max(240),
+  targetPlayerId: rosterId,
+  reason: z.string().trim().min(5).max(500),
+}).strict();
+export const identityCorrectionRevertSchema = z.object({
+  correctionId: rosterId,
+  reason: z.string().trim().min(5).max(500),
+}).strict();
 export const tryoutCreateSchema = z.object({ name: rosterName });
 export const tryoutCandidateSchema = z.object({ batchId: rosterId, playerId: rosterId });
 export const tryoutBatchIdSchema = z.object({ batchId: rosterId });

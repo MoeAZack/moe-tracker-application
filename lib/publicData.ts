@@ -1,6 +1,6 @@
 import { buildAcceptedMatchAggregatePlan, buildCanonicalAnalyticsExport, PLAYER_SCREENSHOT_BUILDER } from './aggregateVersioning';
 
-const PRIVATE_TOP_LEVEL_KEYS = new Set(['authKeys', 'allowedUsers', 'secretValues', '_storage', 'authenticatedViewer', 'tryoutDecisionNotes']);
+const PRIVATE_TOP_LEVEL_KEYS = new Set(['authKeys', 'allowedUsers', 'secretValues', '_storage', 'authenticatedViewer', 'tryoutDecisionNotes', 'identityCorrectionBatches']);
 const PRIVATE_SETTING_KEYS = new Set(['discordWebhook', 'gridApiKey', 'henrikApiKey', 'praccCalendarUrl', 'praccCalendarLastAttemptAt', 'praccCalendarLastSyncedAt', 'praccCalendarLastError']);
 
 /** Build the tracker payload that is safe to send to the authenticated role. */
@@ -44,6 +44,7 @@ export function toPublicTrackerData(db: Record<string, any>, role: 'coach' | 'pl
     });
   }
   if (role === 'coach') publicData.tryoutDecisionNotes = structuredClone(db.tryoutDecisionNotes || []);
+  if (role === 'coach') publicData.identityCorrectionBatches = structuredClone(db.identityCorrectionBatches || []);
   delete publicData.replayIntake;
   delete publicData.engineAdapters;
   if (Array.isArray(publicData.seasonArchives)) publicData.seasonArchives = publicData.seasonArchives.map((archive: any) => {
