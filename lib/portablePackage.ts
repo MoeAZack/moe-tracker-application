@@ -3,7 +3,7 @@ import { toPublicTrackerData } from './publicData';
 
 export const PORTABLE_PACKAGE_FORMAT = 'moetracker-package/v1';
 export const PORTABLE_PACKAGE_MAX_BYTES = 9 * 1024 * 1024;
-const COLLECTIONS = ['matches', 'playerStats', 'rounds', 'rosterPlayers', 'coreMemberships', 'schedule', 'attendanceCredits', 'goals', 'soloq', 'vetos', 'strats', 'stratRuns', 'tryoutBatches', 'vodReviews', 'lineups', 'seasonArchives', 'practiceBlocks'] as const;
+const COLLECTIONS = ['matches', 'playerStats', 'rounds', 'rosterPlayers', 'coreMemberships', 'schedule', 'attendanceCredits', 'goals', 'soloq', 'vetos', 'strats', 'stratRuns', 'tryoutBatches', 'vodReviews', 'vodSubmissions', 'lineups', 'seasonArchives', 'practiceBlocks'] as const;
 
 function canonical(value: unknown): string {
   return JSON.stringify(value, (_key, nested) => nested && typeof nested === 'object' && !Array.isArray(nested)

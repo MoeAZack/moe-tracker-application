@@ -94,7 +94,7 @@ function signal(block: PracticeBlockSummary, type: CoachingSignal['type'], sever
 
 export function generateReviewSignalDrafts(summary: PracticeBlockSummary, thresholds: { minimumSamples?: number; fullBuyLosses?: number; antiEcoLosses?: number; firstDeathCollapseRate?: number } = {}) {
   const drafts: SignalDraft[] = []; const min = Math.max(1, thresholds.minimumSamples || 2);
-  if (summary.coverage.evidenceHealth !== 'complete') drafts.push(signal(summary, 'evidence-health', 'warning', 'Evidence needs review', `${summary.coverage.acceptedMatches}/${summary.coverage.matches} matches and ${summary.coverage.knownRounds}/${summary.coverage.rounds} rounds are accepted and complete.`, { value: summary.coverage.acceptedMatches, samples: summary.coverage.matches, unit: 'matches' }));
+  if (summary.coverage.evidenceHealth !== 'complete') drafts.push(signal(summary, 'evidence-health', 'warning', 'Evidence needs review', `${summary.coverage.acceptedMatches}/${summary.coverage.matches} matches and ${summary.coverage.knownRounds}/${summary.coverage.rounds} rounds are accepted and complete.`, { value: Number(rate(summary.coverage.acceptedMatches, summary.coverage.matches) || 0), samples: summary.coverage.matches, unit: '%' }));
   for (const sideName of ['ATT', 'DEF'] as const) { const pistol = summary.openings.pistols[sideName]; if (pistol.samples >= min && pistol.rate !== null && pistol.rate < 50) drafts.push(signal(summary, 'pistol-conversion', 'warning', `${sideName} pistol conversion`, `${sideName} pistol rounds were won ${pistol.wins}/${pistol.samples} times.`, { value: pistol.rate, samples: pistol.samples, unit: '%' }, { side: sideName })); }
   if (summary.economy.fullBuyLosses >= (thresholds.fullBuyLosses || 2)) drafts.push(signal(summary, 'full-buy-loss', 'critical', 'Repeated full-buy losses', `${summary.economy.fullBuyLosses}/${summary.economy.fullBuyRounds} covered full-buy rounds were lost.`, { value: Number(rate(summary.economy.fullBuyLosses, summary.economy.fullBuyRounds)), samples: summary.economy.fullBuyRounds, unit: '%' }, { economy: 'full' }));
   if (summary.economy.antiEcoLosses >= (thresholds.antiEcoLosses || 1)) drafts.push(signal(summary, 'anti-eco-loss', 'critical', 'Anti-eco loss', `${summary.economy.antiEcoLosses}/${summary.economy.antiEcoRounds} covered rounds were lost against a known enemy eco.`, { value: Number(rate(summary.economy.antiEcoLosses, summary.economy.antiEcoRounds)), samples: summary.economy.antiEcoRounds, unit: '%' }, { economy: 'anti-eco' }));
@@ -107,7 +107,8 @@ export function generateReviewSignalDrafts(summary: PracticeBlockSummary, thresh
 export function reconcileReviewSignals(existing: readonly CoachingSignal[], drafts: readonly SignalDraft[], actor = 'system') {
   const byFingerprint = new Map(existing.map(item => [item.fingerprint, item])); const now = new Date().toISOString();
   const next = drafts.map(draft => { const prior = byFingerprint.get(draft.fingerprint); if (prior) { const correction = prior.classificationCorrections?.at(-1); return { ...prior, ...draft, id: prior.id, type: correction?.corrected.type || draft.type, context: correction?.corrected.context || draft.context, status: prior.status, audit: prior.audit, updatedAt: now }; } return { ...draft, id: stableId(['signal', draft.fingerprint]), status: 'new' as const, audit: [{ at: now, by: actor, from: null, to: 'new' as const }] }; });
-  const fingerprints = new Set(drafts.map(item => item.fingerprint)); return [...next, ...existing.filter(item => !fingerprints.has(item.fingerprint))];
+  const fingerprints = new Set(drafts.map(item => item.fingerprint));
+  return [...next, ...existing.filter(item => !fingerprints.has(item.fingerprint) && item.status === 'converted-to-action')];
 }
 
 export function transitionSignal(signalRecord: CoachingSignal, status: CoachingSignal['status'], actor: string, reason?: string, now = new Date().toISOString()) {
@@ -129,7 +130,7 @@ const METRIC_POLICIES: Record<CoachingSignal['type'], { direction: 'increase' | 
   'repeated-player-first-death': { direction: 'decrease', relativeTarget: .8, minimumSamples: 2, minimumDelta: 1 },
   'advantage-collapse': { direction: 'decrease', relativeTarget: .8, minimumSamples: 2, minimumDelta: 1 },
   'map-underperformance': { direction: 'increase', relativeTarget: 1.2, minimumSamples: 2, minimumDelta: 10 },
-  'evidence-health': { direction: 'increase', relativeTarget: 1.2, minimumSamples: 1, minimumDelta: 1 },
+  'evidence-health': { direction: 'increase', relativeTarget: 1.2, minimumSamples: 2, minimumDelta: 10 },
 };
 
 export function buildActionCheck(signalRecord: CoachingSignal): NonNullable<CoachingAction['check']> {
@@ -137,7 +138,24 @@ export function buildActionCheck(signalRecord: CoachingSignal): NonNullable<Coac
   const relative = signalRecord.metric.value * policy.relativeTarget;
   const rawTarget = policy.direction === 'increase' ? Math.max(relative, signalRecord.metric.value + policy.minimumDelta) : Math.min(relative, signalRecord.metric.value - policy.minimumDelta);
   const target = signalRecord.metric.unit === '%' ? Math.min(100, Math.max(0, rawTarget)) : Math.max(0, rawTarget);
-  return { signalType: signalRecord.type, baseline: signalRecord.metric.value, target: Math.round(target * 10) / 10, direction: policy.direction, unit: signalRecord.metric.unit, minimumSamples: policy.minimumSamples, sourceBlockId: signalRecord.blockId, context: structuredClone(signalRecord.context) };
+  return { policyVersion: 2, signalType: signalRecord.type, baseline: signalRecord.metric.value, target: Math.round(target * 10) / 10, direction: policy.direction, unit: signalRecord.metric.unit, minimumSamples: policy.minimumSamples, sourceBlockId: signalRecord.blockId, context: structuredClone(signalRecord.context) };
+}
+
+export function migrateLegacyActionChecks(actions: readonly CoachingAction[], signals: readonly CoachingSignal[], actor = 'system', now = new Date().toISOString()) {
+  const byId = new Map(signals.map(signalRecord => [signalRecord.id, signalRecord]));
+  return actions.map(action => {
+    if (!action.check || action.check.policyVersion === 2) return action;
+    const source = byId.get(action.sourceSignalId);
+    if (!source) return { ...action, outcome: { status: 'inconclusive' as const, baseline: action.check.baseline, later: null, change: null, confidence: 'low' as const, evaluatedAt: now, reason: 'This legacy action cannot be recalculated until its original evidence is available.' } };
+    return {
+      ...action,
+      checkHistory: [...(action.checkHistory || []), { migratedAt: now, migratedBy: actor, reason: 'Migrated from the legacy coaching metric policy; original values retained for audit.', check: structuredClone(action.check), outcome: structuredClone(action.outcome) }],
+      check: buildActionCheck(source),
+      outcome: { status: 'inconclusive' as const, baseline: source.metric.value, later: null, change: null, confidence: 'low' as const, evaluatedAt: now, reason: 'Legacy evaluation invalidated and recalculated under coaching metric policy v2.' },
+      updatedAt: now,
+      audit: [...action.audit, { at: now, by: actor, from: action.state, to: action.state, reason: 'Legacy evaluation migrated to coaching metric policy v2.' }],
+    };
+  });
 }
 
 export function coachingContextMatches(expected: CoachingSignal['context'] = {}, actual: CoachingSignal['context'] = {}) {
@@ -152,7 +170,7 @@ function observedMetric(summary: PracticeBlockSummary, check: NonNullable<Coachi
   if (check.signalType === 'first-death-collapse') return summary.openings.recoveriesAfterFirstDeath === null ? null : { value: 100 - Number(rate(summary.openings.recoveriesAfterFirstDeath, summary.openings.firstDeathSamples)), samples: summary.openings.firstDeathSamples, unit: '%' };
   if (check.signalType === 'repeated-player-first-death') { const player = summary.roster.find(row => context.playerId ? row.playerId === context.playerId : row.player === context.player); return player && player.fk + player.fd ? { value: Number(rate(player.fd, player.fk + player.fd)), samples: player.fk + player.fd, unit: '%' } : null; }
   if (check.signalType === 'map-underperformance') { const map = summary.mapResults.find(row => row.map === context.map); return map ? { value: Number(rate(map.wins, map.matches)), samples: map.matches, unit: '%' } : null; }
-  if (check.signalType === 'evidence-health') return { value: summary.coverage.acceptedMatches, samples: summary.coverage.matches, unit: 'matches' };
+  if (check.signalType === 'evidence-health') return summary.coverage.matches ? { value: Number(rate(summary.coverage.acceptedMatches, summary.coverage.matches)), samples: summary.coverage.matches, unit: '%' } : null;
   return null;
 }
 
@@ -166,7 +184,7 @@ export function evaluateAction(action: CoachingAction, summaries: readonly Pract
   const later = action.dueBlockId ? candidates.find(summary => summary.blockId === action.dueBlockId) : [...candidates].sort((a, b) => Date.parse(a.practiceStartAt!) - Date.parse(b.practiceStartAt!))[0];
   if (!later) return { ...action, outcome: { status: 'inconclusive' as const, baseline: action.check.baseline, later: null, change: null, confidence: 'low' as const, evaluatedAt: now, reason: 'No chronologically later accepted practice block is available.' } };
   const recurrence = signals.find(item => item.blockId === later.blockId && item.type === action.check?.signalType && coachingContextMatches(action.check?.context, item.context));
-  const observation = observedMetric(later, action.check) || (recurrence ? recurrence.metric : null);
+  const observation = observedMetric(later, action.check);
   if (!observation || observation.unit !== (action.check.unit || observation.unit) || observation.samples < (action.check.minimumSamples || 1)) return { ...action, outcome: { status: 'inconclusive' as const, baseline: action.check.baseline, later: observation?.value ?? null, change: observation ? observation.value - action.check.baseline : null, confidence: 'low' as const, evaluatedAt: now, reason: `The later block does not contain enough comparable ${action.check.signalType.replaceAll('-', ' ')} evidence.` } };
   const laterValue = observation.value; const change = laterValue - action.check.baseline; const passes = action.check.direction === 'decrease' ? laterValue <= action.check.target : laterValue >= action.check.target;
   return { ...action, outcome: { status: passes ? 'satisfied' as const : 'regressed' as const, baseline: action.check.baseline, later: laterValue, change, confidence: recurrence?.evidence.confidence || (later.coverage.evidenceHealth === 'complete' ? 'high' : 'medium') as 'high' | 'medium', evaluatedAt: now, reason: passes ? 'A chronologically later, comparable practice sample met the configured threshold.' : 'A chronologically later, comparable practice sample did not meet the configured threshold.' } };

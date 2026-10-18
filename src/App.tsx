@@ -25,6 +25,7 @@ const LiveLogger = lazy(() => import('./components/LiveLogger'));
 const AITacticalHub = lazy(() => import('./components/AITacticalHub'));
 const IntegrationStatus = lazy(() => import('./components/IntegrationStatus'));
 const VodReview = lazy(() => import('./components/VodReview'));
+const VodSubmission = lazy(() => import('./components/VodSubmission'));
 const LineupLibrary = lazy(() => import('./components/LineupLibrary'));
 const EconomyAnalytics = lazy(() => import('./components/EconomyAnalytics'));
 const ScrimImport = lazy(() => import('./components/ScrimImport'));
@@ -36,7 +37,7 @@ const TryoutComparisons = lazy(() => import('./components/TryoutComparisons'));
 import {
   ShieldAlert, RefreshCw, Trophy, Calendar, Swords, Compass,
   Layers, Users, Settings as SettingsIcon, Image, Activity, Sparkles,
-  Film, Crosshair, Coins, FileCheck2, GitCompareArrows
+  Film, Crosshair, Coins, FileCheck2, GitCompareArrows, Upload
 } from 'lucide-react';
 
 export default function App() {
@@ -57,7 +58,7 @@ export default function App() {
   const [error, setError] = useState<string | null>(null);
   
   // Navigation
-  const [activeTab, setActiveTab] = useState<'dashboard' | 'calendar' | 'matches' | 'replays' | 'maps' | 'comps' | 'roster' | 'settings' | 'livelogger' | 'aitactical' | 'vod' | 'lineups' | 'economy' | 'comparisons'>('dashboard');
+  const [activeTab, setActiveTab] = useState<'dashboard' | 'calendar' | 'matches' | 'replays' | 'maps' | 'comps' | 'roster' | 'settings' | 'livelogger' | 'aitactical' | 'vod' | 'vodsubmit' | 'lineups' | 'economy' | 'comparisons'>('dashboard');
   const [reviewMatchId, setReviewMatchId] = useState<string | null>(null);
   const [manualReplayDraft, setManualReplayDraft] = useState<ScreenshotReviewDraft | null>(null);
   const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
@@ -392,6 +393,7 @@ export default function App() {
     { id: 'matches', label: 'Matches Log', icon: Swords },
     { id: 'replays', label: 'Replay Evidence', icon: FileCheck2 },
     { id: 'vod', label: 'VOD Review', icon: Film },
+    { id: 'vodsubmit', label: 'VOD Submission', icon: Upload },
     { id: 'lineups', label: 'Lineup Library', icon: Crosshair },
     { id: 'economy', label: 'Economy', icon: Coins },
     { id: 'aitactical', label: 'AI Coach Hub', icon: Sparkles },
@@ -404,7 +406,7 @@ export default function App() {
   ] as const;
 
   const visibleTabs = useMemo(() => {
-    const surfaceTabs = desktopMode ? tabsList : tabsList.filter(tab => ['dashboard', 'calendar', 'matches', 'economy', 'maps', 'roster', 'comparisons'].includes(tab.id));
+    const surfaceTabs = desktopMode ? tabsList : tabsList.filter(tab => ['dashboard', 'calendar', 'matches', 'vodsubmit', 'economy', 'maps', 'roster', 'comparisons'].includes(tab.id));
     if (role === 'player') return surfaceTabs.filter(tab => !['settings', 'livelogger', 'vod'].includes(tab.id));
     return surfaceTabs;
   }, [desktopMode, role]);
@@ -672,6 +674,9 @@ export default function App() {
             )}
             {activeTab === 'vod' && data && (
               <VodReview data={workspaceData || data} theme={theme} role={role} onRefresh={fetchDatabase} initialMatchId={reviewMatchId} />
+            )}
+            {activeTab === 'vodsubmit' && data && (
+              <VodSubmission data={workspaceData || data} role={role} onRefresh={fetchDatabase} />
             )}
             {activeTab === 'lineups' && workspaceData && (
               <LineupLibrary data={workspaceData} theme={theme} role={role} onRefresh={fetchDatabase} />

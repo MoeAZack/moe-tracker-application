@@ -57,6 +57,7 @@ export function toPublicTrackerData(db: Record<string, any>, role: 'coach' | 'pl
     // material. Players do not need archive data for any read-only view.
     publicData.seasonArchives = [];
     publicData.vodReviews = [];
+    publicData.vodSubmissions = (publicData.vodSubmissions || []).filter((submission: any) => authenticatedPlayerId && submission.submittedByPlayerId === authenticatedPlayerId);
     publicData.matches = (publicData.matches || []).map(({ notes: _notes, vod: _vod, corrections: _corrections, ...match }: any) => match);
     publicData.playerStats = (publicData.playerStats || []).map(({ notes: _notes, corrections: _corrections, ...stat }: any) => stat);
     publicData.rounds = (publicData.rounds || []).map(({ notes: _notes, isThrow: _isThrow, thrownBy: _thrownBy, throwReason: _throwReason, iglPlayer: _iglPlayer, iglRole: _iglRole, midRoundIglChange: _midRoundIglChange, strategies: _strategies, corrections: _corrections, ...round }: any) => round);

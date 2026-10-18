@@ -4,12 +4,12 @@ Windows-first, offline-first practice analysis for a VALORANT team. The desktop 
 
 The primary workflow is: capture completed practice → review accepted evidence → assign a coaching action → evaluate it only against a later comparable practice sample.
 
-Completed `Scrim-*` screenshot sessions are detected in both the Documents inbox and the `%LOCALAPPDATA%` fallback. Confirmed rounds feed confidence-aware player weapon, economy, opening-duel, multi-kill, and KAST summaries; accepted compact summaries appear on the website. A one-click ZIP support bundle packages diagnostics and the latest capture evidence when capture, OCR, update, or synchronization fails.
+Completed `Scrim-*` screenshot sessions are detected in both the Documents inbox and the `%LOCALAPPDATA%` fallback. Confirmed rounds feed confidence-aware player weapon, economy, opening-duel, multi-kill, and KAST summaries; accepted compact summaries appear on the website. Players can also submit a personal VOD with a locally read scoreboard frame. Five roster identities are required before the submission can link to an existing screenshot/replay match or create a new match, and only missing statistics are filled. A one-click ZIP support bundle packages diagnostics and the latest capture evidence when capture, OCR, update, or synchronization fails.
 
 ## Product split
 
 - **Desktop:** replay discovery, parsing, screenshots, review drafts, detailed events, portable backups, retention, and queued synchronization.
-- **Website:** accepted matches, main player statistics, map pool summaries, roster, schedule, and sync health.
+- **Website:** accepted matches, main player statistics, player VOD submissions, map pool summaries, roster, schedule, and sync health.
 - **Cloudflare:** compact team summaries and device coordination—not permanent raw replay storage.
 
 ## Desktop quick start

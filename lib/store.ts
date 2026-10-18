@@ -49,7 +49,16 @@ export async function loginThrottleRemaining(key: string, now = Date.now()) {
 
 export async function recordLoginThrottleFailure(key: string, now = Date.now()) {
   const keyHash = loginThrottleHash(key);
-  if (d1) { await ensureD1LoginThrottleTable(); const row: any = await d1.prepare('SELECT fails, locked_until FROM login_throttle WHERE key_hash = ?').bind(keyHash).first(); const activeFails = Number(row?.locked_until || 0) > now ? Number(row?.fails || 0) : Number(row?.fails || 0); const nextFails = activeFails + 1; const lock = nextFails >= LOGIN_THROTTLE_MAX_FAILS ? now + LOGIN_THROTTLE_LOCK_MS : 0; await d1.prepare('INSERT INTO login_throttle (key_hash, fails, locked_until, updated_at) VALUES (?, ?, ?, ?) ON CONFLICT(key_hash) DO UPDATE SET fails = excluded.fails, locked_until = excluded.locked_until, updated_at = excluded.updated_at').bind(keyHash, lock ? 0 : nextFails, lock, now).run(); return; }
+  if (d1) {
+    await ensureD1LoginThrottleTable();
+    const lockUntil = now + LOGIN_THROTTLE_LOCK_MS;
+    await d1.prepare(`INSERT INTO login_throttle (key_hash, fails, locked_until, updated_at) VALUES (?, 1, 0, ?)
+      ON CONFLICT(key_hash) DO UPDATE SET
+        fails = CASE WHEN login_throttle.locked_until > ? THEN login_throttle.fails WHEN login_throttle.fails + 1 >= ? THEN 0 ELSE login_throttle.fails + 1 END,
+        locked_until = CASE WHEN login_throttle.locked_until > ? THEN login_throttle.locked_until WHEN login_throttle.fails + 1 >= ? THEN ? ELSE 0 END,
+        updated_at = excluded.updated_at`).bind(keyHash, now, now, LOGIN_THROTTLE_MAX_FAILS, now, LOGIN_THROTTLE_MAX_FAILS, lockUntil).run();
+    return;
+  }
   if (USE_FIRESTORE) { const store = await getFirestore(); const ref = store.collection('tracker_login_throttle').doc(keyHash); await store.runTransaction(async (transaction: any) => { const snapshot = await transaction.get(ref); const record = snapshot.data() || {}; const nextFails = Number(record.fails || 0) + 1; const lock = nextFails >= LOGIN_THROTTLE_MAX_FAILS ? now + LOGIN_THROTTLE_LOCK_MS : 0; transaction.set(ref, { fails: lock ? 0 : nextFails, lockedUntil: lock, updatedAt: now }); }); return; }
   const operation = loginThrottleQueue.then(async () => { let state: any = {}; try { state = JSON.parse(await fs.readFile(loginThrottlePath(), 'utf8')); } catch (error: any) { if (error?.code !== 'ENOENT') throw error; } const nextFails = Number(state[keyHash]?.fails || 0) + 1; const lock = nextFails >= LOGIN_THROTTLE_MAX_FAILS ? now + LOGIN_THROTTLE_LOCK_MS : 0; state[keyHash] = { fails: lock ? 0 : nextFails, lockedUntil: lock, updatedAt: now }; for (const [id, record] of Object.entries(state) as any) if (Number(record.updatedAt || 0) < now - 24 * 60 * 60 * 1000) delete state[id]; await fs.mkdir(path.dirname(loginThrottlePath()), { recursive: true }); await fs.writeFile(loginThrottlePath(), JSON.stringify(state), { encoding: 'utf8', mode: 0o600 }); }); loginThrottleQueue = operation.catch(() => undefined); await operation;
 }

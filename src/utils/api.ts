@@ -1,12 +1,22 @@
+export function applicationApiTarget(url: string, baseHref: string, applicationOrigin: string): URL | null {
+  try {
+    const target = new URL(url, baseHref);
+    return target.origin === applicationOrigin && (target.pathname === '/api' || target.pathname.startsWith('/api/')) ? target : null;
+  } catch { return null; }
+}
+
 // Custom fetch wrapper to safely handle authentication headers and intercept errors
 export async function apiFetch(input: RequestInfo | URL, init?: RequestInit): Promise<Response> {
   const url = typeof input === 'string' ? input : (input instanceof URL ? input.toString() : input.url);
+  const target = applicationApiTarget(url, window.location.href, window.location.origin);
+  const isApplicationApi = !!target;
+  const isLogin = !!target && target.pathname === '/api/login-key';
   
   // Clone or initialize options
   const options: RequestInit = { ...init };
   
   // Inject authorization header if calling local API
-  if (url.includes('/api/')) {
+  if (isApplicationApi) {
     const key = localStorage.getItem('team_tracker_key');
     if (key) {
       const headers = new Headers(options.headers || {});
@@ -19,7 +29,7 @@ export async function apiFetch(input: RequestInfo | URL, init?: RequestInit): Pr
 
   // The installed desktop owns a local credential and can renew its short-lived
   // session without interrupting capture or asking the coach to sign in again.
-  if (response.status === 401 && !url.includes('/api/login-key') && window.moeDesktop) {
+  if (response.status === 401 && isApplicationApi && !isLogin && window.moeDesktop) {
     try {
       const session = await window.moeDesktop.bootstrapSession(true);
       localStorage.setItem('team_tracker_key', session.key);
@@ -34,7 +44,7 @@ export async function apiFetch(input: RequestInfo | URL, init?: RequestInit): Pr
   }
 
   // If unauthorized (excluding login endpoint itself), clear session and force reload to login
-  if (response.status === 401 && !url.includes('/api/login-key')) {
+  if (response.status === 401 && isApplicationApi && !isLogin) {
     localStorage.removeItem('team_tracker_key');
     localStorage.removeItem('team_tracker_role');
     localStorage.removeItem('team_tracker_username');
