@@ -1,6 +1,6 @@
 # Moe Tracker Application
 
-Version 0.1.48 repairs automatic replay imports for coach desktops by keeping coach identities out of the player-only login field. Version 0.1.47 removed redundant regulation-match capture probes and automatically joined synchronized screenshot matches with uniquely matching replay evidence. Version 0.1.45 added the private PRACC `.ics` calendar connection under Settings → Attendance Rules. See [VOD timeline analysis](docs/VOD-TIMELINE-ANALYSIS.md) for VOD coverage and evidence limits.
+Version 0.1.49 merges duplicate observed-player dashboard rows created by orphaned replay IDs and common VALORANT-font OCR aliases, while preserving distinct active roster identities. Version 0.1.48 repaired automatic replay imports for coach desktops by keeping coach identities out of the player-only login field. Version 0.1.47 removed redundant regulation-match capture probes and automatically joined synchronized screenshot matches with uniquely matching replay evidence. Version 0.1.45 added the private PRACC `.ics` calendar connection under Settings → Attendance Rules. See [VOD timeline analysis](docs/VOD-TIMELINE-ANALYSIS.md) for VOD coverage and evidence limits.
 
 Windows-first, offline-first practice analysis for a VALORANT team. The desktop application watches replay folders, keeps detailed evidence on the PC, supports local scoreboard OCR, and synchronizes only accepted summaries to the lightweight team website.
 
