@@ -1,5 +1,7 @@
 import React, { useState, useEffect, useMemo, Suspense, lazy } from 'react';
 import { TrackerData, Settings, MatchStatsUpdate, ScreenshotReviewDraft } from './types';
+import { correctionSamplesFromAcceptedEdit } from '../lib/ocrLearning';
+import { recordOcrCorrections } from './utils/ocrLearningStore';
 import LoginScreen from './components/LoginScreen';
 import Logo from './components/Logo';
 import TeamSyncIndicator from './components/TeamSyncIndicator';
@@ -260,6 +262,11 @@ export default function App() {
 
   const handleSaveMatch = async (match: any, statsUpdate: MatchStatsUpdate = { operation: 'preserve' }) => {
     try {
+      const priorMatch = data?.matches?.find(item => item.id === match?.id);
+      const priorStats = priorMatch ? (data?.playerStats || []).filter(item => item.matchId === priorMatch.id) : [];
+      const learningSamples = statsUpdate.operation === 'replace' && priorMatch
+        ? correctionSamplesFromAcceptedEdit({ beforeMatch: priorMatch, beforeStats: priorStats, nextMatch: match, nextStats: statsUpdate.stats })
+        : [];
       const res = await apiFetch('/api/save-match', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
@@ -268,6 +275,7 @@ export default function App() {
       if (!res.ok) throw new Error('Save Match failed.');
       const resJson = await res.json();
       const savedMatch = resJson.match || resJson;
+      if (learningSamples.length) await recordOcrCorrections(learningSamples);
       const appliedStatsUpdate: MatchStatsUpdate = resJson.statsUpdate || { operation: 'preserve' };
       setData((prev) => {
         if (!prev) return prev;

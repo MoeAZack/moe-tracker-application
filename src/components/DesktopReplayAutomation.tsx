@@ -8,6 +8,8 @@ import { extractCaptureSession, type CaptureImage } from '../../lib/captureSessi
 import { buildAutomaticCaptureImport } from '../../lib/automaticCaptureImport';
 import { getCachedRecognitions, putCachedRecognitions, sha256Base64 } from '../utils/ocrRecognitionCache';
 import { mergeScoreboardFallback, shouldRequestCloudFallback } from '../../lib/ocrAutonomy';
+import { OCR_LEARNING_VERSION, rosterWithLearnedAliases } from '../../lib/ocrLearning';
+import { getOcrLearningState, recordOcrSessionOutcome } from '../utils/ocrLearningStore';
 
 const RETRY_AFTER_MS = 5 * 60 * 1000;
 
@@ -41,18 +43,25 @@ export default function DesktopReplayAutomation({ data, role, onProcessed, onSav
           const adapter = await createBrowserLocalTesseractAdapter();
           try {
             const hashes = new Map<string, Promise<string>>();
-            const rosterPlayers = (data.rosterPlayers || []).filter(player => !player.retiredAt).map(player => ({ id: player.id, displayName: player.displayName }));
+            const phaseAliases = new Map<string, string[]>();
+            for (const batch of data.tryoutBatches || []) for (const entry of batch.aliases || []) phaseAliases.set(entry.playerId, [...(phaseAliases.get(entry.playerId) || []), entry.alias]);
+            const baseRoster = (data.rosterPlayers || []).filter(player => !player.retiredAt).map(player => ({ id: player.id, displayName: player.displayName, aliases: phaseAliases.get(player.id) || [] }));
+            const learning = await getOcrLearningState(baseRoster);
+            const rosterPlayers = rosterWithLearnedAliases(baseRoster, learning.aliases);
+            let cacheHits = 0; let cacheMisses = 0;
             let extracted = await extractCaptureSession({
               captures: session.captures,
               rosterPlayers,
               knownMaps: data.settings?.maps || [],
+              correctionModel: learning.model,
               adapter,
               loadImage: imageFromCapture,
               recognize: async (capture, image, profile) => {
                 const identity = `${capture.kind}:${capture.round || 0}:${capture.name || ''}`;
                 const hash = await (hashes.get(identity) || (() => { const value = sha256Base64(capture.base64); hashes.set(identity, value); return value; })());
                 const cached = await getCachedRecognitions(hash, profile);
-                if (cached) return cached;
+                if (cached) { cacheHits += 1; return cached; }
+                cacheMisses += 1;
                 const recognitions = await adapter.recognize(image, profile);
                 await putCachedRecognitions(hash, profile, recognitions);
                 return recognitions;
@@ -71,6 +80,21 @@ export default function DesktopReplayAutomation({ data, role, onProcessed, onSav
                 }
               }
             }
+            const diagnostics: any = extracted.captureDiagnostics || {};
+            await recordOcrSessionOutcome({
+              id: `${session.captureId || pending.id}:${Date.now()}`,
+              captureId: session.captureId,
+              recordedAt: new Date().toISOString(),
+              automatic: !!automatic.payload,
+              reasons: automatic.decision.reasons,
+              layout: diagnostics.layout || extracted.scoreboardLayout || 'unknown',
+              resolution: diagnostics.resolution || 'unknown',
+              roundCount: extracted.rounds?.length || 0,
+              confirmedRounds: diagnostics.confirmedRounds || 0,
+              cacheHits,
+              cacheMisses,
+              modelVersion: OCR_LEARNING_VERSION,
+            });
             if (automatic.payload) {
               const savedResult = await onSaveMatch(automatic.payload.match, { operation: 'replace', stats: automatic.payload.stats });
               const saved = savedResult?.match || savedResult;

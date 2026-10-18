@@ -19,6 +19,7 @@ import { activeCorePlayerIds, ensureObservedRosterPlayer, setObservedRosterStatu
 import { cancelRawReplayUpload, deleteRawReplayObject, downloadRawReplayObject, initiateRawReplayUpload, verifyRawReplayObject, type RawReplayObject } from '../gcsReplayTemp';
 import { clientIp, requestRateLimit } from '../utils';
 import { historicalPlayerLabel, mergeAcceptedPlayerStat, preserveIdentitySnapshot } from '../identitySnapshot';
+import { replayScreenshotReconciliation } from '../ocrLearning';
 
 const REPLAY_TYPE = 'application/vnd.valorant.replay';
 const MAX_REPLAY_BYTES = Number(process.env.REPLAY_MAX_BYTES || 2 * 1024 * 1024 * 1024);
@@ -261,7 +262,7 @@ function acceptReviewIntoEngines(db: any, store: ReplayStore, job: ReplayParserJ
     const raw: any = rawRows.get(parserPlayerId) || {}; const metrics: any = metricRows.get(parserPlayerId) || {}; const existing: any = existingRows.get(overlay.rosterPlayerId);
     const corrected = correctedFields(existing); const replay: Record<string, any> = { kills: evidenceNumber(raw.kills) ?? metrics.kills ?? null, deaths: evidenceNumber(raw.deaths) ?? metrics.deaths ?? null, assists: evidenceNumber(raw.assists) ?? metrics.assists ?? null, acs: null, adr: metrics.damage === null || metrics.damage === undefined || !draft.coverage?.playedRounds ? null : metrics.damage / draft.coverage.playedRounds, hs: metrics.headshotPercentage ?? null, headshots: metrics.headshotKills ?? null, headshotEligibleKills: metrics.eligibleHeadshotKills ?? null, orbPoints: metrics.orbCaptures ?? null, ultimateUses: metrics.ultimateUses ?? null, kastSuccessful: metrics.kastSuccessful ?? null, kastCovered: metrics.kastCovered ?? null, fk: evidenceNumber(raw.firstBloods), fd: evidenceNumber(raw.firstDeaths), plants: evidenceNumber(raw.plants), defuses: evidenceNumber(raw.defuses) };
     const facts = Object.fromEntries(Object.entries(replay).map(([field, value]) => [field, mergeVerifiedField(existing, field, value, corrected)]));
-    const accepted = { ...existing, id: existing?.id || `replay:${review.matchId}:${overlay.rosterPlayerId}`, matchId: review.matchId, playerId: overlay.rosterPlayerId, player: overlay.displayName, displayNameSnapshot: overlay.displayName, appearanceType: existing?.appearanceType || (activeCoreIds.has(overlay.rosterPlayerId) ? 'core' : 'standIn'), agent: evidenceText(raw.agent) || existing?.agent || 'Unknown', ...facts, sourceMetadata: { method: 'provider-import', capturedAt: acceptedAt, provider: 'vrfkit', externalId: review.sha256 }, corrections: [...(existing?.corrections || []), { correctedAt: review.updatedAt, correctedBy: user.username, fields: ['player-name-mapping'] }] };
+    const accepted = { ...existing, id: existing?.id || `replay:${review.matchId}:${overlay.rosterPlayerId}`, matchId: review.matchId, playerId: overlay.rosterPlayerId, player: overlay.displayName, displayNameSnapshot: overlay.displayName, appearanceType: existing?.appearanceType || (activeCoreIds.has(overlay.rosterPlayerId) ? 'core' : 'standIn'), agent: evidenceText(raw.agent) || existing?.agent || 'Unknown', ...facts, sourceMetadata: { method: 'provider-import', capturedAt: acceptedAt, provider: 'vrfkit', externalId: review.sha256 }, evidenceReconciliation: replayScreenshotReconciliation(existing, replay, acceptedAt), corrections: [...(existing?.corrections || []), { correctedAt: review.updatedAt, correctedBy: user.username, fields: ['player-name-mapping'] }] };
     return preserveIdentitySnapshot(existing, accepted);
   });
   const replacedPlayerIds = new Set(acceptedRows.map((item: any) => item.playerId));
@@ -274,6 +275,9 @@ function acceptReviewIntoEngines(db: any, store: ReplayStore, job: ReplayParserJ
     const clutch = Array.isArray(round.derived?.clutches) ? round.derived.clutches.find((item: any) => displayNames.has(item.playerId)) : null;
     const existing = (db.rounds || []).find((item: any) => item.matchId === review.matchId && item.roundNo === round.roundNumber) || {};
     const corrected = correctedFields(existing); const replaySide = side === 'attack' ? 'Attack' : side === 'defense' ? 'Defense' : null;
+    const replayRound = { side: replaySide, result: round.winnerTeamId ? (round.winnerTeamId === review.teamId ? 'W' : 'L') : null, winBy: round.endReason || null,
+      firstKillBy: opening.status === 'resolved' ? displayNames.get(opening.firstKillPlayerId) || opening.firstKillPlayerId || null : null,
+      firstDeathBy: opening.status === 'resolved' ? displayNames.get(opening.firstDeathPlayerId) || opening.firstDeathPlayerId || null : null };
     return { ...existing,
       id: existing.id || `replay:${review.matchId}:round:${round.roundNumber}`, matchId: review.matchId, roundNo: round.roundNumber,
       side: mergeVerifiedField(existing, 'side', replaySide, corrected),
@@ -285,6 +289,7 @@ function acceptReviewIntoEngines(db: any, store: ReplayStore, job: ReplayParserJ
       clutchResult: mergeVerifiedField(existing, 'clutchResult', clutch?.result === 'won' ? 'W' : clutch?.result === 'lost' ? 'L' : null, corrected),
       sourceMetadata: { method: 'provider-import', capturedAt: acceptedAt, provider: 'vrfkit', externalId: review.sha256 },
       replayEvidence: { tradeOpportunities: round.derived?.tradeOpportunities ?? null, successfulTrades: round.derived?.successfulTrades ?? null, tacticalAssessment: 'unreviewed' },
+      evidenceReconciliation: replayScreenshotReconciliation(existing, replayRound, acceptedAt),
       corrections: existing.corrections || [],
     };
   });

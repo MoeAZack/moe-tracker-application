@@ -6,6 +6,7 @@ import StorageIndicator from './StorageIndicator';
 import DesktopDeviceSettings from './DesktopDeviceSettings';
 import DesktopIntegrationSecrets from './DesktopIntegrationSecrets';
 import AnalyticsScopeControl from './AnalyticsScopeControl';
+import OcrHealthPanel from './OcrHealthPanel';
 import type { AnalyticsMapScope, AnalyticsMapScopeContext } from '../utils/activeMapPool';
 
 interface ComponentProps {
@@ -20,7 +21,7 @@ interface ComponentProps {
 
 export default function SettingsControl({ data, theme, onSaveSettings, onRefresh, analyticsMapScope, analyticsMapScopeContext, onAnalyticsMapScopeChange }: ComponentProps) {
   const isLight = data.settings.theme === 'daylight';
-  const [activeSubTab, setActiveSubTab] = useState<'general' | 'attendance' | 'pool' | 'weights' | 'backup-import' | 'access-control'>('general');
+  const [activeSubTab, setActiveSubTab] = useState<'general' | 'attendance' | 'pool' | 'weights' | 'ocr-health' | 'backup-import' | 'access-control'>('general');
 
   // --- ACCESS CONTROL AND KEY MANAGEMENT ---
   const [keysList, setKeysList] = useState<any[]>([]);
@@ -345,6 +346,7 @@ export default function SettingsControl({ data, theme, onSaveSettings, onRefresh
             { id: 'attendance', label: 'Attendance Rules', icon: Clock3 },
             { id: 'pool', label: 'Rosters & Map Pools', icon: Sliders },
             { id: 'weights', label: 'Calculator Weights & Stats', icon: Key },
+            { id: 'ocr-health', label: 'OCR Health & Learning', icon: Eye },
             { id: 'access-control', label: 'Access Keys', icon: UserCheck },
             { id: 'backup-import', label: 'Device, Sync & Storage', icon: Database }
           ].map(sb => {
@@ -956,6 +958,8 @@ export default function SettingsControl({ data, theme, onSaveSettings, onRefresh
                 </div>
               </div>
             )}
+
+            {activeSubTab === 'ocr-health' && <OcrHealthPanel rosterPlayers={data.rosterPlayers || []} isLight={isLight} />}
 
             {/* SUB TAB: BACKUP & DATABASE SYNC */}
             {activeSubTab === 'backup-import' && (
