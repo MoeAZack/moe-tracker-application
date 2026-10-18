@@ -9,6 +9,7 @@ export type ScreenshotPairing = {
   reason: string;
   autoProcessedAt?: string;
   automaticMatchId?: string;
+  targetMatchId?: string;
 };
 export const SCREENSHOT_LIMIT = 100;
 const MAX_IMAGE_BYTES = 5 * 1024 * 1024;
@@ -43,13 +44,47 @@ const integer = (value: unknown): value is number => typeof value === 'number' &
 const field = (value: any) => value?.status === 'available' ? value.value : null;
 const mapName = (value: unknown) => typeof value === 'string' ? value.trim().replace(/^map\s*[-:]\s*/i, '').trim().toLowerCase() : '';
 function tuple(row: any) { return [row.kills, row.deaths, row.assists].every(integer) ? `${row.kills}/${row.deaths}/${row.assists}` : null; }
-// Agent (from scoreboard portraits and the replay's character class) breaks
-// ties between identical K/D/A lines without weakening the uniqueness rule.
-function agentTuple(row: any) { const base = tuple(row); const agent = typeof row.agent === 'string' ? row.agent.trim().toLowerCase() : ''; return base && agent ? `${base}|${agent}` : null; }
 function safeSuggestions(rows: ScreenshotPairing['suggestions']) {
   const counts = new Map<string, number>();
   for (const row of rows) if (row.rosterPlayerId) counts.set(row.rosterPlayerId, (counts.get(row.rosterPlayerId) || 0) + 1);
   return rows.map(row => row.rosterPlayerId && counts.get(row.rosterPlayerId)! > 1 ? { ...row, rosterPlayerId: null } : row);
+}
+
+function replayLine(row: any) {
+  return { id: row.playerId, teamId: row.teamId, kills: field(row.kills), deaths: field(row.deaths), assists: field(row.assists), agent: field(row.agent) };
+}
+
+/**
+ * Find one and only one evidence-preserving scoreboard assignment. Missing OCR
+ * digits are allowed only when the remaining K/D/A and portrait constraints
+ * still produce a unique perfect match; position is never used as evidence.
+ */
+function uniqueScoreboardAssignment(stats: any[], replayRows: any[]) {
+  if (stats.length !== 10 || replayRows.length !== 10) return null;
+  const compatible = (stat: any, replay: any) => {
+    const knownNumbers = ['kills', 'deaths', 'assists'].filter(key => integer(stat[key]));
+    const agent = typeof stat.agent === 'string' && stat.agent.trim() ? stat.agent.trim().toLowerCase() : null;
+    if (knownNumbers.length < 2 && !agent) return false;
+    if (knownNumbers.some(key => stat[key] !== replay[key])) return false;
+    const numericCandidates = replayRows.filter(candidate => knownNumbers.every(key => stat[key] === candidate[key])).length;
+    const agentMustDisambiguate = knownNumbers.length < 3 || numericCandidates > 1;
+    return !agentMustDisambiguate || !agent || typeof replay.agent !== 'string' || !replay.agent.trim() || replay.agent.trim().toLowerCase() === agent;
+  };
+  const choices = stats.map((stat, statIndex) => ({ statIndex, rows: replayRows.map((row, replayIndex) => compatible(stat, row) ? replayIndex : -1).filter(index => index >= 0) }))
+    .sort((left, right) => left.rows.length - right.rows.length || left.statIndex - right.statIndex);
+  if (choices.some(choice => choice.rows.length === 0)) return null;
+  const used = new Set<number>(); const current = new Map<number, number>(); let solution: Map<number, number> | null = null; let count = 0;
+  const visit = (position: number) => {
+    if (count > 1) return;
+    if (position === choices.length) { count += 1; if (count === 1) solution = new Map(current); return; }
+    const choice = choices[position];
+    for (const replayIndex of choice.rows) {
+      if (used.has(replayIndex)) continue;
+      used.add(replayIndex); current.set(choice.statIndex, replayIndex); visit(position + 1); current.delete(choice.statIndex); used.delete(replayIndex);
+    }
+  };
+  visit(0);
+  return count === 1 ? solution : null;
 }
 
 /** Recompute suggestions separately from immutable parser evidence and accepted coach overlays. */
@@ -59,16 +94,16 @@ export function pairReplayScreenshots(store: any) {
     if (record.deviceId === 'manual-entry') { record.replaySha256 = null; record.suggestions = []; record.status = 'pending'; record.reason = 'Screenshot ready. Complete the match manually when convenient.'; continue; }
     record.replaySha256 = null; record.suggestions = []; record.status = 'pending'; record.reason = 'Waiting for one matching replay from the selected device.';
     const { match, stats } = record.draft;
-    const keys = stats.map(tuple);
     const hasMap = !!mapName(match.map); const hasScore = integer(match.ourScore) && integer(match.theirScore);
     const partialScore = integer(match.ourScore) !== integer(match.theirScore);
-    if (partialScore || stats.length !== 10 || keys.some(key => key === null) || stats.some(row => !row.extractedName.trim() || row.extractedName.length > 80)) {
-      record.status = 'incomplete'; record.reason = 'All ten named K/D/A rows are required. Map and final score may come from the replay.'; continue;
+    if (partialScore || stats.length !== 10 || stats.some(row => !row.extractedName.trim() || row.extractedName.length > 80)) {
+      record.status = 'incomplete'; record.reason = 'All ten named scoreboard rows are required. Map and final score may come from the replay.'; continue;
     }
-    const agentKeys = stats.map(agentTuple);
-    const useAgents = new Set(keys).size !== 10 && agentKeys.every(key => key !== null) && new Set(agentKeys).size === 10;
-    if (new Set(keys).size !== 10 && !useAgents) { record.status = 'ambiguous'; record.reason = 'Duplicate K/D/A rows prevent a unique name mapping.'; continue; }
-    const screenshotKeys = useAgents ? agentKeys : keys;
+    const completeKeys = stats.map(tuple);
+    if (completeKeys.every(Boolean) && new Set(completeKeys).size !== 10) {
+      const agentKeys = stats.map((row, index) => `${completeKeys[index]}|${typeof row.agent === 'string' ? row.agent.trim().toLowerCase() : ''}`);
+      if (agentKeys.some(key => key.endsWith('|')) || new Set(agentKeys).size !== 10) { record.status = 'ambiguous'; record.reason = 'Duplicate K/D/A rows prevent a unique name mapping.'; continue; }
+    }
     const scores = hasScore ? [match.ourScore, match.theirScore].sort((a, b) => a! - b!).join(':') : null;
     const associated = new Set<string>(Object.values(store.associations || {}).filter((a: any) => a.deviceId === record.deviceId).map((a: any) => a.sha256));
     const candidates: Array<{ sha256: string; suggestions: ScreenshotPairing['suggestions']; metadataMatches: number }> = [];
@@ -79,14 +114,18 @@ export function pairReplayScreenshots(store: any) {
       if (!board || board.evidenceCoverage?.status !== 'complete') continue;
       const totals = [field(board.finalScore?.teamA?.score), field(board.finalScore?.teamB?.score)];
       if (!totals.every(integer) || board.players?.length !== 10) continue;
-      const rows = board.players.map((row: any) => { const line = { kills: field(row.kills), deaths: field(row.deaths), assists: field(row.assists), agent: field(row.agent) }; return { id: row.playerId, key: useAgents ? agentTuple(line) : tuple(line) }; });
-      if (rows.some((row: any) => !row.key || typeof row.id !== 'string' || !row.id) || new Set(rows.map((row: any) => row.key)).size !== 10 || new Set(rows.map((row: any) => row.id)).size !== 10 || rows.some((row: any) => !screenshotKeys.includes(row.key))) continue;
+      const rows = board.players.map(replayLine);
+      if (rows.some((row: any) => typeof row.id !== 'string' || !row.id) || new Set(rows.map((row: any) => row.id)).size !== 10) continue;
+      const assignment = uniqueScoreboardAssignment(stats, rows);
+      if (!assignment) continue;
       const replayMap = mapName(field(board.map));
       const replayScores = totals.sort((a, b) => a - b).join(':');
       const metadataMatches = Number(hasMap && !!replayMap && replayMap === mapName(match.map)) + Number(!!scores && replayScores === scores);
-      candidates.push({ sha256, metadataMatches, suggestions: safeSuggestions(rows.map((row: any) => {
-        const stat = stats[screenshotKeys.indexOf(row.key)];
-        return { parserPlayerId: row.id, displayName: stat.extractedName.trim(), rosterPlayerId: stat.rosterMatch?.status === 'matched' ? stat.matchedPlayerId : null, screenshotTeam: screenshotKeys.indexOf(row.key) < 5 ? 'ours' : 'theirs' };
+      candidates.push({ sha256, metadataMatches, suggestions: safeSuggestions(rows.map((row: any, replayIndex: number) => {
+        const statIndex = [...assignment.entries()].find(([, assigned]) => assigned === replayIndex)?.[0];
+        const stat = stats[statIndex!];
+        const explicitTeam = (stat as any).screenshotTeam === 'ours' || (stat as any).screenshotTeam === 'theirs' ? (stat as any).screenshotTeam : null;
+        return { parserPlayerId: row.id, displayName: stat.extractedName.trim(), rosterPlayerId: stat.rosterMatch?.status === 'matched' ? stat.matchedPlayerId : null, screenshotTeam: explicitTeam || (stat.rosterMatch?.status === 'matched' || statIndex! < 5 ? 'ours' : 'theirs') };
       })) });
     }
     const strongest = candidates.length > 1

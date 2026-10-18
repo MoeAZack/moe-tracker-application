@@ -19,6 +19,8 @@ describe('Windows scrim capture visibility', () => {
     expect(script).toContain('[ValidateRange(0, 32)]');
     expect(script).toContain('automaticRoundDetection = $RoundCount -eq 0');
     expect(script).toContain("$tailCount = if ($RoundCount -eq 0 -and $leftTiles.Count -ge 24) { 8 }");
+    expect(script).toContain('TimelineDifferenceRatio');
+    expect(script).toContain("reason = 'timeline-did-not-scroll'");
     expect(script).toContain("if ($RoundCount -gt 0 -and $detectedRoundCount -ne $RoundCount)");
   });
 });

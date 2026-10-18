@@ -191,6 +191,24 @@ describe('screenshot-first authenticated workflow', () => {
     expect(stored.playerStats.filter((item: any) => item.matchId === accepted.matchId)).toHaveLength(5);
     expect(stored.rosterPlayers.filter((item: any) => !item.retiredAt && item.rosterStatus === 'tryout')).toHaveLength(5);
   });
+  it('joins a synchronized full capture to an existing match and lets replay evidence correct a stale header', async () => {
+    const coach = await login(); const device = await (await request('/api/replay-intake/devices/enroll', coach, { name: 'Synced Capture PC' })).json();
+    const { readDB, saveDB } = await import('../lib/store'); const seeded = await readDB();
+    seeded.matches = [{ id: 'existing-match', date: '2026-10-18', type: 'Scrim', opponent: 'Fixture', map: 'Lotus', ourScore: 13, theirScore: 9 }];
+    seeded.rosterPlayers = raw().players.slice(5).map((player, index) => ({ id: `roster-${index + 5}`, displayName: player.name, createdAt: '2026-10-18T00:00:00.000Z' }));
+    seeded.playerStats = raw().players.slice(5).map((player, index) => ({ id: `existing-stat-${index}`, matchId: 'existing-match', player: player.name, displayNameSnapshot: player.name, kills: player.kills, deaths: player.deaths, assists: player.assists, screenshotMetrics: { schemaVersion: 1, coveredRounds: 1 } }));
+    await saveDB(seeded);
+    const evidence = await fetch(`${origin}/api/replay-intake/evidence/${hash}`, { method: 'POST', headers: { 'Content-Type': 'application/json', 'X-Device-Id': device.device.id, 'X-Device-Token': device.credential.token }, body: JSON.stringify(envelope(device.device.id)) });
+    expect(evidence.status).toBe(201);
+    const summary = { schemaVersion: 1, updatedAt: '2026-10-18T19:00:00.000Z', playerStats: [], match: { ...seeded.matches[0], sourceMetadata: { method: 'screenshot', capturedAt: '2026-10-18T18:59:00.000Z' }, screenshotEvidence: { schemaVersion: 1, captureId: 'capture', scoreboardPlayers: raw().players.map((player, index) => ({ name: player.name, agent: player.agent, kills: player.kills, deaths: player.deaths, assists: player.assists, fk: 0, trades: null, plants: 0, defuses: 0, allied: index >= 5 })) } } };
+    const response = await fetch(`${origin}/api/replay-intake/screenshot-summaries/existing-match`, { method: 'POST', headers: { 'Content-Type': 'application/json', 'X-Device-Id': device.device.id, 'X-Device-Token': device.credential.token }, body: JSON.stringify(summary) });
+    expect(response.status).toBe(201); expect(await response.json()).toMatchObject({ accepted: true, replayIntegrated: true });
+    const stored = await readDB();
+    expect(stored.matches.find((item: any) => item.id === 'existing-match')).toMatchObject({ map: 'Haven', ourScore: 13, theirScore: 9, source: 'Replay review' });
+    const rows = stored.playerStats.filter((item: any) => item.matchId === 'existing-match');
+    expect(rows).toHaveLength(5); expect(rows.map((item: any) => item.id).sort()).toEqual(Array.from({ length: 5 }, (_, index) => `existing-stat-${index}`));
+    expect(stored.engineAdapters.replay['existing-match'].status).toBe('accepted');
+  });
   it('lets coaches delete individual scoreboard drafts and replay evidence without deleting saved match rows', async () => {
     const coach = await login(); const player = await login('player-key');
     const device = await (await request('/api/replay-intake/devices/enroll', coach, { name: 'Cleanup PC' })).json();
