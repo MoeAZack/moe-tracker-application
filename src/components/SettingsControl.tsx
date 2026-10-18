@@ -7,6 +7,7 @@ import DesktopDeviceSettings from './DesktopDeviceSettings';
 import DesktopIntegrationSecrets from './DesktopIntegrationSecrets';
 import AnalyticsScopeControl from './AnalyticsScopeControl';
 import OcrHealthPanel from './OcrHealthPanel';
+import PraccCalendarIntegration from './PraccCalendarIntegration';
 import type { AnalyticsMapScope, AnalyticsMapScopeContext } from '../utils/activeMapPool';
 
 interface ComponentProps {
@@ -543,7 +544,8 @@ export default function SettingsControl({ data, theme, onSaveSettings, onRefresh
                     <input aria-label="Attendance currency" maxLength={12} value={attendanceCurrency} onChange={event => setAttendanceCurrency(event.target.value.toUpperCase())} className="ui-field w-full p-2.5 text-sm" />
                   </label>
                 </div>
-                <div className="rounded-xl border border-emerald-400/20 bg-emerald-400/5 p-4 text-xs leading-relaxed text-emerald-100"><strong>Green dots are coach-issued credits.</strong> Each active green dot cancels one earned red dot, but the original attendance history stays visible. Pracc schedule sync and WhatsApp/Telegram reminders can attach to this ledger later without changing its rules.</div>
+                <PraccCalendarIntegration onRefresh={onRefresh} />
+                <div className="rounded-xl border border-emerald-400/20 bg-emerald-400/5 p-4 text-xs leading-relaxed text-emerald-100"><strong>Green dots are coach-issued credits.</strong> Each active green dot cancels one earned red dot, but the original attendance history stays visible. WhatsApp and Telegram reminders can attach to this ledger later without changing its rules.</div>
               </div>
             )}
 
