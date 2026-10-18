@@ -1,6 +1,6 @@
 # Moe Tracker Application
 
-Version 0.1.45 adds a private PRACC `.ics` calendar connection under Settings → Attendance Rules, with duplicate-safe Cairo-time synchronization into Schedule & Goals. Version 0.1.44 introduced the focused daily dashboard and Coach Workspace. See [VOD timeline analysis](docs/VOD-TIMELINE-ANALYSIS.md) for VOD coverage and evidence limits.
+Version 0.1.46 removes redundant regulation-match capture probes and automatically joins synchronized screenshot matches with uniquely matching replay evidence. Version 0.1.45 added the private PRACC `.ics` calendar connection under Settings → Attendance Rules. See [VOD timeline analysis](docs/VOD-TIMELINE-ANALYSIS.md) for VOD coverage and evidence limits.
 
 Windows-first, offline-first practice analysis for a VALORANT team. The desktop application watches replay folders, keeps detailed evidence on the PC, supports local scoreboard OCR, and synchronizes only accepted summaries to the lightweight team website.
 

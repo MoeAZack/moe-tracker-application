@@ -408,7 +408,9 @@ export function registerDataRoutes(app: Express, options: { websiteSummaryOnly?:
         // screenshot metrics. Return the complete scoreboard separately so a
         // partial OCR identity match can never shrink the visible/saved lineup.
         playerStats: matchStats,
-        screenshotSummary: match && summarizedStats.length ? { schemaVersion: 1, match, playerStats: summarizedStats, updatedAt: new Date().toISOString() } : null,
+        screenshotSummary: match && (summarizedStats.length || match.screenshotEvidence?.scoreboardPlayers?.length === 10)
+          ? { schemaVersion: 1, match, playerStats: summarizedStats, updatedAt: match.sourceMetadata?.capturedAt || new Date().toISOString() }
+          : null,
       });
     } catch (err: any) {
       res.status(500).json({ error: err.message });

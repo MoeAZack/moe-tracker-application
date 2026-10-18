@@ -20,6 +20,7 @@ import { cancelRawReplayUpload, deleteRawReplayObject, downloadRawReplayObject, 
 import { clientIp, requestRateLimit } from '../utils';
 import { historicalPlayerLabel, mergeAcceptedPlayerStat, preserveIdentitySnapshot } from '../identitySnapshot';
 import { replayScreenshotReconciliation } from '../ocrLearning';
+import { confusableCaptureKey, normalizeCaptureName } from '../scrimCaptureImport';
 
 const REPLAY_TYPE = 'application/vnd.valorant.replay';
 const MAX_REPLAY_BYTES = Number(process.env.REPLAY_MAX_BYTES || 2 * 1024 * 1024 * 1024);
@@ -151,6 +152,28 @@ function cleanReplayName(value: unknown) {
   return clean;
 }
 
+function sanitizedScoreboardEvidence(value: any) {
+  const rows = value?.schemaVersion === 1 && Array.isArray(value.scoreboardPlayers) ? value.scoreboardPlayers : null;
+  if (!rows) return null;
+  if (rows.length !== 10) throw Object.assign(new Error('Screenshot scoreboard evidence must contain ten players.'), { status: 400 });
+  const numeric = (raw: any) => raw === null || raw === undefined ? null : Number.isSafeInteger(raw) && raw >= 0 ? raw : undefined;
+  const scoreboardPlayers = rows.map((row: any) => {
+    const name = cleanText(row?.name, 80); const agent = row?.agent === null || row?.agent === undefined ? null : cleanText(row.agent, 40);
+    if (!name || (row?.agent !== null && row?.agent !== undefined && !agent) || typeof row?.allied !== 'boolean') throw Object.assign(new Error('Screenshot scoreboard identity is invalid.'), { status: 400 });
+    const output: any = { name, agent, allied: row.allied };
+    for (const field of ['kills', 'deaths', 'assists', 'fk', 'trades', 'plants', 'defuses']) {
+      const parsed = numeric(row?.[field]); if (parsed === undefined) throw Object.assign(new Error('Screenshot scoreboard metric is invalid.'), { status: 400 }); output[field] = parsed;
+    }
+    return output;
+  });
+  if (scoreboardPlayers.filter((row: any) => row.allied).length !== 5) throw Object.assign(new Error('Screenshot scoreboard evidence must identify exactly five allied players.'), { status: 400 });
+  return { schemaVersion: 1, captureId: typeof value.captureId === 'string' ? value.captureId.slice(0, 128) : null, scoreboardPlayers };
+}
+
+function actorForDevice(device: DeviceRecord): Actor {
+  return { actorId: device.owner.actorId, role: device.owner.role, playerId: device.owner.playerId || undefined, username: device.owner.role === 'coach' ? 'Desktop coach' : 'Desktop player' };
+}
+
 function privateReplayPath(hash: string) {
   const target = path.resolve(PRIVATE_DIR, hash.slice(0, 2), `${hash}.vrf`);
   if (!target.startsWith(`${PRIVATE_DIR}${path.sep}`)) throw new Error('Replay storage path escaped its private root.');
@@ -256,17 +279,35 @@ function acceptReviewIntoEngines(db: any, store: ReplayStore, job: ReplayParserJ
   const mapping = new Map<string, ReplayMapping>(review.mappings.filter(item => item.rosterPlayerId).map(item => [item.parserPlayerId, item]));
   const rawRows = new Map<string, any>((scoreboard.players || []).map((item: any) => [item.playerId, item]));
   const metricRows = new Map<string, any>((draft.evidence?.playerMetrics || []).map((item: any) => [item.playerId, item]));
-  const existingRows = new Map<string, any>((db.playerStats || []).filter((item: any) => item.matchId === review.matchId).map((item: any) => [item.playerId, item]));
+  const existingMatchRows = (db.playerStats || []).filter((item: any) => item.matchId === review.matchId);
+  const existingRows = new Map<string, any>(existingMatchRows.filter((item: any) => item.playerId).map((item: any) => [item.playerId, item]));
+  const existingRowsByName = new Map<string, any[]>();
+  for (const row of existingMatchRows) {
+    const key = confusableCaptureKey(normalizeCaptureName(row.displayNameSnapshot || row.player));
+    if (key) existingRowsByName.set(key, [...(existingRowsByName.get(key) || []), row]);
+  }
   const activeCoreIds = new Set((db.coreMemberships || []).filter((item: any) => !item.endedAt).map((item: any) => item.playerId));
+  const claimedExistingRowIds = new Set<string>();
   const acceptedRows = [...mapping.entries()].map(([parserPlayerId, overlay]) => {
-    const raw: any = rawRows.get(parserPlayerId) || {}; const metrics: any = metricRows.get(parserPlayerId) || {}; const existing: any = existingRows.get(overlay.rosterPlayerId);
+    const raw: any = rawRows.get(parserPlayerId) || {}; const metrics: any = metricRows.get(parserPlayerId) || {};
+    const nameMatches = existingRowsByName.get(confusableCaptureKey(normalizeCaptureName(overlay.displayName))) || [];
+    const storedNumber = (value: any) => typeof value === 'number' && Number.isFinite(value) ? value : null;
+    const kdaMatches = existingMatchRows.filter((row: any) => !claimedExistingRowIds.has(row.id)
+      && storedNumber(row.kills) === evidenceNumber(raw.kills)
+      && storedNumber(row.deaths) === evidenceNumber(raw.deaths)
+      && storedNumber(row.assists) === evidenceNumber(raw.assists));
+    const existing: any = existingRows.get(overlay.rosterPlayerId)
+      || (nameMatches.length === 1 ? nameMatches[0] : undefined)
+      || (kdaMatches.length === 1 ? kdaMatches[0] : undefined);
+    if (existing?.id) claimedExistingRowIds.add(existing.id);
     const corrected = correctedFields(existing); const replay: Record<string, any> = { kills: evidenceNumber(raw.kills) ?? metrics.kills ?? null, deaths: evidenceNumber(raw.deaths) ?? metrics.deaths ?? null, assists: evidenceNumber(raw.assists) ?? metrics.assists ?? null, acs: null, adr: metrics.damage === null || metrics.damage === undefined || !draft.coverage?.playedRounds ? null : metrics.damage / draft.coverage.playedRounds, hs: metrics.headshotPercentage ?? null, headshots: metrics.headshotKills ?? null, headshotEligibleKills: metrics.eligibleHeadshotKills ?? null, orbPoints: metrics.orbCaptures ?? null, ultimateUses: metrics.ultimateUses ?? null, kastSuccessful: metrics.kastSuccessful ?? null, kastCovered: metrics.kastCovered ?? null, fk: evidenceNumber(raw.firstBloods), fd: evidenceNumber(raw.firstDeaths), plants: evidenceNumber(raw.plants), defuses: evidenceNumber(raw.defuses) };
     const facts = Object.fromEntries(Object.entries(replay).map(([field, value]) => [field, mergeVerifiedField(existing, field, value, corrected)]));
     const accepted = { ...existing, id: existing?.id || `replay:${review.matchId}:${overlay.rosterPlayerId}`, matchId: review.matchId, playerId: overlay.rosterPlayerId, player: overlay.displayName, displayNameSnapshot: overlay.displayName, appearanceType: existing?.appearanceType || (activeCoreIds.has(overlay.rosterPlayerId) ? 'core' : 'standIn'), agent: evidenceText(raw.agent) || existing?.agent || 'Unknown', ...facts, sourceMetadata: { method: 'provider-import', capturedAt: acceptedAt, provider: 'vrfkit', externalId: review.sha256 }, evidenceReconciliation: replayScreenshotReconciliation(existing, replay, acceptedAt), corrections: [...(existing?.corrections || []), { correctedAt: review.updatedAt, correctedBy: user.username, fields: ['player-name-mapping'] }] };
     return preserveIdentitySnapshot(existing, accepted);
   });
   const replacedPlayerIds = new Set(acceptedRows.map((item: any) => item.playerId));
-  db.playerStats = [...(db.playerStats || []).filter((item: any) => item.matchId !== review.matchId || !replacedPlayerIds.has(item.playerId)), ...acceptedRows];
+  const replacedRowIds = new Set(acceptedRows.map((item: any) => item.id));
+  db.playerStats = [...(db.playerStats || []).filter((item: any) => item.matchId !== review.matchId || (!replacedRowIds.has(item.id) && !replacedPlayerIds.has(item.playerId))), ...acceptedRows];
   const displayNames = new Map(review.mappings.map(item => [item.parserPlayerId, item.displayName]));
   const openingByRound = new Map((draft.rounds || []).map((item: any) => [item.roundNumber, item]));
   const acceptedRounds = (draft.evidence?.rounds || []).map((round: any) => {
@@ -334,7 +375,7 @@ function cairoDate(value: string) {
 function autoFinalizeDesktopReplay(db: any, store: ReplayStore, sha256: string, user: Actor) {
   const blob = store.blobs[sha256]; const job = blob?.parserJobId ? store.parserJobs[blob.parserJobId] : null;
   if (!blob || !job?.result || job.status !== 'completed' || blob.reviewStatus === 'accepted' || store.reviews[sha256]) return null;
-  const linked = Object.values(store.screenshots).filter(item => item.deviceId.startsWith('desktop-') && item.status === 'linked' && item.replaySha256 === sha256);
+  const linked = Object.values(store.screenshots).filter(item => (item.deviceId.startsWith('desktop-') || !!item.targetMatchId) && item.status === 'linked' && item.replaySha256 === sha256);
   if (linked.length !== 1) return null;
   const screenshot = linked[0]; const players = job.result.scoreboard?.players;
   if (!Array.isArray(players) || players.length !== 10 || screenshot.suggestions.length !== 10) return null;
@@ -359,8 +400,14 @@ function autoFinalizeDesktopReplay(db: any, store: ReplayStore, sha256: string, 
   const mappings: ReplayMapping[] = screenshot.suggestions.map(item => {
     if ((byId.get(item.parserPlayerId) as any)?.teamId !== teamId) return { parserPlayerId: item.parserPlayerId, rosterPlayerId: null, displayName: item.displayName };
     let roster = (db.rosterPlayers || []).find((player: any) => player.id === item.rosterPlayerId && !player.retiredAt);
+    roster ||= (db.rosterPlayers || []).find((player: any) => String(player.displayName || '').trim().toLocaleLowerCase('en') === item.displayName.trim().toLocaleLowerCase('en'));
+    if (!roster) {
+      const key = confusableCaptureKey(normalizeCaptureName(item.displayName));
+      const candidates = (db.rosterPlayers || []).filter((player: any) => player.retiredAt && confusableCaptureKey(normalizeCaptureName(player.displayName)) === key);
+      if (candidates.length === 1) roster = candidates[0];
+    }
     roster ||= ensureObservedRosterPlayer(db, item.displayName);
-    if (!roster.rosterStatus) setObservedRosterStatus(db, { playerId: roster.id, displayName: roster.displayName, status: hasCore ? 'standIn' : 'tryout' });
+    if (!roster.retiredAt && !roster.rosterStatus) setObservedRosterStatus(db, { playerId: roster.id, displayName: roster.displayName, status: hasCore ? 'standIn' : 'tryout' });
     return { parserPlayerId: item.parserPlayerId, rosterPlayerId: roster.id, displayName: item.displayName };
   });
 
@@ -374,7 +421,12 @@ function autoFinalizeDesktopReplay(db: any, store: ReplayStore, sha256: string, 
   // Match rows are append-ordered. When a coach has accidentally logged the
   // same map/score more than once, prefer the newest unlinked row instead of
   // creating yet another duplicate; the result remains editable afterward.
-  let match = candidates.at(-1) || null;
+  // A synchronized full-capture summary already has a stable match id. Use it
+  // even when the VALORANT summary header was stale (notably wrong map/score);
+  // exact ten-player evidence is what established the replay link.
+  let match = screenshot.targetMatchId
+    ? (db.matches || []).find((item: any) => item.id === screenshot.targetMatchId && !db.engineAdapters?.replay?.[item.id]) || null
+    : candidates.at(-1) || null;
   if (!match) {
     const activeBatch = (db.tryoutBatches || []).find((batch: any) => batch.status === 'active' && batch.id === db.settings?.activeTryoutBatchId)
       || (db.tryoutBatches || []).find((batch: any) => batch.status === 'active');
@@ -695,11 +747,13 @@ export function registerReplayDeviceUploadRoute(app: Express) {
   app.post('/api/replay-intake/screenshot-summaries/:matchId', async (req, res) => {
     try {
       const authenticated = await authenticateDevice(req); if (!authenticated) return res.status(401).json({ error: 'Device credential is invalid, expired, or revoked.' });
-      const { db, device } = authenticated; if (device.owner.role !== 'coach') return res.status(403).json({ error: 'Team screenshot summaries require a coach-owned device.' });
+      const { db, store, device } = authenticated; if (device.owner.role !== 'coach') return res.status(403).json({ error: 'Team screenshot summaries require a coach-owned device.' });
       const matchId = String(req.params.matchId || ''); const body = req.body;
       if (!matchId || body?.schemaVersion !== 1 || body?.match?.id !== matchId || !Array.isArray(body?.playerStats) || body.playerStats.length > 20 || Buffer.byteLength(JSON.stringify(body)) > 128 * 1024) return res.status(400).json({ error: 'Screenshot summary is invalid.' });
       const allowedMatch = ['id', 'date', 'type', 'opponent', 'map', 'attW', 'attL', 'defW', 'defL', 'ourScore', 'theirScore', 'pistolAtt', 'pistolDef', 'ecoAtt', 'ecoDef', 'bonusAtt', 'bonusDef', 'rosterContext', 'roundAnalytics', 'sourceMetadata'];
       const safeMatch = Object.fromEntries(allowedMatch.filter(key => body.match[key] !== undefined).map(key => [key, structuredClone(body.match[key])]));
+      const scoreboardEvidence = sanitizedScoreboardEvidence(body.match.screenshotEvidence);
+      if (scoreboardEvidence) safeMatch.screenshotEvidence = scoreboardEvidence;
       const safeStats = body.playerStats.map((row: any) => {
         if (!row?.id || row.matchId !== matchId || !row.screenshotMetrics || row.screenshotMetrics.schemaVersion !== 1) throw Object.assign(new Error('Screenshot player summary is invalid.'), { status: 400 });
         const allowed = ['id', 'matchId', 'player', 'playerId', 'displayNameSnapshot', 'appearanceType', 'agent', 'kills', 'deaths', 'assists', 'acs', 'adr', 'hs', 'headshots', 'headshotEligibleKills', 'orbPoints', 'fk', 'fd', 'plants', 'defuses', 'screenshotMetrics', 'sourceMetadata'];
@@ -712,14 +766,27 @@ export function registerReplayDeviceUploadRoute(app: Express) {
       });
       const digest = contentHash({ match: safeMatch, playerStats: safeStats }); db.engineAdapters ||= {}; db.engineAdapters.screenshot ||= {};
       const existingRecord = db.engineAdapters.screenshot[matchId];
-      if (existingRecord?.digest === digest) return res.json({ accepted: true, idempotent: true, revision: existingRecord.revision });
       const existingMatch = (db.matches || []).find((item: any) => item.id === matchId); if (!existingMatch) (db.matches ||= []).push(safeMatch);
+      else if (scoreboardEvidence) existingMatch.screenshotEvidence = scoreboardEvidence;
       for (const incoming of safeStats) {
         const existing = (db.playerStats || []).find((item: any) => item.id === incoming.id && item.matchId === matchId);
         if (existing) Object.assign(existing, mergeAcceptedPlayerStat(existing, incoming)); else (db.playerStats ||= []).push(incoming);
       }
-      const updatedAt = new Date().toISOString(); db.engineAdapters.screenshot[matchId] = { schemaVersion: 1, status: 'accepted', matchId, digest, revision: Number(existingRecord?.revision || 0) + 1, updatedAt, sourceDeviceId: device.id };
-      device.lastSeenAt = updatedAt; await saveDB(db); res.status(existingRecord ? 200 : 201).json({ accepted: true, idempotent: false, revision: db.engineAdapters.screenshot[matchId].revision });
+      const updatedAt = new Date().toISOString();
+      if (existingRecord?.digest !== digest) db.engineAdapters.screenshot[matchId] = { schemaVersion: 1, status: 'accepted', matchId, digest, revision: Number(existingRecord?.revision || 0) + 1, updatedAt, sourceDeviceId: device.id };
+      if (scoreboardEvidence) {
+        const extraction = { map: safeMatch.map, ourScore: safeMatch.ourScore, theirScore: safeMatch.theirScore, confident: true,
+          players: scoreboardEvidence.scoreboardPlayers.map((row: any) => ({ name: row.name, agent: row.agent, kills: row.kills, deaths: row.deaths, assists: row.assists, fk: row.fk, trades: row.trades, plants: row.plants, defuses: row.defuses })) };
+        const rosterPlayers = (db.rosterPlayers || []).filter((player: any) => !player.retiredAt).map((player: any) => ({ id: player.id, displayName: player.displayName }));
+        const draft: any = buildScreenshotReviewDraft(extraction, { model: 'accepted-local-capture', provider: 'tesseract-local', capturedAt: safeMatch.sourceMetadata?.capturedAt || body.updatedAt || updatedAt, rosterPlayers });
+        draft.stats = draft.stats.map((stat: any, index: number) => ({ ...stat, screenshotTeam: scoreboardEvidence.scoreboardPlayers[index].allied ? 'ours' : 'theirs' }));
+        const imageSha256 = contentHash(scoreboardEvidence); const id = screenshotRecordId(device.id, `${matchId}:${imageSha256}`);
+        store.screenshots[id] = { id, deviceId: device.id, imageSha256, createdAt: updatedAt, createdBy: device.owner.actorId, status: 'pending', reviewRequired: true, draft, replaySha256: null, suggestions: [], reason: 'Waiting for one matching replay from this desktop.', targetMatchId: matchId };
+        pairReplayScreenshots(store);
+        const linked = store.screenshots[id].replaySha256;
+        if (linked) autoFinalizeDesktopReplay(db, store, linked, actorForDevice(device));
+      }
+      device.lastSeenAt = updatedAt; await saveDB(db); res.status(existingRecord ? 200 : 201).json({ accepted: true, idempotent: existingRecord?.digest === digest, revision: db.engineAdapters.screenshot[matchId].revision, replayIntegrated: !!db.engineAdapters.replay?.[matchId] });
     } catch (error: any) { res.status(error?.status || 400).json({ error: error?.message || 'Screenshot summary could not be synchronized.' }); }
   });
   app.post('/api/replay-intake/evidence/:sha256', async (req, res) => {
@@ -751,6 +818,7 @@ export function registerReplayDeviceUploadRoute(app: Express) {
         const priorJob = existing.parserJobId ? store.parserJobs[existing.parserJobId] : null;
         if (priorJob && !priorJob.sourceDeviceIds.includes(device.id)) priorJob.sourceDeviceIds.push(device.id);
         pairReplayScreenshots(store);
+        autoFinalizeDesktopReplay(db, store, expectedHash, actorForDevice(device));
         await saveDB(db);
         return res.status(200).json({ ...uploadPublic(association, existing), evidenceSha256: validated.envelope.evidenceSha256, reviewRequired: existing.reviewStatus !== 'accepted', idempotent: true });
       }
@@ -761,6 +829,7 @@ export function registerReplayDeviceUploadRoute(app: Express) {
       store.parserJobs[jobId] = job; store.blobs[expectedHash] = blob; store.associations[ownKey] = association; device.lastSeenAt = now;
       pruneParserJobs(store);
       pairReplayScreenshots(store);
+      autoFinalizeDesktopReplay(db, store, expectedHash, actorForDevice(device));
       await saveDB(db);
       return res.status(existing ? 200 : 201).json({ ...uploadPublic(association, blob), evidenceSha256: validated.envelope.evidenceSha256, reviewRequired: true, idempotent: !!existing });
     } catch (error: any) { return res.status(error?.status || 400).json({ error: error?.message || 'Local replay evidence was rejected.' }); }

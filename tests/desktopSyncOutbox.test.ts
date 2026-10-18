@@ -28,4 +28,14 @@ describe('desktop screenshot sync outbox', () => {
     refreshScreenshotOutboxFromData(state, { matches: [], playerStats: [] });
     expect(state.outbox.map((item: any) => item.id).sort()).toEqual(['new', 'other']);
   });
+
+  it('queues existing ten-player captures even when round metrics were not materialized', () => {
+    const match = { id: 'capture', sourceMetadata: { capturedAt: '2026-10-18T16:00:00.000Z' }, screenshotEvidence: { scoreboardPlayers: Array.from({ length: 10 }, (_, index) => ({ name: `P${index}` })) } };
+    const state: any = { outbox: [], completed: [] };
+    refreshScreenshotOutboxFromData(state, { matches: [match], playerStats: [] });
+    expect(state.outbox).toHaveLength(1); expect(state.outbox[0]).toMatchObject({ kind: 'screenshot-summary', matchId: 'capture', summary: { playerStats: [], updatedAt: '2026-10-18T16:00:00.000Z' } });
+    state.completed.push(state.outbox[0].id); state.outbox = [];
+    refreshScreenshotOutboxFromData(state, { matches: [match], playerStats: [] });
+    expect(state.outbox).toEqual([]);
+  });
 });
