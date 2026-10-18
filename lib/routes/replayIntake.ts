@@ -366,6 +366,13 @@ function cairoDate(value: string) {
   return `${part('year')}-${part('month')}-${part('day')}`;
 }
 
+function acceptedReplayAdapterForSha(db: any, sha256: string) {
+  return Object.values(db.engineAdapters?.replay || {})
+    .filter((adapter: any) => adapter?.status === 'accepted' && adapter?.provenance?.replaySha256 === sha256
+      && (db.matches || []).some((match: any) => match.id === adapter.matchId))
+    .sort((left: any, right: any) => String(left.acceptedAt || '').localeCompare(String(right.acceptedAt || '')))[0] as any || null;
+}
+
 /**
  * Finish the ordinary desktop path without a confirmation dialog. Automation
  * is deliberately evidence-gated: ten unique K/D/A rows, one replay, and one
@@ -378,6 +385,20 @@ function autoFinalizeDesktopReplay(db: any, store: ReplayStore, sha256: string, 
   const linked = Object.values(store.screenshots).filter(item => (item.deviceId.startsWith('desktop-') || !!item.targetMatchId) && item.status === 'linked' && item.replaySha256 === sha256);
   if (linked.length !== 1) return null;
   const screenshot = linked[0]; const players = job.result.scoreboard?.players;
+  // A local database restore can retain the accepted engine adapter while the
+  // replay inbox is rebuilt. Reattach that same SHA to its original match;
+  // never manufacture a second match for evidence already accepted elsewhere.
+  const priorAdapter = acceptedReplayAdapterForSha(db, sha256);
+  if (priorAdapter) {
+    const acceptedAt = priorAdapter.acceptedAt || priorAdapter.updatedAt || new Date().toISOString();
+    const restored = { ...(structuredClone(priorAdapter.overlay || {})), sha256, matchId: priorAdapter.matchId,
+      status: 'accepted', acceptedAt, acceptedBy: priorAdapter.acceptedBy || user.actorId,
+      updatedAt: priorAdapter.updatedAt || acceptedAt } as ReplayReview;
+    store.reviews[sha256] = restored; blob.reviewStatus = 'accepted'; blob.matchId = priorAdapter.matchId;
+    screenshot.autoProcessedAt = acceptedAt; screenshot.automaticMatchId = priorAdapter.matchId;
+    screenshot.reason = 'Matched to the replay evidence already accepted for this match.';
+    return { matchId: priorAdapter.matchId, acceptedAt, idempotent: true };
+  }
   if (!Array.isArray(players) || players.length !== 10 || screenshot.suggestions.length !== 10) return null;
   const byId = new Map(players.map((player: any) => [player.playerId, player]));
   if (new Set(screenshot.suggestions.map(item => item.parserPlayerId)).size !== 10) return null;
@@ -1310,5 +1331,5 @@ export const replayIntakeInternals = {
   parserLimits, pruneParserJobs, parserAdmission, nextParserJobs, newDeviceId, DEVICE_ID,
   recoverExpiredParserLeases, claimParserLease, leaseMatches,
   nextParserLeaseRecoveryDelay, scheduleParserLeaseRecovery,
-  priorRawFinalizeReceipt, pruneRawReceipts,
+  priorRawFinalizeReceipt, pruneRawReceipts, acceptedReplayAdapterForSha,
 };
