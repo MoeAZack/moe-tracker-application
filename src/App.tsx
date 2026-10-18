@@ -33,6 +33,8 @@ const ReplayWorkspace = lazy(() => import('./components/ReplayWorkspace'));
 const WebsiteMatchLog = lazy(() => import('./components/WebsiteMatchLog'));
 const WebsiteMapSummary = lazy(() => import('./components/WebsiteMapSummary'));
 const TryoutComparisons = lazy(() => import('./components/TryoutComparisons'));
+const CoachWorkflow = lazy(() => import('./components/CoachWorkflow'));
+const SystemReadinessPanel = lazy(() => import('./components/SystemReadinessPanel'));
 
 import {
   ShieldAlert, RefreshCw, Trophy, Calendar, Swords, Compass,
@@ -396,7 +398,7 @@ export default function App() {
     { id: 'vodsubmit', label: 'VOD Submission', icon: Upload },
     { id: 'lineups', label: 'Lineup Library', icon: Crosshair },
     { id: 'economy', label: 'Economy', icon: Coins },
-    { id: 'aitactical', label: 'AI Coach Hub', icon: Sparkles },
+    { id: 'aitactical', label: 'Coach Workspace', icon: Sparkles },
     { id: 'livelogger', label: 'Live Logger 🔴', icon: Activity },
     { id: 'maps', label: 'Map Analysis', icon: Compass },
     { id: 'comps', label: 'Compositions', icon: Layers },
@@ -406,8 +408,8 @@ export default function App() {
   ] as const;
 
   const visibleTabs = useMemo(() => {
-    const surfaceTabs = desktopMode ? tabsList : tabsList.filter(tab => ['dashboard', 'calendar', 'matches', 'vodsubmit', 'economy', 'maps', 'roster', 'comparisons'].includes(tab.id));
-    if (role === 'player') return surfaceTabs.filter(tab => !['settings', 'livelogger', 'vod'].includes(tab.id));
+    const surfaceTabs = desktopMode ? tabsList : tabsList.filter(tab => ['dashboard', 'calendar', 'matches', 'vodsubmit', 'economy', 'aitactical', 'maps', 'roster', 'comparisons'].includes(tab.id));
+    if (role === 'player') return surfaceTabs.filter(tab => !['settings', 'livelogger', 'vod', 'aitactical'].includes(tab.id));
     return surfaceTabs;
   }, [desktopMode, role]);
 
@@ -639,7 +641,7 @@ export default function App() {
               </div>
             }>
             {activeTab === 'dashboard' && analyticsData && (
-              <Dashboard data={analyticsData} theme={theme} role={role} username={username} summaryMode={!desktopMode} onOpenMatch={(matchId) => { setReviewMatchId(matchId); setActiveTab('vod'); }} onOpenReplay={() => setActiveTab('replays')} onOpenCapture={() => setScrimOpen(true)} />
+              <Dashboard data={analyticsData} theme={theme} role={role} username={username} summaryMode={!desktopMode} onOpenMatch={(matchId) => { setReviewMatchId(matchId); setActiveTab('vod'); }} onOpenReplay={() => setActiveTab('replays')} onOpenCapture={() => setScrimOpen(true)} onOpenSchedule={() => setActiveTab('calendar')} onOpenCoachWorkspace={() => setActiveTab('aitactical')} />
             )}
             {activeTab === 'calendar' && data && (
               <CalendarGoals data={data} theme={theme} role={role || 'player'} onUpsert={handleUpsert} onRemove={handleRemove} onRefresh={fetchDatabase} />
@@ -688,7 +690,10 @@ export default function App() {
               <TryoutComparisons data={analyticsData} role={role} theme={theme} onRefresh={fetchDatabase} mapScope={analyticsProjection!.context} />
             )}
             {activeTab === 'aitactical' && analyticsData && (
-              <AITacticalHub data={analyticsData} theme={theme} onUpsert={handleUpsert} onRemove={handleRemove} />
+              <div className="space-y-8">
+                <CoachWorkflow data={analyticsData} role={role} onOpenMatch={(matchId) => { setReviewMatchId(matchId); setActiveTab('vod'); }} />
+                <AITacticalHub data={analyticsData} theme={theme} onUpsert={handleUpsert} onRemove={handleRemove} />
+              </div>
             )}
             {activeTab === 'maps' && analyticsData && desktopMode && (
               <MapBestStats data={analyticsData} evidenceData={workspaceData || data} theme={theme} onUpsert={handleUpsert} onRemove={handleRemove} />
@@ -705,6 +710,7 @@ export default function App() {
             )}
             {activeTab === 'settings' && data && (
               <div className="space-y-6">
+                <SystemReadinessPanel theme={theme} />
                 <SettingsControl data={data} theme={theme} onSaveSettings={handleSaveSettings} onRefresh={fetchDatabase} analyticsMapScope={analyticsMapScope} analyticsMapScopeContext={analyticsProjection!.context} onAnalyticsMapScopeChange={setAnalyticsMapScope} />
               </div>
             )}
