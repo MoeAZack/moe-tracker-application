@@ -62,7 +62,7 @@ describe('Windows replay collector boundaries', () => {
     const old = Date.parse('2026-01-01T00:00:00.000Z'); const managedRaw = path.join(managed, 'match.vrf'); const externalRaw = path.join(external, 'match.vrf'); await fs.writeFile(managedRaw, bytes); await fs.writeFile(externalRaw, bytes);
     const state: any = { files: { managed: { path: managedRaw, sha256: hash, size: bytes.length, mtimeMs: old, evidencePath: evidence, processedAt: '2026-01-01T00:00:00.000Z' }, external: { path: externalRaw, sha256: hash, size: bytes.length, mtimeMs: old, evidencePath: evidence, processedAt: '2026-01-01T00:00:00.000Z' } } };
     try {
-      await expect(collectorInternals.pruneExpiredManagedReplays(state, { retentionDays: 30, managedReplayPaths: [managed], deviceId }, Date.parse('2026-02-15T00:00:00.000Z'))).resolves.toEqual([managedRaw]);
+      await expect(collectorInternals.pruneExpiredManagedReplays(state, { retentionDays: 30, managedReplayPaths: [managed], deviceId }, Date.parse('2026-02-15T00:00:00.000Z'))).resolves.toEqual([await fs.realpath(managedRaw)]);
       await expect(fs.access(managedRaw)).rejects.toMatchObject({ code: 'ENOENT' }); await expect(fs.access(externalRaw)).resolves.toBeUndefined(); expect(state.files.managed.status).toBe('evidence-retained');
     } finally { await fs.rm(root, { recursive: true, force: true }); }
   });
