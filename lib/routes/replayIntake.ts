@@ -828,6 +828,16 @@ export function registerReplayDeviceUploadRoute(app: Express) {
       releaseReservation = reservation.release;
       const incomingEvidenceHash = contentHash(validated.retained); const priorEvidenceHash = retainedEvidenceHash(store, expectedHash, existing);
       if (existing && (existing.size !== source.size || priorEvidenceHash && priorEvidenceHash !== incomingEvidenceHash)) {
+        // A newer local parser may produce a richer normalized envelope for
+        // the same immutable replay bytes. Never replace already accepted
+        // evidence, but let the device finish its outbox and receive the
+        // accepted server snapshot instead of blocking every later item.
+        if (existing.reviewStatus === 'accepted') {
+          const now = new Date().toISOString();
+          const association: ReplayAssociation = ownAssociation || { id: crypto.randomUUID(), sha256: expectedHash, size: existing.size, originalName, deviceId: device.id, owner: device.owner, receivedAt: now };
+          store.associations[ownKey] = association; device.lastSeenAt = now; await saveDB(db);
+          return res.status(200).json({ ...uploadPublic(association, existing), reviewRequired: false, idempotent: true, existingEvidencePreserved: true });
+        }
         return res.status(409).json({ error: 'This replay hash already has conflicting evidence.' });
       }
       const now = new Date().toISOString();
