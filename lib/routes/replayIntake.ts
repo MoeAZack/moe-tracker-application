@@ -827,12 +827,15 @@ export function registerReplayDeviceUploadRoute(app: Express) {
       if (!reservation.ok) return res.status(reservation.status).json({ error: reservation.error });
       releaseReservation = reservation.release;
       const incomingEvidenceHash = contentHash(validated.retained); const priorEvidenceHash = retainedEvidenceHash(store, expectedHash, existing);
-      if (existing && (existing.size !== source.size || priorEvidenceHash && priorEvidenceHash !== incomingEvidenceHash)) {
+      const conflictsWithExisting = !!existing && (existing.size !== source.size || !!priorEvidenceHash && priorEvidenceHash !== incomingEvidenceHash);
+      const existingIsTrusted = !!existing && (existing.reviewStatus === 'accepted' || !!(existing.parserJobId && store.parserJobs[existing.parserJobId]?.result));
+      const replacingFailedEvidence = conflictsWithExisting && !existingIsTrusted;
+      if (conflictsWithExisting) {
         // A newer local parser may produce a richer normalized envelope for
         // the same immutable replay bytes. Never replace already accepted
         // evidence, but let the device finish its outbox and receive the
         // accepted server snapshot instead of blocking every later item.
-        if (existing.reviewStatus === 'accepted' || !!(existing.parserJobId && store.parserJobs[existing.parserJobId]?.result)) {
+        if (existingIsTrusted) {
           const now = new Date().toISOString();
           const association: ReplayAssociation = ownAssociation || { id: crypto.randomUUID(), sha256: expectedHash, size: existing.size, originalName, deviceId: device.id, owner: device.owner, receivedAt: now };
           store.associations[ownKey] = association;
@@ -866,7 +869,10 @@ export function registerReplayDeviceUploadRoute(app: Express) {
       store.parserJobs[jobId] = job; store.blobs[expectedHash] = blob; store.associations[ownKey] = association; device.lastSeenAt = now;
       pruneParserJobs(store);
       pairReplayScreenshots(store);
-      autoFinalizeDesktopReplay(db, store, expectedHash, actorForDevice(device));
+      // Keep a replacement of failed evidence inside the Pages CPU budget.
+      // The already queued screenshot summary performs the deterministic
+      // acceptance in the following request.
+      if (!replacingFailedEvidence) autoFinalizeDesktopReplay(db, store, expectedHash, actorForDevice(device));
       await saveDB(db);
       return res.status(existing ? 200 : 201).json({ ...uploadPublic(association, blob), evidenceSha256: validated.envelope.evidenceSha256, reviewRequired: true, idempotent: !!existing });
     } catch (error: any) { return res.status(error?.status || 400).json({ error: error?.message || 'Local replay evidence was rejected.' }); }
