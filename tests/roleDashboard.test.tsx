@@ -18,7 +18,7 @@ describe('role-aware dashboard', () => {
   it('opens player sessions on a personal-first performance brief', () => {
     const renamed = { ...data, rosterPlayers: [{ ...data.rosterPlayers[0], displayName: 'Ahmed Renamed' }] };
     const html = renderToStaticMarkup(<Dashboard data={renamed} theme={theme} role="player" username="Different Login Label" onOpenMatch={() => {}} />);
-    expect(html).toContain('Different Login Label · personal brief');
+    expect(html).toContain('Different Login Label · today');
     expect(html).toContain('Ahmed Renamed');
     expect(html).toContain('My performance');
     expect(html).toContain('20 / 10 / 5');
@@ -26,17 +26,20 @@ describe('role-aware dashboard', () => {
     expect(html).not.toContain('Coach comparison');
   });
 
-  it('keeps coach sessions team-first with comparison controls', () => {
+  it('keeps coach sessions focused and moves detailed controls out of the dashboard', () => {
     const html = renderToStaticMarkup(<Dashboard data={data} theme={theme} role="coach" username="Coach" onOpenMatch={() => {}} />);
-    expect(html).toContain('Coach brief');
-    expect(html).toContain('Coach comparison');
+    expect(html).toContain('Today at a glance');
+    expect(html).toContain('Latest match');
+    expect(html).toContain('Next session');
+    expect(html).not.toContain('Coach comparison');
+    expect(html).not.toContain('Data &amp; analysis readiness');
     expect(html).not.toContain('My performance');
   });
 
   it('does not infer an unpaired player identity from a matching display name', () => {
     const unpaired = { ...data, authenticatedViewer: { playerId: null }, rosterPlayers: [{ id: 'other-player', displayName: 'Ahmed' }] };
     const html = renderToStaticMarkup(<Dashboard data={unpaired} theme={theme} role="player" username="Ahmed" onOpenMatch={() => {}} />);
-    expect(html).toContain('no personal evidence is inferred from its display name');
+    expect(html).toContain('This login is not paired to a roster identity');
     expect(html).not.toContain('20 / 10 / 5');
   });
 });
