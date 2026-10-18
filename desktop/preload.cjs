@@ -7,6 +7,13 @@ contextBridge.exposeInMainWorld('moeDesktop', Object.freeze({
   downloadUpdate: () => ipcRenderer.invoke('desktop:download-update'),
   installUpdate: () => ipcRenderer.invoke('desktop:install-update'),
   processMatch: () => ipcRenderer.invoke('desktop:process-match'),
+  chooseVodFile: () => ipcRenderer.invoke('desktop:choose-vod-file'),
+  analyzeVod: (input) => ipcRenderer.invoke('desktop:analyze-vod', input),
+  onVodAnalysisProgress: (callback) => {
+    const listener = (_event, payload) => callback(payload);
+    ipcRenderer.on('desktop:vod-analysis-progress', listener);
+    return () => ipcRenderer.removeListener('desktop:vod-analysis-progress', listener);
+  },
   deleteReplay: (replayPath) => ipcRenderer.invoke('desktop:delete-replay', replayPath),
   syncNow: () => ipcRenderer.invoke('desktop:sync-now'),
   pairDevice: (input) => ipcRenderer.invoke('desktop:pair-device', input),

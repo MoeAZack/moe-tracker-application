@@ -399,7 +399,10 @@ export interface PlayerStats {
   corrections?: EntryCorrectionMetadata[];
   /** Coach-accepted aggregates derived from round screenshots. Raw images stay local. */
   screenshotMetrics?: PlayerScreenshotMetrics;
-  vodEvidence?: { submissionIds: string[]; fields: string[]; updatedAt: string };
+  vodEvidence?: {
+    submissionIds: string[]; fields: string[]; updatedAt: string;
+    timeline?: { submissionId: string; grade: 'video-observation'; coverage: Record<string, 'complete' | 'partial' | 'unsupported'>; metrics: Record<string, number | null> };
+  };
 }
 
 export type EvidenceConfidence = 'confirmed' | 'high' | 'medium' | 'low';
@@ -691,6 +694,18 @@ export interface VodSubmissionPlayer {
   trades: number | null;
 }
 
+export interface VodTimelineEvidence {
+  schema: 'moetracker.vod-timeline-evidence/v1';
+  grade: 'video-observation';
+  source: { kind: 'youtube' | 'local-file'; videoId?: string | null; sha256: string; width: number; height: number; durationMs: number; analyzedAt: string };
+  coverage: { durationMs: number; killFeedSnapshots: number; objectiveSnapshots: number; ultimateSnapshots: number; resolvedEliminations: number; inferredRoundGroups: number; signals: Record<string, 'complete' | 'partial' | 'unsupported'> };
+  observations: Array<{ id: string; kind: string; timestampMs: number; confidence?: number | null; grade: 'video-observation' | 'ocr'; killer?: string; victim?: string; player?: string; rawText?: string; [key: string]: unknown }>;
+  rounds: Array<{ roundNumber: number; startedAtMs: number; endedAtMs: number; events: unknown[] }>;
+  playerMetrics: Array<{ playerName: string; team: 'ours' | 'theirs'; kills: number; deaths: number; trades: number; ultimateUses?: number | null; orbCaptures?: number | null; kastSuccessful?: number | null; kastCovered?: number | null; kastRate?: number | null }>;
+  throwCandidates: unknown[];
+  limitations: string[];
+}
+
 export interface VodSubmission {
   schema: 'moetracker.vod-submission/v1';
   id: string;
@@ -709,6 +724,7 @@ export interface VodSubmission {
   status: 'integrated';
   rosterMatchCount: 5;
   players: VodSubmissionPlayer[];
+  timelineEvidence?: VodTimelineEvidence | null;
   integration: { createdMatch: boolean; createdStats: number; filledFields: number; preservedFields: number };
   createdAt: string;
   integratedAt: string;
