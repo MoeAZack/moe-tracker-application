@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { buildPlayerScreenshotMetrics, classifyAverageLoadout, combineStoredScreenshotMetrics, deriveSpecialRoundConversions, materializeFirstDeathsFromRoundEvidence, materializeRoundOpeningsFromScreenshotEvidence, materializeRoundPlantsFromScreenshotEvidence } from '../lib/scrimRoundAnalytics';
+import { buildPlayerScreenshotMetrics, classifyAverageLoadout, combinePlayerScreenshotMetrics, combineStoredScreenshotMetrics, deriveSpecialRoundConversions, materializeFirstDeathsFromRoundEvidence, materializeRoundOpeningsFromScreenshotEvidence, materializeRoundPlantsFromScreenshotEvidence } from '../lib/scrimRoundAnalytics';
 
 const round = (overrides: any = {}) => ({
   id: 'r1', matchId: 'm1', roundNo: 1, side: 'Attack', result: 'W',
@@ -130,6 +130,24 @@ describe('scrim screenshot analytics', () => {
     ]);
     expect(combined.map(item => item.identity)).toEqual(['unlinked-name:samename']);
     expect(combined[0]).toMatchObject({ coveredRounds: 2, multikills: { two: 2, three: 0, four: 0, ace: 0 } });
+  });
+  it('joins an unlinked observed name to its one unambiguous stable identity', () => {
+    const metric: any = buildPlayerScreenshotMetrics([round()] as any)[0];
+    const combined = combinePlayerScreenshotMetrics([
+      { ...metric, identity: 'unlinked:match-a:alpha', displayName: 'Alpha' },
+      { ...metric, identity: 'player-alpha', displayName: 'Alpha' },
+    ]);
+    expect(combined).toHaveLength(1);
+    expect(combined[0]).toMatchObject({ identity: 'player-alpha', displayName: 'Alpha', coveredRounds: 2, multikills: { two: 2 } });
+  });
+  it('does not guess when the same observed name has multiple stable identities', () => {
+    const metric: any = buildPlayerScreenshotMetrics([round()] as any)[0];
+    const combined = combinePlayerScreenshotMetrics([
+      { ...metric, identity: 'unlinked:match-a:alpha', displayName: 'Alpha' },
+      { ...metric, identity: 'player-alpha-one', displayName: 'Alpha' },
+      { ...metric, identity: 'player-alpha-two', displayName: 'Alpha' },
+    ]);
+    expect(combined.map(item => item.identity).sort()).toEqual(['player-alpha-one', 'player-alpha-two', 'unlinked-name:alpha']);
   });
   it('attributes a five-second follow-up kill to the player who made the trade', () => {
     const traded = round({ screenshotEvidence: {
