@@ -7,6 +7,9 @@ type DesktopStatus = {
   deviceName: string;
   retentionDays: number;
   startWithWindows: boolean;
+  role: string;
+  teamName: string | null;
+  capture: { state: 'waiting-for-valorant' | 'match-detected' | 'capture-ready' | 'capturing' | 'review-required' | 'uploading' | 'synchronized' | 'paused' | 'error'; paused: boolean; preferences: { profile: 'fullscreen' | 'fullscreen-windowed' | 'windowed'; display: string; notification: 'open-review' | 'notify-only' | 'silent'; offlineQueue: boolean }; safety: 'post-match-only'; lastError: string | null };
   cloudUrl: string;
   replayCount: number;
   replays: Array<{ name: string; path: string; size: number; modifiedAt: string }>;
@@ -36,6 +39,9 @@ declare global {
       setSyncMode(mode: 'offline-first' | 'connected'): Promise<{ mode: 'offline-first' | 'connected' }>;
       setRetentionDays(days: number): Promise<{ retentionDays: number }>;
       setStartWithWindows(enabled: boolean): Promise<{ startWithWindows: boolean }>;
+      setCapturePaused(paused: boolean): Promise<{ paused: boolean }>;
+      setCapturePreferences(input: { profile: 'fullscreen' | 'fullscreen-windowed' | 'windowed'; display: string; notification: 'open-review' | 'notify-only' | 'silent'; offlineQueue: boolean }): Promise<DesktopStatus['capture']['preferences']>;
+      disconnectDevice(): Promise<{ disconnected: boolean }>;
       listScoreboards(): Promise<Array<{ id: string; name: string; size: number; modifiedAt: string; mediaType: string; capture?: null | { captureId: string; template: string; requestedRounds: number } }>>;
       readScoreboard(id: string): Promise<{ id: string; imageSha256: string; name: string; mediaType: string; bytes: Uint8Array }>;
       readCaptureSession(id: string): Promise<{ id: string; captureId: string; template: string; requestedRounds: number; captures: Array<{ kind: 'scoreboard' | 'performance' | 'head-to-head' | 'round'; round?: number; name: string; mediaType: string; base64: string }> }>;

@@ -4,6 +4,7 @@ import * as schemas from '../../schemas';
 import { readDB, saveDB } from '../store';
 import { mergePracticeBlocks, savePracticeBlock, splitPracticeBlock } from '../practiceBlocks';
 import { validate } from '../utils';
+import { refreshCoachingWorkflow } from './coaching';
 
 function coach(req: Request, res: Response) {
   if ((req as any).user?.role !== 'coach') { res.status(403).json({ error: 'Private tryout decisions require coach access.' }); return false; }
@@ -14,15 +15,15 @@ const actor = (req: Request) => String((req as any).user?.actorId || (req as any
 export function registerComparisonRoutes(app: Express) {
   app.post('/api/practice-blocks/save', async (req, res) => {
     if (!coach(req, res)) return; const body = validate(schemas.practiceBlockSaveSchema, req.body, res); if (!body) return;
-    try { const db = await readDB(); const block = savePracticeBlock(db, body, actor(req)); await saveDB(db); res.json(block); } catch (error: any) { res.status(error.status || 500).json({ error: error.message }); }
+    try { const db = await readDB(); const block = savePracticeBlock(db, body, actor(req)); refreshCoachingWorkflow(db, actor(req)); await saveDB(db); res.json(block); } catch (error: any) { res.status(error.status || 500).json({ error: error.message }); }
   });
   app.post('/api/practice-blocks/split', async (req, res) => {
     if (!coach(req, res)) return; const body = validate(schemas.practiceBlockSplitSchema, req.body, res); if (!body) return;
-    try { const db = await readDB(); const result = splitPracticeBlock(db, body, actor(req)); await saveDB(db); res.json(result); } catch (error: any) { res.status(error.status || 500).json({ error: error.message }); }
+    try { const db = await readDB(); const result = splitPracticeBlock(db, body, actor(req)); refreshCoachingWorkflow(db, actor(req)); await saveDB(db); res.json(result); } catch (error: any) { res.status(error.status || 500).json({ error: error.message }); }
   });
   app.post('/api/practice-blocks/merge', async (req, res) => {
     if (!coach(req, res)) return; const body = validate(schemas.practiceBlockMergeSchema, req.body, res); if (!body) return;
-    try { const db = await readDB(); const result = mergePracticeBlocks(db, body, actor(req)); await saveDB(db); res.json(result); } catch (error: any) { res.status(error.status || 500).json({ error: error.message }); }
+    try { const db = await readDB(); const result = mergePracticeBlocks(db, body, actor(req)); refreshCoachingWorkflow(db, actor(req)); await saveDB(db); res.json(result); } catch (error: any) { res.status(error.status || 500).json({ error: error.message }); }
   });
   app.post('/api/tryout-decisions/notes', async (req, res) => {
     if (!coach(req, res)) return; const body = validate(schemas.tryoutDecisionNoteSchema, req.body, res); if (!body) return;

@@ -1,5 +1,5 @@
 import React, { useEffect, useState } from 'react';
-import { AlertTriangle, CheckCircle2, Cloud, FolderOpen, Image, LoaderCircle, Play, ScanLine, Trash2, WifiOff } from 'lucide-react';
+import { AlertTriangle, CheckCircle2, Cloud, FolderOpen, Image, LoaderCircle, PauseCircle, Play, PlayCircle, ScanLine, Trash2, WifiOff } from 'lucide-react';
 
 export default function DesktopCommandCenter({ onOpenReplay, onOpenCapture }: { onOpenReplay?: () => void; onOpenCapture?: () => void }) {
   const bridge = typeof window === 'undefined' ? undefined : window.moeDesktop;
@@ -36,6 +36,7 @@ export default function DesktopCommandCenter({ onOpenReplay, onOpenCapture }: { 
         <span className="desktop-status desktop-status-online"><CheckCircle2 className="h-3 w-3" />Service online</span>
         <span className="desktop-status"><WifiOff className="h-3 w-3" />Offline ready</span>
         {status?.sync?.paired && <span className="desktop-status"><Cloud className="h-3 w-3" />Team linked</span>}
+        <span className="desktop-status">{status?.capture?.paused ? <PauseCircle className="h-3 w-3" /> : <CheckCircle2 className="h-3 w-3" />}{status?.capture?.state?.replaceAll('-', ' ') || 'checking capture'}</span>
       </div>
     </header>
 
@@ -50,6 +51,7 @@ export default function DesktopCommandCenter({ onOpenReplay, onOpenCapture }: { 
             <div className="mt-5 flex flex-wrap gap-2">
               {pendingScoreboards ? <button type="button" onClick={onOpenCapture || onOpenReplay} className="ui-button ui-button-primary inline-flex min-h-11 items-center justify-center gap-2 px-5 text-sm"><Image className="h-4 w-4" />Review captured match</button> : <button type="button" disabled={!!busy || !status?.latestReplay} onClick={() => run('process', bridge.processMatch)} className="ui-button ui-button-primary inline-flex min-h-11 items-center justify-center gap-2 px-5 text-sm disabled:opacity-50">{busy === 'process' ? <LoaderCircle className="h-4 w-4 animate-spin" /> : <Play className="h-4 w-4" />}Process latest replay</button>}
               {pendingScoreboards > 0 && status?.latestReplay && <button type="button" disabled={!!busy} onClick={() => run('process', bridge.processMatch)} className="ui-button min-h-11 px-4 text-xs disabled:opacity-50"><Play className="h-4 w-4" />Process replay instead</button>}
+              <button type="button" disabled={!!busy} onClick={() => run('capture-pause', () => bridge.setCapturePaused(!status?.capture?.paused))} className="ui-button min-h-11 px-4 text-xs disabled:opacity-50">{status?.capture?.paused ? <PlayCircle className="h-4 w-4" /> : <PauseCircle className="h-4 w-4" />}{status?.capture?.paused ? 'Resume capture' : 'Pause capture'}</button>
             </div>
           </div>
         </div>

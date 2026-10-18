@@ -49,13 +49,13 @@ the coaching SaaS are maintained in [SAAS-COACHING-ROADMAP.md](./SAAS-COACHING-R
 - [ ] Complete a second-PC install, synchronization, update, rollback, and fullscreen-capture acceptance run
 - [ ] Complete human screen-reader, keyboard-only, high-contrast, and 200% zoom accessibility acceptance
 - [ ] Obtain a public Windows code-signing certificate and publish the signed installer through the staged update channel
-- [ ] S0 — Stabilize canonical evidence references, metric envelopes, and signal identifiers
-- [ ] S1 — Generate an accepted-evidence practice-block summary after capture
-- [ ] S2 — Turn detected review signals into an evidence-linked coaching inbox
-- [ ] S3 — Carry reviewed findings into assignments and next-block verification
-- [ ] S4 — Add player, tryout, teammate, period, agent, side, and map comparisons
-- [ ] S5 — Add configurable coach-dashboard presets and saved layouts
-- [ ] S6 — Complete the tray-first lightweight capture experience
+- [x] S0 — Stabilize canonical evidence references, metric envelopes, and signal identifiers
+- [x] S1 — Generate an accepted-evidence practice-block summary after capture
+- [x] S2 — Turn detected review signals into an evidence-linked coaching inbox
+- [x] S3 — Carry reviewed findings into assignments and next-block verification
+- [x] S4 — Add player, tryout, teammate, period, agent, side, and map comparisons
+- [x] S5 — Add configurable coach-dashboard presets and saved layouts
+- [ ] S6 — Tray-first capture implementation is complete; public signing and second physical-PC acceptance remain release gates
 - [ ] S7 — Add bounded team notifications and Discord delivery
 
 ## Later

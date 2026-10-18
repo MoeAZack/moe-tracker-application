@@ -1,4 +1,4 @@
-const { app, BrowserWindow, dialog, ipcMain, Menu, safeStorage, shell, Tray } = require('electron');
+const { app, BrowserWindow, dialog, ipcMain, Menu, Notification, safeStorage, shell, Tray } = require('electron');
 const { spawn } = require('node:child_process');
 const crypto = require('node:crypto');
 const fs = require('node:fs');
@@ -29,6 +29,7 @@ let syncPromise;
 let captureInboxTimer;
 let backupTimer;
 let lastNotifiedCaptureId = null;
+let captureActivity = null;
 let syncStateMutation = Promise.resolve();
 let runtime;
 let updateController;
@@ -110,10 +111,14 @@ async function ensureRuntime() {
       mode: 'offline-first',
       cloudUrl: 'https://moetracker-site.pages.dev',
       extraReplayFolders: [],
+      capturePaused: false,
+      capturePreferences: { profile: 'fullscreen-windowed', display: 'primary', notification: 'open-review', offlineQueue: true },
       createdAt: new Date().toISOString(),
     };
   }
   protectConfigSecrets(config);
+  config.capturePaused = config.capturePaused === true;
+  config.capturePreferences = { profile: 'fullscreen-windowed', display: 'primary', notification: 'open-review', offlineQueue: true, ...(config.capturePreferences || {}) };
   if (!config.deviceId) {
     config.deviceId = `desktop-${crypto.randomUUID()}`;
   }
@@ -304,6 +309,7 @@ async function importEvidenceFile(file) {
 }
 
 async function autoImportProcessedEvidence() {
+  if (runtime.config.capturePaused) return { imported: 0, paused: true };
   if (collectorImportPromise) return collectorImportPromise;
   collectorImportPromise = (async () => {
     const manifest = await json(path.join(runtime.paths.collector, 'manifest.json'), { files: {} });
@@ -451,6 +457,8 @@ async function desktopStatus() {
   const localSync = await syncState();
   let collector = null;
   try { collector = await collectorJsonCommand(['status']); } catch (error) { collector = { error: error.message }; }
+  const collectorText = JSON.stringify(collector || {}); const matchDetected = /observing|locked/i.test(collectorText); const capturing = captureActivity?.state === 'capturing' && Date.now() - captureActivity.startedAt < 5 * 60 * 1000;
+  const captureState = runtime.config.capturePaused ? 'paused' : pendingScoreboards.length ? 'review-required' : collector?.error ? 'error' : capturing ? 'capturing' : matchDetected ? 'match-detected' : syncPromise && localSync.outbox.length ? 'uploading' : runtime.config.cloudPairing && !localSync.outbox.length ? 'synchronized' : replays.length ? 'capture-ready' : 'waiting-for-valorant';
   return {
     appVersion: app.getVersion(),
     deviceId: runtime.config.deviceId,
@@ -458,6 +466,9 @@ async function desktopStatus() {
     deviceName: runtime.config.deviceName,
     retentionDays: runtime.config.retentionDays,
     startWithWindows: !!runtime.config.startWithWindows,
+    role: runtime.config.role || 'coach',
+    teamName: runtime.config.cloudPairing?.owner?.teamName || runtime.config.cloudPairing?.owner?.teamId || null,
+    capture: { state: captureState, paused: !!runtime.config.capturePaused, preferences: runtime.config.capturePreferences, safety: 'post-match-only', lastError: collector?.error || null },
     cloudUrl: runtime.config.cloudUrl,
     folders: runtime.paths,
     replayCount: replays.length,
@@ -499,6 +510,9 @@ async function notifyLatestCapture() {
   const latest = captures.at(-1);
   if (!latest || latest.id === lastNotifiedCaptureId) return;
   lastNotifiedCaptureId = latest.id;
+  captureActivity = null;
+  if (runtime.config.capturePaused || runtime.config.capturePreferences?.notification === 'silent') return;
+  if (runtime.config.capturePreferences?.notification === 'notify-only') { if (Notification.isSupported()) new Notification({ title: 'Moe Tracker capture ready', body: 'The post-match capture is ready for review.' }).show(); return; }
   const window = await createWindow();
   if (window.isMinimized()) window.restore();
   window.show(); window.focus();
@@ -506,13 +520,17 @@ async function notifyLatestCapture() {
 }
 
 function createTray() {
+  tray?.destroy();
   tray = new Tray(path.join(__dirname, 'assets', 'app-icon.ico'));
-  tray.setToolTip('Moe Tracker — replay watcher active');
+  tray.setToolTip(runtime.config.capturePaused ? 'Moe Tracker — capture paused' : 'Moe Tracker — capture watcher active');
   tray.setContextMenu(Menu.buildFromTemplate([
-    { label: 'Replay watcher active', enabled: false },
+    { label: runtime.config.capturePaused ? 'Capture paused' : 'Capture watcher active', enabled: false },
     { type: 'separator' },
     { label: 'Open Moe Tracker', click: () => { void showMainWindow().catch(error => recordLocalCrash('open-window-failed', error)); } },
+    { label: runtime.config.capturePaused ? 'Resume capture' : 'Pause capture', click: () => { runtime.config.capturePaused = !runtime.config.capturePaused; void saveRuntimeConfig().then(createTray); } },
     { label: 'Open replay inbox', click: () => { void shell.openPath(runtime.paths.replays); } },
+    { label: 'Open captured scoreboards', click: () => { void shell.openPath(runtime.paths.screenshots); } },
+    { label: 'Open diagnostic logs', click: () => { void shell.openPath(runtime.paths.logs); } },
     { type: 'separator' },
     { label: 'Quit Moe Tracker', click: () => { quitting = true; app.quit(); } },
   ]));
@@ -545,6 +563,14 @@ ipcMain.handle('desktop:pair-device', (_event, input) => pairDevice(input || {})
 ipcMain.handle('desktop:set-sync-mode', async (_event, mode) => { if (!['offline-first', 'connected'].includes(mode)) throw new Error('Unknown synchronization mode.'); if (mode === 'connected' && !runtime.config.cloudPairing) throw new Error('Pair this device before enabling connected sync.'); runtime.config.mode = mode; await saveRuntimeConfig(); return { mode }; });
 ipcMain.handle('desktop:set-retention-days', async (_event, value) => { const days = Number(value); if (!Number.isInteger(days) || days < 1 || days > 365) throw new Error('Retention must be between 1 and 365 days.'); runtime.config.retentionDays = days; await saveRuntimeConfig(); await configureCollector(); return { retentionDays: days }; });
 ipcMain.handle('desktop:set-start-with-windows', async (_event, enabled) => { runtime.config.startWithWindows = enabled === true; await saveRuntimeConfig(); applyLoginPreference(); return { startWithWindows: runtime.config.startWithWindows }; });
+ipcMain.handle('desktop:set-capture-paused', async (_event, paused) => { runtime.config.capturePaused = paused === true; await saveRuntimeConfig(); createTray(); return { paused: runtime.config.capturePaused }; });
+ipcMain.handle('desktop:set-capture-preferences', async (_event, input = {}) => {
+  const profile = ['fullscreen', 'fullscreen-windowed', 'windowed'].includes(input.profile) ? input.profile : runtime.config.capturePreferences.profile;
+  const display = /^(primary|display:\d{1,2})$/.test(String(input.display || '')) ? String(input.display) : runtime.config.capturePreferences.display;
+  const notification = ['open-review', 'notify-only', 'silent'].includes(input.notification) ? input.notification : runtime.config.capturePreferences.notification;
+  runtime.config.capturePreferences = { profile, display, notification, offlineQueue: input.offlineQueue !== false }; await saveRuntimeConfig(); return runtime.config.capturePreferences;
+});
+ipcMain.handle('desktop:disconnect-device', async () => { delete runtime.config.cloudPairing; delete runtime.config.identity; runtime.config.mode = 'offline-first'; runtime.config.role = 'coach'; runtime.session = null; runtime.coachSession = null; await saveRuntimeConfig(); return { disconnected: true }; });
 ipcMain.handle('desktop:list-scoreboards', async () => (await allPendingScoreboards()).map(({ file: _privatePath, capture: privateCapture, ...record }) => ({ ...record, capture: privateCapture ? { captureId: privateCapture.captureId, template: privateCapture.template, requestedRounds: privateCapture.requestedRounds } : null })));
 ipcMain.handle('desktop:read-scoreboard', async (_event, id) => {
   if (!/^[a-f0-9]{64}$/.test(String(id || ''))) throw new Error('Unknown scoreboard image.');
@@ -575,21 +601,23 @@ ipcMain.handle('desktop:complete-scoreboard', async (_event, id) => {
   await saveRuntimeConfig(); return { completed: true };
 });
 ipcMain.handle('desktop:start-scrim-capture', async (_event, input = {}) => {
+  if (runtime.config.capturePaused) throw new Error('Capture is paused. Resume it from the tray or Settings first.');
   const roundCount = input.roundCount === undefined || input.roundCount === null || input.roundCount === '' ? 0 : Number(input.roundCount);
   if (!Number.isInteger(roundCount) || roundCount < 0 || roundCount > 32) throw new Error('Round count must be automatic or between 1 and 32.');
   const launcher = path.join(applicationRoot(), 'scripts', 'start-scrim-capture.cmd');
   if (!path.isAbsolute(launcher) || !fs.existsSync(launcher)) throw new Error('The built-in capture helper is missing. Reinstall Moe Tracker.');
-  const command = "$process = Start-Process -FilePath $env:MOE_CAPTURE_LAUNCHER -Verb RunAs -ArgumentList @($env:MOE_CAPTURE_ROUNDS, 'elevated') -PassThru; if (-not $process) { exit 1 }";
+  captureActivity = { state: 'capturing', startedAt: Date.now() };
+  const command = "$process = Start-Process -FilePath $env:MOE_CAPTURE_LAUNCHER -Verb RunAs -ArgumentList @($env:MOE_CAPTURE_ROUNDS, 'elevated', $env:MOE_CAPTURE_PROFILE, $env:MOE_CAPTURE_DISPLAY) -PassThru; if (-not $process) { exit 1 }";
   await new Promise((resolve, reject) => {
     const child = spawn('powershell.exe', ['-NoProfile', '-NonInteractive', '-ExecutionPolicy', 'Bypass', '-Command', command], {
       windowsHide: true,
-      env: { ...process.env, MOE_CAPTURE_LAUNCHER: launcher, MOE_CAPTURE_ROUNDS: String(roundCount) },
+      env: { ...process.env, MOE_CAPTURE_LAUNCHER: launcher, MOE_CAPTURE_ROUNDS: String(roundCount), MOE_CAPTURE_PROFILE: runtime.config.capturePreferences.profile, MOE_CAPTURE_DISPLAY: runtime.config.capturePreferences.display },
       stdio: ['ignore', 'ignore', 'pipe'],
     });
     let stderr = '';
     child.stderr.on('data', value => { stderr += String(value); });
-    child.on('error', reject);
-    child.on('exit', code => code === 0 ? resolve() : reject(new Error(stderr.trim() || 'Windows did not start the capture helper.')));
+    child.on('error', error => { captureActivity = null; reject(error); });
+    child.on('exit', code => { if (code === 0) resolve(); else { captureActivity = null; reject(new Error(stderr.trim() || 'Windows did not start the capture helper.')); } });
   });
   return { started: true, message: `Capture started${roundCount ? ` for ${roundCount} rounds` : ' with automatic round detection'}. Approve Windows elevation, then return to VALORANT before the countdown ends.` };
 });

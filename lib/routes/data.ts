@@ -10,6 +10,7 @@ import { applyImmutableEntryMetadata, applyScreenshotReviewConfirmation, reconci
 import { materializeFirstDeathsFromRoundEvidence, materializeRoundOpeningsFromScreenshotEvidence, materializeRoundPlantsFromScreenshotEvidence } from '../scrimRoundAnalytics';
 import { recomputeAcceptedMatchAggregates } from '../aggregateVersioning';
 import { attendancePolicy, attendanceStatus, attendanceSummary, attendanceWindow } from '../attendance';
+import { refreshCoachingWorkflow } from './coaching';
 
 // Core data + match logging: full payload, reset, settings, generic upsert/remove,
 // and match/round/veto saves. Protected routes (registered after the auth middleware).
@@ -54,6 +55,9 @@ export function registerDataRoutes(app: Express, options: { websiteSummaryOnly?:
       db.attendanceCredits = [];
       db.goals = [];
       db.strats = [];
+      db.coachingSignals = [];
+      db.coachingActions = [];
+      refreshCoachingWorkflow(db, (req as any).user?.username || 'Unknown coach');
       await saveDB(db);
       res.json({ success: true, message: 'All database metrics and logs have been reset.' });
     } catch (err: any) {
@@ -68,6 +72,7 @@ export function registerDataRoutes(app: Express, options: { websiteSummaryOnly?:
       const db = await readDB();
       // Merge rather than replace so a partial payload can never wipe existing settings.
       db.settings = { ...db.settings, ...body };
+      refreshCoachingWorkflow(db, (req as any).user?.username || 'Unknown coach');
       await saveDB(db);
       res.json(db.settings);
     } catch (err: any) {
@@ -346,6 +351,7 @@ export function registerDataRoutes(app: Express, options: { websiteSummaryOnly?:
         db.playerStats.push(...savedStats);
       }
 
+      refreshCoachingWorkflow(db, actor);
       await saveDB(db);
 
       // Best-effort auto-post to Discord for newly logged matches only (avoids spam on edits;
@@ -392,6 +398,7 @@ export function registerDataRoutes(app: Express, options: { websiteSummaryOnly?:
       // adapter above. The website receives aggregates, never raw screenshots.
       materializeFirstDeathsFromRoundEvidence(db, { overwrite: true, matchId });
 
+      refreshCoachingWorkflow(db, (req as any).user?.username || 'Unknown coach');
       await saveDB(db);
       const matchStats = db.playerStats.filter((item: any) => item.matchId === matchId);
       const summarizedStats = matchStats.filter((item: any) => item.screenshotMetrics);

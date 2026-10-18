@@ -126,6 +126,13 @@ export interface Settings {
   sites: string[];
   vetoActions: string[];
   stats?: StatsConfig;
+  coachingThresholds?: {
+    minimumSamples?: number;
+    fullBuyLosses?: number;
+    antiEcoLosses?: number;
+    firstDeathCollapseRate?: number;
+    maxActiveActionsPerPlayer?: number;
+  };
 }
 
 export interface Schedule {
@@ -256,6 +263,63 @@ export interface PracticeBlock {
   createdBy: string;
   updatedAt: string;
   updatedBy: string;
+}
+
+export type CoachingSignalStatus = 'new' | 'reviewing' | 'accepted' | 'dismissed' | 'needs-evidence' | 'converted-to-action';
+export interface CoachingSignal {
+  schema: 'moetracker.coaching-workflow/v1';
+  generatorVersion: 1;
+  id: string;
+  fingerprint: string;
+  blockId: string;
+  matchIds: string[];
+  type: 'pistol-conversion' | 'full-buy-loss' | 'anti-eco-loss' | 'low-buy-win' | 'first-death-collapse' | 'repeated-player-first-death' | 'advantage-collapse' | 'map-underperformance' | 'evidence-health';
+  severity: 'critical' | 'warning' | 'info';
+  title: string;
+  explanation: string;
+  metric: { value: number; samples: number; unit: string };
+  context: { map?: string; side?: string; economy?: string; playerId?: string; player?: string; agent?: string; composition?: string };
+  evidence: { matchIds: string[]; roundIds?: string[]; sourceTypes: string[]; confidence: 'high' | 'medium' | 'low' };
+  relatedActionId?: string;
+  classificationCorrections?: Array<{ at: string; by: string; reason: string; original: { type: CoachingSignal['type']; context: CoachingSignal['context'] }; corrected: { type: CoachingSignal['type']; context: CoachingSignal['context'] } }>;
+  status: CoachingSignalStatus;
+  createdAt: string;
+  updatedAt: string;
+  audit: Array<{ at: string; by: string; from: CoachingSignalStatus | null; to: CoachingSignalStatus; reason?: string }>;
+}
+
+export interface CoachingAction {
+  schema: 'moetracker.coaching-workflow/v1';
+  id: string;
+  sourceSignalId: string;
+  sourceFingerprint: string;
+  evidence: CoachingSignal['evidence'];
+  title: string;
+  kind: 'player-feedback' | 'team-task' | 'vod-review' | 'strategy-board' | 'map-plan' | 'schedule-objective' | 'next-block-check';
+  ownerIds: string[];
+  dueBlockId: string | null;
+  dueDate: string | null;
+  priority: 'high' | 'normal' | 'low';
+  visibility: 'private' | 'staff' | 'team';
+  state: 'planned' | 'assigned' | 'acknowledged' | 'in-progress' | 'review-next-block' | 'resolved' | 'cancelled';
+  check: null | { signalType: CoachingSignal['type']; baseline: number; target: number; direction: 'increase' | 'decrease' };
+  outcome: null | { status: 'satisfied' | 'regressed' | 'inconclusive'; baseline: number; later: number | null; change: number | null; confidence: 'high' | 'medium' | 'low'; evaluatedAt: string; reason: string };
+  createdAt: string;
+  updatedAt: string;
+  audit: Array<{ at: string; by: string; from: CoachingAction['state'] | null; to: CoachingAction['state']; reason?: string }>;
+}
+
+export interface DashboardView {
+  schema: 'moetracker.dashboard-view/v1';
+  id: string;
+  name: string;
+  ownerId: string;
+  scope: 'personal' | 'team';
+  version: 1;
+  preset: string;
+  cards: Array<{ id: string; size: string; minimized: boolean }>;
+  filters: { blockId: string | null; map: string | null; source: string | null; confidence: string | null };
+  updatedAt: string;
 }
 
 export interface TryoutDecisionNote {
@@ -541,6 +605,9 @@ export interface TrackerData {
   coreMemberships: CoreMembership[];
   tryoutBatches: TryoutBatch[];
   practiceBlocks?: PracticeBlock[];
+  coachingSignals?: CoachingSignal[];
+  coachingActions?: CoachingAction[];
+  dashboardViews?: DashboardView[];
   tryoutDecisionNotes?: TryoutDecisionNote[];
   seasonArchives: SeasonArchive[];
   secrets: Record<string, boolean>;
