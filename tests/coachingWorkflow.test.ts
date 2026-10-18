@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { buildActionCheck, buildAllPracticeBlockSummaries, buildPracticeBlockSummary, createCoachingAction, evaluateAction, generateReviewSignalDrafts, migrateLegacyActionChecks, normalizeDashboardView, reconcileReviewSignals, transitionSignal } from '../lib/coachingWorkflow';
+import { buildActionCheck, buildAllPracticeBlockSummaries, buildPracticeBlockSummary, COACHING_CHECK_POLICY_VERSION, createCoachingAction, evaluateAction, generateReviewSignalDrafts, migrateLegacyActionChecks, normalizeDashboardView, reconcileReviewSignals, transitionSignal } from '../lib/coachingWorkflow';
 
 const acceptedMatch = (id: string, date = '2026-10-18') => ({ id, date, type: 'Scrim', opponent: 'PYO', map: 'Ascent', attW: 5, attL: 7, defW: 8, defL: 4, sourceMetadata: { method: 'manual', capturedAt: `${date}T12:00:00Z` } });
 const base = () => ({
@@ -48,7 +48,18 @@ describe('S3 coaching actions', () => {
     const current = createCoachingAction({ signal: source, kind: 'team-task', ownerIds: [], priority: 'normal', visibility: 'staff' }, 'coach');
     const legacy: any = { ...current, check: { ...current.check, policyVersion: undefined, direction: 'decrease', target: 0 }, outcome: { status: 'satisfied', baseline: 25, later: 0, change: -25, confidence: 'high', evaluatedAt: '2026-10-18T12:00:00Z', reason: 'legacy' } };
     const migrated = migrateLegacyActionChecks([legacy], [source], 'system', '2026-10-18T13:00:00Z', [summary])[0];
-    expect(migrated.check?.policyVersion).toBe(2); expect(migrated.checkHistory).toHaveLength(1); expect(migrated.checkHistory?.[0].outcome?.status).toBe('satisfied'); expect(migrated.outcome?.status).toBe('inconclusive');
+    expect(migrated.check?.policyVersion).toBe(COACHING_CHECK_POLICY_VERSION); expect(migrated.checkHistory).toHaveLength(1); expect(migrated.checkHistory?.[0].outcome?.status).toBe('satisfied'); expect(migrated.outcome?.status).toBe('inconclusive');
+  });
+  it('repairs previously migrated policy-v2 checks once and preserves their faulty values in history', () => {
+    const summary = buildPracticeBlockSummary(base(), { id: 'b1', name: 'Prac', matchIds: ['m1'] });
+    const source = transitionSignal(reconcileReviewSignals([], generateReviewSignalDrafts(summary, { minimumSamples: 1 }))[0], 'accepted', 'coach');
+    const current = createCoachingAction({ signal: source, kind: 'team-task', ownerIds: [], priority: 'normal', visibility: 'staff' }, 'coach');
+    const faultyV2: any = { ...current, check: { ...current.check, policyVersion: 2, baseline: 999, target: 998 }, outcome: { status: 'satisfied', baseline: 999, later: 0, change: -999, confidence: 'high', evaluatedAt: '2026-10-18T12:00:00Z', reason: 'faulty v2' } };
+    const repaired = migrateLegacyActionChecks([faultyV2], [source], 'system', '2026-10-18T13:00:00Z', [summary])[0];
+    expect(repaired.check?.policyVersion).toBe(COACHING_CHECK_POLICY_VERSION);
+    expect(repaired.check?.baseline).not.toBe(999);
+    expect(repaired.checkHistory?.[0]).toMatchObject({ reason: expect.stringContaining('policy v2'), check: { baseline: 999 } });
+    expect(migrateLegacyActionChecks([repaired], [source], 'system', '2026-10-18T14:00:00Z', [summary])[0].checkHistory).toHaveLength(1);
   });
   it('blocks a legacy check when original evidence is unavailable and evaluation cannot overwrite it', () => {
     const action: any = { schema: 'moetracker.coaching-workflow/v1', id: 'legacy', sourceSignalId: 'missing', sourceFingerprint: 'missing', evidence: { matchIds: ['gone'], sourceTypes: [], confidence: 'low' }, title: 'Old', kind: 'team-task', ownerIds: [], dueBlockId: null, dueDate: null, priority: 'normal', visibility: 'staff', state: 'assigned', check: { signalType: 'full-buy-loss', baseline: 4, target: 3, direction: 'decrease' }, outcome: null, createdAt: '2026-10-01T00:00:00Z', updatedAt: '2026-10-01T00:00:00Z', audit: [] };

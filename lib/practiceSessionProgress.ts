@@ -4,13 +4,36 @@ import { savePracticeBlock } from './practiceBlocks';
 import { toCairoDateKey } from './coachAnalytics';
 
 const normalized = (value: unknown) => String(value || '').trim().toLocaleLowerCase('en').replace(/[^a-z0-9]+/g, ' ').trim();
+const containsPhrase = (text: string, phrase: string) => !!phrase && ` ${text} `.includes(` ${phrase} `);
+
+export interface PracticeMatchSuggestion {
+  match: Match;
+  confidence: 'confident' | 'possible';
+  reasons: Array<'opponent' | 'map' | 'same-day'>;
+}
+
+export function practiceMatchSuggestions(session: Pick<Schedule, 'date' | 'primary' | 'secondary'>, matches: readonly Match[]): PracticeMatchSuggestion[] {
+  const sessionText = normalized(`${session.primary} ${session.secondary || ''}`);
+  const sameDay = matches.filter(match => toCairoDateKey(match.date) === session.date);
+  return sameDay.map(match => {
+    const opponent = normalized(match.opponent); const map = normalized(match.map);
+    const opponentMatch = containsPhrase(sessionText, opponent); const mapMatch = containsPhrase(sessionText, map);
+    const reasons: PracticeMatchSuggestion['reasons'] = ['same-day'];
+    if (opponentMatch) reasons.unshift('opponent');
+    if (mapMatch) reasons.splice(opponentMatch ? 1 : 0, 0, 'map');
+    return { match, confidence: opponentMatch || (mapMatch && sameDay.length === 1) ? 'confident' as const : 'possible' as const, reasons };
+  }).sort((left, right) => Number(right.confidence === 'confident') - Number(left.confidence === 'confident')
+    || Number(right.reasons.includes('opponent')) - Number(left.reasons.includes('opponent'))
+    || Number(right.reasons.includes('map')) - Number(left.reasons.includes('map'))
+    || left.match.id.localeCompare(right.match.id));
+}
 
 export function suggestedMatchesForSession(session: Pick<Schedule, 'date' | 'primary' | 'secondary'>, matches: readonly Match[]) {
-  const sessionText = normalized(`${session.primary} ${session.secondary || ''}`);
-  return matches.filter(match => toCairoDateKey(match.date) === session.date).sort((left, right) => {
-    const score = (match: Match) => sessionText.includes(normalized(match.opponent)) ? 2 : sessionText.includes(normalized(match.map)) ? 1 : 0;
-    return score(right) - score(left) || left.id.localeCompare(right.id);
-  });
+  return practiceMatchSuggestions(session, matches).map(item => item.match);
+}
+
+export function confidentMatchesForSession(session: Pick<Schedule, 'date' | 'primary' | 'secondary'>, matches: readonly Match[]) {
+  return practiceMatchSuggestions(session, matches).filter(item => item.confidence === 'confident').map(item => item.match);
 }
 
 export function linkPracticeSession(db: any, input: { scheduleId: string; matchIds: string[]; goalIds?: string[]; name?: string }, actor: string, now = new Date().toISOString()) {
