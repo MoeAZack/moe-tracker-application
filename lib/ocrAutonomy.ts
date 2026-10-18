@@ -89,6 +89,8 @@ export function autonomousCaptureDecision(extracted: any, knownMaps: readonly st
   if (!Number.isInteger(extracted?.meta?.ourScore) || !Number.isInteger(extracted?.meta?.theirScore)) reasons.push('score-unresolved');
   if (!extracted?.startingSide?.firstHalf) reasons.push('starting-side-unresolved');
   const rounds = Array.isArray(extracted?.rounds) ? extracted.rounds : [];
+  const captureIssues = Array.isArray(extracted?.captureDiagnostics?.issues) ? extracted.captureDiagnostics.issues : [];
+  for (const issue of captureIssues.filter((item: string) => ['scoreboard-resolution-too-small', 'scoreboard-aspect-ratio-unexpected', 'scoreboard-row-offset-extreme'].includes(item))) reasons.push(`capture-${issue}`);
   if (!rounds.length || rounds.some((round: any) => round?.result !== 'W' && round?.result !== 'L')) reasons.push('round-results-incomplete');
   if (extracted?.reconciled?.missing?.length) reasons.push('round-captures-missing');
   const players = Array.isArray(extracted?.players) ? extracted.players : [];
