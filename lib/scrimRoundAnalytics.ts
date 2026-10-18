@@ -364,11 +364,23 @@ export function materializeRoundPlantsFromScreenshotEvidence(
 
 export function combinePlayerScreenshotMetrics(metrics: ReadonlyArray<PlayerScreenshotMetrics & { identity: string; displayName: string }>) {
   const combined = new Map<string, Mutable>();
+  const stableByName = new Map<string, Set<string>>();
+  for (const source of metrics) {
+    if (source.identity.startsWith('unlinked:') || source.identity.startsWith('unlinked-name:') || source.identity.startsWith('name:')) continue;
+    const name = normalizeCaptureName(source.displayName);
+    if (!name) continue;
+    const identities = stableByName.get(name) || new Set<string>(); identities.add(source.identity); stableByName.set(name, identities);
+  }
   for (const source of metrics) {
     const displayName = source.displayName || 'Unknown player';
-    const identity = source.identity.startsWith('unlinked:')
+    const observedName = normalizeCaptureName(displayName);
+    const stableMatches = stableByName.get(observedName);
+    const unresolvedIdentity = source.identity.startsWith('unlinked:')
       ? `unlinked-name:${normalizeCaptureName(displayName)}`
       : source.identity;
+    const identity = (unresolvedIdentity.startsWith('unlinked-name:') || unresolvedIdentity.startsWith('name:')) && stableMatches?.size === 1
+      ? [...stableMatches][0]
+      : unresolvedIdentity;
     const target = combined.get(identity) || empty(identity, displayName);
     combined.set(identity, target);
     for (const field of ['coveredRounds', 'wins', 'losses', 'firstKills', 'firstDeaths', 'lowBudgetWins', 'highBudgetLosses', 'antiEcoLosses'] as const) target[field] += source[field] || 0;
