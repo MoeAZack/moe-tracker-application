@@ -61,6 +61,14 @@ function appearanceType(db: any, playerId: string) {
 }
 
 export function integrateVodSubmission(db: any, input: SubmissionInput, actorName: string, ids: { submissionId: string; matchId: string; statId: () => string; reviewId: string }, now = new Date().toISOString()): VodSubmission {
+  if (input.timelineEvidence) {
+    input.timelineEvidence = structuredClone(input.timelineEvidence);
+    // v1 is sampled OCR evidence. It cannot prove exact trade timing, complete
+    // KAST, orb ownership, or an ultimate cast strongly enough for trusted stats.
+    for (const signal of ['trades', 'kast', 'ultimateUse', 'orbCapture', 'objectives']) {
+      if (input.timelineEvidence.coverage.signals[signal] === 'complete') input.timelineEvidence.coverage.signals[signal] = 'partial';
+    }
+  }
   db.vodSubmissions ||= [];
   const duplicate = db.vodSubmissions.find((item: VodSubmission) => item.submittedByPlayerId === input.playerId && item.imageSha256 === input.imageSha256 && item.vodUrl === input.vodUrl);
   if (duplicate && (!input.timelineEvidence || duplicate.timelineEvidence)) return duplicate;

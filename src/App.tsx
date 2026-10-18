@@ -390,21 +390,21 @@ export default function App() {
   };
 
   const tabsList = [
-    { id: 'dashboard', label: 'Dashboard', icon: Trophy },
-    { id: 'calendar', label: 'Schedule & Goals', icon: Calendar },
-    { id: 'matches', label: 'Matches Log', icon: Swords },
-    { id: 'replays', label: 'Replay Evidence', icon: FileCheck2 },
-    { id: 'vod', label: 'VOD Review', icon: Film },
-    { id: 'vodsubmit', label: 'VOD Submission', icon: Upload },
-    { id: 'lineups', label: 'Lineup Library', icon: Crosshair },
-    { id: 'economy', label: 'Economy', icon: Coins },
-    { id: 'aitactical', label: 'Coach Workspace', icon: Sparkles },
-    { id: 'livelogger', label: 'Live Logger 🔴', icon: Activity },
-    { id: 'maps', label: 'Map Analysis', icon: Compass },
-    { id: 'comps', label: 'Compositions', icon: Layers },
-    { id: 'roster', label: 'Roster & Solo Q', icon: Users },
-    { id: 'comparisons', label: 'Tryout comparisons', icon: GitCompareArrows },
-    { id: 'settings', label: 'Settings', icon: SettingsIcon },
+    { id: 'dashboard', label: 'Home', icon: Trophy, group: 'Home' },
+    { id: 'matches', label: 'Match Review', icon: Swords, group: 'Review' },
+    { id: 'replays', label: 'Replay Evidence', icon: FileCheck2, group: 'Review' },
+    { id: 'vod', label: 'VOD Review', icon: Film, group: 'Review' },
+    { id: 'vodsubmit', label: 'VOD Submission', icon: Upload, group: 'Review' },
+    { id: 'livelogger', label: 'Live Logger 🔴', icon: Activity, group: 'Review' },
+    { id: 'economy', label: 'Economy', icon: Coins, group: 'Performance' },
+    { id: 'maps', label: 'Map Analysis', icon: Compass, group: 'Performance' },
+    { id: 'comps', label: 'Compositions', icon: Layers, group: 'Performance' },
+    { id: 'comparisons', label: 'Tryout comparisons', icon: GitCompareArrows, group: 'Performance' },
+    { id: 'lineups', label: 'Lineup Library', icon: Crosshair, group: 'Playbook' },
+    { id: 'calendar', label: 'Schedule & Goals', icon: Calendar, group: 'Team' },
+    { id: 'aitactical', label: 'Coach Workspace', icon: Sparkles, group: 'Team' },
+    { id: 'roster', label: 'Roster & Solo Q', icon: Users, group: 'Team' },
+    { id: 'settings', label: 'Settings', icon: SettingsIcon, group: 'Team' },
   ] as const;
 
   const visibleTabs = useMemo(() => {
@@ -412,6 +412,8 @@ export default function App() {
     if (role === 'player') return surfaceTabs.filter(tab => !['settings', 'livelogger', 'vod', 'aitactical'].includes(tab.id));
     return surfaceTabs;
   }, [desktopMode, role]);
+  const groupedTabs = useMemo(() => (['Home', 'Review', 'Performance', 'Playbook', 'Team'] as const)
+    .map(group => ({ group, tabs: visibleTabs.filter(tab => tab.group === group) })).filter(section => section.tabs.length), [visibleTabs]);
 
   const appTitle = data?.settings?.teamName || 'MoeAZack Valorant Tracker';
   const themeMode = data?.settings?.theme || 'slate';
@@ -446,8 +448,8 @@ export default function App() {
             </div>
           </div>
           
-          <nav className="space-y-1">
-            {visibleTabs.map((tab) => {
+          <nav className="space-y-4">
+            {groupedTabs.map(section => <section key={section.group}><p className="mb-1.5 px-3 text-[9px] font-black uppercase tracking-[0.2em] text-slate-600">{section.group}</p><div className="space-y-1">{section.tabs.map((tab) => {
               const IconComp = tab.icon;
               const isActive = activeTab === tab.id;
               return (
@@ -465,7 +467,7 @@ export default function App() {
                   <span>{tab.label}</span>
                 </button>
               );
-            })}
+            })}</div></section>)}
           </nav>
         </div>
 
@@ -571,7 +573,7 @@ export default function App() {
         {/* Mobile Navigation Drawer */}
         {mobileMenuOpen && (
           <nav id="mobile-navigation" className="liquid-chrome lg:hidden border-x-0 border-t-0 rounded-none px-4 py-4 space-y-2 relative z-40 animate-fadeIn">
-            {visibleTabs.map((tab) => {
+            {groupedTabs.map(section => <section key={section.group}><p className="mb-1 px-3 pt-2 text-[9px] font-black uppercase tracking-[0.2em] text-slate-600">{section.group}</p>{section.tabs.map((tab) => {
               const IconComp = tab.icon;
               const isActive = activeTab === tab.id;
               return (
@@ -591,7 +593,7 @@ export default function App() {
                   <span>{tab.label}</span>
                 </button>
               );
-            })}
+            })}</section>)}
 
             {/* Mobile Session Status and Sign Out */}
             <div className="pt-3 border-t border-white/5 mt-2 space-y-2 text-left">

@@ -47,8 +47,14 @@ describe('S3 coaching actions', () => {
     const source = transitionSignal(reconcileReviewSignals([], generateReviewSignalDrafts(summary, { minimumSamples: 1 }))[0], 'accepted', 'coach');
     const current = createCoachingAction({ signal: source, kind: 'team-task', ownerIds: [], priority: 'normal', visibility: 'staff' }, 'coach');
     const legacy: any = { ...current, check: { ...current.check, policyVersion: undefined, direction: 'decrease', target: 0 }, outcome: { status: 'satisfied', baseline: 25, later: 0, change: -25, confidence: 'high', evaluatedAt: '2026-10-18T12:00:00Z', reason: 'legacy' } };
-    const migrated = migrateLegacyActionChecks([legacy], [source], 'system', '2026-10-18T13:00:00Z')[0];
+    const migrated = migrateLegacyActionChecks([legacy], [source], 'system', '2026-10-18T13:00:00Z', [summary])[0];
     expect(migrated.check?.policyVersion).toBe(2); expect(migrated.checkHistory).toHaveLength(1); expect(migrated.checkHistory?.[0].outcome?.status).toBe('satisfied'); expect(migrated.outcome?.status).toBe('inconclusive');
+  });
+  it('blocks a legacy check when original evidence is unavailable and evaluation cannot overwrite it', () => {
+    const action: any = { schema: 'moetracker.coaching-workflow/v1', id: 'legacy', sourceSignalId: 'missing', sourceFingerprint: 'missing', evidence: { matchIds: ['gone'], sourceTypes: [], confidence: 'low' }, title: 'Old', kind: 'team-task', ownerIds: [], dueBlockId: null, dueDate: null, priority: 'normal', visibility: 'staff', state: 'assigned', check: { signalType: 'full-buy-loss', baseline: 4, target: 3, direction: 'decrease' }, outcome: null, createdAt: '2026-10-01T00:00:00Z', updatedAt: '2026-10-01T00:00:00Z', audit: [] };
+    const migrated = migrateLegacyActionChecks([action], [], 'system', '2026-10-18T13:00:00Z', [])[0];
+    expect(migrated.check).toBeNull();
+    expect(evaluateAction(migrated, [buildPracticeBlockSummary(base(), { id: 'later', name: 'Later', matchIds: ['m1'] })], [])).toEqual(migrated);
   });
   it('preserves immutable evidence and evaluates a next-block threshold without mutating its signal', () => {
     const summary = buildPracticeBlockSummary(base(), { id: 'b1', name: 'Prac', matchIds: ['m1'] }, '2026-10-18T15:00:00Z'); const draft = generateReviewSignalDrafts(summary, { minimumSamples: 1 }).find(item => item.type === 'full-buy-loss')!;
@@ -83,6 +89,18 @@ describe('S3 coaching actions', () => {
     expect(draft.metric).toEqual({ value: 50, samples: 2, unit: '%' });
     const stored = reconcileReviewSignals([], [draft])[0];
     expect(reconcileReviewSignals([stored], [])).toEqual([]);
+  });
+
+  it('evaluates the incomplete-round deficiency even when every match is accepted', () => {
+    const data = base(); data.matches.push(acceptedMatch('m2')); data.rounds = [{ ...data.rounds[0], result: '' }];
+    const summary = buildPracticeBlockSummary(data, { id: 'b1', name: 'Prac', matchIds: ['m1', 'm2'] });
+    const draft = generateReviewSignalDrafts(summary).find(item => item.type === 'evidence-health')!;
+    expect(draft.context).toEqual({ evidenceDimension: 'round-completeness' });
+    expect(draft.metric).toEqual({ value: 0, samples: 1, unit: '%' });
+    const check = buildActionCheck({ ...draft, id: 'evidence', status: 'accepted', audit: [] });
+    const later = { ...summary, blockId: 'b2', practiceStartAt: '2026-10-19T12:00:00Z', practiceEndAt: '2026-10-19T13:00:00Z' };
+    const action: any = { schema: 'moetracker.coaching-workflow/v1', id: 'a', sourceSignalId: 'evidence', sourceFingerprint: 'f', evidence: { matchIds: summary.matchIds, sourceTypes: [], confidence: 'low' }, title: 'Evidence', kind: 'next-block-check', ownerIds: [], dueBlockId: 'b2', dueDate: null, priority: 'normal', visibility: 'staff', state: 'assigned', check: { ...check, minimumSamples: 1 }, outcome: null, createdAt: '2026-10-18T00:00:00Z', updatedAt: '2026-10-18T00:00:00Z', audit: [] };
+    expect(evaluateAction(action, [summary, later], [], '2026-10-20T00:00:00Z').outcome?.status).toBe('regressed');
   });
 });
 

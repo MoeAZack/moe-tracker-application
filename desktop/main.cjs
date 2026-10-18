@@ -591,16 +591,20 @@ handleTrusted('desktop:choose-vod-file', async () => {
   const selected = path.resolve(result.filePaths[0]); approvedVodPaths.add(selected);
   return { canceled: false, path: selected, name: path.basename(selected) };
 });
+const activeVodAnalyses = new Map();
 handleTrusted('desktop:analyze-vod', async (event, input = {}) => {
   const players = Array.isArray(input.players) ? input.players.slice(0, 10).map(item => ({ name: String(item?.name || '').trim().slice(0, 100), team: item?.team === 'theirs' ? 'theirs' : 'ours', expectedKills: Number.isInteger(item?.expectedKills) && item.expectedKills >= 0 ? item.expectedKills : null, expectedDeaths: Number.isInteger(item?.expectedDeaths) && item.expectedDeaths >= 0 ? item.expectedDeaths : null })).filter(item => item.name) : [];
   if (players.length < 5) throw new Error('Timeline analysis needs at least five identified scoreboard names.');
   const localPath = input.localPath ? path.resolve(String(input.localPath)) : null;
   if (localPath && !approvedVodPaths.has(localPath)) throw new Error('Choose the local VOD through Moe Tracker before analyzing it.');
   const progress = payload => { if (!event.sender.isDestroyed()) event.sender.send('desktop:vod-analysis-progress', payload); };
+  const jobKey = event.sender.id; if (activeVodAnalyses.has(jobKey)) throw new Error('A VOD analysis is already running in this window.');
+  const controller = new AbortController(); activeVodAnalyses.set(jobKey, controller);
   try {
-    return await analyzeVodTimeline({ vodUrl: String(input.vodUrl || '').trim(), localPath, players, povPlayerName: String(input.povPlayerName || '').trim() || null }, { progress, workRoot: path.join(runtime.paths.local, 'Vod Analysis') });
-  } finally { if (localPath) approvedVodPaths.delete(localPath); }
+    return await analyzeVodTimeline({ vodUrl: String(input.vodUrl || '').trim(), localPath, players, povPlayerName: String(input.povPlayerName || '').trim() || null }, { progress, signal: controller.signal, workRoot: path.join(runtime.paths.local, 'Vod Analysis') });
+  } finally { activeVodAnalyses.delete(jobKey); if (localPath) approvedVodPaths.delete(localPath); }
 });
+handleTrusted('desktop:cancel-vod-analysis', event => { const controller = activeVodAnalyses.get(event.sender.id); if (!controller) return { cancelled: false }; controller.abort(new Error('VOD analysis was cancelled.')); return { cancelled: true }; });
 handleTrusted('desktop:sync-now', syncNow);
 handleTrusted('desktop:pair-device', (event, input) => { requireTrustedSender(event); return pairDevice(input || {}); });
 handleTrusted('desktop:set-sync-mode', async (_event, mode) => { if (!['offline-first', 'connected'].includes(mode)) throw new Error('Unknown synchronization mode.'); if (mode === 'connected' && !runtime.config.cloudPairing) throw new Error('Pair this device before enabling connected sync.'); runtime.config.mode = mode; await saveRuntimeConfig(); return { mode }; });

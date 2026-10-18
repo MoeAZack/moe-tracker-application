@@ -9,6 +9,7 @@ contextBridge.exposeInMainWorld('moeDesktop', Object.freeze({
   processMatch: () => ipcRenderer.invoke('desktop:process-match'),
   chooseVodFile: () => ipcRenderer.invoke('desktop:choose-vod-file'),
   analyzeVod: (input) => ipcRenderer.invoke('desktop:analyze-vod', input),
+  cancelVodAnalysis: () => ipcRenderer.invoke('desktop:cancel-vod-analysis'),
   onVodAnalysisProgress: (callback) => {
     const listener = (_event, payload) => callback(payload);
     ipcRenderer.on('desktop:vod-analysis-progress', listener);
