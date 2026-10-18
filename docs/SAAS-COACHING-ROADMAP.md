@@ -108,6 +108,8 @@ instead of recalculating percentages independently in each screen.
 
 ## S1 — Practice-block summary
 
+**Implementation:** Complete in v0.1.40. Physical varied-capture acceptance remains part of the release evidence program.
+
 ### Goal
 
 After captures are accepted, give the coach one compact answer to: “What happened
@@ -150,6 +152,8 @@ in this block, and what should we inspect first?”
 - Empty and partial blocks render useful coverage guidance without fabricated rates.
 
 ## S2 — Evidence-linked coaching inbox
+
+**Implementation:** Complete in v0.1.40 with deterministic fingerprints, durable audit state, non-destructive corrections, filters, and match-evidence drill-through.
 
 ### Goal
 
@@ -197,6 +201,8 @@ instead of leaving them scattered across analytics screens.
 - Queue counts reconcile with block summaries and underlying evidence.
 
 ## S3 — Assignment and next-block verification
+
+**Implementation:** Complete in v0.1.40 with immutable source references, role-bounded state changes, workload limits, recurrence links, and three-state outcomes.
 
 ### Goal
 
@@ -265,6 +271,8 @@ Support roster decisions with matched samples instead of raw leaderboard totals.
 
 ## S5 — Configurable coach dashboard
 
+**Implementation:** Complete in v0.1.40 for the registered-card catalog, presets, bounded layout controls, personal/team ownership contracts, global filters, and per-card export. The guided custom-card builder remains explicitly later scope as specified below.
+
 ### Goal
 
 Let each staff workflow surface the most useful metrics without turning the
@@ -304,6 +312,8 @@ application into an unstructured analytics builder.
 - Mobile/web summary uses a deliberate responsive layout, not the desktop grid compressed.
 
 ## S6 — Tray-first lightweight capture
+
+**Implementation:** Complete in v0.1.40 for the shared desktop binary. Public certificate signing and second physical-PC acceptance remain external release gates and are not represented as completed evidence.
 
 ### Goal
 

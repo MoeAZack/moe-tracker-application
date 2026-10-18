@@ -61,6 +61,9 @@ export function toPublicTrackerData(db: Record<string, any>, role: 'coach' | 'pl
     publicData.playerStats = (publicData.playerStats || []).map(({ notes: _notes, corrections: _corrections, ...stat }: any) => stat);
     publicData.rounds = (publicData.rounds || []).map(({ notes: _notes, isThrow: _isThrow, thrownBy: _thrownBy, throwReason: _throwReason, iglPlayer: _iglPlayer, iglRole: _iglRole, midRoundIglChange: _midRoundIglChange, strategies: _strategies, corrections: _corrections, ...round }: any) => round);
     publicData.practiceBlocks = (publicData.practiceBlocks || []).map(({ createdBy: _createdBy, updatedBy: _updatedBy, ...block }: any) => block);
+    publicData.coachingSignals = [];
+    publicData.dashboardViews = [];
+    publicData.coachingActions = (publicData.coachingActions || []).filter((action: any) => action.visibility === 'team' && (!authenticatedPlayerId || !action.ownerIds?.length || action.ownerIds.includes(authenticatedPlayerId)));
   }
   publicData.settings = settings;
   publicData.secrets = {
@@ -103,6 +106,9 @@ export function toWebsiteTrackerData(db: Record<string, any>, role: 'coach' | 'p
     coreMemberships: structuredClone(safe.coreMemberships || []),
     tryoutBatches: structuredClone(safe.tryoutBatches || []),
     practiceBlocks: (safe.practiceBlocks || []).map(({ createdBy: _createdBy, updatedBy: _updatedBy, ...block }: any) => structuredClone(block)),
+    coachingSignals: role === 'coach' ? structuredClone(safe.coachingSignals || []) : [],
+    coachingActions: structuredClone(safe.coachingActions || []),
+    dashboardViews: role === 'coach' ? structuredClone(safe.dashboardViews || []) : [],
     schedule: (safe.schedule || []).map((item: any) => selectFields(item, ['id', 'date', 'kind', 'primary', 'secondary', 'notes', 'attendance', 'calendarKey', 'startTime', 'allDay', 'durationMinutes', 'repeatSeriesId', 'repeatIndex', 'repeatCount', 'attendanceEnabled', 'requiredPlayerIds', 'attendanceCheckIns', 'source', 'sourceEventId'])),
     attendanceCredits: structuredClone(safe.attendanceCredits || []),
     goals: (safe.goals || []).map((item: any) => selectFields(item, ['id', 'date', 'goal', 'notes', 'status', 'owner'])),

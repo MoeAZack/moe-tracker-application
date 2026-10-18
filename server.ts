@@ -16,6 +16,7 @@ import { stripLegacySecrets, toPublicTrackerData } from './lib/publicData';
 import { registerReplayDeviceRoutes, registerReplayDeviceUploadRoute } from './lib/routes/replayIntake';
 import { registerPortablePackageRoutes } from './lib/routes/portablePackages';
 import { registerComparisonRoutes } from './lib/routes/comparisons';
+import { registerCoachingRoutes } from './lib/routes/coaching';
 
 // Google Sign-In config (dormant unless GOOGLE_CLIENT_ID is set — password auth always works).
 const GOOGLE_CLIENT_ID = process.env.GOOGLE_CLIENT_ID || '';
@@ -484,6 +485,7 @@ export async function createApp(serveFrontend = true) {
   // Stable player identities, core membership history and named tryout batches.
   registerRosterRoutes(app);
   registerComparisonRoutes(app);
+  registerCoachingRoutes(app);
 
   // Persisted, offline-only adapters for accepted replay, shadow-rating and ranked engines.
   registerEngineAdapterRoutes(app);
