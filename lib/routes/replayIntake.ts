@@ -832,11 +832,11 @@ export function registerReplayDeviceUploadRoute(app: Express) {
         // the same immutable replay bytes. Never replace already accepted
         // evidence, but let the device finish its outbox and receive the
         // accepted server snapshot instead of blocking every later item.
-        if (existing.reviewStatus === 'accepted') {
+        if (existing.reviewStatus === 'accepted' || !!(existing.parserJobId && store.parserJobs[existing.parserJobId]?.result)) {
           const now = new Date().toISOString();
           const association: ReplayAssociation = ownAssociation || { id: crypto.randomUUID(), sha256: expectedHash, size: existing.size, originalName, deviceId: device.id, owner: device.owner, receivedAt: now };
           store.associations[ownKey] = association; device.lastSeenAt = now; await saveDB(db);
-          return res.status(200).json({ ...uploadPublic(association, existing), reviewRequired: false, idempotent: true, existingEvidencePreserved: true });
+          return res.status(200).json({ ...uploadPublic(association, existing), reviewRequired: existing.reviewStatus !== 'accepted', idempotent: true, existingEvidencePreserved: true });
         }
         return res.status(409).json({ error: 'This replay hash already has conflicting evidence.' });
       }
