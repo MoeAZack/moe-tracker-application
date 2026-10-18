@@ -6,6 +6,12 @@ param(
   [ValidateSet('without-performance', 'with-performance')]
   [string]$Template = 'without-performance',
 
+  [ValidateSet('fullscreen', 'fullscreen-windowed', 'windowed')]
+  [string]$CaptureProfile = 'fullscreen-windowed',
+
+  [ValidatePattern('^(primary|display:\d{1,2})$')]
+  [string]$Display = 'primary',
+
   [ValidateRange(250, 5000)]
   [int]$PageDelayMs = 900,
 
@@ -35,6 +41,8 @@ if ($DryRun) {
   $plan = [ordered]@{
     referenceResolution = "$referenceWidth x $referenceHeight (coordinates scale to the detected 16:9 render area)"
     requestedTemplate = $Template
+    captureProfile = $CaptureProfile
+    display = $Display
     templateDetection = 'automatic from visible Summary tabs'
     roundCount = $RoundCount
     automaticRoundDetection = $RoundCount -eq 0
@@ -47,6 +55,7 @@ if ($DryRun) {
 }
 
 Add-Type -AssemblyName System.Drawing
+Add-Type -AssemblyName System.Windows.Forms
 Add-Type -TypeDefinition @'
 using System;
 using System.Runtime.InteropServices;
@@ -349,6 +358,11 @@ try {
   }
 
   $window = Find-ValorantRenderArea (Get-ValorantWindow)
+  $screen = [System.Windows.Forms.Screen]::FromHandle($window.Handle)
+  $screens = @([System.Windows.Forms.Screen]::AllScreens)
+  $screenIndex = [Array]::IndexOf($screens, $screen) + 1
+  if ($Display -eq 'primary' -and -not $screen.Primary) { throw "VALORANT is on display $screenIndex, but the capture profile expects the primary display." }
+  if ($Display -match '^display:(\d+)$' -and $screenIndex -ne [int]$Matches[1]) { throw "VALORANT is on display $screenIndex, but the capture profile expects display $($Matches[1])." }
   $captureId = Get-Date -Format 'yyyyMMdd-HHmmss'
   $captureFolder = Join-Path $OutputRoot "Scrim-$captureId"
   try {
@@ -374,6 +388,8 @@ try {
     createdAt = (Get-Date).ToUniversalTime().ToString('o')
     resolution = @{ width = $window.ViewWidth; height = $window.ViewHeight }
     requestedRounds = $RoundCount
+    captureProfile = $CaptureProfile
+    display = @{ requested = $Display; detected = "display:$screenIndex"; primary = $screen.Primary }
     automaticRoundDetection = $RoundCount -eq 0
     template = $effectiveTemplate
     requestedTemplate = $Template

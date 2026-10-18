@@ -4,7 +4,7 @@ import { migrateAcceptedMatchAggregates } from './aggregateVersioning';
 import { materializeFirstDeathsFromRoundEvidence, materializeRoundOpeningsFromScreenshotEvidence, materializeRoundPlantsFromScreenshotEvidence } from './scrimRoundAnalytics';
 import { ensureScheduleCalendars } from './schedule';
 
-export const STORAGE_SCHEMA_VERSION = 8;
+export const STORAGE_SCHEMA_VERSION = 9;
 export const MAX_ENTITY_BYTES = 840 * 1024;
 export const MAX_DOCUMENT_BYTES = 900 * 1024;
 export const MAX_JSON_DATABASE_BYTES = 64 * 1024 * 1024;
@@ -22,6 +22,7 @@ const CORE_ARRAYS = [
   'goals', 'soloq', 'vetos', 'strats', 'stratRuns', 'rosterPlayers', 'coreMemberships',
   'tryoutBatches', 'vodReviews', 'lineups', 'practiceBlocks', 'tryoutDecisionNotes',
   'attendanceCredits',
+  'coachingSignals', 'coachingActions', 'dashboardViews',
 ] as const;
 
 export type StorageMetadata = {
@@ -89,6 +90,9 @@ export function ensureStorageSchema(input: any, now = new Date().toISOString()) 
     migrateAcceptedMatchAggregates(input);
     for (const archive of input.seasonArchives || []) migrateAcceptedMatchAggregates(archive);
     if (!Array.isArray(input.attendanceCredits)) input.attendanceCredits = [];
+    if (!Array.isArray(input.coachingSignals)) input.coachingSignals = [];
+    if (!Array.isArray(input.coachingActions)) input.coachingActions = [];
+    if (!Array.isArray(input.dashboardViews)) input.dashboardViews = [];
     ledger.push({ from: declared, to: STORAGE_SCHEMA_VERSION, at: now });
   }
   input._storage = { schemaVersion: STORAGE_SCHEMA_VERSION, migratedAt: declared < STORAGE_SCHEMA_VERSION ? now : String(input._storage?.migratedAt || now), migrationLedger: ledger } satisfies StorageMetadata;
