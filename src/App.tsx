@@ -66,6 +66,7 @@ export default function App() {
   const [reviewRoundNo, setReviewRoundNo] = useState<number | null>(() => { const value = Number(sessionStorage.getItem('moetracker-review-round')); return Number.isSafeInteger(value) && value > 0 ? value : null; });
   const [manualReplayDraft, setManualReplayDraft] = useState<ScreenshotReviewDraft | null>(null);
   const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
+  const [showTryoutComparisons, setShowTryoutComparisons] = useState<boolean | null>(null);
 
   useEffect(() => {
     if (reviewMatchId) sessionStorage.setItem('moetracker-review-match', reviewMatchId); else sessionStorage.removeItem('moetracker-review-match');
@@ -401,28 +402,29 @@ export default function App() {
 
   const tabsList = [
     { id: 'dashboard', label: 'Home', icon: Trophy, group: 'Home' },
+    { id: 'calendar', label: 'Schedule & Goals', icon: Calendar, group: 'Schedule & Goals' },
+    { id: 'economy', label: 'Economy', icon: Coins, group: 'Performance' },
+    { id: 'maps', label: 'Map Analysis', icon: Compass, group: 'Performance' },
     { id: 'matches', label: 'Match Review', icon: Swords, group: 'Review' },
     { id: 'replays', label: 'Replay Evidence', icon: FileCheck2, group: 'Review' },
     { id: 'vod', label: 'VOD Review', icon: Film, group: 'Review' },
     { id: 'vodsubmit', label: 'VOD Submission', icon: Upload, group: 'Review' },
     { id: 'livelogger', label: 'Live Logger 🔴', icon: Activity, group: 'Review' },
-    { id: 'economy', label: 'Economy', icon: Coins, group: 'Performance' },
-    { id: 'maps', label: 'Map Analysis', icon: Compass, group: 'Performance' },
-    { id: 'comps', label: 'Compositions', icon: Layers, group: 'Performance' },
-    { id: 'comparisons', label: 'Tryout comparisons', icon: GitCompareArrows, group: 'Performance' },
+    { id: 'comps', label: 'Compositions', icon: Layers, group: 'Playbook' },
     { id: 'lineups', label: 'Lineup Library', icon: Crosshair, group: 'Playbook' },
-    { id: 'calendar', label: 'Schedule & Goals', icon: Calendar, group: 'Team' },
     { id: 'aitactical', label: 'Coach Workspace', icon: Sparkles, group: 'Team' },
     { id: 'roster', label: 'Roster & Solo Q', icon: Users, group: 'Team' },
+    { id: 'comparisons', label: 'Tryout comparisons', icon: GitCompareArrows, group: 'Team' },
     { id: 'settings', label: 'Settings', icon: SettingsIcon, group: 'Team' },
   ] as const;
 
+  const tryoutComparisonsVisible = showTryoutComparisons ?? Boolean((data?.settings as any)?.tryoutsMode);
   const visibleTabs = useMemo(() => {
     const surfaceTabs = desktopMode ? tabsList : tabsList.filter(tab => ['dashboard', 'calendar', 'matches', 'vodsubmit', 'economy', 'aitactical', 'maps', 'roster', 'comparisons'].includes(tab.id));
-    if (role === 'player') return surfaceTabs.filter(tab => !['settings', 'livelogger', 'vod', 'aitactical'].includes(tab.id));
-    return surfaceTabs;
-  }, [desktopMode, role]);
-  const groupedTabs = useMemo(() => (['Home', 'Review', 'Performance', 'Playbook', 'Team'] as const)
+    const roleTabs = role === 'player' ? surfaceTabs.filter(tab => !['settings', 'livelogger', 'vod', 'aitactical'].includes(tab.id)) : surfaceTabs;
+    return tryoutComparisonsVisible ? roleTabs : roleTabs.filter(tab => tab.id !== 'comparisons');
+  }, [desktopMode, role, tryoutComparisonsVisible]);
+  const groupedTabs = useMemo(() => (['Home', 'Schedule & Goals', 'Performance', 'Review', 'Playbook', 'Team'] as const)
     .map(group => ({ group, tabs: visibleTabs.filter(tab => tab.group === group) })).filter(section => section.tabs.length), [visibleTabs]);
 
   const appTitle = data?.settings?.teamName || 'MoeAZack Valorant Tracker';
@@ -721,13 +723,13 @@ export default function App() {
             {activeTab === 'roster' && analyticsData && data && (
               <div className="space-y-6">
                 {role === 'coach' && <RosterManager data={data} theme={theme} onRefresh={fetchDatabase} />}
-                <PlayerSoloTracker data={analyticsData} theme={theme} role={role} onSyncSoloQ={handleSyncSoloQ} onRefresh={fetchDatabase} />
+                <PlayerSoloTracker data={analyticsData} theme={theme} role={role} onSyncSoloQ={handleSyncSoloQ} onRefresh={fetchDatabase} onOpenEvidence={(matchId, roundNo) => { setReviewMatchId(matchId); setReviewRoundNo(roundNo); setActiveTab('vod'); }} />
               </div>
             )}
             {activeTab === 'settings' && data && (
               <div className="space-y-6">
                 <SystemReadinessPanel theme={theme} />
-                <SettingsControl data={data} theme={theme} onSaveSettings={handleSaveSettings} onRefresh={fetchDatabase} analyticsMapScope={analyticsMapScope} analyticsMapScopeContext={analyticsProjection!.context} onAnalyticsMapScopeChange={setAnalyticsMapScope} />
+                <SettingsControl data={data} theme={theme} onSaveSettings={handleSaveSettings} onRefresh={fetchDatabase} analyticsMapScope={analyticsMapScope} analyticsMapScopeContext={analyticsProjection!.context} onAnalyticsMapScopeChange={setAnalyticsMapScope} showTryoutComparisons={tryoutComparisonsVisible} onShowTryoutComparisonsChange={(visible) => { setShowTryoutComparisons(visible); if (!visible && activeTab === 'comparisons') setActiveTab('settings'); }} />
               </div>
             )}
             </Suspense>
