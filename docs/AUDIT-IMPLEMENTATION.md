@@ -1,6 +1,6 @@
 # Product audit implementation register
 
-Last updated: 18 Oct 2026 (Africa/Cairo)
+Last updated: 19 Oct 2026 (Africa/Cairo)
 
 This register separates shipped code, automated verification, physical acceptance, and external dependencies. A feature is not called released merely because code exists.
 
@@ -19,7 +19,7 @@ This register separates shipped code, automated verification, physical acceptanc
 | 9 | Release ordering and Windows CI | Implemented; certificate gate open | Release order is build/sign, signature check, clean install check, then publish. Normal CI includes Windows capture and workflow tests. |
 | 10 | Review usability | Implemented | Failed loads show Retry, corrections use a bounded evidence/reason panel, and layout controls live behind Edit layout. |
 | 11 | Repository readiness | Implemented | Security reporting, contribution guidance, installation notes, release-state documentation, and an explicit license decision are present. |
-| 12 | Audit closure pass | Implemented | Legacy action checks migrate to policy v2 with immutable history; evidence coverage is percentage-based; stale observations cannot satisfy actions; private action IDs remain private; API credentials use an exact-origin boundary; every privileged IPC handler shares one sender check; D1 throttling increments atomically. |
+| 12 | Audit closure pass | Implemented | Legacy and previously migrated v2 action checks repair to policy v3 from source evidence with immutable history; evidence coverage is percentage-based; stale observations cannot satisfy actions; private action IDs remain private; API credentials use an exact-origin boundary; every privileged IPC handler shares one sender check; D1 throttling increments atomically. |
 | 13 | Player VOD submissions | Implemented | Local OCR retains no raw image on the server; five unique active roster identities are mandatory; evidence can link to an existing screenshot/replay match or create a new match; only unknown stat fields are filled and every contribution retains its VOD submission provenance. |
 
 Repository rules require a pull request, one approval, resolved review threads, and both Linux and Windows checks on `main`; repository administrators retain an explicit emergency bypass. Release tags cannot be created, moved, or deleted without that bypass. Dependabot security updates, secret scanning, push protection, and private vulnerability reporting are enabled.
@@ -33,11 +33,12 @@ The two October product audits are consolidated into this order. Trust and trace
 3. **Unified match review (0.1.53).** One persisted match/round context now follows the coach across scoreboard, round log, replay, VOD, economy, and coaching surfaces. Replay evidence auto-focuses the selected match, VOD notes inherit the selected round, and economy calculations scope to the same context while unsupported evidence remains unavailable.
 4. **Practice-to-progress (0.1.54).** Manual and PRACC calendar sessions attach to coach-confirmed recorded matches and goals through one persisted practice block. The calendar then reports attendance, accepted findings, evidence health, and goal completion together; same-day/opponent matches are suggested without silently linking uncertain data.
 5. **Release and adoption (0.1.55 internal readiness complete; external gates open).** Settings now explains the zero-confirmation evidence workflow, reports local service/capture/recovery/sync readiness, creates an encrypted recovery point on demand, and labels public signing plus independent second-PC acceptance as external gates. Signed Windows publishing and the physical second-PC run remain deliberately unclaimed.
-6. Discord delivery for accepted summaries and assignments, including deduplication, quiet hours, delivery status, and permission-aware links.
-7. Calendar export first, then optional provider synchronization with cancellation and conflict handling.
-8. Versioned JSON/CSV import with mapping preview, duplicate detection, provenance, and partial-import explanations.
-9. Versioned tactical boards and map assets linked to reviewed rounds.
-10. Official Riot integration only after product registration, production approval, and player opt-in.
+6. **Connected-data consistency (0.1.57).** Stable player identities cannot absorb another same-name identity's screenshot metrics; connected profiles drill into the exact rows used by their aggregate; VOD and shared match/round context move together without claiming an unanchored seek; policy-v2 coaching checks receive one audit-preserving repair; and ambiguous or already-owned practice matches are not silently linked.
+7. Discord delivery for accepted summaries and assignments, including deduplication, quiet hours, delivery status, and permission-aware links.
+8. Calendar export first, then optional provider synchronization with cancellation and conflict handling.
+9. Versioned JSON/CSV import with mapping preview, duplicate detection, provenance, and partial-import explanations.
+10. Versioned tactical boards and map assets linked to reviewed rounds.
+11. Official Riot integration only after product registration, production approval, and player opt-in.
 
 ## External acceptance gates
 
