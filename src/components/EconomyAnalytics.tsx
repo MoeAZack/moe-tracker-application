@@ -28,6 +28,36 @@ export function excludeArchivedScreenshotPlayers<T extends { identity: string; d
   return players.filter(player => !retiredIds.has(player.identity) && !retiredNames.has(normalizedName(player.displayName)));
 }
 
+export interface WeaponRoundOutcome {
+  weapon: string;
+  rounds: number;
+  wins: number;
+  losses: number;
+  kills: number;
+  deaths: number;
+  players: number;
+  winRate: number;
+}
+
+/** Aggregate confirmed player-round weapon observations against the team round
+ * result. These are equipped-weapon associations, never an invented purchase or
+ * a claim that the weapon caused the win. */
+export function buildWeaponRoundOutcomes(players: ReadonlyArray<{ displayName: string; weapons: ReadonlyArray<{ weapon: string; rounds: number; wins: number; kills: number; deaths: number }> }>): WeaponRoundOutcome[] {
+  const accumulator = new Map<string, Omit<WeaponRoundOutcome, 'players' | 'winRate'> & { playerNames: Set<string> }>();
+  for (const player of players) for (const observation of player.weapons || []) {
+    const weapon = String(observation.weapon || '').trim();
+    const rounds = Math.max(0, Number(observation.rounds) || 0);
+    if (!weapon || !rounds) continue;
+    const wins = Math.min(rounds, Math.max(0, Number(observation.wins) || 0));
+    const current = accumulator.get(weapon) || { weapon, rounds: 0, wins: 0, losses: 0, kills: 0, deaths: 0, playerNames: new Set<string>() };
+    current.rounds += rounds; current.wins += wins; current.losses += rounds - wins;
+    current.kills += Math.max(0, Number(observation.kills) || 0); current.deaths += Math.max(0, Number(observation.deaths) || 0);
+    current.playerNames.add(player.displayName); accumulator.set(weapon, current);
+  }
+  return [...accumulator.values()].map(({ playerNames, ...row }) => ({ ...row, players: playerNames.size, winRate: pct(row.wins, row.rounds) }))
+    .sort((left, right) => right.wins - left.wins || right.winRate - left.winRate || right.rounds - left.rounds || left.weapon.localeCompare(right.weapon));
+}
+
 function Bar({ label, won, total }: { label: string; won: number; total: number }) {
   const p = pct(won, total);
   const color = total > 0 ? percentageBarClass(p) : percentageBarClass(null);
@@ -116,6 +146,7 @@ export default function EconomyAnalytics({ data, theme, focusedMatchId, focusedR
     const combined = live.length ? combinePlayerScreenshotMetrics(live) : combineStoredScreenshotMetrics(stored);
     return excludeArchivedScreenshotPlayers(combined, data.rosterPlayers || []);
   }, [rounds, data.playerStats, data.rosterPlayers, focusedMatchId]);
+  const weaponOutcomes = useMemo(() => buildWeaponRoundOutcomes(screenshotPlayers), [screenshotPlayers]);
 
   return (
     <div className="space-y-6">
@@ -127,6 +158,8 @@ export default function EconomyAnalytics({ data, theme, focusedMatchId, focusedR
       <ReplayMatchLog data={reviewData} theme={theme} title="Economy evidence by match" description="Round results are included immediately; buy-type metrics stay unknown until the replay or coach provides them." />
 
       {screenshotPlayers.length > 0 && <section className={`rounded-xl border ${theme.border} ${theme.cardBg} p-5`} aria-labelledby="screenshot-player-metrics"><div className="flex flex-wrap items-end justify-between gap-2"><div><h3 id="screenshot-player-metrics" className="text-xs uppercase font-bold tracking-widest text-gray-500">Screenshot-derived player metrics</h3><p className="mt-1 text-xs text-gray-500">Confirmed round screens only. Weapon means equipped weapon, not a proven purchase.{!hasActiveRoster ? ' No active roster is configured, so historical match participants are included.' : ''}</p></div><span className="text-[10px] text-gray-500">Trades are follow-up kills within 5 seconds</span></div><div className="mt-4 overflow-x-auto"><table className="w-full min-w-[820px] text-left text-xs"><thead className="text-[10px] uppercase tracking-wider text-gray-500"><tr><th className="pb-2">Player</th><th className="pb-2">Rounds</th><th className="pb-2">Openings</th><th className="pb-2">Trades</th><th className="pb-2">Multi-kills</th><th className="pb-2">Low-buy wins</th><th className="pb-2">Full-buy losses</th><th className="pb-2">Anti-eco losses</th><th className="pb-2">Top weapon</th><th className="pb-2">KAST</th></tr></thead><tbody>{screenshotPlayers.map(player => { const weapon = player.weapons[0]; const kast = player.kast?.covered ? Math.round(player.kast.successful / player.kast.covered * 100) : null; return <tr key={player.identity} className="border-t border-white/5"><td className="py-3 font-semibold">{player.displayName}</td><td>{player.coveredRounds}</td><td>{player.firstKills}–{player.firstDeaths}</td><td>{player.trades ?? 'Unknown'}</td><td>{player.multikills.two}×2K · {player.multikills.three}×3K · {player.multikills.four}×4K · {player.multikills.ace} ace</td><td>{player.lowBudgetWins}</td><td>{player.highBudgetLosses}</td><td>{player.antiEcoLosses}</td><td>{weapon ? `${weapon.weapon} · ${weapon.wins}/${weapon.rounds}` : 'Unknown'}</td><td className={percentageTextClass(kast)}>{kast === null ? 'Unknown' : `${kast}% (${player.kast!.covered})`}</td></tr>; })}</tbody></table></div></section>}
+
+      {weaponOutcomes.length > 0 && <section className={`rounded-xl border ${theme.border} ${theme.cardBg} p-5`} aria-labelledby="weapon-round-outcomes"><div className="flex flex-wrap items-end justify-between gap-2"><div><h3 id="weapon-round-outcomes" className="text-xs font-bold uppercase tracking-widest text-violet-300">Equipped weapon round outcomes</h3><p className="mt-1 max-w-3xl text-xs text-gray-500">Which equipped weapons were present in player-rounds the team won. Confirmed round evidence only; this does not prove a purchase or that the weapon caused the result.</p></div><span className="text-[10px] text-gray-500">Sorted by winning player-rounds</span></div><div className="mt-4 overflow-x-auto"><table className="w-full min-w-[720px] text-left text-xs"><thead className="text-[10px] uppercase tracking-wider text-gray-500"><tr><th className="pb-2">Weapon</th><th className="pb-2">Winning player-rounds</th><th className="pb-2">Losing player-rounds</th><th className="pb-2">Observed player-rounds</th><th className="pb-2">Win rate</th><th className="pb-2">K / D</th><th className="pb-2">Players</th></tr></thead><tbody>{weaponOutcomes.map(weapon => <tr key={weapon.weapon} className="border-t border-white/5"><td className="py-3 font-semibold text-violet-200">{weapon.weapon}</td><td className="font-mono text-emerald-300">{weapon.wins}</td><td className="font-mono text-rose-300">{weapon.losses}</td><td className="font-mono text-cyan-300">{weapon.rounds}{weapon.rounds < 5 && <span className="ml-2 text-[9px] uppercase text-amber-400">Small sample</span>}</td><td className={`font-mono font-bold ${percentageTextClass(weapon.winRate)}`}>{weapon.winRate}%</td><td className="font-mono"><span className="text-emerald-300">{weapon.kills}</span> / <span className="text-rose-300">{weapon.deaths}</span></td><td className="font-mono">{weapon.players}</td></tr>)}</tbody></table></div></section>}
 
       {matches.length === 0 ? (
         <p className="text-sm text-gray-500 font-mono italic">Log some matches to see economy conversions.</p>
