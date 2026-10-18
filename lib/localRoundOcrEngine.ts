@@ -1,5 +1,7 @@
 import type { LocalOcrRecognition } from './localOcrEngine';
 import type { RoundScreenshotEvidence } from '../src/types';
+import { VALORANT_WEAPON_NAMES } from './valorantCatalog';
+export { VALORANT_WEAPON_NAMES } from './valorantCatalog';
 
 const lines = (value: string) => value.split(/\r?\n/).map(item => item.trim()).filter(Boolean);
 const integers = (value: string) => (value.match(/\d{1,5}/g) || []).map(Number);
@@ -45,7 +47,6 @@ const parseDistance = (value: string) => {
 };
 
 /** Parse column OCR without repairing or inventing missing cells. */
-export const VALORANT_WEAPON_NAMES = ['Classic', 'Shorty', 'Frenzy', 'Ghost', 'Sheriff', 'Bandit', 'Stinger', 'Spectre', 'Bucky', 'Judge', 'Bulldog', 'Guardian', 'Phantom', 'Vandal', 'Marshal', 'Outlaw', 'Operator', 'Ares', 'Odin', 'Melee'];
 export const VALORANT_ARMOR_NAMES = ['Heavy Armor', 'Light Armor', 'Regen Shield', 'None'];
 
 function editDistance(left: string, right: string) {
