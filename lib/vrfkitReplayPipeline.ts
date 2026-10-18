@@ -306,10 +306,10 @@ async function readBoundedRegularFile(file: string, root: string, maxBytes: numb
 function scalarObject(value: unknown): value is Record<string, unknown> { return !!value && typeof value === 'object' && !Array.isArray(value); }
 function evidenceNumber(value: any) { return scalarObject(value) && ['available', 'unavailable'].includes(String(value.status)) && (value.value === null || (Number.isSafeInteger(value.value) && Number(value.value) >= 0)); }
 
-export function validateVrfkitNormalizedResult(raw: any): VrfkitNormalizedResult {
+export function validateVrfkitNormalizedResult(raw: any, acceptedParserVersion = VRFKIT_PIN.version): VrfkitNormalizedResult {
   if (!scalarObject(raw) || raw.schemaVersion !== 1 || !scalarObject(raw.parserInput) || !scalarObject(raw.scoreboard) || !scalarObject(raw.diagnostics)) throw new Error('Normalizer output does not match schema version 1.');
   const data = raw as any;
-  if (data.parserInput?.parser?.name !== 'vrfkit' || data.parserInput?.parser?.version !== VRFKIT_PIN.version || data.parserInput?.file?.format !== 'vrf') throw new Error('Normalizer output has an unexpected parser identity.');
+  if (data.parserInput?.parser?.name !== 'vrfkit' || data.parserInput?.parser?.version !== acceptedParserVersion || data.parserInput?.file?.format !== 'vrf') throw new Error('Normalizer output has an unexpected parser identity.');
   if (data.scoreboard?.reviewRequired !== true) throw new Error('Normalizer output must remain review-required.');
   if (!HEX_SHA256.test(String(data.parserInput?.provenance?.replaySha256 || ''))
     || data.parserInput.provenance.replaySha256 !== data.diagnostics?.replaySha256) throw new Error('Normalizer output has conflicting replay provenance.');

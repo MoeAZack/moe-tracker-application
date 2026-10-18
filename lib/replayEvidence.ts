@@ -4,6 +4,12 @@ import { validateVrfkitNormalizedResult, VRFKIT_PIN, type VrfkitNormalizedResult
 
 const HEX_SHA256 = /^[a-f0-9]{64}$/;
 export const MAX_LOCAL_EVIDENCE_BYTES = 4 * 1024 * 1024;
+const ACCEPTED_EVIDENCE_ARTIFACTS = Object.freeze([
+  { version: VRFKIT_PIN.version, binarySha256: VRFKIT_PIN.windowsX64ExeSha256, binaryCommit: VRFKIT_PIN.commit },
+  // Previously shipped and verified MoeTracker runtime. Retained only so evidence
+  // queued before the v0.2.6 migration can finish synchronizing without raw replay upload.
+  { version: '0.2.5', binarySha256: 'aa55fc410f1596a6ffedc7ab579341da6edb262197c64902e74b4eed485dc23f', binaryCommit: 'c4d6cc0e5ec3904fdb64b350b2656b8e3ff33d53' },
+]);
 
 export type LocalReplayEvidenceEnvelope = {
   schemaVersion: 1;
@@ -28,11 +34,12 @@ export function validateLocalReplayEvidence(raw: unknown, authenticatedDeviceId:
   if (!HEX_SHA256.test(input.source.sha256) || !Number.isSafeInteger(input.source.size) || input.source.size <= 0) throw new Error('Local replay source identity is invalid.');
   if (input.source.deviceId !== authenticatedDeviceId) throw Object.assign(new Error('Local replay evidence is not bound to this device.'), { status: 403 });
   if (typeof input.source.originalName !== 'string' || input.source.originalName.length < 5 || input.source.originalName.length > 180) throw new Error('Local replay filename is invalid.');
-  if (input.parser.name !== 'vrfkit' || input.parser.version !== VRFKIT_PIN.version
-    || input.parser.binarySha256 !== VRFKIT_PIN.windowsX64ExeSha256 || input.parser.binaryCommit !== VRFKIT_PIN.commit) {
+  const acceptedArtifact = input.parser.name === 'vrfkit' && ACCEPTED_EVIDENCE_ARTIFACTS.some(artifact => artifact.version === input.parser.version
+    && artifact.binarySha256 === input.parser.binarySha256 && artifact.binaryCommit === input.parser.binaryCommit);
+  if (!acceptedArtifact) {
     throw new Error('Local replay evidence was not produced by the accepted parser artifact.');
   }
-  const normalized = validateVrfkitNormalizedResult(input.normalized);
+  const normalized = validateVrfkitNormalizedResult(input.normalized, input.parser.version);
   if (normalized.diagnostics.replaySha256 !== input.source.sha256
     || normalized.parserInput.provenance?.replaySha256 !== input.source.sha256
     || normalized.scoreboard.reviewRequired !== true
@@ -47,4 +54,4 @@ export function validateLocalReplayEvidence(raw: unknown, authenticatedDeviceId:
   return { envelope: { ...withoutDigest, evidenceSha256: expected } as LocalReplayEvidenceEnvelope, retained };
 }
 
-export const replayEvidenceInternals = { canonical };
+export const replayEvidenceInternals = { canonical, ACCEPTED_EVIDENCE_ARTIFACTS };
