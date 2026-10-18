@@ -6,7 +6,7 @@ interface Entry { configured: boolean; note?: string; }
 type StatusMap = Record<string, Entry>;
 export interface RankedAccountView { playerId: string; providerId: string; account: { providerAccountId: string; region: string; platform: string }; revision: number; fingerprint: string; }
 export interface RankedConsentView { playerId: string; providerId: string; scopes: string[]; consentVersion: string; grantedAt: string; revokedAt: string | null; revision: number; }
-const LABELS: Record<string, string> = { gemini: 'Gemini AI', henrik: 'HenrikDev', grid: 'GRID', discord: 'Discord', vlr: 'VLR.gg', dailySync: 'Daily Sync', replay: 'Replay Evidence', shadowRating: 'Shadow Rating', rankedConsent: 'Ranked Consent' };
+const LABELS: Record<string, string> = { gemini: 'Gemini AI', henrik: 'HenrikDev', grid: 'GRID', discord: 'Discord', vlr: 'VLR.gg', pracc: 'PRACC Calendar', dailySync: 'Daily Sync', replay: 'Replay Evidence', shadowRating: 'Shadow Rating', rankedConsent: 'Ranked Consent' };
 const REQUESTED_SCOPES = ['Ranked match history', 'Official rank and RR'];
 const asArray = <T,>(value: unknown): T[] => Array.isArray(value) ? value : [];
 

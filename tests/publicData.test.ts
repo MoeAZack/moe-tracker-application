@@ -99,7 +99,7 @@ describe('public tracker data', () => {
 
   it('projects only accepted website summary fields and drops detailed desktop evidence', () => {
     const result = toWebsiteTrackerData({
-      settings: { teamName: 'RAAD', theme: 'slate', riotIds: { Alpha: { name: 'Private', tag: 'TAG' } }, vlr: { teamId: 'private' }, ai: { model: 'private' }, calendars: [{ key: 'team', name: 'Team', color: '#fff', gcalId: 'private-calendar', sync: true }] },
+      settings: { teamName: 'RAAD', theme: 'slate', praccCalendarUrl: 'https://pracc.com/api/matches/private/calendar.ics', praccCalendarLastError: 'private feed detail', riotIds: { Alpha: { name: 'Private', tag: 'TAG' } }, vlr: { teamId: 'private' }, ai: { model: 'private' }, calendars: [{ key: 'team', name: 'Team', color: '#fff', gcalId: 'private-calendar', sync: true }] },
       matches: [{ id: 'm1', date: '2026-10-13', type: 'Scrim', opponent: 'Other', map: 'Haven', ourScore: 13, theirScore: 9, notes: 'private coach note', vod: 'private-vod' }],
       playerStats: [{ id: 'p1', matchId: 'm1', player: 'Alpha', kills: 20, deaths: 10, corrections: [{ correctedBy: 'private-coach' }] }],
       rounds: [{ id: 'r1', matchId: 'm1', notes: 'private round detail' }], vetos: [{ id: 'v1' }], strats: [{ id: 's1', notes: 'private strat' }], stratRuns: [{ id: 'sr1' }],
@@ -108,7 +108,7 @@ describe('public tracker data', () => {
     expect(result.matches).toEqual([{ id: 'm1', date: '2026-10-13', type: 'Scrim', opponent: 'Other', map: 'Haven', ourScore: 13, theirScore: 9, comparisonEvidence: { accepted: false } }]);
     expect(result.playerStats).toEqual([{ id: 'p1', matchId: 'm1', player: 'Alpha', kills: 20, deaths: 10, comparisonEvidence: { openingAccepted: false } }]);
     expect(result).toMatchObject({ rounds: [], vetos: [], strats: [], stratRuns: [], vodReviews: [], lineups: [], seasonArchives: [], secrets: {} });
-    expect(JSON.stringify(result)).not.toMatch(/private coach note|private-vod|private round detail|private strat|private review|private-image|private-calendar|private-coach|TAG/);
+    expect(JSON.stringify(result)).not.toMatch(/private coach note|private-vod|private round detail|private strat|private review|private-image|private-calendar|private feed detail|private-coach|TAG/);
   });
 
   it('materializes round conversion summaries for the website without exposing detailed rounds', () => {

@@ -49,6 +49,18 @@ export default function CalendarGoals({ data, theme, role, onUpsert, onRemove, o
     return () => window.clearInterval(timer);
   }, []);
 
+  useEffect(() => {
+    if (role !== 'coach') return;
+    let active = true;
+    void apiFetch('/api/pracc/calendar/sync', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: '{}' }).then(async response => {
+      const result = await response.json().catch(() => ({}));
+      if (!active) return;
+      if (!response.ok) { if (result.configured) setAttendanceMessage(result.error || 'PRACC calendar sync failed.'); return; }
+      if (!result.skipped && ((result.imported || 0) + (result.updated || 0) + (result.cancelled || 0) > 0)) { setAttendanceMessage(`PRACC calendar refreshed · ${result.imported || 0} added · ${result.updated || 0} updated.`); await onRefresh(); }
+    }).catch(() => undefined);
+    return () => { active = false; };
+  }, [role]);
+
   // --- CALENDAR CALCULATIONS ---
   const year = currentDate.getFullYear();
   const month = currentDate.getMonth();
