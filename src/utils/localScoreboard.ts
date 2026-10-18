@@ -9,7 +9,14 @@ export async function extractScoreboardLocally(file: File, rosterPlayers: Array<
   });
   const image = new Image(); image.src = dataUrl; await image.decode();
   const localOcr = await import('../../lib/localOcrEngine');
-  const profile = selection ? localOcr.createSelectedScoreboardProfile(image.naturalWidth, image.naturalHeight, selection) : localOcr.createValorantEndScreenProfile(image.naturalWidth, image.naturalHeight);
+  let profile;
+  if (selection) profile = localOcr.createSelectedScoreboardProfile(image.naturalWidth, image.naturalHeight, selection);
+  else {
+    const canvas = document.createElement('canvas'); canvas.width = image.naturalWidth; canvas.height = image.naturalHeight;
+    const context = canvas.getContext('2d', { willReadFrequently: true }); if (!context) throw new Error('Scoreboard layout detection is unavailable.');
+    context.drawImage(image, 0, 0); const pixels = context.getImageData(0, 0, canvas.width, canvas.height);
+    profile = localOcr.createValorantEndScreenProfile(image.naturalWidth, image.naturalHeight, 'custom', localOcr.measureScoreDigitBoxes(pixels), localOcr.measureScoreboardRowOffset(pixels));
+  }
   const adapter = await localOcr.createBrowserLocalTesseractAdapter();
   try {
     return { imageSha256, draft: await localOcr.extractLocalScoreboardDraft(adapter, image, profile.dimensions, { capturedAt: new Date().toISOString(), rosterPlayers }, profile) };

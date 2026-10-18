@@ -5,11 +5,12 @@
  * accuracy numbers measured in backtests are the numbers the app produces.
  * Browser-only: the classifiers read pixels through canvas.
  */
-import type { LocalOcrAdapter } from './localOcrEngine';
-import { measureScoreDigitBoxes, createValorantEndScreenProfile, createValorantHeadToHeadProfile, createValorantPerformanceProfile, createValorantRoundSummaryProfile, extractLocalScoreboardDraft } from './localOcrEngine';
+import type { LocalOcrAdapter, LocalOcrProfile, LocalOcrRecognition } from './localOcrEngine';
+import { measureScoreDigitBoxes, measureScoreboardRowOffset, createValorantEndScreenProfile, createValorantHeadToHeadProfile, createValorantPerformanceProfile, createValorantRoundSummaryProfile, extractLocalScoreboardDraft } from './localOcrEngine';
 import { parseLocalRoundRecognitions } from './localRoundOcrEngine';
 import { classifyValorantRoundEvents } from './localRoundEventClassifier';
 import { canonicalScoreboardName, cleanCaptureDisplayName, cleanCaptureMap, inferAlliedScoreboardNames, normalizeCaptureName, inferStartingSide, reconcileCapturedRoundNumbers, scoreFromCompleteRounds } from './scrimCaptureImport';
+import { canonicalKnownMap, consensusDisplayName } from './ocrAutonomy';
 import { classifyValorantScoreboardAgents } from './localAgentClassifier';
 import { addSurvivalEvidence, canonicalizeRoundIdentities, enrichObjectiveRows, enrichScreenshotEvents } from './screenshotEvidence';
 import { parseLocalHeadToHeadRecognitions, parseLocalPerformanceRecognitions } from './localPerformanceOcrEngine';
@@ -34,10 +35,13 @@ export async function extractCaptureSession(input: {
   rosterPlayers: Array<{ id?: string; displayName: string }>;
   adapter: LocalOcrAdapter;
   loadImage: (capture: CaptureImage) => Promise<LoadedImage>;
+  recognize?: (capture: CaptureImage, image: LoadedImage, profile: LocalOcrProfile) => Promise<LocalOcrRecognition[]>;
+  knownMaps?: readonly string[];
   progress?: (message: string) => void;
 }) {
   const { captures, rosterPlayers, adapter, loadImage } = input;
   const progress = input.progress || (() => {});
+  const recognize = input.recognize || ((_capture: CaptureImage, image: LoadedImage, profile: LocalOcrProfile) => adapter.recognize(image, profile));
   const scoreboardCapture = captures.find(item => item.kind === 'scoreboard');
   if (!scoreboardCapture) throw new Error('The capture session has no scoreboard image.');
   progress('Reading the final scoreboard locally…');
@@ -45,22 +49,28 @@ export async function extractCaptureSession(input: {
   // Matchmaking summaries have a Performance tab and a wider scoreboard
   // (Performance Score | KDA | Trades | FB | Plants | Defuses).
   const scoreboardLayout = captures.some(item => item.kind === 'performance') ? 'competitive' : 'custom';
-  const scoreboardProfile = createValorantEndScreenProfile(scoreboardImage.naturalWidth, scoreboardImage.naturalHeight, scoreboardLayout, measureScoreDigitBoxes(imagePixels(scoreboardImage)));
-  const draft = await extractLocalScoreboardDraft(adapter, scoreboardImage, scoreboardProfile.dimensions, { capturedAt: new Date().toISOString(), rosterPlayers }, scoreboardProfile);
+  const scoreboardPixels = imagePixels(scoreboardImage);
+  const rowOffset = measureScoreboardRowOffset(scoreboardPixels);
+  const scoreboardProfile = createValorantEndScreenProfile(scoreboardImage.naturalWidth, scoreboardImage.naturalHeight, scoreboardLayout, measureScoreDigitBoxes(scoreboardPixels), rowOffset);
+  const scoreboardAdapter: LocalOcrAdapter = {
+    recognize: (image, profile) => recognize(scoreboardCapture, image as LoadedImage, profile),
+    terminate: () => Promise.resolve(),
+  };
+  const draft = await extractLocalScoreboardDraft(scoreboardAdapter, scoreboardImage, scoreboardProfile.dimensions, { capturedAt: new Date().toISOString(), rosterPlayers }, scoreboardProfile);
   progress('Identifying agent portraits locally…');
-  const detectedAgents = await classifyValorantScoreboardAgents(scoreboardImage, scoreboardLayout).catch(() => Array<string | null>(10).fill(null));
+  const detectedAgents = await classifyValorantScoreboardAgents(scoreboardImage, scoreboardLayout, rowOffset).catch(() => Array<string | null>(10).fill(null));
   draft.stats = draft.stats.map((player, index) => ({ ...player, agent: detectedAgents[index] || player.agent }));
   const performanceCapture = captures.find(item => item.kind === 'performance');
   const headToHeadCapture = captures.find(item => item.kind === 'head-to-head');
   const performance = performanceCapture ? await (async () => {
     const image = await loadImage(performanceCapture);
     const profile = createValorantPerformanceProfile(image.naturalWidth, image.naturalHeight);
-    return parseLocalPerformanceRecognitions(await adapter.recognize(image, profile));
+    return parseLocalPerformanceRecognitions(await recognize(performanceCapture, image, profile));
   })() : null;
   const headToHead = headToHeadCapture ? await (async () => {
     const image = await loadImage(headToHeadCapture);
     const profile = createValorantHeadToHeadProfile(image.naturalWidth, image.naturalHeight);
-    return parseLocalHeadToHeadRecognitions(await adapter.recognize(image, profile));
+    return parseLocalHeadToHeadRecognitions(await recognize(headToHeadCapture, image, profile));
   })() : null;
   if (headToHead?.totals) {
     const ownerRows = draft.stats.map((player, index) => ({ player, index })).filter(({ player }) => player.kills === headToHead.totals!.kills && player.deaths === headToHead.totals!.deaths && player.assists === headToHead.totals!.assists);
@@ -81,7 +91,7 @@ export async function extractCaptureSession(input: {
     progress(`Reading round ${capture.round} locally · ${index + 1} of ${roundCaptures.length}`);
     const image = await loadImage(capture);
     const profile = createValorantRoundSummaryProfile(image.naturalWidth, image.naturalHeight);
-    const parsed = parseLocalRoundRecognitions(await adapter.recognize(image, profile), capture.name);
+    const parsed = parseLocalRoundRecognitions(await recognize(capture, image, profile), capture.name);
     if (parsed.displayedRoundNo === null) parsed.issues = [...new Set([...parsed.issues, 'round-number-unreadable'])];
     else if (parsed.displayedRoundNo !== capture.round) parsed.issues = [...new Set([...parsed.issues, 'round-number-mismatch'])];
     const eventPlayers = parsed.evidence.players.map(player => {
@@ -122,13 +132,19 @@ export async function extractCaptureSession(input: {
   const reconciled = reconcileCapturedRoundNumbers(extractedRounds, scoreboardRoundCount);
   extractedRounds.splice(0, extractedRounds.length, ...(reconciled.rounds as typeof extractedRounds));
   const completeScore = scoreFromCompleteRounds(extractedRounds);
-  const meta = { map: cleanCaptureMap(draft.match.map), ourScore: completeScore?.ourScore ?? draft.match.ourScore, theirScore: completeScore?.theirScore ?? draft.match.theirScore };
+  const normalizedMap = input.knownMaps?.length ? canonicalKnownMap(draft.match.map, input.knownMaps) : cleanCaptureMap(draft.match.map);
+  const meta = { map: normalizedMap || cleanCaptureMap(draft.match.map), ourScore: completeScore?.ourScore ?? draft.match.ourScore, theirScore: completeScore?.theirScore ?? draft.match.theirScore };
   const alliedNames = inferAlliedScoreboardNames(draft.stats, extractedRounds);
-  const resolvedPlayers = draft.stats.map(player => ({
+  const resolvedPlayers = draft.stats.map(player => {
+    const observations = [player.extractedName];
+    for (const round of extractedRounds) for (const observed of round.screenshotEvidence?.players || []) {
+      if (normalizeCaptureName(canonicalScoreboardName(observed.displayName, draft.stats)) === normalizeCaptureName(player.extractedName)) observations.push(observed.displayName);
+    }
+    return ({
     ...player,
-    extractedName: cleanCaptureDisplayName(player.extractedName),
+    extractedName: consensusDisplayName(observations, cleanCaptureDisplayName(player.extractedName)) || cleanCaptureDisplayName(player.extractedName),
     include: player.rosterMatch.status === 'matched' || alliedNames.has(normalizeCaptureName(player.extractedName)),
-  }));
+  }); });
   // Stabilize OCR variants across all round images so economy/weapon
   // summaries attach to the same five match-stat rows.
   const canonicalIdentity = (rawName: string) => {

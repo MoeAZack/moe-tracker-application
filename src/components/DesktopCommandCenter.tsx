@@ -6,7 +6,7 @@ export default function DesktopCommandCenter({ onOpenReplay, onOpenCapture }: { 
   const [status, setStatus] = useState<any>(null);
   const [busy, setBusy] = useState('');
   const [notice, setNotice] = useState('');
-  const [captureRounds, setCaptureRounds] = useState(24);
+  const [captureRounds, setCaptureRounds] = useState<number | ''>('');
   const refresh = async () => bridge && setStatus(await bridge.getStatus());
   useEffect(() => {
     let active = true;
@@ -63,9 +63,9 @@ export default function DesktopCommandCenter({ onOpenReplay, onOpenCapture }: { 
           <li><span>2</span>Start capture and return to VALORANT</li>
           <li><span>3</span>Review uncertain fields, then accept</li>
         </ol>
-        <label className="mt-4 block text-[10px] text-slate-400">Rounds<input aria-label="Numbered rounds shown in Timeline" type="number" min={1} max={32} value={captureRounds} onChange={event => setCaptureRounds(Number(event.target.value))} className="ui-field mt-1 h-10 w-full px-2 text-center text-sm text-white" /></label>
-        <p className="mt-2 text-[10px] leading-4 text-slate-400">Standard and Performance layouts are detected automatically.</p>
-        <button type="button" disabled={!!busy || !Number.isInteger(captureRounds) || captureRounds < 1 || captureRounds > 32} onClick={() => run('capture', () => bridge.startScrimCapture({ roundCount: captureRounds }))} className="ui-button ui-button-primary mt-3 flex min-h-11 w-full items-center justify-center gap-2 px-4 text-xs disabled:opacity-50"><Image className="h-4 w-4" />Start post-match capture</button>
+        <label className="mt-4 block text-[10px] text-slate-400">Rounds · leave blank for automatic<input aria-label="Numbered rounds shown in Timeline; blank detects automatically" type="number" min={1} max={32} value={captureRounds} placeholder="Automatic" onChange={event => setCaptureRounds(event.target.value === '' ? '' : Number(event.target.value))} className="ui-field mt-1 h-10 w-full px-2 text-center text-sm text-white" /></label>
+        <p className="mt-2 text-[10px] leading-4 text-slate-400">Round count, Standard and Performance layouts are detected automatically. Enter a count only to override detection.</p>
+        <button type="button" disabled={!!busy || (captureRounds !== '' && (!Number.isInteger(captureRounds) || captureRounds < 1 || captureRounds > 32))} onClick={() => run('capture', () => bridge.startScrimCapture({ roundCount: captureRounds === '' ? 0 : captureRounds }))} className="ui-button ui-button-primary mt-3 flex min-h-11 w-full items-center justify-center gap-2 px-4 text-xs disabled:opacity-50"><Image className="h-4 w-4" />Start post-match capture</button>
         <button type="button" onClick={() => run('screenshots', () => bridge.openFolder('screenshots'))} className="capture-folder-button"><span><FolderOpen className="h-4 w-4" />Open capture folder</span></button>
       </aside>
     </div>

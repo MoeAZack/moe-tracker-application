@@ -139,6 +139,26 @@ export type ValorantScoreboardLayout = 'custom' | 'competitive';
 
 export interface ScoreDigitBoxes { left: { left: number; width: number }; right: { left: number; width: number } }
 
+/** Detect a small vertical UI shift from repeated scoreboard row separators. */
+export function measureScoreboardRowOffset(pixels: { width: number; height: number; data: Uint8ClampedArray }) {
+  if (pixels.width / pixels.height < 1.72 || pixels.width / pixels.height > 1.82) return 0;
+  const sx = pixels.width / 1920; const sy = pixels.height / 1080;
+  const luminance = (x: number, y: number) => { const index = (y * pixels.width + x) * 4; return (77 * pixels.data[index] + 150 * pixels.data[index + 1] + 29 * pixels.data[index + 2]) >> 8; };
+  const ranked: Array<{ offset: number; score: number }> = [];
+  for (let offset = -24; offset <= 24; offset += 1) {
+    let score = 0;
+    for (let row = 0; row <= 10; row += 1) {
+      const y = Math.round((321 + row * 48 + offset) * sy); if (y < 2 || y + 2 >= pixels.height) continue;
+      for (let referenceX = 430; referenceX <= 1740; referenceX += 24) {
+        const x = Math.round(referenceX * sx); score += Math.abs(luminance(x, y - 2) - luminance(x, y + 2));
+      }
+    }
+    ranked.push({ offset, score });
+  }
+  ranked.sort((a, b) => b.score - a.score);
+  return ranked[0] && ranked[1] && ranked[0].score > ranked[1].score * 1.015 ? ranked[0].offset : 0;
+}
+
 /**
  * Locate the two coloured score numbers in "11 DEFEAT 13" / "13 VICTORY 9".
  * Their x position depends on digit count and on the word between them, so a
@@ -171,7 +191,7 @@ export function measureScoreDigitBoxes(pixels: { width: number; height: number; 
   return { left: box(clusters[0]), right: box(clusters[1]) };
 }
 
-export function createValorantEndScreenProfile(width: number, height: number, layout: ValorantScoreboardLayout = 'custom', scoreBoxes?: ScoreDigitBoxes | null): LocalOcrProfile {
+export function createValorantEndScreenProfile(width: number, height: number, layout: ValorantScoreboardLayout = 'custom', scoreBoxes?: ScoreDigitBoxes | null, rowOffset = 0): LocalOcrProfile {
   if (!Number.isInteger(width) || !Number.isInteger(height) || width <= 0 || height <= 0) {
     throw Object.assign(new Error('The scoreboard image dimensions are invalid.'), { status: 422 });
   }
@@ -200,7 +220,7 @@ export function createValorantEndScreenProfile(width: number, height: number, la
       fk: [1148, 70], plants: [1358, 66], defuses: [1564, 66],
     };
     for (let row = 0; row < 10; row += 1) {
-      const top = 321 + row * 48;
+      const top = 321 + rowOffset + row * 48;
       regions.push({ id: `player.${row}.name`, kind: 'text', rectangle: competitive ? rectangle(466, top, 258, 45) : rectangle(445, top, 425, 45) });
       for (const metric of METRICS) {
         const [left, regionWidth] = metricGeometry[metric];
@@ -542,6 +562,19 @@ export function preprocessRegionPixels(
 
 export interface KdaNumberRectangle { left: number; top: number; width: number; height: number }
 
+export function chooseRecognitionConsensus(candidates: ReadonlyArray<{ text: string; confidence: number | null }>, pattern: RegExp) {
+  const valid = candidates.map(item => ({ text: item.text.trim(), confidence: Number.isFinite(item.confidence) ? Number(item.confidence) : 0 }))
+    .filter(item => pattern.test(item.text));
+  if (!valid.length) return { text: '', confidence: null as number | null, agreed: false };
+  const groups = new Map<string, number[]>();
+  for (const item of valid) groups.set(item.text, [...(groups.get(item.text) || []), item.confidence]);
+  const ranked = [...groups.entries()].map(([text, confidences]) => ({ text, votes: confidences.length, confidence: Math.max(...confidences) }))
+    .sort((a, b) => b.votes - a.votes || b.confidence - a.confidence);
+  if (ranked[0].votes >= 2) return { text: ranked[0].text, confidence: ranked[0].confidence, agreed: true };
+  if (ranked.length === 1 || ranked[0].confidence - ranked[1].confidence >= 15) return { text: ranked[0].text, confidence: ranked[0].confidence, agreed: false };
+  return { text: '', confidence: Math.max(...valid.map(item => item.confidence)), agreed: false };
+}
+
 /** Preserve antialiased glyph edges while normalizing a numeric crop to dark text on white. */
 export function preprocessNumericGrayscale(
   image: { width: number; height: number; data: Uint8ClampedArray },
@@ -732,8 +765,30 @@ export async function createBrowserLocalTesseractAdapter(): Promise<LocalOcrAdap
             : region.kind === 'integer' ? { tessedit_char_whitelist: '0123456789' } : { tessedit_char_whitelist: '' }),
         });
         const result = await worker.recognize(recognitionImage);
-        const confidence = Number.isFinite(result.data.confidence) ? result.data.confidence : null;
-        results.push({ regionId: region.id, text: region.recognitionKind === 'kda' && confidence === null ? '' : result.data.text || '', confidence });
+        let confidence = Number.isFinite(result.data.confidence) ? result.data.confidence : null;
+        let text = region.recognitionKind === 'kda' && confidence === null ? '' : result.data.text || '';
+        // Generic document OCR is weakest on VALORANT's tiny numeric glyphs.
+        // Retry only uncertain cells with antialias-preserving grayscale and
+        // require agreement or a decisive confidence gap; ambiguity becomes
+        // unknown rather than a plausible-looking wrong number.
+        if (region.kind === 'integer' && region.recognitionKind !== 'kda' && (!/^\s*\d{1,5}\s*$/.test(text) || (confidence ?? 0) < 75)) {
+          const grayscale = preprocessNumericGrayscale(sourcePixels, region.rectangle);
+          const crop = document.createElement('canvas'); crop.width = grayscale.width; crop.height = grayscale.height;
+          const context = crop.getContext('2d'); if (!context) throw new Error('Canvas preprocessing is unavailable.');
+          context.putImageData(new ImageData(grayscale.data, grayscale.width, grayscale.height), 0, 0);
+          const scale = Math.max(4, Math.ceil(96 / grayscale.height)); const padding = 12;
+          const enlarged = document.createElement('canvas'); enlarged.width = grayscale.width * scale + padding * 2; enlarged.height = grayscale.height * scale + padding * 2;
+          const enlargedContext = enlarged.getContext('2d'); if (!enlargedContext) throw new Error('Canvas preprocessing is unavailable.');
+          enlargedContext.fillStyle = '#fff'; enlargedContext.fillRect(0, 0, enlarged.width, enlarged.height); enlargedContext.imageSmoothingEnabled = true; enlargedContext.imageSmoothingQuality = 'high'; enlargedContext.drawImage(crop, padding, padding, grayscale.width * scale, grayscale.height * scale);
+          await worker.setParameters({ tessedit_pageseg_mode: tesseract.PSM.SINGLE_WORD, tessedit_char_whitelist: '0123456789' });
+          const retry = await worker.recognize(enlarged);
+          const selected = chooseRecognitionConsensus([
+            { text, confidence },
+            { text: retry.data.text || '', confidence: Number.isFinite(retry.data.confidence) ? retry.data.confidence : null },
+          ], /^\d{1,5}$/);
+          text = selected.text; confidence = selected.confidence;
+        }
+        results.push({ regionId: region.id, text, confidence });
       }
       return results;
     },
