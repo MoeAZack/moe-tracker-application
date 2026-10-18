@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { activeObservedPlayerStats, activeRosterCount, aggregateObservedPlayerDashboard, aggregateObservedPlayerKd, cairoDateKeyAt, canOpenPrivateMatchReview, engineAdapterUiSummary, matchDateWindow, rankedIntegrationReadiness, replayIntegrationReadiness, resolveInitialVodSelection, selectedVodMatchId, shadowRatingReadiness, vodContextMatchId } from '../lib/uiIntegration';
+import { activeObservedPlayerStats, activeRosterCount, aggregateObservedPlayerDashboard, aggregateObservedPlayerKd, cairoDateKeyAt, canOpenPrivateMatchReview, engineAdapterUiSummary, matchDateWindow, playerMetricRoundEvidence, rankedIntegrationReadiness, replayIntegrationReadiness, resolveInitialVodSelection, selectedVodMatchId, shadowRatingReadiness, vodContextMatchId } from '../lib/uiIntegration';
 import type { Match, VodReview } from '../src/types';
 
 const review = (id: string, matchId?: string): VodReview => ({ id, matchId, title: id, vodUrl: 'https://example.invalid', notes: [] });
@@ -156,6 +156,25 @@ describe('observed roster dashboard', () => {
     } as any);
     expect(row).toMatchObject({ displayName: 'Trial', status: 'tryout', matches: 1, wins: 1, losses: 0, mainAgent: 'Jett', kills: 20, firstKills: 4, firstDeaths: 2, trades: 2, multikills: { two: 3, three: 1, four: 0, ace: 0 }, lowBudgetWins: 2, highBudgetLosses: 1, antiEcoLosses: 1, maps: [{ name: 'Ascent', matches: 1, wins: 1 }], weapons: [{ name: 'Vandal', rounds: 12 }] });
     expect(row.kast).toBeCloseTo(16 / 21);
+  });
+});
+
+describe('player metric round evidence', () => {
+  it('links a displayed player metric only to its exact confirmed identity and round', () => {
+    const data: any = {
+      rosterPlayers: [{ id: 'p1', displayName: 'Same' }, { id: 'p2', displayName: 'same' }], coreMemberships: [], tryoutBatches: [],
+      matches: [{ id: 'm1', date: '2026-10-19', map: 'Ascent' }],
+      playerStats: [{ id: 's1', matchId: 'm1', playerId: 'p1', player: 'Same' }, { id: 's2', matchId: 'm1', playerId: 'p2', player: 'same' }],
+      rounds: [{ id: 'r1', matchId: 'm1', roundNo: 4, result: 'W', screenshotEvidence: { schemaVersion: 1, reviewStatus: 'confirmed', confidence: 'confirmed', ourAverageLoadout: 1800, enemyAverageLoadout: 4100, players: [{ playerId: 'p1', displayName: 'Same', team: 'ours', kills: 3, survived: true }, { playerId: 'p2', displayName: 'same', team: 'ours', kills: 0, survived: true }], eventsComplete: true, events: [{ sequence: 1, killerPlayerId: 'p1', victimPlayerId: 'e1', killerTeam: 'ours', victimTeam: 'theirs' }, { sequence: 2, killerPlayerId: 'p1', victimPlayerId: 'e2', killerTeam: 'ours', victimTeam: 'theirs' }, { sequence: 3, killerPlayerId: 'p1', victimPlayerId: 'e3', killerTeam: 'ours', victimTeam: 'theirs' }] } }],
+    };
+    const dashboards = aggregateObservedPlayerDashboard(data);
+    const p1 = playerMetricRoundEvidence(data, dashboards.find(row => row.playerId === 'p1')!);
+    const p2 = playerMetricRoundEvidence(data, dashboards.find(row => row.playerId === 'p2')!);
+    expect(p1.firstKills).toEqual([{ metric: 'firstKills', matchId: 'm1', roundId: 'r1', roundNo: 4, value: 1 }]);
+    expect(p1.threeK).toEqual([{ metric: 'threeK', matchId: 'm1', roundId: 'r1', roundNo: 4, value: 1 }]);
+    expect(p1.lowBudgetWins).toEqual([{ metric: 'lowBudgetWins', matchId: 'm1', roundId: 'r1', roundNo: 4, value: 1 }]);
+    expect(p2.firstKills).toEqual([]);
+    expect(p2.threeK).toEqual([]);
   });
 });
 

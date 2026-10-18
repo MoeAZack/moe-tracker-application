@@ -34,5 +34,8 @@ describe('shared match review context', () => {
     const players = fs.readFileSync('src/components/PlayerSoloTracker.tsx', 'utf8');
     expect(players).toContain('const contributingRowIds = new Set(row.sourceRowIds)');
     expect(players).not.toContain('stat.playerId === row.playerId');
+    expect(players).toContain('playerMetricRoundEvidence(data, row)');
+    expect(players).toContain('onOpenEvidence?.(item.matchId, item.roundNo)');
+    expect(app).toContain("setReviewRoundNo(roundNo); setActiveTab('vod')");
   });
 });
