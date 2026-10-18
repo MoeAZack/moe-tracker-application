@@ -136,6 +136,18 @@ describe('private replay intake', () => {
     }
   });
 
+  it('finds the original accepted match for a replay SHA instead of duplicating it', async () => {
+    const { replayIntakeInternals } = await import('../lib/routes/replayIntake');
+    const db: any = {
+      matches: [{ id: 'original' }, { id: 'newer' }],
+      engineAdapters: { replay: {
+        newer: { matchId: 'newer', status: 'accepted', acceptedAt: '2026-10-18T18:00:00.000Z', provenance: { replaySha256: 'same-sha' } },
+        original: { matchId: 'original', status: 'accepted', acceptedAt: '2026-10-18T17:00:00.000Z', provenance: { replaySha256: 'same-sha' } },
+      } },
+    };
+    expect(replayIntakeInternals.acceptedReplayAdapterForSha(db, 'same-sha')?.matchId).toBe('original');
+  });
+
   it('binds a player enrollment to that player and never persists the raw credential', async () => {
     const player = await login(playerKey);
     const denied = await jsonRequest('/api/replay-intake/devices/enroll', player, { name: 'My PC', playerId: 'someone-else' }); expect(denied.status).toBe(403);

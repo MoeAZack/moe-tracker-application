@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { activeRosterCount, aggregateObservedPlayerDashboard, aggregateObservedPlayerKd, cairoDateKeyAt, canOpenPrivateMatchReview, engineAdapterUiSummary, matchDateWindow, rankedIntegrationReadiness, replayIntegrationReadiness, resolveInitialVodSelection, selectedVodMatchId, shadowRatingReadiness, vodContextMatchId } from '../lib/uiIntegration';
+import { activeObservedPlayerStats, activeRosterCount, aggregateObservedPlayerDashboard, aggregateObservedPlayerKd, cairoDateKeyAt, canOpenPrivateMatchReview, engineAdapterUiSummary, matchDateWindow, rankedIntegrationReadiness, replayIntegrationReadiness, resolveInitialVodSelection, selectedVodMatchId, shadowRatingReadiness, vodContextMatchId } from '../lib/uiIntegration';
 import type { Match, VodReview } from '../src/types';
 
 const review = (id: string, matchId?: string): VodReview => ({ id, matchId, title: id, vodUrl: 'https://example.invalid', notes: [] });
@@ -54,6 +54,21 @@ describe('observed player K/D aggregation', () => {
 });
 
 describe('observed roster dashboard', () => {
+  it('restores retired-ID history for a currently observed alias while hiding archived-only people', () => {
+    const data: any = {
+      rosterPlayers: [
+        { id: 'old-bellatrix', displayName: 'bellatr1x', retiredAt: '2026-10-18T00:00:00.000Z' },
+        { id: 'old-elyystan', displayName: 'twitch elyystan', retiredAt: '2026-10-18T00:00:00.000Z' },
+      ],
+      playerStats: [
+        { id: 'old', matchId: 'm1', playerId: 'old-bellatrix', displayNameSnapshot: 'bellatr1x' },
+        { id: 'new', matchId: 'm2', playerId: 'observed-new', displayNameSnapshot: 'bellatrix' },
+        { id: 'archived', matchId: 'm1', displayNameSnapshot: 'twitch elyystan' },
+      ],
+    };
+    expect(activeObservedPlayerStats(data).map(row => row.id)).toEqual(['old', 'new']);
+  });
+
   it('combines repeated unlinked appearances into one player row and match count', () => {
     const rows = aggregateObservedPlayerDashboard({
       rosterPlayers: [], coreMemberships: [], tryoutBatches: [],
