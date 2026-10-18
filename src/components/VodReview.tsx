@@ -11,6 +11,7 @@ interface Props {
   role: string | null;
   onRefresh: () => Promise<void>;
   initialMatchId?: string | null;
+  selectedRoundNo?: number | null;
 }
 
 // Parse "1:23" or "83" into seconds.
@@ -38,7 +39,7 @@ function timestampedUrl(url: string, seconds: number): string {
   return url;
 }
 
-export default function VodReview({ data, theme, role, onRefresh, initialMatchId }: Props) {
+export default function VodReview({ data, theme, role, onRefresh, initialMatchId, selectedRoundNo }: Props) {
   const reviews = useMemo(() => data.vodReviews || [], [data.vodReviews]);
   const isCoach = role === 'coach';
   const [selectedId, setSelectedId] = useState<string | null>(() => resolveInitialVodSelection(reviews, initialMatchId));
@@ -54,6 +55,14 @@ export default function VodReview({ data, theme, role, onRefresh, initialMatchId
   const [actionError, setActionError] = useState('');
   const [adapterState, setAdapterState] = useState<any>(null);
   const [parserCorrection, setParserCorrection] = useState('');
+
+  useEffect(() => {
+    if (!initialMatchId) return;
+    setSelectedId(reviews.find(review => review.matchId === initialMatchId)?.id || null);
+    setExplicitlySelected(false);
+    setForm(current => ({ ...current, matchId: initialMatchId }));
+  }, [initialMatchId, reviews]);
+  useEffect(() => { setNoteRound(selectedRoundNo ? String(selectedRoundNo) : ''); }, [selectedRoundNo]);
 
   const selected = useMemo(() => reviews.find((r) => r.id === selectedId) || null, [reviews, selectedId]);
   const focusedMatchId = vodContextMatchId(reviews, selectedId, initialMatchId, explicitlySelected);
