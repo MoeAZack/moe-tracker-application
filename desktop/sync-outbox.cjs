@@ -16,10 +16,21 @@ function refreshScreenshotOutboxFromData(state, data, updatedAt = new Date().toI
     const match = matches.get(matchId);
     if (!match) continue;
     const playerStats = (data?.playerStats || []).filter(stat => stat.matchId === matchId && stat.screenshotMetrics);
-    if (!playerStats.length) continue;
-    const summary = { schemaVersion: 1, match, playerStats, updatedAt };
+    if (!playerStats.length && match?.screenshotEvidence?.scoreboardPlayers?.length !== 10) continue;
+    const summary = { schemaVersion: 1, match, playerStats, updatedAt: match.sourceMetadata?.capturedAt || item.summary?.updatedAt || updatedAt };
     const digest = crypto.createHash('sha256').update(canonical(summary)).digest('hex');
     latest.set(matchId, { ...item, id: `screenshot-summary:${matchId}:${digest}`, summary, createdAt: item.createdAt || updatedAt, attempts: 0, lastError: null });
+  }
+  // Full one-button captures are accepted matches already. Queue their
+  // sanitized ten-player scoreboard even when no per-player screenshot metric
+  // was materialized, so replay evidence can find and enrich the same match.
+  for (const [matchId, match] of matches) {
+    if (match?.screenshotEvidence?.scoreboardPlayers?.length !== 10 || latest.has(matchId)) continue;
+    const playerStats = (data?.playerStats || []).filter(stat => stat.matchId === matchId && stat.screenshotMetrics);
+    const summary = { schemaVersion: 1, match, playerStats, updatedAt: match.sourceMetadata?.capturedAt || updatedAt };
+    const digest = crypto.createHash('sha256').update(canonical(summary)).digest('hex');
+    const id = `screenshot-summary:${matchId}:${digest}`;
+    if (!(state.completed || []).includes(id)) latest.set(matchId, { id, kind: 'screenshot-summary', matchId, summary, createdAt: summary.updatedAt, attempts: 0, lastError: null });
   }
   const latestReplayEvidence = new Map();
   const remaining = [];

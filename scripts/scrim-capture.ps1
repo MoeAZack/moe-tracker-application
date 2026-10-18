@@ -106,6 +106,26 @@ using System.Runtime.InteropServices;
 // white round-number labels (reference band y=289..307, x=340..1740 at
 // 1920x1080). Works whatever way the strip is scrolled, including overtime.
 public static class MoeTimelineTiles {
+  // Compare only the timeline strip after a scroll attempt. A non-overtime
+  // match cannot move past its single viewport, while a 25-32 round match
+  // changes a large part of this band. Sampling and a tolerance make the
+  // check insensitive to antialiasing noise.
+  public static double TimelineDifferenceRatio(Bitmap before, Bitmap after) {
+    if (before.Width != after.Width || before.Height != after.Height) return 1.0;
+    double sx = before.Width / 1920.0, sy = before.Height / 1080.0;
+    int x0 = (int)Math.Round(330 * sx), x1 = (int)Math.Round(1760 * sx);
+    int y0 = (int)Math.Round(280 * sy), y1 = (int)Math.Round(365 * sy);
+    int stepX = Math.Max(2, (int)Math.Round(4 * sx));
+    int stepY = Math.Max(2, (int)Math.Round(4 * sy));
+    int changed = 0, sampled = 0;
+    for (int y = y0; y < y1; y += stepY) for (int x = x0; x < x1; x += stepX) {
+      Color left = before.GetPixel(x, y), right = after.GetPixel(x, y);
+      if (Math.Abs(left.R - right.R) + Math.Abs(left.G - right.G) + Math.Abs(left.B - right.B) > 72) changed++;
+      sampled++;
+    }
+    return sampled == 0 ? 1.0 : changed / (double)sampled;
+  }
+
   public static int[] DetectSummaryTabCenters(Bitmap bitmap) {
     double sx = bitmap.Width / 1920.0, sy = bitmap.Height / 1080.0;
     int x0 = (int)Math.Round(35 * sx), x1 = (int)Math.Round(285 * sx);
@@ -453,8 +473,25 @@ try {
   # regulation rows and reveal the actual match length.
   $tailCount = if ($RoundCount -eq 0 -and $leftTiles.Count -ge 24) { 8 } elseif ($RoundCount -eq 0) { 0 } else { $RoundCount - $firstCount }
   if ($tailCount -gt 0) {
+    $leftViewport = if ($RoundCount -eq 0) { Get-ValorantFrame $window } else { $null }
     Invoke-TimelineScroll $window -120
     Invoke-TimelineScroll $window -120
+    if ($leftViewport) {
+      $rightViewport = Get-ValorantFrame $window
+      try {
+        $timelineDifference = [MoeTimelineTiles]::TimelineDifferenceRatio($leftViewport, $rightViewport)
+        if ($timelineDifference -lt 0.01) {
+          $tailCount = 0
+          $manifest.timelinePasses += @{ edge = 'right'; tiles = $leftTiles.Count; captured = 0; reason = 'timeline-did-not-scroll'; differenceRatio = $timelineDifference }
+        }
+      }
+      finally {
+        $rightViewport.Dispose()
+        $leftViewport.Dispose()
+      }
+    }
+  }
+  if ($tailCount -gt 0) {
     $rightTiles = @(Get-VisibleTimelineTiles $window)
     if ($rightTiles.Count -lt $tailCount) {
       throw "Only $($rightTiles.Count) timeline tiles were visible at the right edge; expected at least $tailCount."
