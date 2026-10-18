@@ -59,6 +59,13 @@ export interface ObservedPlayerDashboard extends ObservedPlayerKd {
   evidence: { performanceRows: number; openingRows: number; screenshotRounds: number; duplicateRowsReconciled: number };
 }
 
+export const PLAYER_METRIC_EVIDENCE_LABELS = {
+  firstKills: 'First kills', firstDeaths: 'First deaths', trades: 'Trades', twoK: '2K rounds', threeK: '3K rounds', fourK: '4K rounds', aces: 'Aces',
+  lowBudgetWins: 'Low-buy wins', highBudgetLosses: 'Full-buy losses', antiEcoLosses: 'Anti-eco losses',
+} as const;
+export type PlayerMetricEvidenceKey = keyof typeof PLAYER_METRIC_EVIDENCE_LABELS;
+export interface PlayerMetricRoundEvidence { metric: PlayerMetricEvidenceKey; matchId: string; roundId: string; roundNo: number; value: number; }
+
 const observedName = (row: PlayerStats) => row.displayNameSnapshot?.trim() || row.player?.trim() || 'Unknown player';
 const normalizedObservedName = (value: string) => value.trim().toLocaleLowerCase('en');
 const observedIdentity = (row: PlayerStats) => row.playerId?.trim() || `unlinked-name:${normalizedObservedName(observedName(row))}`;
@@ -240,6 +247,46 @@ export function aggregateObservedPlayerDashboard(data: Pick<TrackerData, 'player
       evidence: { performanceRows: rows.filter(row => knownNumber(row.acs) || knownNumber(row.adr) || knownNumber(row.hs)).length, openingRows: rows.filter(row => knownNumber(row.fk) || knownNumber(row.fd)).length, screenshotRounds: screenshot.reduce((sum, item) => sum + item.coveredRounds, 0), duplicateRowsReconciled: rawRows.length - rows.length },
     };
   }).sort((a, b) => a.displayName.localeCompare(b.displayName, 'en') || a.identity.localeCompare(b.identity, 'en'));
+}
+
+/** Return only confirmed screenshot rounds that actually contributed to one
+ * displayed metric. Stable identities are exact; an unlinked name is accepted
+ * only when the dashboard has one unambiguous candidate for that name. */
+export function playerMetricRoundEvidence(
+  data: Pick<TrackerData, 'playerStats' | 'matches' | 'rosterPlayers' | 'coreMemberships' | 'tryoutBatches'> & { rounds?: TrackerData['rounds'] },
+  player: Pick<ObservedPlayerDashboard, 'identity' | 'sourceRowIds'>,
+): Record<PlayerMetricEvidenceKey, PlayerMetricRoundEvidence[]> {
+  const output = Object.fromEntries(Object.keys(PLAYER_METRIC_EVIDENCE_LABELS).map(key => [key, []])) as Record<PlayerMetricEvidenceKey, PlayerMetricRoundEvidence[]>;
+  const sourceIds = new Set(player.sourceRowIds);
+  const sourceRows = (data.playerStats || []).filter(row => sourceIds.has(row.id));
+  const matchIds = new Set(sourceRows.map(row => row.matchId));
+  const stableIds = new Set(sourceRows.map(row => row.playerId?.trim()).filter((id): id is string => !!id));
+  const nameKeys = new Set(sourceRows.map(row => observedNameKey(observedName(row))).filter(Boolean));
+  const identitiesByName = new Map<string, Set<string>>();
+  for (const dashboard of aggregateObservedPlayerDashboard(data)) {
+    for (const alias of dashboard.identityEvidence.aliases) {
+      const key = observedNameKey(alias); if (!key) continue;
+      const identities = identitiesByName.get(key) || new Set<string>(); identities.add(dashboard.identity); identitiesByName.set(key, identities);
+    }
+  }
+  const belongsToPlayer = (metric: ReturnType<typeof buildPlayerScreenshotMetrics>[number]) => {
+    if (stableIds.has(metric.identity)) return true;
+    if (!metric.identity.startsWith('unlinked:')) return false;
+    const key = observedNameKey(metric.displayName);
+    return nameKeys.has(key) && identitiesByName.get(key)?.size === 1;
+  };
+  const add = (metric: PlayerMetricEvidenceKey, round: TrackerData['rounds'][number], value: number) => {
+    if (value > 0) output[metric].push({ metric, matchId: round.matchId, roundId: round.id, roundNo: round.roundNo, value });
+  };
+  for (const round of data.rounds || []) {
+    if (!matchIds.has(round.matchId) || round.screenshotEvidence?.reviewStatus !== 'confirmed') continue;
+    for (const metric of buildPlayerScreenshotMetrics([round]).filter(belongsToPlayer)) {
+      add('firstKills', round, metric.firstKills); add('firstDeaths', round, metric.firstDeaths); add('trades', round, metric.trades || 0);
+      add('twoK', round, metric.multikills.two); add('threeK', round, metric.multikills.three); add('fourK', round, metric.multikills.four); add('aces', round, metric.multikills.ace);
+      add('lowBudgetWins', round, metric.lowBudgetWins); add('highBudgetLosses', round, metric.highBudgetLosses); add('antiEcoLosses', round, metric.antiEcoLosses);
+    }
+  }
+  return output;
 }
 
 const values = (value: any): any[] => Array.isArray(value) ? value : Object.values(value || {});

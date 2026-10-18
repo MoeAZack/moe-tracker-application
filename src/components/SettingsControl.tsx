@@ -18,9 +18,11 @@ interface ComponentProps {
   analyticsMapScope: AnalyticsMapScope;
   analyticsMapScopeContext: AnalyticsMapScopeContext;
   onAnalyticsMapScopeChange: (scope: AnalyticsMapScope) => void;
+  showTryoutComparisons: boolean;
+  onShowTryoutComparisonsChange: (visible: boolean) => void;
 }
 
-export default function SettingsControl({ data, theme, onSaveSettings, onRefresh, analyticsMapScope, analyticsMapScopeContext, onAnalyticsMapScopeChange }: ComponentProps) {
+export default function SettingsControl({ data, theme, onSaveSettings, onRefresh, analyticsMapScope, analyticsMapScopeContext, onAnalyticsMapScopeChange, showTryoutComparisons, onShowTryoutComparisonsChange }: ComponentProps) {
   const isLight = data.settings.theme === 'daylight';
   const [activeSubTab, setActiveSubTab] = useState<'general' | 'attendance' | 'pool' | 'weights' | 'ocr-health' | 'backup-import' | 'access-control'>('general');
 
@@ -134,7 +136,7 @@ export default function SettingsControl({ data, theme, onSaveSettings, onRefresh
     try {
       const response = await apiFetch('/api/roster/tryouts/mode', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ enabled, ...(enabled ? { name: tryoutPhaseName.trim() } : {}) }) });
       const result = await response.json().catch(() => ({})); if (!response.ok) throw new Error(result.error || 'Tryouts mode could not be changed.');
-      setTryoutsMode(enabled); if (enabled) setTryoutPhaseName(''); await onRefresh();
+      setTryoutsMode(enabled); onShowTryoutComparisonsChange(enabled); if (enabled) setTryoutPhaseName(''); await onRefresh();
     } catch (error: any) { setTryoutModeError(error?.message || 'Tryouts mode could not be changed.'); }
     finally { setTryoutModeBusy(false); }
   };
@@ -557,6 +559,10 @@ export default function SettingsControl({ data, theme, onSaveSettings, onRefresh
                   <div className="flex flex-wrap items-center justify-between gap-3"><div><h4 className="text-xs font-black uppercase tracking-widest text-cyan-300">Tryouts mode</h4><p className="mt-1 text-[10px] text-gray-400">Run repeatable candidate phases without changing the core roster.</p></div><span className={`rounded-full px-2 py-1 text-[10px] font-bold uppercase ${tryoutsMode ? 'bg-emerald-500/15 text-emerald-300' : 'bg-white/10 text-gray-400'}`}>{tryoutsMode ? 'On' : 'Off'}</span></div>
                   {!tryoutsMode ? <div className="flex flex-col gap-2 sm:flex-row"><input aria-label="New tryout phase name" value={tryoutPhaseName} onChange={event => setTryoutPhaseName(event.target.value)} maxLength={100} placeholder="Phase name, e.g. October trials" className="ui-field min-h-11 flex-1 px-3" /><button type="button" disabled={tryoutModeBusy || !tryoutPhaseName.trim()} onClick={() => updateTryoutsMode(true)} className="ui-button ui-button-primary min-h-11 px-4 text-xs disabled:opacity-50">Start fresh phase</button></div> : <div className="space-y-2"><p className="text-xs text-amber-200">Turning Tryouts mode off archives the current phase and hides the active tryout workspace. Candidate history is preserved; nothing is deleted and core membership stays unchanged.</p><button type="button" disabled={tryoutModeBusy} onClick={() => updateTryoutsMode(false)} className="ui-button min-h-11 px-4 text-xs disabled:opacity-50">Turn off and archive phase</button></div>}
                   {tryoutModeError && <p role="alert" className="text-xs text-rose-400">{tryoutModeError}</p>}
+                </div>
+                <div className="liquid-subtle flex flex-wrap items-center justify-between gap-4 rounded-xl border border-white/10 p-4">
+                  <div><h4 className="text-xs font-black uppercase tracking-widest text-violet-300">Tryout comparisons navigation</h4><p className="mt-1 max-w-xl text-[10px] leading-relaxed text-gray-400">Keep the temporary comparison workspace under Team while you need it. Hiding it only affects this app session and does not delete any tryout data.</p></div>
+                  <button type="button" role="switch" aria-checked={showTryoutComparisons} onClick={() => onShowTryoutComparisonsChange(!showTryoutComparisons)} className={`ui-button min-h-11 min-w-28 px-4 text-xs font-bold ${showTryoutComparisons ? 'text-emerald-300' : 'text-gray-400'}`}>{showTryoutComparisons ? 'Shown in Team' : 'Hidden'}</button>
                 </div>
                 <div>
                   <h4 className="text-xs uppercase font-black tracking-widest text-[#ff4655] font-mono border-b border-white/5 pb-1 flex justify-between items-center">
