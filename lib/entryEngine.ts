@@ -143,11 +143,11 @@ export function normalizeRosterName(value: string): string {
 
 export function matchExtractedRosterName(
   extractedName: string,
-  rosterPlayers: Array<{ id?: string; displayName: string }>,
+  rosterPlayers: Array<{ id?: string; displayName: string; aliases?: string[] }>,
 ) {
   const normalized = normalizeRosterName(extractedName);
   const candidates = normalized
-    ? rosterPlayers.filter(player => normalizeRosterName(player.displayName) === normalized)
+    ? rosterPlayers.filter(player => [player.displayName, ...(player.aliases || [])].some(name => normalizeRosterName(name) === normalized))
     : [];
   const status = candidates.length === 1 ? 'matched' : candidates.length > 1 ? 'ambiguous' : 'unmatched';
   const match = status === 'matched' ? candidates[0] : undefined;

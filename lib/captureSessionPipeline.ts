@@ -11,6 +11,7 @@ import { parseLocalRoundRecognitions } from './localRoundOcrEngine';
 import { classifyValorantRoundEvents } from './localRoundEventClassifier';
 import { canonicalScoreboardName, cleanCaptureDisplayName, cleanCaptureMap, inferAlliedScoreboardNames, normalizeCaptureName, inferStartingSide, reconcileCapturedRoundNumbers, scoreFromCompleteRounds } from './scrimCaptureImport';
 import { canonicalKnownMap, consensusDisplayName } from './ocrAutonomy';
+import { applyLocalCorrection, type LocalCorrectionModel, type OcrLearningField } from './ocrLearning';
 import { classifyValorantScoreboardAgents } from './localAgentClassifier';
 import { addSurvivalEvidence, canonicalizeRoundIdentities, enrichObjectiveRows, enrichScreenshotEvents } from './screenshotEvidence';
 import { parseLocalHeadToHeadRecognitions, parseLocalPerformanceRecognitions } from './localPerformanceOcrEngine';
@@ -32,11 +33,12 @@ type LoadedImage = HTMLImageElement & { naturalWidth: number; naturalHeight: num
 
 export async function extractCaptureSession(input: {
   captures: readonly CaptureImage[];
-  rosterPlayers: Array<{ id?: string; displayName: string }>;
+  rosterPlayers: Array<{ id?: string; displayName: string; aliases?: string[] }>;
   adapter: LocalOcrAdapter;
   loadImage: (capture: CaptureImage) => Promise<LoadedImage>;
   recognize?: (capture: CaptureImage, image: LoadedImage, profile: LocalOcrProfile) => Promise<LocalOcrRecognition[]>;
   knownMaps?: readonly string[];
+  correctionModel?: LocalCorrectionModel;
   progress?: (message: string) => void;
 }) {
   const { captures, rosterPlayers, adapter, loadImage } = input;
@@ -51,6 +53,12 @@ export async function extractCaptureSession(input: {
   const scoreboardLayout = captures.some(item => item.kind === 'performance') ? 'competitive' : 'custom';
   const scoreboardPixels = imagePixels(scoreboardImage);
   const rowOffset = measureScoreboardRowOffset(scoreboardPixels);
+  const aspect = scoreboardImage.naturalWidth / Math.max(1, scoreboardImage.naturalHeight);
+  const captureIssues = [
+    ...(scoreboardImage.naturalWidth < 1280 || scoreboardImage.naturalHeight < 720 ? ['scoreboard-resolution-too-small'] : []),
+    ...(aspect < 1.65 || aspect > 1.85 ? ['scoreboard-aspect-ratio-unexpected'] : []),
+    ...(Math.abs(rowOffset) > scoreboardImage.naturalHeight * 0.08 ? ['scoreboard-row-offset-extreme'] : []),
+  ];
   const scoreboardProfile = createValorantEndScreenProfile(scoreboardImage.naturalWidth, scoreboardImage.naturalHeight, scoreboardLayout, measureScoreDigitBoxes(scoreboardPixels), rowOffset);
   const scoreboardAdapter: LocalOcrAdapter = {
     recognize: (image, profile) => recognize(scoreboardCapture, image as LoadedImage, profile),
@@ -59,7 +67,12 @@ export async function extractCaptureSession(input: {
   const draft = await extractLocalScoreboardDraft(scoreboardAdapter, scoreboardImage, scoreboardProfile.dimensions, { capturedAt: new Date().toISOString(), rosterPlayers }, scoreboardProfile);
   progress('Identifying agent portraits locally…');
   const detectedAgents = await classifyValorantScoreboardAgents(scoreboardImage, scoreboardLayout, rowOffset).catch(() => Array<string | null>(10).fill(null));
-  draft.stats = draft.stats.map((player, index) => ({ ...player, agent: detectedAgents[index] || player.agent }));
+  draft.stats = draft.stats.map((player, index) => {
+    const corrected = { ...player, agent: detectedAgents[index] || player.agent } as any;
+    const correctionContext = { sourceModel: draft.sourceMetadata.model, layout: scoreboardLayout, resolution: `${scoreboardImage.naturalWidth}x${scoreboardImage.naturalHeight}` };
+    for (const field of ['agent', 'kills', 'deaths', 'assists', 'fk', 'fd', 'plants', 'defuses', 'trades'] as OcrLearningField[]) corrected[field] = applyLocalCorrection(input.correctionModel, field, corrected[field], correctionContext);
+    return corrected;
+  });
   const performanceCapture = captures.find(item => item.kind === 'performance');
   const headToHeadCapture = captures.find(item => item.kind === 'head-to-head');
   const performance = performanceCapture ? await (async () => {
@@ -186,5 +199,26 @@ export async function extractCaptureSession(input: {
     player.fd = firstDeathCoverageComplete ? (firstDeaths.get(identity) || 0) : null;
   }
   const startingSide = inferStartingSide(extractedRounds);
-  return { draft, meta, startingSide, players: resolvedPlayers, rounds: extractedRounds, performance, headToHead, reconciled, scoreboardLayout, sourceMetadata: draft.sourceMetadata };
+  return {
+    draft, meta, startingSide, players: resolvedPlayers, rounds: extractedRounds, performance, headToHead, reconciled, scoreboardLayout, sourceMetadata: draft.sourceMetadata,
+    captureDiagnostics: {
+      schemaVersion: 1,
+      resolution: `${scoreboardImage.naturalWidth}x${scoreboardImage.naturalHeight}`,
+      width: scoreboardImage.naturalWidth,
+      height: scoreboardImage.naturalHeight,
+      aspectRatio: Number(aspect.toFixed(4)),
+      rowOffset,
+      layout: scoreboardLayout,
+      requestedRoundCaptures: roundCaptures.length,
+      reconciledRounds: extractedRounds.length,
+      confirmedRounds: extractedRounds.filter(round => round.screenshotEvidence?.reviewStatus === 'confirmed').length,
+      issues: [...new Set([
+        ...captureIssues,
+        ...(roundCaptures.length === 0 ? ['round-captures-missing'] : []),
+        ...(reconciled.missing?.length ? ['round-captures-incomplete'] : []),
+        ...(scoreboardRoundCount !== null && extractedRounds.length !== scoreboardRoundCount ? ['round-count-score-mismatch'] : []),
+        ...extractedRounds.flatMap(round => round.extractionIssues || []),
+      ])],
+    },
+  };
 }

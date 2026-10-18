@@ -14,6 +14,8 @@ import { captureConsistencyReport, findDuplicateScoreboardMatch } from '../../li
 import { extractCaptureSession, INFORMATIONAL_ROUND_ISSUES } from '../../lib/captureSessionPipeline';
 import { buildOpponentHistory } from '../../lib/opponentHistory';
 import { getCachedRecognitions, putCachedRecognitions, sha256Base64 } from '../utils/ocrRecognitionCache';
+import { correctionSamplesFromAcceptedEdit, OCR_LEARNING_VERSION, rosterWithLearnedAliases } from '../../lib/ocrLearning';
+import { getOcrLearningState, recordOcrCorrections, recordOcrSessionOutcome } from '../utils/ocrLearningStore';
 
 interface Props {
   data: TrackerData;
@@ -54,6 +56,7 @@ export default function ScrimImport({ data, theme, onSaveMatch, onSaveRounds, on
   const [saving, setSaving] = useState(false);
   const [captureProgress, setCaptureProgress] = useState('');
   const [pendingCaptureId, setPendingCaptureId] = useState<string | null>(null);
+  const [ocrBaseline, setOcrBaseline] = useState<{ match: any; stats: any[] } | null>(null);
 
   // Editable review model
   const [meta, setMeta] = useState({ opponent: '', type: 'Scrim', date: new Date().toISOString().slice(0, 10), map: '', ourScore: null as number | null, theirScore: null as number | null, firstHalf: 'Att' as 'Att' | 'Def' });
@@ -99,6 +102,7 @@ export default function ScrimImport({ data, theme, onSaveMatch, onSaveRounds, on
       setPlayers((json.stats || []).map((p: any) => ({ ...p, include: !!p.matchedPlayerName })));
       setRounds(json.rounds || []);
       setSourceMetadata(json.sourceMetadata);
+      setOcrBaseline({ match: { id: 'pending', ...json.match, source: 'scrim-import', sourceMetadata: json.sourceMetadata, screenshotEvidence: { captureId: null } }, stats: json.stats || [] });
       setAlliedSideConfirmed(false);
       setStep('review');
     } catch (err: any) {
@@ -119,34 +123,46 @@ export default function ScrimImport({ data, theme, onSaveMatch, onSaveRounds, on
       const session = await window.moeDesktop.readCaptureSession(record.id);
       const scoreboardCapture = session.captures.find(item => item.kind === 'scoreboard');
       if (!scoreboardCapture) throw new Error('The capture session has no scoreboard image.');
-      const rosterPlayers: Array<{ id?: string; displayName: string }> = data.rosterPlayers?.length
-        ? data.rosterPlayers.map(player => ({ id: player.id, displayName: player.displayName }))
+      const phaseAliases = new Map<string, string[]>();
+      for (const batch of data.tryoutBatches || []) for (const entry of batch.aliases || []) phaseAliases.set(entry.playerId, [...(phaseAliases.get(entry.playerId) || []), entry.alias]);
+      const baseRoster = data.rosterPlayers?.length
+        ? data.rosterPlayers.map(player => ({ id: player.id, displayName: player.displayName, aliases: phaseAliases.get(player.id) || [] }))
         : roster.map(displayName => ({ displayName }));
+      const learning = await getOcrLearningState(data.rosterPlayers || []);
+      const rosterPlayers = rosterWithLearnedAliases(baseRoster, learning.aliases);
       adapter = await createBrowserLocalTesseractAdapter();
       const hashes = new Map<string, Promise<string>>();
+      let cacheHits = 0; let cacheMisses = 0;
       const extracted = await extractCaptureSession({
         captures: session.captures,
         rosterPlayers,
         adapter,
         loadImage: capture => imageFromBase64(capture.base64, capture.mediaType),
         knownMaps: maps,
+        correctionModel: learning.model,
         recognize: async (capture, image, profile) => {
           const identity = `${capture.kind}:${capture.round || 0}:${capture.name || ''}`;
           const hash = await (hashes.get(identity) || (() => { const pending = sha256Base64(capture.base64); hashes.set(identity, pending); return pending; })());
           const cached = await getCachedRecognitions(hash, profile);
-          if (cached) return cached;
+          if (cached) { cacheHits += 1; return cached; }
+          cacheMisses += 1;
           const recognitions = await adapter!.recognize(image, profile);
           await putCachedRecognitions(hash, profile, recognitions);
           return recognitions;
         },
         progress: setCaptureProgress,
       });
+      const diagnostics = extracted.captureDiagnostics;
+      await recordOcrSessionOutcome({ id: `manual:${session.captureId || record.id}`, captureId: session.captureId, recordedAt: new Date().toISOString(), automatic: false,
+        reasons: diagnostics.issues.length ? diagnostics.issues : ['manual-review-opened'], layout: diagnostics.layout, resolution: diagnostics.resolution,
+        roundCount: extracted.rounds.length, confirmedRounds: diagnostics.confirmedRounds, cacheHits, cacheMisses, modelVersion: OCR_LEARNING_VERSION });
       const { draft, players: resolvedPlayers, rounds: extractedRounds } = extracted;
       setMeta(current => ({ ...current, ...extracted.meta, ...(extracted.startingSide.firstHalf ? { firstHalf: extracted.startingSide.firstHalf } : {}) }));
       setSideInference(extracted.startingSide);
       setPlayers(resolvedPlayers);
       setRounds(extractedRounds);
       setSourceMetadata(draft.sourceMetadata);
+      setOcrBaseline({ match: { id: 'pending', ...extracted.meta, opponent: '', source: 'scrim-import', sourceMetadata: draft.sourceMetadata, screenshotEvidence: { captureId: session.captureId, diagnostics: extracted.captureDiagnostics } }, stats: structuredClone(resolvedPlayers) });
       setPendingCaptureId(record.id);
       setAlliedSideConfirmed(false);
       setStep('review');
@@ -222,6 +238,7 @@ export default function ScrimImport({ data, theme, onSaveMatch, onSaveRounds, on
         screenshotEvidence: {
           schemaVersion: 1,
           captureId: pendingCaptureId,
+          diagnostics: ocrBaseline?.match?.screenshotEvidence?.diagnostics || null,
           scoreboardPlayers: players.map(p => ({ name: p.extractedName, agent: p.agent || null, kills: num(p.kills) ?? null, deaths: num(p.deaths) ?? null, assists: num(p.assists) ?? null, fk: num(p.fk) ?? null, trades: num(p.trades) ?? null, plants: num(p.plants) ?? null, defuses: num(p.defuses) ?? null, allied: !!p.include })),
         },
       };
@@ -247,6 +264,7 @@ export default function ScrimImport({ data, theme, onSaveMatch, onSaveRounds, on
 
       const result = await onSaveMatch(match, { operation: 'replace', stats });
       const saved = result?.match || result;
+      if (saved?.id && ocrBaseline) await recordOcrCorrections(correctionSamplesFromAcceptedEdit({ beforeMatch: { ...ocrBaseline.match, id: saved.id }, beforeStats: ocrBaseline.stats, nextMatch: { ...match, id: saved.id }, nextStats: stats }));
       if (saved?.id && hasRounds) {
         const economyLabel = (value: unknown, evidence: any, team: 'ours' | 'theirs') => {
           const equipment = classifyTeamEquipment(evidence?.players || [], team);
