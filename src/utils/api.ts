@@ -15,7 +15,23 @@ export async function apiFetch(input: RequestInfo | URL, init?: RequestInit): Pr
     }
   }
 
-  const response = await fetch(input, options);
+  let response = await fetch(input, options);
+
+  // The installed desktop owns a local credential and can renew its short-lived
+  // session without interrupting capture or asking the coach to sign in again.
+  if (response.status === 401 && !url.includes('/api/login-key') && window.moeDesktop) {
+    try {
+      const session = await window.moeDesktop.bootstrapSession(true);
+      localStorage.setItem('team_tracker_key', session.key);
+      localStorage.setItem('team_tracker_role', session.role);
+      localStorage.setItem('team_tracker_username', session.username);
+      const retryOptions: RequestInit = { ...options, headers: new Headers(options.headers || {}) };
+      (retryOptions.headers as Headers).set('Authorization', `Bearer ${session.key}`);
+      response = await fetch(input, retryOptions);
+    } catch {
+      // The normal 401 handling below will return the desktop to a recoverable state.
+    }
+  }
 
   // If unauthorized (excluding login endpoint itself), clear session and force reload to login
   if (response.status === 401 && !url.includes('/api/login-key')) {

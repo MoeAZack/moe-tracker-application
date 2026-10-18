@@ -302,7 +302,16 @@ export interface CoachingAction {
   priority: 'high' | 'normal' | 'low';
   visibility: 'private' | 'staff' | 'team';
   state: 'planned' | 'assigned' | 'acknowledged' | 'in-progress' | 'review-next-block' | 'resolved' | 'cancelled';
-  check: null | { signalType: CoachingSignal['type']; baseline: number; target: number; direction: 'increase' | 'decrease' };
+  check: null | {
+    signalType: CoachingSignal['type'];
+    baseline: number;
+    target: number;
+    direction: 'increase' | 'decrease';
+    unit?: string;
+    minimumSamples?: number;
+    sourceBlockId?: string;
+    context?: CoachingSignal['context'];
+  };
   outcome: null | { status: 'satisfied' | 'regressed' | 'inconclusive'; baseline: number; later: number | null; change: number | null; confidence: 'high' | 'medium' | 'low'; evaluatedAt: string; reason: string };
   createdAt: string;
   updatedAt: string;
@@ -643,6 +652,7 @@ export interface VodNote {
   name: string;
   role: string;
   createdAt: string;
+  roundNo?: number;
   replies: ThreadReply[];
 }
 
@@ -653,6 +663,7 @@ export interface VodReview {
   vodUrl: string;
   date?: string;
   createdAt?: string;
+  syncOffsetSeconds?: number;
   notes: VodNote[];
 }
 

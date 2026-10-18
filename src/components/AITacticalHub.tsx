@@ -613,7 +613,6 @@ export default function AITacticalHub({ data, theme, onUpsert, onRemove }: Compo
   const simReport = useMemo(() => {
     if (simRoster.length < 5) return null;
 
-    let totalScore = 70; // baseline compatibility
     const strengths: string[] = [];
     const weaknesses: string[] = [];
 
@@ -625,7 +624,6 @@ export default function AITacticalHub({ data, theme, onUpsert, onRemove }: Compo
     });
 
     // 2. Pairwise chemistry check for selected 5
-    let totalPairingWinrate = 0;
     let pairingsCount = 0;
     for (let i = 0; i < simRoster.length; i++) {
       for (let j = i + 1; j < simRoster.length; j++) {
@@ -633,14 +631,11 @@ export default function AITacticalHub({ data, theme, onUpsert, onRemove }: Compo
         const pStat = chemistryMatrix[key];
         if (pStat && pStat.total > 15) {
           const wr = pStat.won / pStat.total;
-          totalPairingWinrate += wr;
           pairingsCount++;
           if (wr > 0.58) {
             strengths.push(`Excellent tactical link: **${simRoster[i]}** and **${simRoster[j]}** have a ${(wr * 100).toFixed(0)}% joint round win rate.`);
-            totalScore += 4;
           } else if (wr < 0.44) {
             weaknesses.push(`Friction warning: **${simRoster[i]}** and **${simRoster[j]}** show a lower ${(wr * 100).toFixed(0)}% round win rate.`);
-            totalScore -= 4;
           }
         }
       }
@@ -655,14 +650,11 @@ export default function AITacticalHub({ data, theme, onUpsert, onRemove }: Compo
 
         if (fbRate > 0.58 && pEst.fbTotal > 5) {
           strengths.push(`Space Creator: **${player}** converted ${(fbRate * 100).toFixed(0)}% of first bloods into round wins.`);
-          totalScore += 3;
         }
         if (fdRate > 0.48 && pEst.fdTotal > 5) {
-          strengths.push(`Clutch Anchor: **${player}** is highly resilient, saving ${(fdRate * 100).toFixed(0)}% of rounds when dying first.`);
-          totalScore += 3;
+          strengths.push(`Team recovery: The remaining lineup recovered ${(fdRate * 100).toFixed(0)}% of covered rounds after **${player}** died first.`);
         } else if (fdRate < 0.35 && pEst.fdTotal > 5) {
           weaknesses.push(`Vulnerability: Losing **${player}** first crumbles the round (only ${(fdRate * 100).toFixed(0)}% recovery rate).`);
-          totalScore -= 2;
         }
       }
     });
@@ -674,21 +666,16 @@ export default function AITacticalHub({ data, theme, onUpsert, onRemove }: Compo
       const iglWr = iglWins / iglRounds.length;
       if (iglWr > 0.55) {
         strengths.push(`Leadership Advantage: Roster callers hold a ${(iglWr * 100).toFixed(0)}% call conversion on ${simMap}.`);
-        totalScore += 5;
       }
     } else {
       weaknesses.push(`Calling void: No active IGL callers show logged calling rounds on ${simMap} yet.`);
-      totalScore -= 5;
     }
 
-    // Cap totalScore
-    totalScore = Math.max(30, Math.min(99, totalScore));
-
     return {
-      score: totalScore,
+      coverage: { pairings: pairingsCount, callingRounds: iglRounds.length },
       strengths: strengths.slice(0, 3),
       weaknesses: weaknesses.slice(0, 3),
-      verdict: totalScore >= 85 ? '🏆 TIER-1 SYNCHRONIZED' : totalScore >= 70 ? '🟢 OPERATIONAL' : '⚠️ STRATEGIC RECONSTRUCTION ADVISED'
+      verdict: pairingsCount || iglRounds.length ? 'Observed lineup tendencies' : 'Not enough comparable evidence'
     };
   }, [simRoster, simMap, simSide, chemistryMatrix, entryStats, data.rounds, data.matches]);
 
@@ -1374,22 +1361,23 @@ export default function AITacticalHub({ data, theme, onUpsert, onRemove }: Compo
               {/* Simulator output */}
               {simRoster.length < 5 ? (
                 <div className="p-8 text-center border border-dashed border-white/5 rounded-xl bg-black/5 text-gray-500 text-xs italic">
-                  Select exactly 5 players to simulate roster compatibility, chemistry indexes, and strategic alignment on {simMap} ({simSide}).
+                  Select exactly 5 players to inspect supported lineup observations on {simMap} ({simSide}).
                 </div>
               ) : (
                 simReport && (
                   <div className="space-y-5 bg-violet-950/10 border border-violet-500/20 p-5 rounded-xl animate-fadeIn">
                     <div className="flex justify-between items-center border-b border-violet-500/20 pb-3">
                       <div>
-                        <span className="text-[9px] uppercase font-black text-violet-400 tracking-wider font-mono">Tactical Verdict</span>
+                        <span className="text-[9px] uppercase font-black text-violet-400 tracking-wider font-mono">Evidence summary</span>
                         <h4 className="text-sm font-black text-white uppercase tracking-tight font-sans mt-0.5">{simReport.verdict}</h4>
                       </div>
 
                       <div className="text-right">
-                        <span className="text-[9px] uppercase font-black text-violet-400 tracking-wider font-mono">Compatibility Score</span>
-                        <h4 className={`text-2xl font-black font-mono mt-0.5 ${percentageTextClass(simReport.score)}`}>{simReport.score}%</h4>
+                        <span className="text-[9px] uppercase font-black text-violet-400 tracking-wider font-mono">Comparable coverage</span>
+                        <h4 className="mt-0.5 text-sm font-black font-mono text-cyan-200">{simReport.coverage.pairings} pairings · {simReport.coverage.callingRounds} calls</h4>
                       </div>
                     </div>
+                    <p className="text-[11px] leading-relaxed text-gray-400">These are descriptive observations from accepted rounds, not a predictive compatibility rating. Low coverage stays inconclusive.</p>
 
                     <div className="space-y-3">
                       {simReport.strengths.length > 0 && (

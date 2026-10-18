@@ -57,6 +57,7 @@ export default function RosterManager({ data, theme, onRefresh }: Props) {
 
   const createPlayer = async (event: React.FormEvent) => {
     event.preventDefault();
+    if (newPlayerPassword && newPlayerPassword.length < 10) { setError('Player passwords require at least 10 characters.'); return; }
     setBusy(true); setError(null);
     try {
       let player = pendingPasswordPlayer;
@@ -198,7 +199,7 @@ export default function RosterManager({ data, theme, onRefresh }: Props) {
               placeholder="Player display name"
               className="flex-1 p-2 rounded bg-black/25 border border-white/10"
             />
-            <div><input aria-label="Optional player password" type="password" minLength={3} value={newPlayerPassword} onChange={event => setNewPlayerPassword(event.target.value)} placeholder="Password (optional, e.g. xyz)" autoComplete="new-password" className="w-full p-2 rounded bg-black/25 border border-white/10" /><p className="mt-1 text-[10px] text-gray-500">Use a longer password for better protection.</p></div>
+            <div><input aria-label="Optional player password" type="password" minLength={10} value={newPlayerPassword} onChange={event => setNewPlayerPassword(event.target.value)} placeholder="Password (optional, 10+ characters)" autoComplete="new-password" className="w-full p-2 rounded bg-black/25 border border-white/10" /><p className="mt-1 text-[10px] text-gray-500">Player passwords require at least 10 characters.</p></div>
             <button disabled={busy} className="flex items-center gap-1 px-3 py-2 rounded bg-[#ff4655] text-white text-xs font-bold disabled:opacity-50">
               <UserPlus className="w-4 h-4" aria-hidden="true" />
               {pendingPasswordPlayer ? 'Retry password' : 'Add player'}

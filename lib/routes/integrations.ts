@@ -1,5 +1,6 @@
 import type { Express } from 'express';
 import { readDB } from '../store';
+import { buildScheduleIcs } from '../calendarExport';
 
 // Integrations: secrets, calendar mocks, HenrikDev (Riot verify + Solo Q sync),
 // VLR.gg scraping, and GRID match import. All protected routes (registered after
@@ -51,6 +52,17 @@ export function registerIntegrationRoutes(app: Express) {
   });
   app.post('/api/sync-calendar', calendarUnavailable);
   app.post('/api/unsync-calendar', calendarUnavailable);
+
+  // Provider-neutral export works without OAuth and can be subscribed/imported
+  // by any calendar application. Provider write-back remains separately gated.
+  app.get('/api/calendar.ics', async (_req, res) => {
+    try {
+      const db = await readDB();
+      res.setHeader('Content-Type', 'text/calendar; charset=utf-8');
+      res.setHeader('Content-Disposition', 'attachment; filename="moe-tracker-schedule.ics"');
+      res.send(buildScheduleIcs(db.schedule || []));
+    } catch (err: any) { res.status(500).json({ error: err.message }); }
+  });
 
   // POST HenrikDev Verify Riot ID
   app.post('/api/verify-riot', async (req, res) => {

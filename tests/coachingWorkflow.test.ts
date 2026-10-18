@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { buildAllPracticeBlockSummaries, buildPracticeBlockSummary, createCoachingAction, evaluateAction, generateReviewSignalDrafts, normalizeDashboardView, reconcileReviewSignals, transitionSignal } from '../lib/coachingWorkflow';
+import { buildActionCheck, buildAllPracticeBlockSummaries, buildPracticeBlockSummary, createCoachingAction, evaluateAction, generateReviewSignalDrafts, normalizeDashboardView, reconcileReviewSignals, transitionSignal } from '../lib/coachingWorkflow';
 
 const acceptedMatch = (id: string, date = '2026-10-18') => ({ id, date, type: 'Scrim', opponent: 'PYO', map: 'Ascent', attW: 5, attL: 7, defW: 8, defL: 4, sourceMetadata: { method: 'manual', capturedAt: `${date}T12:00:00Z` } });
 const base = () => ({
@@ -43,12 +43,29 @@ describe('S2 deterministic coaching inbox', () => {
 
 describe('S3 coaching actions', () => {
   it('preserves immutable evidence and evaluates a next-block threshold without mutating its signal', () => {
-    const summary = buildPracticeBlockSummary(base(), { id: 'b1', name: 'Prac', matchIds: ['m1'] }, '2026-10-18T15:00:00Z'); const draft = generateReviewSignalDrafts(summary, { minimumSamples: 1 })[0];
+    const summary = buildPracticeBlockSummary(base(), { id: 'b1', name: 'Prac', matchIds: ['m1'] }, '2026-10-18T15:00:00Z'); const draft = generateReviewSignalDrafts(summary, { minimumSamples: 1 }).find(item => item.type === 'full-buy-loss')!;
     const source = transitionSignal(reconcileReviewSignals([], [draft])[0], 'accepted', 'coach');
-    const action = createCoachingAction({ signal: source, kind: 'team-task', ownerIds: [], priority: 'high', visibility: 'team', dueBlockId: 'b2', check: { signalType: source.type, baseline: source.metric.value, target: source.metric.value - 1, direction: 'decrease' } }, 'coach');
+    const action = createCoachingAction({ signal: source, kind: 'team-task', ownerIds: [], priority: 'high', visibility: 'team', dueBlockId: 'b2', check: { signalType: source.type, baseline: source.metric.value, target: source.metric.value - 1, direction: 'decrease', unit: source.metric.unit, minimumSamples: 1, sourceBlockId: 'b1', context: source.context } }, 'coach');
     const laterSignal = { ...source, id: 'later', blockId: 'b2', metric: { ...source.metric, value: source.metric.value - 2 } };
-    const evaluated = evaluateAction(action, [{ ...summary, blockId: 'b2' }], [laterSignal]);
+    const evaluated = evaluateAction(action, [summary, { ...summary, blockId: 'b2', practiceStartAt: '2026-10-19T12:00:00.000Z', practiceEndAt: '2026-10-19T13:00:00.000Z', economy: { ...summary.economy, fullBuyLosses: 0 } }], [source, laterSignal]);
     expect(evaluated.outcome?.status).toBe('satisfied'); expect(evaluated.evidence).toEqual(source.evidence); expect(source.status).toBe('accepted');
+  });
+
+  it('never treats refreshed old evidence or missing comparable evidence as improvement', () => {
+    const summary = buildPracticeBlockSummary(base(), { id: 'b1', name: 'Prac', matchIds: ['m1'] }, '2026-10-20T15:00:00Z');
+    const draft = generateReviewSignalDrafts(summary, { minimumSamples: 1 }).find(item => item.type === 'full-buy-loss')!;
+    const source = transitionSignal(reconcileReviewSignals([], [draft])[0], 'accepted', 'coach');
+    const action = createCoachingAction({ signal: source, kind: 'team-task', ownerIds: [], priority: 'high', visibility: 'team' }, 'coach', '2026-10-18T16:00:00Z');
+    const refreshed = { ...summary, generatedAt: '2026-10-21T10:00:00Z' };
+    expect(evaluateAction(action, [refreshed], [source]).outcome).toMatchObject({ status: 'inconclusive', later: null });
+  });
+
+  it('uses metric-specific direction, units and context for pistol improvement', () => {
+    const summary = buildPracticeBlockSummary(base(), { id: 'b1', name: 'Prac', matchIds: ['m1'] });
+    const pistol = generateReviewSignalDrafts(summary, { minimumSamples: 1 }).find(item => item.type === 'pistol-conversion' && item.context.side === 'ATT')!;
+    const check = buildActionCheck({ ...pistol, id: 'pistol', status: 'accepted', audit: [] });
+    expect(check).toMatchObject({ direction: 'increase', unit: '%', sourceBlockId: 'b1', context: { side: 'ATT' } });
+    expect(check.target).toBeGreaterThan(check.baseline);
   });
 });
 

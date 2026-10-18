@@ -81,8 +81,8 @@ export default function LoginScreen({ onLoginSuccess }: LoginScreenProps) {
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (mode === 'player' && (!playerName.trim() || playerPassword.length < 3)) {
-      setError('Enter your player name and password (minimum 3 characters).');
+    if (mode === 'player' && (!playerName.trim() || playerPassword.length < 10)) {
+      setError('Enter your player name and password (minimum 10 characters).');
       return;
     }
     if (mode === 'coach' && !accessKey.trim()) {
@@ -195,7 +195,7 @@ export default function LoginScreen({ onLoginSuccess }: LoginScreenProps) {
         <form onSubmit={handleSubmit} className="space-y-4 text-left">
           {mode === 'player' ? <>
           <div className="space-y-1.5"><label htmlFor="player-name" className="text-[10px] font-bold uppercase tracking-widest text-gray-400 block">Player name</label><input id="player-name" required value={playerName} onChange={event => setPlayerName(event.target.value)} autoComplete="username" placeholder="Ahmed" className="ui-field w-full min-h-11 px-4 py-3 text-sm" /></div>
-          <div className="space-y-1.5"><label htmlFor="player-password" className="text-[10px] font-bold uppercase tracking-widest text-gray-400 block">Password</label><input id="player-password" type="password" minLength={3} required value={playerPassword} onChange={event => setPlayerPassword(event.target.value)} autoComplete="current-password" placeholder="xyz" className="ui-field w-full min-h-11 px-4 py-3 text-sm" /><p className="text-[10px] text-gray-500">Minimum 3 characters. Use a longer password for better protection.</p></div>
+          <div className="space-y-1.5"><label htmlFor="player-password" className="text-[10px] font-bold uppercase tracking-widest text-gray-400 block">Password</label><input id="player-password" type="password" minLength={10} required value={playerPassword} onChange={event => setPlayerPassword(event.target.value)} autoComplete="current-password" placeholder="10+ characters" className="ui-field w-full min-h-11 px-4 py-3 text-sm" /><p className="text-[10px] text-gray-500">Minimum 10 characters. Existing shorter passwords remain usable until the coach resets them.</p></div>
           </> : <div className="space-y-1.5">
             <div className="flex justify-between items-center">
               <label htmlFor="access-key" className="text-[10px] font-bold uppercase tracking-widest text-gray-400 block">

@@ -1,6 +1,6 @@
 import type { Express, Request, Response } from 'express';
 import type { CoachingAction, CoachingSignal } from '../../src/types';
-import { buildAllPracticeBlockSummaries, createCoachingAction, evaluateAction, generateReviewSignalDrafts, normalizeDashboardView, reconcileReviewSignals, transitionSignal } from '../coachingWorkflow';
+import { buildAllPracticeBlockSummaries, coachingContextMatches, createCoachingAction, evaluateAction, generateReviewSignalDrafts, normalizeDashboardView, reconcileReviewSignals, transitionSignal } from '../coachingWorkflow';
 import { readDB, saveDB } from '../store';
 
 const actor = (req: Request) => String((req as any).user?.actorId || (req as any).user?.username || 'coach').slice(0, 120);
@@ -12,7 +12,7 @@ export function refreshCoachingWorkflow(db: any, who = 'system', now = new Date(
   const drafts = summaries.flatMap(summary => generateReviewSignalDrafts(summary, db.settings?.coachingThresholds));
   db.coachingSignals = reconcileReviewSignals(db.coachingSignals || [], drafts, who);
   for (const signal of db.coachingSignals as CoachingSignal[]) {
-    const related = (db.coachingActions || []).find((action: CoachingAction) => !['resolved', 'cancelled'].includes(action.state) && action.check?.signalType === signal.type && action.sourceSignalId !== signal.id && Date.parse(action.createdAt) < Date.parse(signal.createdAt));
+    const related = (db.coachingActions || []).find((action: CoachingAction) => !['resolved', 'cancelled'].includes(action.state) && action.check?.signalType === signal.type && coachingContextMatches(action.check.context, signal.context) && action.sourceSignalId !== signal.id && Date.parse(action.createdAt) < Date.parse(signal.createdAt));
     if (related) signal.relatedActionId = related.id;
   }
   db.coachingActions = (db.coachingActions || []).map((action: CoachingAction) => evaluateAction(action, summaries, db.coachingSignals, now));
@@ -53,7 +53,7 @@ export function registerCoachingRoutes(app: Express) {
       const reason = text(req.body?.reason, 500); const correctedType = req.body?.type as CoachingSignal['type']; if (!reason || !validTypes.includes(correctedType)) return res.status(400).json({ error: 'A valid classification and correction reason are required.' });
       const db = await readDB(); const index = (db.coachingSignals || []).findIndex((item: CoachingSignal) => item.id === req.params.id); if (index < 0) return res.status(404).json({ error: 'Review signal not found.' });
       const current: CoachingSignal = db.coachingSignals[index]; const correctedContext = { ...current.context, ...(req.body?.context && typeof req.body.context === 'object' ? req.body.context : {}) }; const now = new Date().toISOString();
-      db.coachingSignals[index] = { ...current, updatedAt: now, classificationCorrections: [...(current.classificationCorrections || []), { at: now, by: actor(req), reason, original: { type: current.type, context: structuredClone(current.context) }, corrected: { type: correctedType, context: structuredClone(correctedContext) } }] };
+      db.coachingSignals[index] = { ...current, type: correctedType, context: correctedContext, updatedAt: now, classificationCorrections: [...(current.classificationCorrections || []), { at: now, by: actor(req), reason, original: { type: current.type, context: structuredClone(current.context) }, corrected: { type: correctedType, context: structuredClone(correctedContext) } }] };
       await saveDB(db); res.json(db.coachingSignals[index]);
     } catch (error: any) { res.status(error.status || 500).json({ error: error.message }); }
   });
@@ -66,7 +66,7 @@ export function registerCoachingRoutes(app: Express) {
       const max = Math.max(1, Number(db.settings?.coachingThresholds?.maxActiveActionsPerPlayer || 5));
       const overloaded = ownerIds.find((id: string) => (db.coachingActions || []).filter((action: CoachingAction) => action.ownerIds.includes(id) && !['resolved', 'cancelled'].includes(action.state)).length >= max);
       if (overloaded) return res.status(409).json({ error: `This player already has ${max} active coaching actions.` });
-      const action = createCoachingAction({ signal: source, title: text(req.body?.title, 160), kind: req.body?.kind || 'team-task', ownerIds, dueBlockId: text(req.body?.dueBlockId, 120) || undefined, dueDate: text(req.body?.dueDate, 20) || undefined, priority: ['high', 'normal', 'low'].includes(req.body?.priority) ? req.body.priority : 'normal', visibility: ['private', 'staff', 'team'].includes(req.body?.visibility) ? req.body.visibility : 'staff', check: req.body?.check || undefined }, actor(req));
+      const action = createCoachingAction({ signal: source, title: text(req.body?.title, 160), kind: req.body?.kind || 'team-task', ownerIds, dueBlockId: text(req.body?.dueBlockId, 120) || undefined, dueDate: text(req.body?.dueDate, 20) || undefined, priority: ['high', 'normal', 'low'].includes(req.body?.priority) ? req.body.priority : 'normal', visibility: ['private', 'staff', 'team'].includes(req.body?.visibility) ? req.body.visibility : 'staff' }, actor(req));
       db.coachingActions ||= []; db.coachingActions.push(action); const index = db.coachingSignals.findIndex((item: CoachingSignal) => item.id === source.id); db.coachingSignals[index] = transitionSignal(source, 'converted-to-action', actor(req)); await saveDB(db); res.status(201).json({ action, signal: db.coachingSignals[index] });
     } catch (error: any) { res.status(error.status || 500).json({ error: error.message }); }
   });

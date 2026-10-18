@@ -27,7 +27,7 @@ declare global {
 
   interface Window {
     moeDesktop?: {
-      bootstrapSession(): Promise<{ key: string; role: string; username: string }>;
+      bootstrapSession(force?: boolean): Promise<{ key: string; role: string; username: string; expiresAt?: string }>;
       getStatus(): Promise<DesktopStatus>;
       checkForUpdates(): Promise<DesktopStatus['update']>;
       downloadUpdate(): Promise<DesktopStatus['update']>;
