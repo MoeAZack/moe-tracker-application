@@ -27,9 +27,13 @@ describe('economy weapon round outcomes', () => {
     ]);
   });
 
-  it('ignores blank weapons and clamps impossible win totals to the observed sample', () => {
-    expect(buildWeaponRoundOutcomes([{ displayName: 'Alpha', weapons: [{ weapon: '', rounds: 3, wins: 3, kills: 1, deaths: 1 }, { weapon: 'Ghost', rounds: 2, wins: 5, kills: 2, deaths: 1 }] }])).toEqual([
+  it('excludes unrecognized OCR labels and clamps impossible win totals to the observed sample', () => {
+    expect(buildWeaponRoundOutcomes([{ displayName: 'Alpha', weapons: [{ weapon: 'Wardsan', rounds: 3, wins: 3, kills: 1, deaths: 1 }, { weapon: 'ghost', rounds: 2, wins: 5, kills: 2, deaths: 1 }] }])).toEqual([
       { weapon: 'Ghost', rounds: 2, wins: 2, losses: 0, kills: 2, deaths: 1, players: 1, winRate: 100 },
     ]);
+  });
+
+  it('retains every catalog weapon, including Bandit', () => {
+    expect(buildWeaponRoundOutcomes([{ displayName: 'Alpha', weapons: [{ weapon: 'Bandit', rounds: 4, wins: 3, kills: 4, deaths: 2 }] }])[0]).toMatchObject({ weapon: 'Bandit', rounds: 4, wins: 3 });
   });
 });
