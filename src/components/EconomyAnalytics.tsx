@@ -6,6 +6,7 @@ import ReplayMatchLog from './ReplayMatchLog';
 import { buildPlayerScreenshotMetrics, combinePlayerScreenshotMetrics, combineStoredScreenshotMetrics } from '../../lib/scrimRoundAnalytics';
 import { buildMapRoundIntelligence } from '../../lib/mapRoundAnalytics';
 import { percentageBarClass, percentageTextClass } from '../utils/percentageColor';
+import { canonicalValorantWeapon } from '../../lib/valorantCatalog';
 
 interface Props {
   data: TrackerData;
@@ -45,7 +46,7 @@ export interface WeaponRoundOutcome {
 export function buildWeaponRoundOutcomes(players: ReadonlyArray<{ displayName: string; weapons: ReadonlyArray<{ weapon: string; rounds: number; wins: number; kills: number; deaths: number }> }>): WeaponRoundOutcome[] {
   const accumulator = new Map<string, Omit<WeaponRoundOutcome, 'players' | 'winRate'> & { playerNames: Set<string> }>();
   for (const player of players) for (const observation of player.weapons || []) {
-    const weapon = String(observation.weapon || '').trim();
+    const weapon = canonicalValorantWeapon(observation.weapon);
     const rounds = Math.max(0, Number(observation.rounds) || 0);
     if (!weapon || !rounds) continue;
     const wins = Math.min(rounds, Math.max(0, Number(observation.wins) || 0));
