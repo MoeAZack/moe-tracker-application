@@ -1,6 +1,6 @@
 # MoeTracker coaching SaaS roadmap
 
-Status: approved product direction; implementation not started  
+Status: active delivery; S0, S1, S2, S3, S4, S5, and the S6 implementation are complete. S6 physical/signing acceptance gates remain open.
 Roadmap owner: MoeTracker product owner  
 Last updated: 14 October 2026, Africa/Cairo
 

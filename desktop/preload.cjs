@@ -1,7 +1,7 @@
 const { contextBridge, ipcRenderer } = require('electron');
 
 contextBridge.exposeInMainWorld('moeDesktop', Object.freeze({
-  bootstrapSession: () => ipcRenderer.invoke('desktop:bootstrap-session'),
+  bootstrapSession: (force = false) => ipcRenderer.invoke('desktop:bootstrap-session', force === true),
   getStatus: () => ipcRenderer.invoke('desktop:get-status'),
   checkForUpdates: () => ipcRenderer.invoke('desktop:check-for-updates'),
   downloadUpdate: () => ipcRenderer.invoke('desktop:download-update'),

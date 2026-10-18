@@ -29,8 +29,8 @@ export default function PlayerPasswordForm({ playerId, playerName }: { playerId:
     {copyStatus === 'fallback' && <label className="block text-amber-200">Copy unavailable. Select these login details:<textarea readOnly className="ui-field mt-1 w-full p-2" value={`Player: ${playerName}\nPassword: ${savedPassword}`} /></label>}
   </div>;
   return <form onSubmit={save} className="space-y-1">
-    <div className="flex gap-1"><input aria-label={`New password for ${playerName}`} type="password" minLength={3} required value={password} onChange={event => setPassword(event.target.value)} placeholder="Set/reset password" autoComplete="new-password" className="ui-field min-h-9 w-36 px-2 text-xs" /><button disabled={busy || password.length < 3} className="ui-button min-h-9 px-2 text-xs font-bold disabled:opacity-50"><KeyRound className="mr-1 inline h-3.5 w-3.5" />Set</button></div>
-    <p className="text-[10px] text-gray-500">Minimum 3 characters (for example, xyz). Use a longer password for better protection.</p>
+    <div className="flex gap-1"><input aria-label={`New password for ${playerName}`} type="password" minLength={10} required value={password} onChange={event => setPassword(event.target.value)} placeholder="10+ characters" autoComplete="new-password" className="ui-field min-h-9 w-40 px-2 text-xs" /><button disabled={busy || password.length < 10} className="ui-button min-h-9 px-2 text-xs font-bold disabled:opacity-50"><KeyRound className="mr-1 inline h-3.5 w-3.5" />Set</button></div>
+    <p className="text-[10px] text-gray-500">Minimum 10 characters. Resetting it immediately revokes prior password sessions.</p>
     {error && <p role="alert" className="text-[10px] text-rose-400">{error}</p>}
   </form>;
 }

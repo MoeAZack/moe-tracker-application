@@ -29,5 +29,8 @@ describe('coaching workflow HTTP contract', () => {
   it('keeps the private signal inbox hidden from players while exposing their team action', async () => {
     const coach = await login(adminKey); const refreshed = await request(coach, '/api/coaching/refresh', {}); const source = (await refreshed.json()).signals[0]; await request(coach, `/api/coaching/signals/${source.id}/status`, { status: 'accepted' }); await request(coach, '/api/coaching/actions', { signalId: source.id, ownerIds: [playerId], visibility: 'team' });
     const player = await login(playerKey); const response = await request(player, '/api/coaching'); expect(response.status).toBe(200); const payload = await response.json(); expect(payload.signals).toEqual([]); expect(payload.actions).toHaveLength(1);
+    const acknowledged = await request(player, `/api/coaching/actions/${payload.actions[0].id}/status`, { state: 'acknowledged' }); expect(acknowledged.status).toBe(200); expect((await acknowledged.json()).state).toBe('acknowledged');
+    const refreshedAgain = await request(coach, '/api/coaching/refresh', {}); const another = (await refreshedAgain.json()).signals.find((item: any) => item.status === 'new'); await request(coach, `/api/coaching/signals/${another.id}/status`, { status: 'accepted' }); const unowned = await request(coach, '/api/coaching/actions', { signalId: another.id, ownerIds: [], visibility: 'team' }); const unownedAction = (await unowned.json()).action;
+    expect((await request(player, `/api/coaching/actions/${unownedAction.id}/status`, { state: 'in-progress' })).status).toBe(403);
   });
 });

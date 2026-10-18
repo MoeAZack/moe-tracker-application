@@ -26,9 +26,40 @@ const META_COLLECTION = 'tracker_v2';
 const REVISION_COLLECTION = 'tracker_v2_revisions';
 const VERSION = Symbol('tracker-version');
 let d1: any = null;
+const LOGIN_THROTTLE_MAX_FAILS = 5;
+const LOGIN_THROTTLE_LOCK_MS = 10 * 60 * 1000;
+let loginThrottleQueue: Promise<void> = Promise.resolve();
 
 /** Cloudflare Worker entrypoint injects its D1 binding before the first request. */
 export function configureD1Store(binding: any) { d1 = binding; }
+
+async function ensureD1LoginThrottleTable() {
+  await d1.exec('CREATE TABLE IF NOT EXISTS login_throttle (key_hash TEXT PRIMARY KEY, fails INTEGER NOT NULL, locked_until INTEGER NOT NULL, updated_at INTEGER NOT NULL)');
+}
+
+function loginThrottlePath() { return `${DB_PATH}.login-throttle.json`; }
+function loginThrottleHash(key: string) { return crypto.createHash('sha256').update(key).digest('hex'); }
+
+export async function loginThrottleRemaining(key: string, now = Date.now()) {
+  const keyHash = loginThrottleHash(key);
+  if (d1) { await ensureD1LoginThrottleTable(); const row: any = await d1.prepare('SELECT locked_until FROM login_throttle WHERE key_hash = ?').bind(keyHash).first(); return row?.locked_until > now ? Math.ceil((row.locked_until - now) / 1000) : 0; }
+  if (USE_FIRESTORE) { const store = await getFirestore(); const snapshot = await store.collection('tracker_login_throttle').doc(keyHash).get(); const lockedUntil = Number(snapshot.data()?.lockedUntil || 0); return lockedUntil > now ? Math.ceil((lockedUntil - now) / 1000) : 0; }
+  try { const state = JSON.parse(await fs.readFile(loginThrottlePath(), 'utf8')); const lockedUntil = Number(state[keyHash]?.lockedUntil || 0); return lockedUntil > now ? Math.ceil((lockedUntil - now) / 1000) : 0; } catch (error: any) { if (error?.code !== 'ENOENT') throw error; return 0; }
+}
+
+export async function recordLoginThrottleFailure(key: string, now = Date.now()) {
+  const keyHash = loginThrottleHash(key);
+  if (d1) { await ensureD1LoginThrottleTable(); const row: any = await d1.prepare('SELECT fails, locked_until FROM login_throttle WHERE key_hash = ?').bind(keyHash).first(); const activeFails = Number(row?.locked_until || 0) > now ? Number(row?.fails || 0) : Number(row?.fails || 0); const nextFails = activeFails + 1; const lock = nextFails >= LOGIN_THROTTLE_MAX_FAILS ? now + LOGIN_THROTTLE_LOCK_MS : 0; await d1.prepare('INSERT INTO login_throttle (key_hash, fails, locked_until, updated_at) VALUES (?, ?, ?, ?) ON CONFLICT(key_hash) DO UPDATE SET fails = excluded.fails, locked_until = excluded.locked_until, updated_at = excluded.updated_at').bind(keyHash, lock ? 0 : nextFails, lock, now).run(); return; }
+  if (USE_FIRESTORE) { const store = await getFirestore(); const ref = store.collection('tracker_login_throttle').doc(keyHash); await store.runTransaction(async (transaction: any) => { const snapshot = await transaction.get(ref); const record = snapshot.data() || {}; const nextFails = Number(record.fails || 0) + 1; const lock = nextFails >= LOGIN_THROTTLE_MAX_FAILS ? now + LOGIN_THROTTLE_LOCK_MS : 0; transaction.set(ref, { fails: lock ? 0 : nextFails, lockedUntil: lock, updatedAt: now }); }); return; }
+  const operation = loginThrottleQueue.then(async () => { let state: any = {}; try { state = JSON.parse(await fs.readFile(loginThrottlePath(), 'utf8')); } catch (error: any) { if (error?.code !== 'ENOENT') throw error; } const nextFails = Number(state[keyHash]?.fails || 0) + 1; const lock = nextFails >= LOGIN_THROTTLE_MAX_FAILS ? now + LOGIN_THROTTLE_LOCK_MS : 0; state[keyHash] = { fails: lock ? 0 : nextFails, lockedUntil: lock, updatedAt: now }; for (const [id, record] of Object.entries(state) as any) if (Number(record.updatedAt || 0) < now - 24 * 60 * 60 * 1000) delete state[id]; await fs.mkdir(path.dirname(loginThrottlePath()), { recursive: true }); await fs.writeFile(loginThrottlePath(), JSON.stringify(state), { encoding: 'utf8', mode: 0o600 }); }); loginThrottleQueue = operation.catch(() => undefined); await operation;
+}
+
+export async function clearLoginThrottle(key: string) {
+  const keyHash = loginThrottleHash(key);
+  if (d1) { await ensureD1LoginThrottleTable(); await d1.prepare('DELETE FROM login_throttle WHERE key_hash = ?').bind(keyHash).run(); return; }
+  if (USE_FIRESTORE) { const store = await getFirestore(); await store.collection('tracker_login_throttle').doc(keyHash).delete(); return; }
+  const operation = loginThrottleQueue.then(async () => { let state: any = {}; try { state = JSON.parse(await fs.readFile(loginThrottlePath(), 'utf8')); } catch (error: any) { if (error?.code !== 'ENOENT') throw error; return; } delete state[keyHash]; await fs.writeFile(loginThrottlePath(), JSON.stringify(state), { encoding: 'utf8', mode: 0o600 }); }); loginThrottleQueue = operation.catch(() => undefined); await operation;
+}
 
 function removeLegacySecrets(data: any) {
   delete data.secretValues;

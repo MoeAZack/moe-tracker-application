@@ -46,13 +46,13 @@ export function registerVodLineupRoutes(app: Express) {
   app.post('/api/vod/note', async (req, res) => {
     try {
       const body = validate(schemas.vodNoteSchema, req.body, res); if (!body) return;
-      const { reviewId, seconds, timeLabel, text } = body;
+      const { reviewId, seconds, timeLabel, roundNo, text } = body;
       const db = await readDB();
       const review = (db.vodReviews || []).find((v: any) => v.id === reviewId);
       if (!review) return res.status(404).json({ error: 'VOD review not found.' });
       if (!review.notes) review.notes = [];
       review.notes.push({
-        id: uid(), seconds: Number(seconds) || 0, timeLabel: timeLabel || '0:00',
+        id: uid(), seconds: Number(seconds) || 0, timeLabel: timeLabel || '0:00', ...(roundNo ? { roundNo } : {}),
         text, ...author(req), createdAt: new Date().toISOString(), replies: []
       });
       review.notes.sort((a: any, b: any) => (a.seconds || 0) - (b.seconds || 0));

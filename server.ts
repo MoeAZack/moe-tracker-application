@@ -4,8 +4,8 @@ import path from 'path';
 import crypto from 'crypto';
 import jwt from 'jsonwebtoken';
 import * as schemas from './schemas';
-import { uid, validate, safeEqual, hashAccessKey, clientIp, loginLockRemaining, loginRecordFail, loginRecordSuccess, cached } from './lib/utils';
-import { readDB, saveDB } from './lib/store';
+import { uid, validate, safeEqual, hashAccessKey, clientIp, cached } from './lib/utils';
+import { clearLoginThrottle, loginThrottleRemaining, readDB, recordLoginThrottleFailure, saveDB } from './lib/store';
 import { registerVodLineupRoutes } from './lib/routes/vodLineup';
 import { registerIntegrationRoutes } from './lib/routes/integrations';
 import { registerDataRoutes } from './lib/routes/data';
@@ -79,7 +79,8 @@ export async function createApp(serveFrontend = true) {
   app.post('/api/login-key', async (req, res) => {
     try {
       const ip = clientIp(req);
-      const lockRemaining = loginLockRemaining(ip);
+      const ipThrottleKey = `ip:${ip}`;
+      const lockRemaining = await loginThrottleRemaining(ipThrottleKey);
       if (lockRemaining > 0) {
         res.setHeader('Retry-After', String(lockRemaining));
         return res.status(429).json({ error: `Too many failed attempts. Try again in ${Math.ceil(lockRemaining / 60)} minute(s).` });
@@ -87,6 +88,12 @@ export async function createApp(serveFrontend = true) {
 
       const body = validate(schemas.loginKeySchema, req.body, res); if (!body) return;
       const cleanKey = body.key.trim();
+      const accountThrottleKey = `account:${hashAccessKey(body.playerName ? body.playerName.trim().toLocaleLowerCase() : cleanKey)}`;
+      const accountLockRemaining = await loginThrottleRemaining(accountThrottleKey);
+      if (accountLockRemaining > 0) {
+        res.setHeader('Retry-After', String(accountLockRemaining));
+        return res.status(429).json({ error: `Too many failed attempts for this account. Try again in ${Math.ceil(accountLockRemaining / 60)} minute(s).` });
+      }
       if (body.playerName) {
         const db = await readDB();
         if (!db.authKeys) db.authKeys = [];
@@ -94,20 +101,20 @@ export async function createApp(serveFrontend = true) {
         const player = (db.rosterPlayers || []).find((item: any) => !item.retiredAt && String(item.displayName || '').trim().toLocaleLowerCase() === normalizedName);
         const passwordEntry = player ? db.authKeys.find((entry: any) => entry.credentialType === 'player-password' && entry.role === 'player' && entry.playerId === player.id) : null;
         if (player && passwordEntry && await verifyPlayerPassword(cleanKey, passwordEntry)) {
-          loginRecordSuccess(ip);
+          await Promise.all([clearLoginThrottle(ipThrottleKey), clearLoginThrottle(accountThrottleKey)]);
           const token = jwt.sign(
             { role: 'player', name: player.displayName, kind: 'key', keyId: passwordEntry.id, credentialVersion: passwordEntry.credentialVersion },
             jwtSecret,
             { expiresIn: '12h' },
           );
-          return res.json({ success: true, role: 'player', username: player.displayName, key: token });
+          return res.json({ success: true, role: 'player', username: player.displayName, key: token, expiresAt: new Date(Date.now() + 12 * 60 * 60 * 1000).toISOString() });
         }
-        loginRecordFail(ip);
+        await Promise.all([recordLoginThrottleFailure(ipThrottleKey), recordLoginThrottleFailure(accountThrottleKey)]);
         return res.status(401).json({ error: 'Invalid player name or password.' });
       }
       // 1. Check Master Admin Key
       if (safeEqual(cleanKey, adminPass)) {
-        loginRecordSuccess(ip);
+        await Promise.all([clearLoginThrottle(ipThrottleKey), clearLoginThrottle(accountThrottleKey)]);
         const desktopIdentity = process.env.APP_DESKTOP === 'true' && body.desktopIdentity?.role === 'player' ? body.desktopIdentity : null;
         const token = jwt.sign(
           desktopIdentity
@@ -120,7 +127,8 @@ export async function createApp(serveFrontend = true) {
           success: true,
           role: desktopIdentity ? 'player' : 'coach',
           username: desktopIdentity ? String(desktopIdentity.displayName || 'Player').slice(0, 80) : 'Administrator (Master)',
-          key: token
+          key: token,
+          expiresAt: new Date(Date.now() + 12 * 60 * 60 * 1000).toISOString()
         });
       }
 
@@ -137,7 +145,7 @@ export async function createApp(serveFrontend = true) {
           delete foundKey.key;
           await saveDB(db);
         }
-        loginRecordSuccess(ip);
+        await Promise.all([clearLoginThrottle(ipThrottleKey), clearLoginThrottle(accountThrottleKey)]);
         const token = jwt.sign(
           { role: foundKey.role, name: foundKey.label, kind: 'key', keyId: foundKey.id },
           jwtSecret,
@@ -147,11 +155,12 @@ export async function createApp(serveFrontend = true) {
           success: true,
           role: foundKey.role,
           username: foundKey.label,
-          key: token
+          key: token,
+          expiresAt: new Date(Date.now() + 12 * 60 * 60 * 1000).toISOString()
         });
       }
 
-      loginRecordFail(ip);
+      await Promise.all([recordLoginThrottleFailure(ipThrottleKey), recordLoginThrottleFailure(accountThrottleKey)]);
       return res.status(401).json({ error: 'Invalid or revoked Access Key.' });
     } catch (err: any) {
       return res.status(500).json({ error: err.message });
@@ -266,6 +275,7 @@ export async function createApp(serveFrontend = true) {
     // Players are read-only. Lineup comments remain shared; coach VOD notes and replies are private.
     const playerWritable = req.method === 'POST' && (req.path === '/lineup/comment'
       || req.path === '/attendance/check-in'
+      || /^\/coaching\/actions\/[^/]+\/status$/.test(req.path)
       || req.path === '/engine-adapters/ranked/consent' || req.path === '/engine-adapters/ranked/revoke'
       || req.path === '/replay-intake/devices/enroll' || req.path === '/replay-intake/devices/revoke'
       || req.path === '/replay-intake/pairing-codes'
@@ -291,6 +301,9 @@ export async function createApp(serveFrontend = true) {
     try {
       const db = await readDB();
       const databaseBytes = Buffer.byteLength(JSON.stringify(db), 'utf8');
+      const databaseCharacters = JSON.stringify(db).length;
+      const applicationWriteLimitCharacters = cloudflareRuntime ? 32 * 200_000 : null;
+      const applicationWritePercent = applicationWriteLimitCharacters ? Math.min(100, databaseCharacters / applicationWriteLimitCharacters * 100) : null;
       const intake = db.replayIntake || {};
       const jobs = Object.values(intake.parserJobs || {}) as any[];
       const blobs = Object.values(intake.blobs || {}) as any[];
@@ -302,15 +315,18 @@ export async function createApp(serveFrontend = true) {
         ? Math.min(freeTierBaselineBytes, Math.max(64 * 1024 ** 2, configuredCap)) : 768 * 1024 ** 2;
       const usedBytes = databaseBytes;
       const percentOfBaseline = Math.min(100, (usedBytes / freeTierBaselineBytes) * 100);
-      const status = usedBytes >= freeTierBaselineBytes ? 'over-baseline' : usedBytes >= safetyCapBytes ? 'warning' : 'tracked-below-cap';
+      const status = applicationWritePercent !== null && applicationWritePercent >= 100 ? 'over-application-limit' : applicationWritePercent !== null && applicationWritePercent >= 80 ? 'warning' : usedBytes >= freeTierBaselineBytes ? 'over-baseline' : usedBytes >= safetyCapBytes ? 'warning' : 'tracked-below-cap';
       res.json({
         measuredAt: new Date().toISOString(), basis: 'active-app-payload', databaseBytes, temporaryRawBytes, retainedEvidenceBytes,
         combinedTrackedBytes: databaseBytes + temporaryRawBytes,
         usedBytes, remainingBytes: Math.max(0, freeTierBaselineBytes - usedBytes), percentOfBaseline,
+        databaseCharacters, applicationWriteLimitCharacters,
+        applicationWriteRemainingCharacters: applicationWriteLimitCharacters ? Math.max(0, applicationWriteLimitCharacters - databaseCharacters) : null,
+        applicationWritePercent,
         freeTierBaselineBytes, safetyCapBytes, status, freeTierVerified: false, rawCoachModeEnabled: process.env.REPLAY_RAW_GCS_ENABLED === 'true',
         providerOverheadIncluded: false,
         note: cloudflareRuntime
-          ? 'Tracked payload is measured against the Cloudflare D1 Free database limit. It excludes indexes and inactive revisions, so the Cloudflare dashboard remains the billing authority.'
+          ? 'The application write ceiling is shown separately from Cloudflare storage. Archive before the application ceiling is reached; provider storage also excludes indexes and inactive revisions.'
           : 'Tracked payload excludes inactive database revisions, indexes and metadata. The provider dashboard remains the billing authority.'
       });
     } catch (err: any) {
