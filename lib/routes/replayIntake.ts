@@ -835,7 +835,12 @@ export function registerReplayDeviceUploadRoute(app: Express) {
         if (existing.reviewStatus === 'accepted' || !!(existing.parserJobId && store.parserJobs[existing.parserJobId]?.result)) {
           const now = new Date().toISOString();
           const association: ReplayAssociation = ownAssociation || { id: crypto.randomUUID(), sha256: expectedHash, size: existing.size, originalName, deviceId: device.id, owner: device.owner, receivedAt: now };
-          store.associations[ownKey] = association; device.lastSeenAt = now; await saveDB(db);
+          store.associations[ownKey] = association;
+          const priorJob = existing.parserJobId ? store.parserJobs[existing.parserJobId] : null;
+          if (priorJob && !priorJob.sourceDeviceIds.includes(device.id)) priorJob.sourceDeviceIds.push(device.id);
+          pairReplayScreenshots(store);
+          autoFinalizeDesktopReplay(db, store, expectedHash, actorForDevice(device));
+          device.lastSeenAt = now; await saveDB(db);
           return res.status(200).json({ ...uploadPublic(association, existing), reviewRequired: existing.reviewStatus !== 'accepted', idempotent: true, existingEvidencePreserved: true });
         }
         return res.status(409).json({ error: 'This replay hash already has conflicting evidence.' });
