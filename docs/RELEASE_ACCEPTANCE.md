@@ -1,6 +1,6 @@
 # Desktop release acceptance
 
-Last updated: 18 October 2026, 23:34 Cairo (`Africa/Cairo`).
+Last updated: 18 October 2026, 23:40 Cairo (`Africa/Cairo`).
 
 This record distinguishes the current installed coach build from a publicly signed release. Version 0.1.56 is accepted for this PC and merged to `main`; it is **not** claimed as a signed public release or as independently accepted on a second physical PC.
 
@@ -38,6 +38,8 @@ The post-upgrade workspace retained 8 matches and 40 player-stat rows. Each obse
 This verifies preservation on the owner's current PC. It is not evidence for cross-device synchronization or a second-PC migration.
 
 The screenshot-derived economy view was also evaluated directly against the installed workspace after the upgrade. It returns exactly five participants with 64 confirmed rounds each. The former dexle split is reconciled from 54 unlinked rounds plus 10 stable-identity rounds into one 64-round row; no ambiguous same-name identity is merged automatically.
+
+The installed Electron window was then connected through its local debugging endpoint solely for read-only acceptance. The page reported the real `window.moeDesktop` bridge, version 0.1.56, **All matches**, and **All rounds**. Navigating to Economy rendered the no-active-roster historical-participant notice and exactly five screenshot-derived player rows. This distinguishes the installed-client result from the intentionally reduced hosted summary payload, which does not carry raw round evidence. The debugging session was closed and the installed application was restarted normally without the debugging endpoint.
 
 ## Public distribution state
 
