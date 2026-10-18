@@ -48,13 +48,14 @@ export interface ObservedPlayerDashboard extends ObservedPlayerKd {
   mainAgent: string | null; avgAcs: number | null; avgAdr: number | null; avgHs: number | null;
   firstKills: number | null; firstDeaths: number | null; kast: number | null;
   recentForm: Array<'W' | 'L' | '—'>; status: 'core' | 'standIn' | 'tryout';
-  attackKd: number | null; defenseKd: number | null; plants: number; defuses: number; trades: number | null;
-  multikills: { two: number; three: number; four: number; ace: number };
-  lowBudgetWins: number; highBudgetLosses: number; antiEcoLosses: number;
+  attackKd: number | null; defenseKd: number | null; plants: number | null; defuses: number | null; trades: number | null;
+  multikills: { two: number | null; three: number | null; four: number | null; ace: number | null };
+  lowBudgetWins: number | null; highBudgetLosses: number | null; antiEcoLosses: number | null;
   agents: Array<{ name: string; matches: number; wins: number }>;
   maps: Array<{ name: string; matches: number; wins: number }>;
   weapons: Array<{ name: string; rounds: number; wins: number; kills: number; deaths: number }>;
-  evidence: { performanceRows: number; openingRows: number; screenshotRounds: number };
+  identityEvidence: { confidence: 'verified' | 'inferred'; aliases: string[]; sourceIdentities: string[] };
+  evidence: { performanceRows: number; openingRows: number; screenshotRounds: number; duplicateRowsReconciled: number };
 }
 
 const observedName = (row: PlayerStats) => row.displayNameSnapshot?.trim() || row.player?.trim() || 'Unknown player';
@@ -79,6 +80,32 @@ export function activeObservedPlayerStats(data: Pick<TrackerData, 'playerStats' 
     if (row.playerId?.trim() ? !retiredIds.has(row.playerId.trim()) : !retiredNameKeys.has(key)) liveNameKeys.add(key);
   }
   return (data.playerStats || []).filter(row => liveNameKeys.has(observedNameKey(observedName(row))));
+}
+
+const reconciledFields: Array<keyof PlayerStats> = ['agent', 'appearanceType', 'kAtt', 'kDef', 'dAtt', 'dDef', 'aAtt', 'aDef', 'kills', 'deaths', 'assists', 'acs', 'adr', 'hs', 'fk', 'fd', 'plants', 'defuses', 'trades', 'kastSuccessful', 'kastCovered', 'ultimateUses', 'orbPoints'];
+function evidencePriority(row: PlayerStats, field: keyof PlayerStats) {
+  const corrected = row.corrections?.some(item => item.fields?.includes(String(field))) ? 100 : 0;
+  const source = row.sourceMetadata?.method === 'provider-import' ? 30 : row.sourceMetadata?.method === 'screenshot' ? 25 : row.sourceMetadata?.method === 'manual' ? 20 : 10;
+  return corrected + source;
+}
+
+/** Reconcile one canonical player contribution per match so duplicate identity
+ * rows cannot count once as a match while inflating combat totals twice. */
+export function reconcileObservedPlayerRows(rows: readonly PlayerStats[]): PlayerStats[] {
+  const byMatch = new Map<string, PlayerStats[]>();
+  for (const row of rows) byMatch.set(row.matchId, [...(byMatch.get(row.matchId) || []), row]);
+  return [...byMatch.values()].map(group => {
+    if (group.length === 1) return group[0];
+    const merged = { ...group[0], screenshotMetrics: undefined } as PlayerStats;
+    for (const field of reconciledFields) {
+      const candidates = group.filter(row => row[field] !== null && row[field] !== undefined && row[field] !== '');
+      if (!candidates.length) continue;
+      candidates.sort((left, right) => evidencePriority(right, field) - evidencePriority(left, field)
+        || String(right.sourceMetadata?.capturedAt || '').localeCompare(String(left.sourceMetadata?.capturedAt || '')));
+      (merged as any)[field] = candidates[0][field];
+    }
+    return merged;
+  });
 }
 
 export function aggregateObservedPlayerKd(rows: readonly PlayerStats[]): ObservedPlayerKd[] {
@@ -117,8 +144,6 @@ export function aggregateObservedPlayerDashboard(data: Pick<TrackerData, 'player
     const key = dashboardNameKey(player.displayName); if (!key) continue;
     activePlayersByName.set(key, [...(activePlayersByName.get(key) || []), player]);
   }
-  const liveScreenshotByIdentity = new Map(combinePlayerScreenshotMetrics(buildPlayerScreenshotMetrics(data.rounds || []))
-    .map(metric => [metric.identity, metric]));
   const groups = new Map<string, { playerId: string | null; displayName: string; rows: PlayerStats[] }>();
   for (const row of (data.playerStats || [])) {
     const displayName = observedName(row);
@@ -135,12 +160,12 @@ export function aggregateObservedPlayerDashboard(data: Pick<TrackerData, 'player
     group.rows.push(row); groups.set(identity, group);
   }
   return [...groups.entries()].map(([identity, group]) => {
-    const rows = group.rows; const matchIds = [...new Set(rows.map(row => row.matchId))];
+    const rawRows = group.rows; const rows = reconcileObservedPlayerRows(rawRows); const matchIds = [...new Set(rows.map(row => row.matchId))];
     const stored = group.playerId ? playerById.get(group.playerId) : undefined;
     if (stored?.displayName) group.displayName = stored.displayName;
     else {
       const names = new Map<string, { value: string; count: number; last: number }>();
-      rows.forEach((row, index) => { const value = observedName(row); const key = normalizedObservedName(value); const current = names.get(key) || { value, count: 0, last: index }; current.count += 1; current.last = index; names.set(key, current); });
+      rawRows.forEach((row, index) => { const value = observedName(row); const key = normalizedObservedName(value); const current = names.get(key) || { value, count: 0, last: index }; current.count += 1; current.last = index; names.set(key, current); });
       group.displayName = [...names.values()].sort((a, b) => b.count - a.count || b.last - a.last)[0]?.value || group.displayName;
     }
     const outcomes = matchIds.map(id => matchWon(matches.get(id))); const wins = outcomes.filter(value => value === true).length; const losses = outcomes.filter(value => value === false).length;
@@ -158,11 +183,14 @@ export function aggregateObservedPlayerDashboard(data: Pick<TrackerData, 'player
     }
     const agents = [...agentMap].map(([name, item]) => ({ name, matches: item.matches.size, wins: item.wins })).sort((a, b) => b.matches - a.matches || a.name.localeCompare(b.name));
     const maps = [...mapMap].map(([name, item]) => ({ name, matches: item.matches.size, wins: item.wins })).sort((a, b) => b.matches - a.matches || a.name.localeCompare(b.name));
-    const liveIdentities = new Set(rows.flatMap(row => row.playerId?.trim() ? [row.playerId.trim()] : [`unlinked-name:${normalizedObservedName(observedName(row))}`]));
-    if (group.playerId) liveIdentities.add(group.playerId);
-    const liveScreenshots = [...liveIdentities].map(item => liveScreenshotByIdentity.get(item)).filter((item): item is NonNullable<typeof item> => !!item);
-    const storedScreenshot = combineStoredScreenshotMetrics(rows);
-    const screenshot = liveScreenshots.length ? liveScreenshots : storedScreenshot;
+    const groupNameKeys = new Set(rawRows.map(row => dashboardNameKey(observedName(row))));
+    const groupPlayerIds = new Set(rawRows.map(row => row.playerId?.trim()).filter((item): item is string => !!item)); if (group.playerId) groupPlayerIds.add(group.playerId);
+    const perMatchScreenshots = matchIds.flatMap(matchId => {
+      const live = buildPlayerScreenshotMetrics((data.rounds || []).filter(round => round.matchId === matchId))
+        .filter(metric => groupPlayerIds.has(metric.identity) || groupNameKeys.has(dashboardNameKey(metric.displayName)));
+      return live.length ? live : combineStoredScreenshotMetrics(rawRows.filter(row => row.matchId === matchId));
+    });
+    const screenshot = combinePlayerScreenshotMetrics(perMatchScreenshots);
     const recordedTrades = rows.map(row => row.trades).filter(knownNumber);
     const weapons = new Map<string, { rounds: number; wins: number; kills: number; deaths: number }>();
     for (const metric of screenshot) for (const weapon of metric.weapons || []) { const item = weapons.get(weapon.weapon) || { rounds: 0, wins: 0, kills: 0, deaths: 0 }; item.rounds += weapon.rounds; item.wins += weapon.wins; item.kills += weapon.kills; item.deaths += weapon.deaths; weapons.set(weapon.weapon, item); }
@@ -186,11 +214,14 @@ export function aggregateObservedPlayerDashboard(data: Pick<TrackerData, 'player
       recentForm: matchIds.sort((a, b) => String(matches.get(b)?.date || '').localeCompare(String(matches.get(a)?.date || ''))).slice(0, 5).map(id => { const won = matchWon(matches.get(id)); return won === null ? '—' : won ? 'W' : 'L'; }),
       status, attackKd: rows.some(row => knownNumber(row.kAtt) && knownNumber(row.dAtt)) ? ratio(attackKills, attackDeaths) : null,
       defenseKd: rows.some(row => knownNumber(row.kDef) && knownNumber(row.dDef)) ? ratio(defenseKills, defenseDeaths) : null,
-      plants: rows.reduce((sum, row) => sum + (knownNumber(row.plants) ? row.plants : 0), 0), defuses: rows.reduce((sum, row) => sum + (knownNumber(row.defuses) ? row.defuses : 0), 0), trades: recordedTrades.length ? recordedTrades.reduce((sum, value) => sum + value, 0) : screenshot.length ? screenshot.reduce((sum, item) => sum + (item.trades || 0), 0) : null,
-      multikills: { two: screenshot.reduce((sum, item) => sum + item.multikills.two, 0), three: screenshot.reduce((sum, item) => sum + item.multikills.three, 0), four: screenshot.reduce((sum, item) => sum + item.multikills.four, 0), ace: screenshot.reduce((sum, item) => sum + item.multikills.ace, 0) },
-      lowBudgetWins: screenshot.reduce((sum, item) => sum + item.lowBudgetWins, 0), highBudgetLosses: screenshot.reduce((sum, item) => sum + item.highBudgetLosses, 0), antiEcoLosses: screenshot.reduce((sum, item) => sum + item.antiEcoLosses, 0),
+      plants: rows.some(row => knownNumber(row.plants)) ? rows.reduce((sum, row) => sum + (knownNumber(row.plants) ? row.plants : 0), 0) : null,
+      defuses: rows.some(row => knownNumber(row.defuses)) ? rows.reduce((sum, row) => sum + (knownNumber(row.defuses) ? row.defuses : 0), 0) : null,
+      trades: recordedTrades.length ? recordedTrades.reduce((sum, value) => sum + value, 0) : screenshot.some(item => item.coveredRounds > 0) ? screenshot.reduce((sum, item) => sum + (item.trades || 0), 0) : null,
+      multikills: { two: screenshot.length ? screenshot.reduce((sum, item) => sum + item.multikills.two, 0) : null, three: screenshot.length ? screenshot.reduce((sum, item) => sum + item.multikills.three, 0) : null, four: screenshot.length ? screenshot.reduce((sum, item) => sum + item.multikills.four, 0) : null, ace: screenshot.length ? screenshot.reduce((sum, item) => sum + item.multikills.ace, 0) : null },
+      lowBudgetWins: screenshot.length ? screenshot.reduce((sum, item) => sum + item.lowBudgetWins, 0) : null, highBudgetLosses: screenshot.length ? screenshot.reduce((sum, item) => sum + item.highBudgetLosses, 0) : null, antiEcoLosses: screenshot.length ? screenshot.reduce((sum, item) => sum + item.antiEcoLosses, 0) : null,
       agents, maps, weapons: [...weapons].map(([name, item]) => ({ name, ...item })).sort((a, b) => b.rounds - a.rounds || a.name.localeCompare(b.name)),
-      evidence: { performanceRows: rows.filter(row => knownNumber(row.acs) || knownNumber(row.adr) || knownNumber(row.hs)).length, openingRows: rows.filter(row => knownNumber(row.fk) || knownNumber(row.fd)).length, screenshotRounds: screenshot.reduce((sum, item) => sum + item.coveredRounds, 0) },
+      identityEvidence: { confidence: (group.playerId ? 'verified' : 'inferred') as 'verified' | 'inferred', aliases: [...new Set(rawRows.map(observedName))].sort(), sourceIdentities: [...new Set(rawRows.map(row => row.playerId?.trim() || `name:${normalizedObservedName(observedName(row))}`))].sort() },
+      evidence: { performanceRows: rows.filter(row => knownNumber(row.acs) || knownNumber(row.adr) || knownNumber(row.hs)).length, openingRows: rows.filter(row => knownNumber(row.fk) || knownNumber(row.fd)).length, screenshotRounds: screenshot.reduce((sum, item) => sum + item.coveredRounds, 0), duplicateRowsReconciled: rawRows.length - rows.length },
     };
   }).sort((a, b) => a.displayName.localeCompare(b.displayName, 'en') || a.identity.localeCompare(b.identity, 'en'));
 }

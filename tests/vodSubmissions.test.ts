@@ -34,7 +34,7 @@ describe('player VOD submission integration', () => {
     expect(() => integrateVodSubmission(db, invalid, 'caelia', ids)).toThrow(/match exactly one active roster player/i);
   });
 
-  it('retains partial timeline observations but promotes metrics only with complete signal coverage', () => {
+  it('retains sampled timeline observations but never promotes timing-sensitive v1 OCR as trusted stats', () => {
     const db = fixture(); const timeline: any = {
       schema: 'moetracker.vod-timeline-evidence/v1', grade: 'video-observation', source: { kind: 'youtube', videoId: 'abcdefghijk', sha256: 'b'.repeat(64), width: 1920, height: 1080, durationMs: 600000, analyzedAt: '2026-10-18T14:00:00Z' },
       coverage: { durationMs: 600000, killFeedSnapshots: 40, objectiveSnapshots: 10, ultimateSnapshots: 20, resolvedEliminations: 25, inferredRoundGroups: 12, signals: { eliminations: 'partial', trades: 'complete', kast: 'complete', ultimateUse: 'partial', orbCapture: 'unsupported', throws: 'unsupported' } },
@@ -42,8 +42,10 @@ describe('player VOD submission integration', () => {
       playerMetrics: [{ playerName: 'caelia', team: 'ours', kills: 5, deaths: 4, trades: 3, ultimateUses: 2, orbCaptures: null, kastSuccessful: 8, kastCovered: 10, kastRate: 80 }],
     };
     const submission = integrateVodSubmission(db, { ...input, matchId: 'm1', timelineEvidence: timeline }, 'caelia', ids, '2026-10-18T14:00:00Z');
-    expect(submission.timelineEvidence?.coverage.signals.trades).toBe('complete');
-    expect(db.playerStats[0]).toMatchObject({ trades: 2, kastSuccessful: 8, kastCovered: 10 });
+    expect(submission.timelineEvidence?.coverage.signals.trades).toBe('partial');
+    expect(submission.timelineEvidence?.coverage.signals.kast).toBe('partial');
+    expect(db.playerStats[0]).toMatchObject({ trades: 2 });
+    expect(db.playerStats[0].kastSuccessful).toBeUndefined(); expect(db.playerStats[0].kastCovered).toBeUndefined();
     expect(db.playerStats[0].ultimateUses).toBeUndefined(); expect(db.playerStats[0].orbPoints).toBeUndefined();
     expect(db.playerStats[0].vodEvidence.timeline).toMatchObject({ grade: 'video-observation', metrics: { observedKills: 5, ultimateUses: 2 } });
   });

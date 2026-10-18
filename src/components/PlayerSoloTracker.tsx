@@ -65,22 +65,23 @@ function PlayerDetails({ row, muted }: { row: ObservedPlayerDashboard; muted: st
         <MetricValue label="Duels won" value={openingSuccess === null ? '—' : percent(openingSuccess)} tone={openingSuccess === null ? 'neutral' : openingSuccess >= .5 ? 'good' : 'bad'} />
       </MetricPanel>
       <MetricPanel title="Objectives & multikills" subtitle="Round-winning actions" accent="violet">
-        <MetricValue label="Plants" value={row.plants} />
-        <MetricValue label="Defuses" value={row.defuses} />
+        <MetricValue label="Plants" value={row.plants ?? '—'} />
+        <MetricValue label="Defuses" value={row.defuses ?? '—'} />
         <MetricValue label="Trades" value={row.trades ?? '—'} />
-        <MetricValue label="2K rounds" value={row.multikills.two} />
-        <MetricValue label="3K rounds" value={row.multikills.three} />
-        <MetricValue label="4K rounds" value={row.multikills.four} />
-        <MetricValue label="Aces" value={row.multikills.ace} />
+        <MetricValue label="2K rounds" value={row.multikills.two ?? '—'} />
+        <MetricValue label="3K rounds" value={row.multikills.three ?? '—'} />
+        <MetricValue label="4K rounds" value={row.multikills.four ?? '—'} />
+        <MetricValue label="Aces" value={row.multikills.ace ?? '—'} />
       </MetricPanel>
       <MetricPanel title="Economy impact" subtitle="High-leverage round outcomes" accent="amber">
-        <MetricValue label="Low-buy wins" value={row.lowBudgetWins} tone="good" />
-        <MetricValue label="Full-buy losses" value={row.highBudgetLosses} tone="bad" />
-        <MetricValue label="Anti-eco losses" value={row.antiEcoLosses} tone="bad" />
+        <MetricValue label="Low-buy wins" value={row.lowBudgetWins ?? '—'} tone="good" />
+        <MetricValue label="Full-buy losses" value={row.highBudgetLosses ?? '—'} tone="bad" />
+        <MetricValue label="Anti-eco losses" value={row.antiEcoLosses ?? '—'} tone="bad" />
       </MetricPanel>
     </div>
     <div className="grid gap-3 lg:grid-cols-3"><Split title="Agent splits" rows={row.agents.map(item => `${item.name} · ${item.matches}M · ${percent(item.matches ? item.wins / item.matches : null)}`)} muted={muted} /><Split title="Map splits" rows={row.maps.map(item => `${item.name} · ${item.matches}M · ${percent(item.matches ? item.wins / item.matches : null)}`)} muted={muted} /><Split title="Weapons observed" rows={row.weapons.map(item => `${item.name} · ${item.rounds}R · ${percent(item.rounds ? item.wins / item.rounds : null)} · ${item.kills}/${item.deaths}`)} muted={muted} /></div>
-    <p className={`text-[10px] ${muted}`}>Evidence coverage: {row.recordedRows} scoreboard rows · {row.evidence.performanceRows} performance rows · {row.evidence.openingRows} opening rows · {row.evidence.screenshotRounds} round screenshots. Equipped weapon is observational evidence and does not prove a purchase.</p>
+    <p className={`text-[10px] ${row.identityEvidence.confidence === 'verified' ? 'text-emerald-400' : 'text-amber-400'}`}>Identity {row.identityEvidence.confidence} · {row.identityEvidence.aliases.join(' / ')}{row.evidence.duplicateRowsReconciled ? ` · ${row.evidence.duplicateRowsReconciled} duplicate row${row.evidence.duplicateRowsReconciled === 1 ? '' : 's'} reconciled` : ''}</p>
+    <p className={`text-[10px] ${muted}`}>Evidence coverage: {row.recordedRows} reconciled scoreboard rows · {row.evidence.performanceRows} performance rows · {row.evidence.openingRows} opening rows · {row.evidence.screenshotRounds} round screenshots. Equipped weapon is observational evidence and does not prove a purchase.</p>
   </div>;
 }
 function MetricPanel({ title, subtitle, accent, children }: { title: string; subtitle: string; accent: 'cyan' | 'rose' | 'violet' | 'amber'; children: React.ReactNode }) { const accents = { cyan: 'border-cyan-400/20 bg-cyan-400/[0.045] text-cyan-300', rose: 'border-rose-400/20 bg-rose-400/[0.045] text-rose-300', violet: 'border-violet-400/20 bg-violet-400/[0.045] text-violet-300', amber: 'border-amber-400/20 bg-amber-400/[0.045] text-amber-300' }; return <section className={`rounded-xl border p-4 ${accents[accent]}`}><div><h4 className="text-[10px] font-black uppercase tracking-[0.16em]">{title}</h4><p className="mt-0.5 text-[10px] text-slate-500">{subtitle}</p></div><div className="mt-3 grid grid-cols-2 gap-2 sm:grid-cols-3">{children}</div></section>; }

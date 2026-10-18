@@ -7,6 +7,22 @@ const { aggregateVideoEvidence } = require('./vod-timeline-evidence.cjs');
 
 const MAX_DURATION_SECONDS = 4 * 60 * 60;
 const MAX_LOCAL_BYTES = 30 * 1024 * 1024 * 1024;
+const MIN_FREE_BYTES = 5 * 1024 * 1024 * 1024;
+const DEFAULT_JOB_TIMEOUT_MS = 6 * 60 * 60 * 1000;
+
+function abortError(signal, fallback = 'VOD analysis was cancelled.') {
+  const reason = signal?.reason;
+  return reason instanceof Error ? reason : new Error(typeof reason === 'string' ? reason : fallback);
+}
+
+function throwIfAborted(signal) { if (signal?.aborted) throw abortError(signal); }
+
+async function ensureDiskSpace(directory, minimumBytes = MIN_FREE_BYTES) {
+  if (typeof fsp.statfs !== 'function') return null;
+  const stats = await fsp.statfs(directory); const availableBytes = Number(stats.bavail) * Number(stats.bsize);
+  if (Number.isFinite(availableBytes) && availableBytes < minimumBytes) throw new Error(`VOD analysis needs at least ${Math.ceil(minimumBytes / 1024 ** 3)} GB of free temporary disk space.`);
+  return availableBytes;
+}
 
 function unpackedExecutable(candidate) {
   const value = String(candidate || '');
@@ -31,14 +47,18 @@ function youtubeVideoId(input) {
 
 async function run(command, args, options = {}) {
   return new Promise((resolve, reject) => {
-    const child = spawn(command, args, { windowsHide: true, ...options }); let stdout = ''; let stderr = '';
+    const { signal, ...spawnOptions } = options; throwIfAborted(signal);
+    const child = spawn(command, args, { windowsHide: true, ...spawnOptions }); let stdout = ''; let stderr = ''; let settled = false;
+    const finish = (callback, value) => { if (settled) return; settled = true; signal?.removeEventListener('abort', onAbort); callback(value); };
+    const onAbort = () => { child.kill(); finish(reject, abortError(signal)); };
+    signal?.addEventListener('abort', onAbort, { once: true });
     child.stdout?.on('data', chunk => { stdout += String(chunk); }); child.stderr?.on('data', chunk => { stderr += String(chunk); });
-    child.on('error', reject); child.on('exit', code => code === 0 ? resolve({ stdout, stderr }) : reject(new Error(stderr.trim() || `${path.basename(command)} exited with code ${code}.`)));
+    child.on('error', error => finish(reject, error)); child.on('exit', code => code === 0 ? finish(resolve, { stdout, stderr }) : finish(reject, new Error(stderr.trim() || `${path.basename(command)} exited with code ${code}.`)));
   });
 }
 
-async function probeVideo(file) {
-  const { stdout } = await run(ffprobePath(), ['-v', 'error', '-show_entries', 'format=duration,size:stream=width,height,codec_type', '-of', 'json', file]);
+async function probeVideo(file, signal) {
+  const { stdout } = await run(ffprobePath(), ['-v', 'error', '-show_entries', 'format=duration,size:stream=width,height,codec_type', '-of', 'json', file], { signal });
   const parsed = JSON.parse(stdout); const video = (parsed.streams || []).find(stream => stream.codec_type === 'video');
   const durationSeconds = Number(parsed.format?.duration); const size = Number(parsed.format?.size || 0);
   if (!video || !Number.isFinite(durationSeconds) || durationSeconds <= 0) throw new Error('The selected source does not contain a readable video stream.');
@@ -47,14 +67,16 @@ async function probeVideo(file) {
   return { durationSeconds, durationMs: Math.round(durationSeconds * 1000), width: Number(video.width), height: Number(video.height), size };
 }
 
-async function downloadYoutube(url, directory, progress) {
+async function downloadYoutube(url, directory, progress, signal) {
   const id = youtubeVideoId(url); if (!id) throw new Error('Only standard YouTube, Shorts, Live, and youtu.be links can be scanned automatically.');
   progress?.({ stage: 'download', percent: 1, message: 'Preparing the YouTube VOD locally…' });
   const target = path.join(directory, `${id}.mp4`); const executable = ytDlpPath();
   await new Promise((resolve, reject) => {
+    throwIfAborted(signal);
     const child = spawn(executable, ['--no-playlist', '--newline', '--no-warnings', '--max-filesize', '30G', '--match-filter', 'duration <= 14400', '-f', 'bestvideo[height<=1080]/best[height<=1080]/best', '-o', target, url], { windowsHide: true, stdio: ['ignore', 'pipe', 'pipe'] });
+    let settled = false; const finish = (callback, value) => { if (settled) return; settled = true; signal?.removeEventListener('abort', onAbort); callback(value); }; const onAbort = () => { child.kill(); finish(reject, abortError(signal)); }; signal?.addEventListener('abort', onAbort, { once: true });
     let output = ''; const update = chunk => { const text = String(chunk); output += text; const matches = [...text.matchAll(/(\d{1,3}(?:\.\d+)?)%/g)]; const percent = matches.length ? Math.min(100, Math.round(Number(matches.at(-1)[1]))) : null; progress?.({ stage: 'download', percent, message: percent === null ? 'Downloading the YouTube VOD locally…' : `Downloading the YouTube VOD locally · ${percent}%` }); };
-    child.stdout.on('data', update); child.stderr.on('data', update); child.on('error', reject); child.on('close', code => code === 0 ? resolve() : reject(new Error(output.trim().slice(-1000) || 'YouTube could not provide this VOD. Try the original video file.')));
+    child.stdout.on('data', update); child.stderr.on('data', update); child.on('error', error => finish(reject, error)); child.on('close', code => code === 0 ? finish(resolve) : finish(reject, new Error(output.trim().slice(-1000) || 'YouTube could not provide this VOD. Try the original video file.')));
   });
   if (!fs.existsSync(target)) throw new Error('YouTube did not produce a readable local VOD. Try the original video file.');
   progress?.({ stage: 'download', percent: 100, message: 'YouTube VOD is ready for local analysis.' }); return target;
@@ -67,14 +89,17 @@ function frameDifference(left, right) {
   return count ? total / count : 0;
 }
 
-async function changedFrames(file, spec, durationSeconds, progress) {
+async function changedFrames(file, spec, durationSeconds, progress, signal) {
+  throwIfAborted(signal);
   const frameBytes = spec.width * spec.height; const fps = spec.fps; const buckets = new Map(); let previous = null; let pending = Buffer.alloc(0); let index = 0;
   const filter = `fps=${fps},${spec.crop},scale=${spec.width}:${spec.height}:flags=fast_bilinear,format=gray`;
   const child = spawn(ffmpegPath(), ['-hide_banner', '-loglevel', 'error', '-i', file, '-an', '-vf', filter, '-f', 'rawvideo', '-pix_fmt', 'gray', 'pipe:1'], { windowsHide: true, stdio: ['ignore', 'pipe', 'pipe'] });
+  const onAbort = () => child.kill(); signal?.addEventListener('abort', onAbort, { once: true });
   let stderr = ''; child.stderr.on('data', chunk => { stderr += String(chunk); });
   for await (const chunk of child.stdout) {
     pending = Buffer.concat([pending, chunk]);
     while (pending.length >= frameBytes) {
+      throwIfAborted(signal);
       const frame = Buffer.from(pending.subarray(0, frameBytes)); pending = pending.subarray(frameBytes); const timestampMs = Math.round(index / fps * 1000); index += 1;
       const difference = frameDifference(previous, frame); const changed = difference >= spec.threshold;
       if (changed) {
@@ -85,16 +110,17 @@ async function changedFrames(file, spec, durationSeconds, progress) {
       if (index % 100 === 0) progress?.({ stage: 'sampling', percent: Math.min(99, Math.round(timestampMs / 1000 / durationSeconds * 100)), message: `Sampling ${spec.label} across the timeline…` });
     }
   }
-  const code = await new Promise((resolve, reject) => { child.on('error', reject); child.on('close', resolve); });
+  const code = await new Promise((resolve, reject) => { child.on('error', reject); child.on('close', resolve); }); signal?.removeEventListener('abort', onAbort); throwIfAborted(signal);
   if (code !== 0) throw new Error(stderr.trim() || 'FFmpeg could not sample the VOD.');
   return [...buckets.values()].sort((a, b) => a.timestampMs - b.timestampMs).map(({ difference: _difference, ...frame }) => frame);
 }
 
 function pgm(frame, width, height) { return Buffer.concat([Buffer.from(`P5\n${width} ${height}\n255\n`), frame]); }
 
-async function recognizeFrames(frames, spec, worker, progress, offset, total) {
+async function recognizeFrames(frames, spec, worker, progress, offset, total, signal) {
   const snapshots = [];
   for (let index = 0; index < frames.length; index += 1) {
+    throwIfAborted(signal);
     const result = await worker.recognize(pgm(frames[index].pixels, spec.width, spec.height)); const text = String(result.data?.text || '').trim(); const confidence = Number(result.data?.confidence);
     if (text) snapshots.push({ timestampMs: frames[index].timestampMs, text, confidence: Number.isFinite(confidence) ? Math.max(0, Math.min(1, confidence / 100)) : null });
     progress?.({ stage: 'ocr', percent: Math.round((offset + index + 1) / Math.max(1, total) * 100), message: `Reading timeline evidence · ${offset + index + 1}/${total}` });
@@ -104,29 +130,34 @@ async function recognizeFrames(frames, spec, worker, progress, offset, total) {
 
 async function analyzeVodTimeline(input, options = {}) {
   const progress = options.progress; const workRoot = options.workRoot || path.join(require('node:os').tmpdir(), 'moetracker-vod');
-  const jobDirectory = path.join(workRoot, crypto.randomUUID()); await fsp.mkdir(jobDirectory, { recursive: true }); let downloaded = false; let file;
+  await fsp.mkdir(workRoot, { recursive: true }); await ensureDiskSpace(workRoot, options.minimumFreeBytes || MIN_FREE_BYTES);
+  const controller = new AbortController(); const externalAbort = () => controller.abort(options.signal?.reason || new Error('VOD analysis was cancelled.'));
+  if (options.signal?.aborted) externalAbort(); else options.signal?.addEventListener('abort', externalAbort, { once: true });
+  const timeout = setTimeout(() => controller.abort(new Error('VOD analysis exceeded its safe processing time. Retry with the original local video or a shorter recording.')), options.timeoutMs || DEFAULT_JOB_TIMEOUT_MS);
+  const signal = controller.signal; const jobDirectory = path.join(workRoot, crypto.randomUUID()); await fsp.mkdir(jobDirectory, { recursive: true }); let file;
   try {
+    throwIfAborted(signal);
     if (input.localPath) { file = path.resolve(String(input.localPath)); if (!fs.existsSync(file)) throw new Error('The selected local VOD no longer exists.'); }
-    else { file = await downloadYoutube(input.vodUrl, jobDirectory, progress); downloaded = true; }
-    const probe = await probeVideo(file); progress?.({ stage: 'probe', percent: 100, message: `${Math.ceil(probe.durationSeconds / 60)} minute VOD detected · ${probe.width}×${probe.height}` });
+    else file = await downloadYoutube(input.vodUrl, jobDirectory, progress, signal);
+    const probe = await probeVideo(file, signal); progress?.({ stage: 'probe', percent: 100, message: `${Math.ceil(probe.durationSeconds / 60)} minute VOD detected · ${probe.width}×${probe.height}` });
     const specs = [
       { key: 'killFeedSnapshots', label: 'kill feed', fps: .5, crop: 'crop=iw*0.42:ih*0.38:iw*0.58:0', width: 720, height: 366, threshold: .15, maxCandidates: 2400 },
       { key: 'objectiveSnapshots', label: 'round and objective notices', fps: .4, crop: 'crop=iw*0.62:ih*0.34:iw*0.19:ih*0.02', width: 720, height: 222, threshold: .15, maxCandidates: 1200 },
       { key: 'ultimateSnapshots', label: 'ultimate state', fps: .5, crop: 'crop=iw*0.28:ih*0.25:iw*0.36:ih*0.72', width: 520, height: 260, threshold: .15, maxCandidates: 1200 },
     ];
     const candidates = {};
-    for (const spec of specs) candidates[spec.key] = await changedFrames(file, spec, probe.durationSeconds, progress);
+    for (const spec of specs) candidates[spec.key] = await changedFrames(file, spec, probe.durationSeconds, progress, signal);
     const total = specs.reduce((sum, spec) => sum + candidates[spec.key].length, 0); progress?.({ stage: 'ocr', percent: 0, message: `Reading ${total} changed HUD frames locally…` });
     const { createWorker, PSM } = require('tesseract.js');
     const langPath = path.dirname(unpackedExecutable(require.resolve('@tesseract.js-data/eng/4.0.0/eng.traineddata.gz')));
     const worker = await createWorker('eng', undefined, { langPath }); await worker.setParameters({ tessedit_pageseg_mode: PSM.SPARSE_TEXT });
     let offset = 0; const snapshots = {};
-    try { for (const spec of specs) { snapshots[spec.key] = await recognizeFrames(candidates[spec.key], spec, worker, progress, offset, total); offset += candidates[spec.key].length; } }
+    try { for (const spec of specs) { snapshots[spec.key] = await recognizeFrames(candidates[spec.key], spec, worker, progress, offset, total, signal); offset += candidates[spec.key].length; } }
     finally { await worker.terminate(); }
     const evidence = aggregateVideoEvidence({ players: input.players || [], povPlayerName: input.povPlayerName || null, durationMs: probe.durationMs, ...snapshots });
     evidence.source = { kind: downloaded ? 'youtube' : 'local-file', videoId: youtubeVideoId(input.vodUrl), sha256: await new Promise((resolve, reject) => { const hash = crypto.createHash('sha256'); const stream = fs.createReadStream(file); stream.on('data', chunk => hash.update(chunk)); stream.on('error', reject); stream.on('end', () => resolve(hash.digest('hex'))); }), width: probe.width, height: probe.height, durationMs: probe.durationMs, analyzedAt: new Date().toISOString() };
     progress?.({ stage: 'complete', percent: 100, message: `Timeline scan complete · ${evidence.observations.length} supported observations.` }); return evidence;
-  } finally { if (downloaded || options.removeLocalCopy) await fsp.rm(jobDirectory, { recursive: true, force: true }).catch(() => {}); }
+  } finally { clearTimeout(timeout); options.signal?.removeEventListener('abort', externalAbort); await fsp.rm(jobDirectory, { recursive: true, force: true }).catch(() => {}); }
 }
 
-module.exports = { youtubeVideoId, probeVideo, analyzeVodTimeline, changedFrames, frameDifference };
+module.exports = { youtubeVideoId, probeVideo, analyzeVodTimeline, changedFrames, frameDifference, ensureDiskSpace };

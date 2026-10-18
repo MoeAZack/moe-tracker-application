@@ -35,6 +35,7 @@ declare global {
       processMatch(): Promise<{ state: string; message: string; items?: any[] }>;
       chooseVodFile(): Promise<{ canceled: boolean; path?: string; name?: string }>;
       analyzeVod(input: { vodUrl?: string; localPath?: string; povPlayerName?: string | null; players: Array<{ name: string; team: 'ours' | 'theirs'; expectedKills?: number | null; expectedDeaths?: number | null }> }): Promise<any>;
+      cancelVodAnalysis(): Promise<{ cancelled: boolean }>;
       onVodAnalysisProgress(callback: (progress: { stage: string; percent: number | null; message: string }) => void): () => void;
       deleteReplay(replayPath: string): Promise<{ deleted: boolean; message: string }>;
       syncNow(): Promise<{ state: string; message: string }>;
