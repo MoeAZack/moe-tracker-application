@@ -1,63 +1,111 @@
-import React from 'react';
-import fs from 'node:fs';
-import { renderToStaticMarkup } from 'react-dom/server';
-import { describe, expect, it } from 'vitest';
-import LoginScreen from '../src/components/LoginScreen';
-import PlayerPasswordForm from '../src/components/PlayerPasswordForm';
-import RosterManager from '../src/components/RosterManager';
+import React from "react";
+import fs from "node:fs";
+import { renderToStaticMarkup } from "react-dom/server";
+import { describe, expect, it } from "vitest";
+import LoginScreen from "../src/components/LoginScreen";
+import PlayerPasswordForm from "../src/components/PlayerPasswordForm";
+import RosterManager from "../src/components/RosterManager";
 
-const rosterSource = fs.readFileSync('src/components/RosterManager.tsx', 'utf8');
-const passwordFormSource = fs.readFileSync('src/components/PlayerPasswordForm.tsx', 'utf8');
+const rosterSource = fs.readFileSync(
+  "src/components/RosterManager.tsx",
+  "utf8",
+);
+const passwordFormSource = fs.readFileSync(
+  "src/components/PlayerPasswordForm.tsx",
+  "utf8",
+);
 
-describe('player password UI', () => {
-  it('opens on the simple player-name and password login', () => {
-    const html = renderToStaticMarkup(<LoginScreen onLoginSuccess={() => {}} />);
+describe("player password UI", () => {
+  it("opens on the simple player-name and password login", () => {
+    const html = renderToStaticMarkup(
+      <LoginScreen onLoginSuccess={() => {}} />,
+    );
     expect(html).toContain('aria-label="Login type"');
     expect(html).toContain('aria-selected="true">Player');
-    expect(html).toContain('Coach / access key');
+    expect(html).toContain("Coach / access key");
     expect(html).toContain('id="player-name"');
     expect(html).toContain('placeholder="Ahmed"');
     expect(html).toContain('id="player-password"');
     expect(html).toContain('placeholder="10+ characters"');
     expect(html).toContain('minLength="10"');
-    expect(html).toContain('Existing shorter passwords remain usable until the coach resets them.');
+    expect(html).toContain(
+      "Existing shorter passwords remain usable until the coach resets them.",
+    );
     expect(html).not.toContain('id="access-key"');
   });
 
-  it('renders a per-player set/reset form without exposing an old password', () => {
-    const html = renderToStaticMarkup(<PlayerPasswordForm playerId="player-1" playerName="Ahmed" />);
+  it("renders a per-player set/reset form without exposing an old password", () => {
+    const html = renderToStaticMarkup(
+      <PlayerPasswordForm playerId="player-1" playerName="Ahmed" />,
+    );
     expect(html).toContain('aria-label="New password for Ahmed"');
     expect(html).toContain('placeholder="10+ characters"');
     expect(html).toContain('type="password"');
     expect(html).toContain('minLength="10"');
-    expect(html).toContain('immediately revokes prior password sessions');
-    expect(html).not.toContain('Copy login details');
-    expect(html).not.toContain('Login:');
+    expect(html).toContain("immediately revokes prior password sessions");
+    expect(html).not.toContain("Copy login details");
+    expect(html).not.toContain("Login:");
   });
 
-  it('offers an optional password on roster creation and a reset form on the player card', () => {
+  it("offers an optional password on roster creation and a reset form on the player card", () => {
     const data = {
-      rosterPlayers: [{ id: 'player-1', displayName: 'Ahmed' }],
+      rosterPlayers: [{ id: "player-1", displayName: "Ahmed" }],
       coreMemberships: [],
       tryoutBatches: [],
       seasonArchives: [],
     } as any;
-    const html = renderToStaticMarkup(<RosterManager data={data} theme={{ border: '', cardBg: '' }} onRefresh={async () => {}} />);
+    const html = renderToStaticMarkup(
+      <RosterManager
+        data={data}
+        theme={{ border: "", cardBg: "" }}
+        onRefresh={async () => {}}
+      />,
+    );
     expect(html).toContain('aria-label="Optional player password"');
     expect(html).toContain('placeholder="Password (optional, 10+ characters)"');
     expect(html).toContain('aria-label="New password for Ahmed"');
     expect(html).toContain('placeholder="10+ characters"');
   });
 
-  it('marks a created player before refresh and provides observable clipboard fallbacks', () => {
-    const createPlayerSource = rosterSource.slice(rosterSource.indexOf('const createPlayer'), rosterSource.indexOf('const copyFreshLogin'));
-    expect(createPlayerSource.indexOf('setPendingPasswordPlayer(player);')).toBeLessThan(createPlayerSource.indexOf('await onRefresh();'));
+  it("marks a created player before refresh and provides observable clipboard fallbacks", () => {
+    const createPlayerSource = rosterSource.slice(
+      rosterSource.indexOf("const createPlayer"),
+      rosterSource.indexOf("const copyFreshLogin"),
+    );
+    expect(
+      createPlayerSource.indexOf("setPendingPasswordPlayer(player);"),
+    ).toBeLessThan(createPlayerSource.indexOf("await onRefresh();"));
     for (const source of [rosterSource, passwordFormSource]) {
-      expect(source).toContain('await navigator.clipboard.writeText');
-      expect(source).toContain("setCopyStatus('copied')");
-      expect(source).toContain("setCopyStatus('fallback')");
-      expect(source).toContain('Copy unavailable. Select these login details:');
-      expect(source).toContain('<textarea readOnly');
+      expect(source).toContain("await navigator.clipboard.writeText");
+      expect(source).toMatch(/setCopyStatus\(['"]copied['"]\)/);
+      expect(source).toMatch(/setCopyStatus\(['"]fallback['"]\)/);
+      expect(source).toContain("Copy unavailable. Select these login details:");
+      expect(source).toMatch(/<textarea\s+readOnly/);
     }
+  });
+
+  it("surfaces archived players and their recovery action without opening an inner roster card", () => {
+    const data = {
+      rosterPlayers: [
+        {
+          id: "player-sandra",
+          displayName: "Sandra",
+          retiredAt: "2026-10-18T16:22:09.089Z",
+        },
+      ],
+      coreMemberships: [],
+      tryoutBatches: [],
+      seasonArchives: [],
+    } as any;
+    const html = renderToStaticMarkup(
+      <RosterManager
+        data={data}
+        theme={{ border: "", cardBg: "" }}
+        onRefresh={async () => {}}
+      />,
+    );
+    expect(html).toContain("Archived players");
+    expect(html).toContain("Recover player");
+    expect(html).toContain("Sandra");
   });
 });

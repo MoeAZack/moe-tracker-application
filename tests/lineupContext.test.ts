@@ -110,7 +110,7 @@ describe('central analytics history filtering', () => {
     expect(app).toMatch(/<PlayerSoloTracker data=\{analyticsData\}/);
     expect(app).toMatch(/role=\{role\}/);
     expect(app).toMatch(/onRefresh=\{fetchDatabase\}/);
-    expect(rosterManager).toMatch(/getItem\('moe\.roster-manager\.collapsed\.v2'\) !== 'false'/);
+    expect(rosterManager).toMatch(/getItem\(["']moe\.roster-manager\.collapsed\.v2["']\)[\s\S]*!==\s*["']false["']/);
   });
 });
 
