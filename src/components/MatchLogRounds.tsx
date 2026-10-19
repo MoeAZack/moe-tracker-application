@@ -244,7 +244,7 @@ export default function MatchLogRounds({ data, theme, onSaveMatch, onRemove, onS
 
   const addAppearance = () => {
     const player = knownPlayers.find(entry => entry.id === newAppearancePlayerId);
-    if (!player || !editingMatch) return;
+    if (!player || player.retiredAt || !editingMatch) return;
     const kind = editingMatch.rosterContext?.kind || 'unclassified';
     const appearanceType: AppearanceType = kind === 'tryout' ? 'tryout' : kind === 'mixed' ? 'standIn' : 'core';
     setEditingStats(current => [...current, {
@@ -1200,7 +1200,7 @@ export default function MatchLogRounds({ data, theme, onSaveMatch, onRemove, onS
                 <div className="flex gap-2">
                   <select value={newAppearancePlayerId} onChange={event => setNewAppearancePlayerId(event.target.value)} className="flex-1 p-2 bg-black/20 rounded border border-white/10 text-xs text-white">
                     <option value="">Add a known roster identity…</option>
-                    {knownPlayers.filter(player => !editingStats.some(stat => stat.playerId === player.id)).map(player => (
+                    {knownPlayers.filter(player => !player.retiredAt && !editingStats.some(stat => stat.playerId === player.id)).map(player => (
                       <option key={player.id} value={player.id}>{player.displayName}</option>
                     ))}
                   </select>

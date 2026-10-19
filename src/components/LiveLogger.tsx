@@ -26,15 +26,16 @@ export function getLiveLoggerDefaults(data: TrackerData) {
   const phase = activeTryoutPhase(data);
   const rosterContext = newWorkspaceMatchContext(data);
   const playersById = new Map((data.rosterPlayers || []).filter(player => !player.retiredAt).map(player => [player.id, player]));
+  const activeRosterNames = new Set([...playersById.values()].map(player => player.displayName));
   const candidateIds = new Set(phase?.candidatePlayerIds || []);
   const activeRoster = phase
     ? phase.candidatePlayerIds.flatMap(playerId => {
         const player = playersById.get(playerId);
         return player ? [player.displayName] : [];
       }).slice(0, 5)
-    : (data.settings.players || []).slice(0, 5);
+    : (data.settings.players || []).filter(name => !(data.rosterPlayers || []).length || activeRosterNames.has(name)).slice(0, 5);
   const appearanceByPlayer = Object.fromEntries(
-    (data.rosterPlayers || []).map(player => [player.displayName, candidateIds.has(player.id) ? 'tryout' : 'core'] as const),
+    (data.rosterPlayers || []).filter(player => !player.retiredAt).map(player => [player.displayName, candidateIds.has(player.id) ? 'tryout' : 'core'] as const),
   ) as Record<string, AppearanceType>;
 
   return { activeRoster, rosterContext, appearanceByPlayer, activeTryoutBatchId: phase?.id };
@@ -55,7 +56,7 @@ export default function LiveLogger({ data, theme, onSaveMatch, onSaveRounds, onR
   
   // Available settings
   const mapsList = data.settings.maps || [];
-  const playersList = (data.rosterPlayers || []).map(player => player.displayName);
+  const playersList = (data.rosterPlayers || []).filter(player => !player.retiredAt).map(player => player.displayName);
   const matchTypes = data.settings.matchTypes || ['Scrim', 'Official', 'Tournament', 'Practice'];
   const buyTypes = data.settings.buyTypes || ['Full', 'Half', 'Eco', 'Force', 'Bonus'];
   const winReasons = data.settings.winReasons || ['Elimination', 'Post-plant', 'Retake', 'Time', 'Defuse', 'Clutch'];
