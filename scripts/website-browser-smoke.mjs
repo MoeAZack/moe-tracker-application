@@ -9,7 +9,7 @@ import { chromium } from 'playwright-core';
 
 const root = process.cwd();
 const browserPaths = [process.env.LOCAL_OCR_BROWSER, 'C:/Program Files/Google/Chrome/Application/chrome.exe', 'C:/Program Files (x86)/Microsoft/Edge/Application/msedge.exe'].filter(Boolean);
-const retained = ['Dashboard', 'Schedule & Goals', 'Matches Log', 'VOD Submission', 'Economy', 'Map Analysis', 'Roster & Solo Q'];
+const retained = ['Home', 'Schedule & Goals', 'Match Review', 'VOD Submission', 'Economy', 'Map Analysis', 'Roster & Solo Q'];
 const desktopOnly = ['Replay Evidence', 'VOD Review', 'Lineup Library', 'AI Coach Hub', 'Live Logger', 'Compositions', 'Settings', 'Import scoreboard', 'Scrim Auto-Import'];
 
 async function availablePort() {

@@ -1,68 +1,1335 @@
-import { useEffect, useMemo, useState } from 'react';
-import { ArrowDown, ArrowUp, ChevronDown, ChevronUp, Download, RefreshCw, X } from 'lucide-react';
-import type { CoachingAction, CoachingSignal, DashboardView, TrackerData } from '../types';
-import { buildPracticeBlockSummary, DASHBOARD_CARDS, DASHBOARD_PRESETS, normalizeDashboardView, type PracticeBlockSummary } from '../../lib/coachingWorkflow';
-import { apiFetch } from '../utils/api';
+import { useEffect, useMemo, useState } from "react";
+import {
+  ArrowDown,
+  ArrowUp,
+  ChevronDown,
+  ChevronUp,
+  Download,
+  RefreshCw,
+  Trash2,
+  X,
+} from "lucide-react";
+import type {
+  CoachingAction,
+  CoachingSignal,
+  DashboardView,
+  TrackerData,
+} from "../types";
+import {
+  buildPracticeBlockSummary,
+  DASHBOARD_CARDS,
+  DASHBOARD_PRESETS,
+  normalizeDashboardView,
+  type PracticeBlockSummary,
+} from "../../lib/coachingWorkflow";
+import { apiFetch } from "../utils/api";
 
-type WorkflowPayload = { summaries: PracticeBlockSummary[]; signals: CoachingSignal[]; actions: CoachingAction[]; views: DashboardView[] };
-const severityClass = { critical: 'border-rose-400/30 bg-rose-400/[0.07] text-rose-100', warning: 'border-amber-300/25 bg-amber-300/[0.06] text-amber-100', info: 'border-cyan-300/20 bg-cyan-300/[0.05] text-cyan-100' };
+type WorkflowPayload = {
+  summaries: PracticeBlockSummary[];
+  signals: CoachingSignal[];
+  actions: CoachingAction[];
+  views: DashboardView[];
+};
+const severityClass = {
+  critical: "border-rose-400/30 bg-rose-400/[0.07] text-rose-100",
+  warning: "border-amber-300/25 bg-amber-300/[0.06] text-amber-100",
+  info: "border-cyan-300/20 bg-cyan-300/[0.05] text-cyan-100",
+};
 
-export default function CoachWorkflow({ data, role, onOpenMatch }: { data: TrackerData; role: string | null; onOpenMatch: (matchId: string) => void }) {
-  const [workflow, setWorkflow] = useState<WorkflowPayload | null>(null); const [busy, setBusy] = useState(''); const [notice, setNotice] = useState('');
-  const [correction, setCorrection] = useState<{ signal: CoachingSignal; type: CoachingSignal['type']; reason: string } | null>(null);
+export default function CoachWorkflow({
+  data,
+  role,
+  onOpenMatch,
+  preferredMatchId,
+}: {
+  data: TrackerData;
+  role: string | null;
+  onOpenMatch: (matchId: string) => void;
+  preferredMatchId?: string | null;
+}) {
+  const [workflow, setWorkflow] = useState<WorkflowPayload | null>(null);
+  const [busy, setBusy] = useState("");
+  const [notice, setNotice] = useState("");
+  const [correction, setCorrection] = useState<{
+    signal: CoachingSignal;
+    type: CoachingSignal["type"];
+    reason: string;
+  } | null>(null);
   const [editingLayout, setEditingLayout] = useState(false);
-  const owner = 'current-coach'; const saved = workflow?.views?.find(view => view.scope === 'personal'); const [view, setView] = useState(() => normalizeDashboardView(undefined, owner));
-  const [signalFilters, setSignalFilters] = useState({ side: '', economy: '', player: '', agent: '', composition: '', status: '', type: '' });
-  const load = async (refresh = false) => { setBusy('refresh'); try { const response = await apiFetch(refresh ? '/api/coaching/refresh' : '/api/coaching', { method: refresh ? 'POST' : 'GET' }); const body = await response.json(); if (!response.ok) throw new Error(body.error || 'Coaching workflow could not load.'); setWorkflow({ ...body, views: body.views || workflow?.views || [] }); } catch (error: any) { setNotice(error.message); } finally { setBusy(''); } };
-  useEffect(() => { if (role === 'coach') void load(true); else void load(false); }, [role]);
-  useEffect(() => { if (saved) setView(normalizeDashboardView(saved, saved.ownerId)); }, [saved?.updatedAt]);
+  const owner = "current-coach";
+  const saved = workflow?.views?.find((view) => view.scope === "personal");
+  const [view, setView] = useState(() =>
+    normalizeDashboardView(undefined, owner),
+  );
+  const [signalFilters, setSignalFilters] = useState({
+    side: "",
+    economy: "",
+    player: "",
+    agent: "",
+    composition: "",
+    status: "",
+    type: "",
+  });
+  const load = async (refresh = false) => {
+    setBusy("refresh");
+    try {
+      const response = await apiFetch(
+        refresh ? "/api/coaching/refresh" : "/api/coaching",
+        { method: refresh ? "POST" : "GET" },
+      );
+      const body = await response.json();
+      if (!response.ok)
+        throw new Error(body.error || "Coaching workflow could not load.");
+      setWorkflow({ ...body, views: body.views || workflow?.views || [] });
+    } catch (error: any) {
+      setNotice(error.message);
+    } finally {
+      setBusy("");
+    }
+  };
+  useEffect(() => {
+    if (role === "coach") void load(true);
+    else void load(false);
+  }, [role]);
+  useEffect(() => {
+    if (saved) setView(normalizeDashboardView(saved, saved.ownerId));
+  }, [saved?.updatedAt]);
   const summaries = workflow?.summaries || [];
   const selectedSummary = useMemo(() => {
-    const base = (view.filters.blockId ? summaries.find(summary => summary.blockId === view.filters.blockId) : summaries[0]) || null;
+    const base =
+      (view.filters.blockId
+        ? summaries.find((summary) => summary.blockId === view.filters.blockId)
+        : preferredMatchId
+          ? summaries.find((summary) =>
+              summary.matchIds.includes(preferredMatchId),
+            )
+          : summaries[0]) || null;
     if (!base) return null;
-    const matchIds = base.matchIds.filter(id => { const match = data.matches.find(item => item.id === id); return !!match && (!view.filters.map || match.map === view.filters.map) && (!view.filters.source || (match.sourceMetadata?.method || match.source || 'unknown') === view.filters.source); });
-    const projected = matchIds.length === base.matchIds.length ? base : buildPracticeBlockSummary(data, { id: base.blockId, name: base.name, matchIds }, base.generatedAt);
-    return !view.filters.confidence || projected.coverage.evidenceHealth === view.filters.confidence || (view.filters.confidence === 'high' && projected.coverage.evidenceHealth === 'complete') || (view.filters.confidence === 'medium' && projected.coverage.evidenceHealth === 'partial') || (view.filters.confidence === 'low' && projected.coverage.evidenceHealth === 'empty') ? projected : null;
-  }, [data, summaries, view.filters.blockId, view.filters.map, view.filters.source, view.filters.confidence]);
-  const filteredSignals = useMemo(() => (workflow?.signals || []).filter(signal => (!view.filters.blockId || signal.blockId === view.filters.blockId) && (!view.filters.map || signal.context.map === view.filters.map) && (!view.filters.source || signal.evidence.sourceTypes.includes(view.filters.source)) && (!view.filters.confidence || signal.evidence.confidence === view.filters.confidence) && (!signalFilters.side || signal.context.side === signalFilters.side) && (!signalFilters.economy || signal.context.economy === signalFilters.economy) && (!signalFilters.player || signal.context.playerId === signalFilters.player) && (!signalFilters.agent || signal.context.agent === signalFilters.agent) && (!signalFilters.composition || signal.context.composition === signalFilters.composition) && (!signalFilters.status || signal.status === signalFilters.status) && (!signalFilters.type || signal.type === signalFilters.type)), [workflow?.signals, view.filters, signalFilters]);
-  const unresolved = filteredSignals.filter(signal => !['dismissed', 'converted-to-action'].includes(signal.status)); const visibleSignalIds = new Set(filteredSignals.map(signal => signal.id)); const activeActions = (workflow?.actions || []).filter(action => !['resolved', 'cancelled'].includes(action.state) && (!role || role !== 'coach' || visibleSignalIds.has(action.sourceSignalId)));
-  const queueSignals = signalFilters.status ? filteredSignals : unresolved;
-  if (!workflow) return <section className="liquid-panel p-5"><p className="text-sm text-slate-400">{notice || 'Preparing the coaching workspace…'}</p>{notice && <button type="button" className="ui-button mt-3 min-h-10 px-3 text-xs" onClick={() => load(role === 'coach')}>Retry</button>}</section>;
-  if (role !== 'coach') return activeActions.length ? <PlayerActions actions={activeActions} onReload={() => load(false)} /> : null;
-  const mutateSignal = async (signal: CoachingSignal, status: CoachingSignal['status']) => { const reason = status === 'dismissed' ? window.prompt('Why is this signal being dismissed?') : ''; if (status === 'dismissed' && !reason) return; setBusy(signal.id); try { const response = await apiFetch(`/api/coaching/signals/${signal.id}/status`, { method: 'POST', body: JSON.stringify({ status, reason }) }); const updated = await response.json(); if (!response.ok) throw new Error(updated.error); setWorkflow(current => current ? { ...current, signals: current.signals.map(item => item.id === updated.id ? updated : item) } : current); } catch (error: any) { setNotice(error.message); } finally { setBusy(''); } };
-  const correctSignal = (signal: CoachingSignal) => setCorrection({ signal, type: signal.type, reason: '' });
-  const submitCorrection = async () => { if (!correction?.reason.trim()) return; setBusy(correction.signal.id); try { const response = await apiFetch(`/api/coaching/signals/${correction.signal.id}/correct`, { method: 'POST', body: JSON.stringify({ type: correction.type, reason: correction.reason }) }); const updated = await response.json(); if (!response.ok) throw new Error(updated.error); setWorkflow(current => current ? { ...current, signals: current.signals.map(item => item.id === updated.id ? updated : item) } : current); setCorrection(null); setNotice('Classification correction saved with its audit reason.'); } catch (error: any) { setNotice(error.message); } finally { setBusy(''); } };
-  const makeAction = async (signal: CoachingSignal) => { setBusy(signal.id); try { const response = await apiFetch('/api/coaching/actions', { method: 'POST', body: JSON.stringify({ signalId: signal.id, kind: signal.context.playerId ? 'player-feedback' : 'team-task', ownerIds: signal.context.playerId ? [signal.context.playerId] : [], priority: signal.severity === 'critical' ? 'high' : 'normal', visibility: 'team' }) }); const body = await response.json(); if (!response.ok) throw new Error(body.error); setWorkflow(current => current ? { ...current, signals: current.signals.map(item => item.id === body.signal.id ? body.signal : item), actions: [body.action, ...current.actions] } : current); } catch (error: any) { setNotice(error.message); } finally { setBusy(''); } };
-  const mutateAction = async (action: CoachingAction, state: CoachingAction['state']) => { setBusy(action.id); try { const response = await apiFetch(`/api/coaching/actions/${action.id}/status`, { method: 'POST', body: JSON.stringify({ state }) }); const updated = await response.json(); if (!response.ok) throw new Error(updated.error); setWorkflow(current => current ? { ...current, actions: current.actions.map(item => item.id === updated.id ? updated : item) } : current); } catch (error: any) { setNotice(error.message); } finally { setBusy(''); } };
-  const move = (index: number, direction: -1 | 1) => setView(current => { const cards = [...current.cards]; const target = index + direction; if (target < 0 || target >= cards.length) return current; [cards[index], cards[target]] = [cards[target], cards[index]]; return { ...current, cards }; });
-  const selectPreset = (preset: string) => setView(normalizeDashboardView({ ...view, preset, cards: DASHBOARD_PRESETS[preset].map(id => ({ id, size: 'half', minimized: false })) }, view.ownerId));
-  const saveView = async () => { setBusy('view'); try { const response = await apiFetch('/api/coaching/dashboard-view', { method: 'POST', body: JSON.stringify(view) }); const savedView = await response.json(); if (!response.ok) throw new Error(savedView.error); setView(savedView); setNotice('Dashboard layout saved.'); } catch (error: any) { setNotice(error.message); } finally { setBusy(''); } };
-  return <section className="space-y-4" aria-labelledby="coach-workflow-title">
-    <header className="flex flex-wrap items-end justify-between gap-3"><div><p className="aurora-eyebrow">S1–S5 coaching loop</p><h2 id="coach-workflow-title" className="mt-1 text-xl font-semibold">Practice review workspace</h2><p className="mt-1 text-xs text-slate-400">Accepted evidence becomes a block summary, review queue, and verified coaching work without changing the source match.</p></div><div className="flex gap-2"><button type="button" className="ui-button min-h-10 px-3 text-xs" onClick={() => setEditingLayout(value => !value)}>{editingLayout ? 'Done editing' : 'Edit layout'}</button><button type="button" className="ui-button min-h-10 px-3 text-xs" disabled={!!busy} onClick={() => load(true)}><RefreshCw className={`h-4 w-4 ${busy === 'refresh' ? 'animate-spin' : ''}`} />Refresh</button>{editingLayout && <button type="button" className="ui-button ui-button-primary min-h-10 px-3 text-xs" disabled={!!busy} onClick={saveView}>Save view</button>}</div></header>
-    <div className="grid gap-3 rounded-xl border border-white/10 bg-black/10 p-3 lg:grid-cols-6"><label className="text-[10px] uppercase tracking-wider text-slate-400">Preset<select className="ui-field mt-1 h-10 w-full px-2 text-xs" value={view.preset} onChange={event => selectPreset(event.target.value)}>{Object.keys(DASHBOARD_PRESETS).map(key => <option key={key} value={key}>{key.replaceAll('-', ' ')}</option>)}</select></label><Filter label="Block" value={view.filters.blockId || ''} onChange={value => setView(current => ({ ...current, filters: { ...current.filters, blockId: value || null } }))} options={summaries.map(summary => [summary.blockId, summary.name])} /><Filter label="Map" value={view.filters.map || ''} onChange={value => setView(current => ({ ...current, filters: { ...current.filters, map: value || null } }))} options={Array.from(new Set<string>(summaries.flatMap(summary => summary.header.maps))).map(map => [map, map])} /><Filter label="Source" value={view.filters.source || ''} onChange={value => setView(current => ({ ...current, filters: { ...current.filters, source: value || null } }))} options={Array.from(new Set<string>(summaries.flatMap(summary => summary.header.sources))).map(value => [value, value])} /><Filter label="Confidence" value={view.filters.confidence || ''} onChange={value => setView(current => ({ ...current, filters: { ...current.filters, confidence: value || null } }))} options={['high', 'medium', 'low'].map(value => [value, value])} /><div className="flex items-end"><span className="w-full rounded-lg border border-amber-300/20 bg-amber-300/[0.06] px-3 py-2.5 text-xs text-amber-100">{unresolved.length} unresolved review item{unresolved.length === 1 ? '' : 's'}</span></div><Filter label="Signal type" value={signalFilters.type} onChange={value => setSignalFilters(current => ({ ...current, type: value }))} options={Array.from(new Set<string>(workflow.signals.map(signal => signal.type))).map(value => [value, value.replaceAll('-', ' ')])} /><Filter label="Status" value={signalFilters.status} onChange={value => setSignalFilters(current => ({ ...current, status: value }))} options={Array.from(new Set<string>(workflow.signals.map(signal => signal.status))).map(value => [value, value])} /><Filter label="Side" value={signalFilters.side} onChange={value => setSignalFilters(current => ({ ...current, side: value }))} options={['ATT', 'DEF'].map(value => [value, value])} /><Filter label="Economy" value={signalFilters.economy} onChange={value => setSignalFilters(current => ({ ...current, economy: value }))} options={['full', 'anti-eco', 'low'].map(value => [value, value])} /><Filter label="Player" value={signalFilters.player} onChange={value => setSignalFilters(current => ({ ...current, player: value }))} options={data.rosterPlayers.filter(player => !player.retiredAt).map(player => [player.id, player.displayName])} /><Filter label="Agent" value={signalFilters.agent} onChange={value => setSignalFilters(current => ({ ...current, agent: value }))} options={data.settings.agents.map(value => [value, value])} /><Filter label="Composition" value={signalFilters.composition} onChange={value => setSignalFilters(current => ({ ...current, composition: value }))} options={Array.from(new Set<string>(workflow.signals.map(signal => signal.context.composition).filter((value): value is string => !!value))).map(value => [value, value])} /><div className="flex flex-wrap items-end gap-1">{DASHBOARD_CARDS.filter(card => !view.cards.some(item => item.id === card.id)).map(card => <button key={card.id} className="ui-button min-h-9 px-2 text-[10px]" onClick={() => setView(current => ({ ...current, cards: [...current.cards, { id: card.id, size: card.sizes[0], minimized: false }] }))}>+ {card.label}</button>)}</div></div>
-    {correction && <section className="liquid-panel border-cyan-300/20 p-4" aria-labelledby="correction-title"><div className="flex items-start justify-between gap-3"><div><h3 id="correction-title" className="font-semibold">Correct review classification</h3><p className="mt-1 text-xs text-slate-400">{correction.signal.title} · {correction.signal.explanation}</p></div><button type="button" aria-label="Close correction panel" onClick={() => setCorrection(null)}><X className="h-4 w-4" /></button></div><div className="mt-3 grid gap-3 md:grid-cols-2"><label className="text-xs text-slate-300">Valid classification<select className="ui-field mt-1 h-10 w-full px-2" value={correction.type} onChange={event => setCorrection(current => current ? { ...current, type: event.target.value as CoachingSignal['type'] } : current)}>{['pistol-conversion','full-buy-loss','anti-eco-loss','low-buy-win','first-death-collapse','repeated-player-first-death','advantage-collapse','map-underperformance','evidence-health'].map(type => <option key={type} value={type}>{type.replaceAll('-', ' ')}</option>)}</select></label><label className="text-xs text-slate-300">Reason<textarea className="ui-field mt-1 min-h-20 w-full p-2" maxLength={500} value={correction.reason} onChange={event => setCorrection(current => current ? { ...current, reason: event.target.value } : current)} placeholder="What was wrong, and what evidence supports the correction?" /></label></div><div className="mt-3 flex justify-end gap-2"><button type="button" className="ui-button min-h-10 px-3 text-xs" onClick={() => setCorrection(null)}>Cancel</button><button type="button" disabled={!correction.reason.trim() || !!busy} className="ui-button ui-button-primary min-h-10 px-3 text-xs disabled:opacity-50" onClick={submitCorrection}>Save correction</button></div></section>}
-    <div className="grid gap-4 xl:grid-cols-2">{view.cards.map((card, index) => { const catalog = DASHBOARD_CARDS.find(item => item.id === card.id); return <article key={card.id} className={`liquid-panel overflow-hidden ${card.size === 'full' ? 'xl:col-span-2' : ''}`}><header className="flex items-center justify-between border-b border-white/[0.07] px-4 py-3"><span className="text-sm font-semibold">{catalog?.label || card.id}</span>{editingLayout && <div className="flex items-center gap-1"><button aria-label="Move card up" className="h-8 w-8" onClick={() => move(index, -1)}><ArrowUp className="mx-auto h-3.5 w-3.5" /></button><button aria-label="Move card down" className="h-8 w-8" onClick={() => move(index, 1)}><ArrowDown className="mx-auto h-3.5 w-3.5" /></button><button aria-label="Resize card" className="h-8 px-1 text-[9px] uppercase text-slate-400" onClick={() => setView(current => ({ ...current, cards: current.cards.map(item => { if (item.id !== card.id) return item; const sizes = catalog?.sizes || ['half']; const at = sizes.indexOf(item.size as never); return { ...item, size: sizes[(at + 1) % sizes.length] }; }) }))}>{card.size}</button>{!catalog?.critical && <button aria-label={card.minimized ? 'Expand card' : 'Minimize card'} className="h-8 w-8" onClick={() => setView(current => ({ ...current, cards: current.cards.map(item => item.id === card.id ? { ...item, minimized: !item.minimized } : item) }))}>{card.minimized ? <ChevronDown className="mx-auto h-4 w-4" /> : <ChevronUp className="mx-auto h-4 w-4" />}</button>}{!catalog?.critical && <button aria-label="Remove card" className="h-8 w-8" onClick={() => setView(current => ({ ...current, cards: current.cards.filter(item => item.id !== card.id) }))}><X className="mx-auto h-3.5 w-3.5" /></button>}</div>}</header>{!card.minimized && <div className="p-4">{renderCard(card.id, selectedSummary, queueSignals, activeActions, onOpenMatch, mutateSignal, correctSignal, makeAction, mutateAction, () => exportCard(card.id, selectedSummary, queueSignals, activeActions))}</div>}</article>; })}</div>
-    {notice && <p className="rounded-lg border border-cyan-300/15 bg-cyan-300/[0.05] px-4 py-3 text-xs text-cyan-100" role="status">{notice}</p>}
-  </section>;
+    const matchIds = base.matchIds.filter((id) => {
+      const match = data.matches.find((item) => item.id === id);
+      return (
+        !!match &&
+        (!preferredMatchId || id === preferredMatchId) &&
+        (!view.filters.map || match.map === view.filters.map) &&
+        (!view.filters.source ||
+          (match.sourceMetadata?.method || match.source || "unknown") ===
+            view.filters.source)
+      );
+    });
+    const projected =
+      matchIds.length === base.matchIds.length
+        ? base
+        : buildPracticeBlockSummary(
+            data,
+            { id: base.blockId, name: base.name, matchIds },
+            base.generatedAt,
+          );
+    return !view.filters.confidence ||
+      projected.coverage.evidenceHealth === view.filters.confidence ||
+      (view.filters.confidence === "high" &&
+        projected.coverage.evidenceHealth === "complete") ||
+      (view.filters.confidence === "medium" &&
+        projected.coverage.evidenceHealth === "partial") ||
+      (view.filters.confidence === "low" &&
+        projected.coverage.evidenceHealth === "empty")
+      ? projected
+      : null;
+  }, [
+    data,
+    summaries,
+    preferredMatchId,
+    view.filters.blockId,
+    view.filters.map,
+    view.filters.source,
+    view.filters.confidence,
+  ]);
+  const filteredSignals = useMemo(
+    () =>
+      (workflow?.signals || []).filter(
+        (signal) =>
+          (!preferredMatchId || signal.matchIds.includes(preferredMatchId)) &&
+          (!view.filters.blockId || signal.blockId === view.filters.blockId) &&
+          (!view.filters.map || signal.context.map === view.filters.map) &&
+          (!view.filters.source ||
+            signal.evidence.sourceTypes.includes(view.filters.source)) &&
+          (!view.filters.confidence ||
+            signal.evidence.confidence === view.filters.confidence) &&
+          (!signalFilters.side || signal.context.side === signalFilters.side) &&
+          (!signalFilters.economy ||
+            signal.context.economy === signalFilters.economy) &&
+          (!signalFilters.player ||
+            signal.context.playerId === signalFilters.player) &&
+          (!signalFilters.agent ||
+            signal.context.agent === signalFilters.agent) &&
+          (!signalFilters.composition ||
+            signal.context.composition === signalFilters.composition) &&
+          (!signalFilters.status || signal.status === signalFilters.status) &&
+          (!signalFilters.type || signal.type === signalFilters.type),
+      ),
+    [workflow?.signals, preferredMatchId, view.filters, signalFilters],
+  );
+  const unresolved = filteredSignals.filter(
+    (signal) => !["dismissed", "converted-to-action"].includes(signal.status),
+  );
+  const visibleSignalIds = new Set(filteredSignals.map((signal) => signal.id));
+  const activeActions = (workflow?.actions || []).filter(
+    (action) =>
+      !["resolved", "cancelled"].includes(action.state) &&
+      (!role ||
+        role !== "coach" ||
+        visibleSignalIds.has(action.sourceSignalId)),
+  );
+  const queueSignals = signalFilters.status
+    ? filteredSignals
+    : filteredSignals.filter(
+        (signal) => signal.status !== "converted-to-action",
+      );
+  if (!workflow)
+    return (
+      <section className="liquid-panel p-5">
+        <p className="text-sm text-slate-400">
+          {notice || "Preparing the coaching workspace…"}
+        </p>
+        {notice && (
+          <button
+            type="button"
+            className="ui-button mt-3 min-h-10 px-3 text-xs"
+            onClick={() => load(role === "coach")}
+          >
+            Retry
+          </button>
+        )}
+      </section>
+    );
+  if (role !== "coach")
+    return activeActions.length ? (
+      <PlayerActions actions={activeActions} onReload={() => load(false)} />
+    ) : null;
+  const mutateSignal = async (
+    signal: CoachingSignal,
+    status: CoachingSignal["status"],
+  ) => {
+    const reason =
+      status === "dismissed"
+        ? window.prompt("Why is this signal being dismissed?")
+        : "";
+    if (status === "dismissed" && !reason) return;
+    setBusy(signal.id);
+    try {
+      const response = await apiFetch(
+        `/api/coaching/signals/${signal.id}/status`,
+        { method: "POST", body: JSON.stringify({ status, reason }) },
+      );
+      const updated = await response.json();
+      if (!response.ok) throw new Error(updated.error);
+      setWorkflow((current) =>
+        current
+          ? {
+              ...current,
+              signals: current.signals.map((item) =>
+                item.id === updated.id ? updated : item,
+              ),
+            }
+          : current,
+      );
+      setNotice(
+        status === "new"
+          ? "Review item recovered."
+          : `Review item moved to ${status.replaceAll("-", " ")}.`,
+      );
+    } catch (error: any) {
+      setNotice(error.message);
+    } finally {
+      setBusy("");
+    }
+  };
+  const deleteSignal = async (signal: CoachingSignal) => {
+    if (
+      !window.confirm(
+        `Permanently delete “${signal.title}” from the review inbox?`,
+      )
+    )
+      return;
+    setBusy(signal.id);
+    try {
+      const response = await apiFetch(`/api/coaching/signals/${signal.id}`, {
+        method: "DELETE",
+      });
+      const body = await response.json();
+      if (!response.ok) throw new Error(body.error);
+      setWorkflow((current) =>
+        current
+          ? {
+              ...current,
+              signals: current.signals.filter((item) => item.id !== signal.id),
+            }
+          : current,
+      );
+      setNotice("Dismissed review item deleted.");
+    } catch (error: any) {
+      setNotice(error.message);
+    } finally {
+      setBusy("");
+    }
+  };
+  const correctSignal = (signal: CoachingSignal) =>
+    setCorrection({ signal, type: signal.type, reason: "" });
+  const submitCorrection = async () => {
+    if (!correction?.reason.trim()) return;
+    setBusy(correction.signal.id);
+    try {
+      const response = await apiFetch(
+        `/api/coaching/signals/${correction.signal.id}/correct`,
+        {
+          method: "POST",
+          body: JSON.stringify({
+            type: correction.type,
+            reason: correction.reason,
+          }),
+        },
+      );
+      const updated = await response.json();
+      if (!response.ok) throw new Error(updated.error);
+      setWorkflow((current) =>
+        current
+          ? {
+              ...current,
+              signals: current.signals.map((item) =>
+                item.id === updated.id ? updated : item,
+              ),
+            }
+          : current,
+      );
+      setCorrection(null);
+      setNotice("Classification correction saved with its audit reason.");
+    } catch (error: any) {
+      setNotice(error.message);
+    } finally {
+      setBusy("");
+    }
+  };
+  const makeAction = async (signal: CoachingSignal) => {
+    setBusy(signal.id);
+    try {
+      const response = await apiFetch("/api/coaching/actions", {
+        method: "POST",
+        body: JSON.stringify({
+          signalId: signal.id,
+          kind: signal.context.playerId ? "player-feedback" : "team-task",
+          ownerIds: signal.context.playerId ? [signal.context.playerId] : [],
+          priority: signal.severity === "critical" ? "high" : "normal",
+          visibility: "team",
+        }),
+      });
+      const body = await response.json();
+      if (!response.ok) throw new Error(body.error);
+      setWorkflow((current) =>
+        current
+          ? {
+              ...current,
+              signals: current.signals.map((item) =>
+                item.id === body.signal.id ? body.signal : item,
+              ),
+              actions: [body.action, ...current.actions],
+            }
+          : current,
+      );
+    } catch (error: any) {
+      setNotice(error.message);
+    } finally {
+      setBusy("");
+    }
+  };
+  const mutateAction = async (
+    action: CoachingAction,
+    state: CoachingAction["state"],
+  ) => {
+    setBusy(action.id);
+    try {
+      const response = await apiFetch(
+        `/api/coaching/actions/${action.id}/status`,
+        { method: "POST", body: JSON.stringify({ state }) },
+      );
+      const updated = await response.json();
+      if (!response.ok) throw new Error(updated.error);
+      setWorkflow((current) =>
+        current
+          ? {
+              ...current,
+              actions: current.actions.map((item) =>
+                item.id === updated.id ? updated : item,
+              ),
+            }
+          : current,
+      );
+    } catch (error: any) {
+      setNotice(error.message);
+    } finally {
+      setBusy("");
+    }
+  };
+  const move = (index: number, direction: -1 | 1) =>
+    setView((current) => {
+      const cards = [...current.cards];
+      const target = index + direction;
+      if (target < 0 || target >= cards.length) return current;
+      [cards[index], cards[target]] = [cards[target], cards[index]];
+      return { ...current, cards };
+    });
+  const selectPreset = (preset: string) =>
+    setView(
+      normalizeDashboardView(
+        {
+          ...view,
+          preset,
+          cards: DASHBOARD_PRESETS[preset].map((id) => ({
+            id,
+            size: "half",
+            minimized: false,
+          })),
+        },
+        view.ownerId,
+      ),
+    );
+  const saveView = async () => {
+    setBusy("view");
+    try {
+      const response = await apiFetch("/api/coaching/dashboard-view", {
+        method: "POST",
+        body: JSON.stringify(view),
+      });
+      const savedView = await response.json();
+      if (!response.ok) throw new Error(savedView.error);
+      setView(savedView);
+      setNotice("Dashboard layout saved.");
+    } catch (error: any) {
+      setNotice(error.message);
+    } finally {
+      setBusy("");
+    }
+  };
+  return (
+    <section className="space-y-4" aria-labelledby="coach-workflow-title">
+      <header className="flex flex-wrap items-end justify-between gap-3">
+        <div>
+          <p className="aurora-eyebrow">S1–S5 coaching loop</p>
+          <h2 id="coach-workflow-title" className="mt-1 text-xl font-semibold">
+            Practice review workspace
+          </h2>
+          <p className="mt-1 text-xs text-slate-400">
+            {preferredMatchId
+              ? "Filtered to the match selected in Reviewing together."
+              : "Accepted evidence becomes a block summary, review queue, and verified coaching work without changing the source match."}
+          </p>
+        </div>
+        <div className="flex gap-2">
+          <button
+            type="button"
+            className="ui-button min-h-10 px-3 text-xs"
+            onClick={() => setEditingLayout((value) => !value)}
+          >
+            {editingLayout ? "Done editing" : "Edit layout"}
+          </button>
+          <button
+            type="button"
+            className="ui-button min-h-10 px-3 text-xs"
+            disabled={!!busy}
+            onClick={() => load(true)}
+          >
+            <RefreshCw
+              className={`h-4 w-4 ${busy === "refresh" ? "animate-spin" : ""}`}
+            />
+            Refresh
+          </button>
+          {editingLayout && (
+            <button
+              type="button"
+              className="ui-button ui-button-primary min-h-10 px-3 text-xs"
+              disabled={!!busy}
+              onClick={saveView}
+            >
+              Save view
+            </button>
+          )}
+        </div>
+      </header>
+      <div className="grid gap-3 rounded-xl border border-white/10 bg-black/10 p-3 lg:grid-cols-6">
+        <label className="text-[10px] uppercase tracking-wider text-slate-400">
+          Preset
+          <select
+            className="ui-field mt-1 h-10 w-full px-2 text-xs"
+            value={view.preset}
+            onChange={(event) => selectPreset(event.target.value)}
+          >
+            {Object.keys(DASHBOARD_PRESETS).map((key) => (
+              <option key={key} value={key}>
+                {key.replaceAll("-", " ")}
+              </option>
+            ))}
+          </select>
+        </label>
+        <Filter
+          label="Block"
+          value={view.filters.blockId || ""}
+          onChange={(value) =>
+            setView((current) => ({
+              ...current,
+              filters: { ...current.filters, blockId: value || null },
+            }))
+          }
+          options={summaries.map((summary) => [summary.blockId, summary.name])}
+        />
+        <Filter
+          label="Map"
+          value={view.filters.map || ""}
+          onChange={(value) =>
+            setView((current) => ({
+              ...current,
+              filters: { ...current.filters, map: value || null },
+            }))
+          }
+          options={Array.from(
+            new Set<string>(
+              summaries.flatMap((summary) => summary.header.maps),
+            ),
+          ).map((map) => [map, map])}
+        />
+        <Filter
+          label="Source"
+          value={view.filters.source || ""}
+          onChange={(value) =>
+            setView((current) => ({
+              ...current,
+              filters: { ...current.filters, source: value || null },
+            }))
+          }
+          options={Array.from(
+            new Set<string>(
+              summaries.flatMap((summary) => summary.header.sources),
+            ),
+          ).map((value) => [value, value])}
+        />
+        <Filter
+          label="Confidence"
+          value={view.filters.confidence || ""}
+          onChange={(value) =>
+            setView((current) => ({
+              ...current,
+              filters: { ...current.filters, confidence: value || null },
+            }))
+          }
+          options={["high", "medium", "low"].map((value) => [value, value])}
+        />
+        <div className="flex items-end">
+          <span className="w-full rounded-lg border border-amber-300/20 bg-amber-300/[0.06] px-3 py-2.5 text-xs text-amber-100">
+            {unresolved.length} unresolved review item
+            {unresolved.length === 1 ? "" : "s"}
+          </span>
+        </div>
+        <Filter
+          label="Signal type"
+          value={signalFilters.type}
+          onChange={(value) =>
+            setSignalFilters((current) => ({ ...current, type: value }))
+          }
+          options={Array.from(
+            new Set<string>(workflow.signals.map((signal) => signal.type)),
+          ).map((value) => [value, value.replaceAll("-", " ")])}
+        />
+        <Filter
+          label="Status"
+          value={signalFilters.status}
+          onChange={(value) =>
+            setSignalFilters((current) => ({ ...current, status: value }))
+          }
+          options={Array.from(
+            new Set<string>(workflow.signals.map((signal) => signal.status)),
+          ).map((value) => [value, value])}
+        />
+        <Filter
+          label="Side"
+          value={signalFilters.side}
+          onChange={(value) =>
+            setSignalFilters((current) => ({ ...current, side: value }))
+          }
+          options={["ATT", "DEF"].map((value) => [value, value])}
+        />
+        <Filter
+          label="Economy"
+          value={signalFilters.economy}
+          onChange={(value) =>
+            setSignalFilters((current) => ({ ...current, economy: value }))
+          }
+          options={["full", "anti-eco", "low"].map((value) => [value, value])}
+        />
+        <Filter
+          label="Player"
+          value={signalFilters.player}
+          onChange={(value) =>
+            setSignalFilters((current) => ({ ...current, player: value }))
+          }
+          options={data.rosterPlayers
+            .filter((player) => !player.retiredAt)
+            .map((player) => [player.id, player.displayName])}
+        />
+        <Filter
+          label="Agent"
+          value={signalFilters.agent}
+          onChange={(value) =>
+            setSignalFilters((current) => ({ ...current, agent: value }))
+          }
+          options={data.settings.agents.map((value) => [value, value])}
+        />
+        <Filter
+          label="Composition"
+          value={signalFilters.composition}
+          onChange={(value) =>
+            setSignalFilters((current) => ({ ...current, composition: value }))
+          }
+          options={Array.from(
+            new Set<string>(
+              workflow.signals
+                .map((signal) => signal.context.composition)
+                .filter((value): value is string => !!value),
+            ),
+          ).map((value) => [value, value])}
+        />
+        <div className="flex flex-wrap items-end gap-1">
+          {DASHBOARD_CARDS.filter(
+            (card) => !view.cards.some((item) => item.id === card.id),
+          ).map((card) => (
+            <button
+              key={card.id}
+              className="ui-button min-h-9 px-2 text-[10px]"
+              onClick={() =>
+                setView((current) => ({
+                  ...current,
+                  cards: [
+                    ...current.cards,
+                    { id: card.id, size: card.sizes[0], minimized: false },
+                  ],
+                }))
+              }
+            >
+              + {card.label}
+            </button>
+          ))}
+        </div>
+      </div>
+      {correction && (
+        <section
+          className="liquid-panel border-cyan-300/20 p-4"
+          aria-labelledby="correction-title"
+        >
+          <div className="flex items-start justify-between gap-3">
+            <div>
+              <h3 id="correction-title" className="font-semibold">
+                Correct review classification
+              </h3>
+              <p className="mt-1 text-xs text-slate-400">
+                {correction.signal.title} · {correction.signal.explanation}
+              </p>
+            </div>
+            <button
+              type="button"
+              aria-label="Close correction panel"
+              onClick={() => setCorrection(null)}
+            >
+              <X className="h-4 w-4" />
+            </button>
+          </div>
+          <div className="mt-3 grid gap-3 md:grid-cols-2">
+            <label className="text-xs text-slate-300">
+              Valid classification
+              <select
+                className="ui-field mt-1 h-10 w-full px-2"
+                value={correction.type}
+                onChange={(event) =>
+                  setCorrection((current) =>
+                    current
+                      ? {
+                          ...current,
+                          type: event.target.value as CoachingSignal["type"],
+                        }
+                      : current,
+                  )
+                }
+              >
+                {[
+                  "pistol-conversion",
+                  "full-buy-loss",
+                  "anti-eco-loss",
+                  "low-buy-win",
+                  "first-death-collapse",
+                  "repeated-player-first-death",
+                  "advantage-collapse",
+                  "map-underperformance",
+                  "evidence-health",
+                ].map((type) => (
+                  <option key={type} value={type}>
+                    {type.replaceAll("-", " ")}
+                  </option>
+                ))}
+              </select>
+            </label>
+            <label className="text-xs text-slate-300">
+              Reason
+              <textarea
+                className="ui-field mt-1 min-h-20 w-full p-2"
+                maxLength={500}
+                value={correction.reason}
+                onChange={(event) =>
+                  setCorrection((current) =>
+                    current
+                      ? { ...current, reason: event.target.value }
+                      : current,
+                  )
+                }
+                placeholder="What was wrong, and what evidence supports the correction?"
+              />
+            </label>
+          </div>
+          <div className="mt-3 flex justify-end gap-2">
+            <button
+              type="button"
+              className="ui-button min-h-10 px-3 text-xs"
+              onClick={() => setCorrection(null)}
+            >
+              Cancel
+            </button>
+            <button
+              type="button"
+              disabled={!correction.reason.trim() || !!busy}
+              className="ui-button ui-button-primary min-h-10 px-3 text-xs disabled:opacity-50"
+              onClick={submitCorrection}
+            >
+              Save correction
+            </button>
+          </div>
+        </section>
+      )}
+      <div className="grid gap-4 xl:grid-cols-2">
+        {view.cards.map((card, index) => {
+          const catalog = DASHBOARD_CARDS.find((item) => item.id === card.id);
+          return (
+            <article
+              key={card.id}
+              className={`liquid-panel overflow-hidden ${card.size === "full" ? "xl:col-span-2" : ""}`}
+            >
+              <header className="flex items-center justify-between border-b border-white/[0.07] px-4 py-3">
+                <span className="text-sm font-semibold">
+                  {catalog?.label || card.id}
+                </span>
+                {editingLayout && (
+                  <div className="flex items-center gap-1">
+                    <button
+                      aria-label="Move card up"
+                      className="h-8 w-8"
+                      onClick={() => move(index, -1)}
+                    >
+                      <ArrowUp className="mx-auto h-3.5 w-3.5" />
+                    </button>
+                    <button
+                      aria-label="Move card down"
+                      className="h-8 w-8"
+                      onClick={() => move(index, 1)}
+                    >
+                      <ArrowDown className="mx-auto h-3.5 w-3.5" />
+                    </button>
+                    <button
+                      aria-label="Resize card"
+                      className="h-8 px-1 text-[9px] uppercase text-slate-400"
+                      onClick={() =>
+                        setView((current) => ({
+                          ...current,
+                          cards: current.cards.map((item) => {
+                            if (item.id !== card.id) return item;
+                            const sizes = catalog?.sizes || ["half"];
+                            const at = sizes.indexOf(item.size as never);
+                            return {
+                              ...item,
+                              size: sizes[(at + 1) % sizes.length],
+                            };
+                          }),
+                        }))
+                      }
+                    >
+                      {card.size}
+                    </button>
+                    {!catalog?.critical && (
+                      <button
+                        aria-label={
+                          card.minimized ? "Expand card" : "Minimize card"
+                        }
+                        className="h-8 w-8"
+                        onClick={() =>
+                          setView((current) => ({
+                            ...current,
+                            cards: current.cards.map((item) =>
+                              item.id === card.id
+                                ? { ...item, minimized: !item.minimized }
+                                : item,
+                            ),
+                          }))
+                        }
+                      >
+                        {card.minimized ? (
+                          <ChevronDown className="mx-auto h-4 w-4" />
+                        ) : (
+                          <ChevronUp className="mx-auto h-4 w-4" />
+                        )}
+                      </button>
+                    )}
+                    {!catalog?.critical && (
+                      <button
+                        aria-label="Remove card"
+                        className="h-8 w-8"
+                        onClick={() =>
+                          setView((current) => ({
+                            ...current,
+                            cards: current.cards.filter(
+                              (item) => item.id !== card.id,
+                            ),
+                          }))
+                        }
+                      >
+                        <X className="mx-auto h-3.5 w-3.5" />
+                      </button>
+                    )}
+                  </div>
+                )}
+              </header>
+              {!card.minimized && (
+                <div className="p-4">
+                  {renderCard(
+                    card.id,
+                    selectedSummary,
+                    queueSignals,
+                    activeActions,
+                    onOpenMatch,
+                    mutateSignal,
+                    deleteSignal,
+                    correctSignal,
+                    makeAction,
+                    mutateAction,
+                    () =>
+                      exportCard(
+                        card.id,
+                        selectedSummary,
+                        queueSignals,
+                        activeActions,
+                      ),
+                  )}
+                </div>
+              )}
+            </article>
+          );
+        })}
+      </div>
+      {notice && (
+        <p
+          className="rounded-lg border border-cyan-300/15 bg-cyan-300/[0.05] px-4 py-3 text-xs text-cyan-100"
+          role="status"
+        >
+          {notice}
+        </p>
+      )}
+    </section>
+  );
 }
 
-function renderCard(id: string, latest: PracticeBlockSummary | null, signals: CoachingSignal[], actions: CoachingAction[], onOpenMatch: (id: string) => void, mutate: (signal: CoachingSignal, status: CoachingSignal['status']) => void, correct: (signal: CoachingSignal) => void, makeAction: (signal: CoachingSignal) => void, mutateAction: (action: CoachingAction, state: CoachingAction['state']) => void, exportCard: () => void) {
-  if (id === 'review-queue') return <div className="space-y-2"><ExportButton onClick={exportCard} />{signals.slice(0, 8).map(signal => <div key={signal.id} className={`rounded-xl border p-3 ${severityClass[signal.severity]}`}><div className="flex flex-wrap items-start justify-between gap-2"><div><p className="text-sm font-semibold">{signal.title}</p><p className="mt-1 text-xs opacity-75">{signal.explanation} · {signal.evidence.confidence} confidence{signal.relatedActionId ? ' · linked to active action' : ''}</p></div><span className="rounded-full border border-current/20 px-2 py-1 text-[10px] uppercase">{signal.status}</span></div><div className="mt-3 flex flex-wrap gap-2"><button className="ui-button min-h-9 px-3 text-[11px]" onClick={() => mutate(signal, 'reviewing')}>Review</button><button className="ui-button min-h-9 px-3 text-[11px]" onClick={() => mutate(signal, 'accepted')}>Accept</button><button className="ui-button min-h-9 px-3 text-[11px]" onClick={() => mutate(signal, 'needs-evidence')}>Needs evidence</button><button className="ui-button min-h-9 px-3 text-[11px]" onClick={() => correct(signal)}>Correct</button><button className="ui-button min-h-9 px-3 text-[11px]" onClick={() => mutate(signal, 'dismissed')}>Dismiss</button>{signal.status === 'accepted' && !signal.relatedActionId && <button className="ui-button ui-button-primary min-h-9 px-3 text-[11px]" onClick={() => makeAction(signal)}>Create action</button>}{signal.matchIds[0] && <button className="ui-button min-h-9 px-3 text-[11px]" onClick={() => onOpenMatch(signal.matchIds[0])}>Evidence</button>}</div></div>)}{!signals.length && <Empty text="No unresolved signals match this view." />}</div>;
-  if (id === 'active-actions') return <div className="space-y-2"><ExportButton onClick={exportCard} />{actions.slice(0, 8).map(action => <div key={action.id} className="rounded-xl border border-violet-300/15 bg-violet-300/[0.04] p-3"><div className="flex items-center justify-between gap-3"><p className="text-sm font-semibold">{action.title}</p><span className="text-[10px] uppercase text-violet-200">{action.state}</span></div><p className="mt-1 text-xs text-slate-400">{action.kind.replaceAll('-', ' ')} · {action.priority} priority · {action.ownerIds.length || 'team'} owner{action.ownerIds.length === 1 ? '' : 's'}</p>{action.outcome && <p className="mt-2 text-xs text-cyan-200">Next-block result: {action.outcome.status} · {action.outcome.reason}</p>}<div className="mt-2 flex flex-wrap gap-2"><button className="ui-button min-h-8 px-2 text-[10px]" onClick={() => mutateAction(action, 'review-next-block')}>Review next block</button><button className="ui-button min-h-8 px-2 text-[10px]" onClick={() => mutateAction(action, 'resolved')}>Resolve</button><button className="ui-button min-h-8 px-2 text-[10px]" onClick={() => mutateAction(action, 'cancelled')}>Cancel</button></div></div>)}{!actions.length && <Empty text="Accepted findings can be converted into coaching actions here." />}</div>;
-  if (!latest) return <Empty text="Accept match evidence to create the first practice-block summary." />;
-  if (id === 'latest-block') { const priorities = signals.filter(signal => signal.blockId === latest.blockId).slice(0, 3); return <><ExportButton onClick={exportCard} /><div className="grid gap-3 sm:grid-cols-4"><Metric label="Accepted matches" value={`${latest.coverage.acceptedMatches}/${latest.coverage.matches}`} /><Metric label="Record" value={`${latest.header.result.wins}–${latest.header.result.losses}`} /><Metric label="Known rounds" value={`${latest.coverage.knownRounds}/${latest.coverage.rounds}`} /><Metric label="Evidence" value={latest.coverage.evidenceHealth} /></div><p className="mt-3 text-xs text-slate-400">{latest.header.opponents.join(', ') || 'Opponent unknown'} · {latest.header.maps.join(', ') || 'Map unknown'}</p>{priorities.length > 0 && <ol className="mt-3 grid gap-2 sm:grid-cols-3">{priorities.map((priority, index) => <li key={priority.id} className="rounded-lg border border-amber-300/15 bg-amber-300/[0.04] p-2 text-xs"><span className="mr-2 text-amber-300">{index + 1}</span>{priority.title}</li>)}</ol>}{latest.matchIds[0] && <button className="ui-button mt-3 min-h-9 px-3 text-xs" onClick={() => onOpenMatch(latest.matchIds[0])}>Open supporting match</button>}</>; }
-  if (id === 'evidence-health') return <><ExportButton onClick={exportCard} /><Metric label="Block coverage" value={`${latest.coverage.acceptedMatches}/${latest.coverage.matches} matches · ${latest.coverage.knownRounds}/${latest.coverage.rounds} rounds`} /><p className="mt-3 text-xs text-slate-400">Sources: {latest.header.sources.join(', ') || 'none'} · player rows: {latest.coverage.playerRows}</p></>;
-  if (id === 'openings') return <><ExportButton onClick={exportCard} /><div className="grid gap-3 sm:grid-cols-3"><Metric label="ATT pistol" value={rateText(latest.openings.pistols.ATT)} /><Metric label="DEF pistol" value={rateText(latest.openings.pistols.DEF)} /><Metric label="FK–FD" value={`${latest.openings.firstKills}–${latest.openings.firstDeaths}`} /><Metric label="ATT first three" value={rateText(latest.openings.firstThree.ATT)} /><Metric label="DEF first three" value={rateText(latest.openings.firstThree.DEF)} /><Metric label="FD recoveries" value={latest.openings.recoveriesAfterFirstDeath === null ? '—' : `${latest.openings.recoveriesAfterFirstDeath}/${latest.openings.firstDeathSamples}`} /></div></>;
-  if (id === 'economy') return <><ExportButton onClick={exportCard} /><div className="grid gap-3 sm:grid-cols-4"><Metric label="Low-buy wins" value={latest.economy.lowBuyRounds ? String(latest.economy.lowBuyWins) : '—'} /><Metric label="Full-buy losses" value={latest.economy.fullBuyRounds ? String(latest.economy.fullBuyLosses) : '—'} /><Metric label="Anti-eco losses" value={latest.economy.antiEcoRounds ? String(latest.economy.antiEcoLosses) : '—'} /><Metric label="Buy coverage" value={latest.economy.totalRounds ? `${latest.economy.knownBuyRounds}/${latest.economy.totalRounds}` : '—'} /></div></>;
-  if (id === 'roster') return <><ExportButton onClick={exportCard} /><div className="overflow-x-auto"><table className="w-full text-left text-xs"><thead className="text-slate-500"><tr><th>Player</th><th>K/D/A</th><th>FK–FD</th><th>KAST</th><th>ACS</th></tr></thead><tbody>{latest.roster.map(row => <tr key={row.playerId || row.player} className="border-t border-white/[0.06]"><td className="py-2 font-semibold">{row.player}</td><td>{row.kills}/{row.deaths}/{row.assists}</td><td>{row.fk}–{row.fd}</td><td>{row.kast === null ? '—' : `${row.kast}%`}</td><td>{row.acs ?? '—'}</td></tr>)}</tbody></table></div></>;
-  if (id === 'maps') return <><ExportButton onClick={exportCard} /><div className="grid gap-2 sm:grid-cols-2">{latest.mapResults.filter(map => map.active).map(map => <Metric key={map.map} label={map.map} value={`${map.wins}W–${map.losses}L · ${map.matches} matches`} />)}</div>{latest.mapResults.some(map => !map.active) && <p className="mt-2 text-[10px] text-slate-500">Inactive maps remain in historical exports but are excluded from the current map-pool card.</p>}</>;
-  return <Empty text="This registered card has no compatible evidence in the selected context." />;
+function renderCard(
+  id: string,
+  latest: PracticeBlockSummary | null,
+  signals: CoachingSignal[],
+  actions: CoachingAction[],
+  onOpenMatch: (id: string) => void,
+  mutate: (signal: CoachingSignal, status: CoachingSignal["status"]) => void,
+  remove: (signal: CoachingSignal) => void,
+  correct: (signal: CoachingSignal) => void,
+  makeAction: (signal: CoachingSignal) => void,
+  mutateAction: (
+    action: CoachingAction,
+    state: CoachingAction["state"],
+  ) => void,
+  exportCard: () => void,
+) {
+  if (id === "review-queue")
+    return (
+      <div className="space-y-2">
+        <ExportButton onClick={exportCard} />
+        {signals.slice(0, 8).map((signal) => (
+          <div
+            key={signal.id}
+            className={`rounded-xl border p-3 ${severityClass[signal.severity]}`}
+          >
+            <div className="flex flex-wrap items-start justify-between gap-2">
+              <div>
+                <p className="text-sm font-semibold">{signal.title}</p>
+                <p className="mt-1 text-xs opacity-75">
+                  {signal.explanation} · {signal.evidence.confidence} confidence
+                  {signal.relatedActionId ? " · linked to active action" : ""}
+                </p>
+              </div>
+              <span className="rounded-full border border-current/20 px-2 py-1 text-[10px] uppercase">
+                {signal.status}
+              </span>
+            </div>
+            <div className="mt-3 flex flex-wrap gap-2">
+              {signal.status === "dismissed" ? <><button className="ui-button ui-button-primary min-h-9 px-3 text-[11px]" onClick={() => mutate(signal, "new")}>Recover</button><button className="ui-button min-h-9 border-rose-400/25 px-3 text-[11px] text-rose-300" onClick={() => remove(signal)}><Trash2 className="h-3.5 w-3.5" />Delete</button></> : <>
+                <button disabled={signal.status === "reviewing"} className={`ui-button min-h-9 px-3 text-[11px] disabled:opacity-60 ${signal.status === "reviewing" ? "ui-button-primary" : ""}`} onClick={() => { mutate(signal, "reviewing"); if (signal.matchIds[0]) onOpenMatch(signal.matchIds[0]); }}>Review</button>
+                <button disabled={signal.status === "accepted"} className={`ui-button min-h-9 px-3 text-[11px] disabled:opacity-60 ${signal.status === "accepted" ? "ui-button-primary" : ""}`} onClick={() => mutate(signal, "accepted")}>Accept</button>
+                <button disabled={signal.status === "needs-evidence"} className={`ui-button min-h-9 px-3 text-[11px] disabled:opacity-60 ${signal.status === "needs-evidence" ? "ui-button-primary" : ""}`} onClick={() => mutate(signal, "needs-evidence")}>Needs evidence</button>
+                <button className="ui-button min-h-9 px-3 text-[11px]" onClick={() => correct(signal)}>Correct</button>
+                <button className="ui-button min-h-9 px-3 text-[11px]" onClick={() => mutate(signal, "dismissed")}>Dismiss</button>
+              </>}
+              {signal.status === "accepted" && !signal.relatedActionId && (
+                <button
+                  className="ui-button ui-button-primary min-h-9 px-3 text-[11px]"
+                  onClick={() => makeAction(signal)}
+                >
+                  Create action
+                </button>
+              )}
+              {signal.matchIds[0] && (
+                <button
+                  className="ui-button min-h-9 px-3 text-[11px]"
+                  onClick={() => onOpenMatch(signal.matchIds[0])}
+                >
+                  Evidence
+                </button>
+              )}
+            </div>
+          </div>
+        ))}
+        {!signals.length && (
+          <Empty text="No review items match this view." />
+        )}
+      </div>
+    );
+  if (id === "active-actions")
+    return (
+      <div className="space-y-2">
+        <ExportButton onClick={exportCard} />
+        {actions.slice(0, 8).map((action) => (
+          <div
+            key={action.id}
+            className="rounded-xl border border-violet-300/15 bg-violet-300/[0.04] p-3"
+          >
+            <div className="flex items-center justify-between gap-3">
+              <p className="text-sm font-semibold">{action.title}</p>
+              <span className="text-[10px] uppercase text-violet-200">
+                {action.state}
+              </span>
+            </div>
+            <p className="mt-1 text-xs text-slate-400">
+              {action.kind.replaceAll("-", " ")} · {action.priority} priority ·{" "}
+              {action.ownerIds.length || "team"} owner
+              {action.ownerIds.length === 1 ? "" : "s"}
+            </p>
+            {action.outcome && (
+              <p className="mt-2 text-xs text-cyan-200">
+                Next-block result: {action.outcome.status} ·{" "}
+                {action.outcome.reason}
+              </p>
+            )}
+            <div className="mt-2 flex flex-wrap gap-2">
+              <button
+                className="ui-button min-h-8 px-2 text-[10px]"
+                onClick={() => mutateAction(action, "review-next-block")}
+              >
+                Review next block
+              </button>
+              <button
+                className="ui-button min-h-8 px-2 text-[10px]"
+                onClick={() => mutateAction(action, "resolved")}
+              >
+                Resolve
+              </button>
+              <button
+                className="ui-button min-h-8 px-2 text-[10px]"
+                onClick={() => mutateAction(action, "cancelled")}
+              >
+                Cancel
+              </button>
+            </div>
+          </div>
+        ))}
+        {!actions.length && (
+          <Empty text="Accepted findings can be converted into coaching actions here." />
+        )}
+      </div>
+    );
+  if (!latest)
+    return (
+      <Empty text="Accept match evidence to create the first practice-block summary." />
+    );
+  if (id === "latest-block") {
+    const priorities = signals
+      .filter((signal) => signal.blockId === latest.blockId)
+      .slice(0, 3);
+    return (
+      <>
+        <ExportButton onClick={exportCard} />
+        <div className="grid gap-3 sm:grid-cols-4">
+          <Metric
+            label="Accepted matches"
+            value={`${latest.coverage.acceptedMatches}/${latest.coverage.matches}`}
+          />
+          <Metric
+            label="Record"
+            value={`${latest.header.result.wins}–${latest.header.result.losses}`}
+          />
+          <Metric
+            label="Known rounds"
+            value={`${latest.coverage.knownRounds}/${latest.coverage.rounds}`}
+          />
+          <Metric label="Evidence" value={latest.coverage.evidenceHealth} />
+        </div>
+        <p className="mt-3 text-xs text-slate-400">
+          {latest.header.opponents.join(", ") || "Opponent unknown"} ·{" "}
+          {latest.header.maps.join(", ") || "Map unknown"}
+        </p>
+        {priorities.length > 0 && (
+          <ol className="mt-3 grid gap-2 sm:grid-cols-3">
+            {priorities.map((priority, index) => (
+              <li
+                key={priority.id}
+                className="rounded-lg border border-amber-300/15 bg-amber-300/[0.04] p-2 text-xs"
+              >
+                <span className="mr-2 text-amber-300">{index + 1}</span>
+                {priority.title}
+              </li>
+            ))}
+          </ol>
+        )}
+        {latest.matchIds[0] && (
+          <button
+            className="ui-button mt-3 min-h-9 px-3 text-xs"
+            onClick={() => onOpenMatch(latest.matchIds[0])}
+          >
+            Open supporting match
+          </button>
+        )}
+      </>
+    );
+  }
+  if (id === "evidence-health")
+    return (
+      <>
+        <ExportButton onClick={exportCard} />
+        <Metric
+          label="Block coverage"
+          value={`${latest.coverage.acceptedMatches}/${latest.coverage.matches} matches · ${latest.coverage.knownRounds}/${latest.coverage.rounds} rounds`}
+        />
+        <p className="mt-3 text-xs text-slate-400">
+          Sources: {latest.header.sources.join(", ") || "none"} · player rows:{" "}
+          {latest.coverage.playerRows}
+        </p>
+      </>
+    );
+  if (id === "openings")
+    return (
+      <>
+        <ExportButton onClick={exportCard} />
+        <div className="grid gap-3 sm:grid-cols-3">
+          <Metric
+            label="ATT pistol"
+            value={rateText(latest.openings.pistols.ATT)}
+          />
+          <Metric
+            label="DEF pistol"
+            value={rateText(latest.openings.pistols.DEF)}
+          />
+          <Metric
+            label="FK–FD"
+            value={`${latest.openings.firstKills}–${latest.openings.firstDeaths}`}
+          />
+          <Metric
+            label="ATT first three"
+            value={rateText(latest.openings.firstThree.ATT)}
+          />
+          <Metric
+            label="DEF first three"
+            value={rateText(latest.openings.firstThree.DEF)}
+          />
+          <Metric
+            label="FD recoveries"
+            value={
+              latest.openings.recoveriesAfterFirstDeath === null
+                ? "—"
+                : `${latest.openings.recoveriesAfterFirstDeath}/${latest.openings.firstDeathSamples}`
+            }
+          />
+        </div>
+      </>
+    );
+  if (id === "economy")
+    return (
+      <>
+        <ExportButton onClick={exportCard} />
+        <div className="grid gap-3 sm:grid-cols-4">
+          <Metric
+            label="Low-buy wins"
+            value={
+              latest.economy.lowBuyRounds
+                ? String(latest.economy.lowBuyWins)
+                : "—"
+            }
+          />
+          <Metric
+            label="Full-buy losses"
+            value={
+              latest.economy.fullBuyRounds
+                ? String(latest.economy.fullBuyLosses)
+                : "—"
+            }
+          />
+          <Metric
+            label="Anti-eco losses"
+            value={
+              latest.economy.antiEcoRounds
+                ? String(latest.economy.antiEcoLosses)
+                : "—"
+            }
+          />
+          <Metric
+            label="Buy coverage"
+            value={
+              latest.economy.totalRounds
+                ? `${latest.economy.knownBuyRounds}/${latest.economy.totalRounds}`
+                : "—"
+            }
+          />
+        </div>
+      </>
+    );
+  if (id === "roster")
+    return (
+      <>
+        <ExportButton onClick={exportCard} />
+        <div className="overflow-x-auto">
+          <table className="w-full text-left text-xs">
+            <thead className="text-slate-500">
+              <tr>
+                <th>Player</th>
+                <th>K/D/A</th>
+                <th>FK–FD</th>
+                <th>KAST</th>
+                <th>ACS</th>
+              </tr>
+            </thead>
+            <tbody>
+              {latest.roster.map((row) => (
+                <tr
+                  key={row.playerId || row.player}
+                  className="border-t border-white/[0.06]"
+                >
+                  <td className="py-2 font-semibold">{row.player}</td>
+                  <td>
+                    {row.kills}/{row.deaths}/{row.assists}
+                  </td>
+                  <td>
+                    {row.fk}–{row.fd}
+                  </td>
+                  <td>{row.kast === null ? "—" : `${row.kast}%`}</td>
+                  <td>{row.acs ?? "—"}</td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+      </>
+    );
+  if (id === "maps")
+    return (
+      <>
+        <ExportButton onClick={exportCard} />
+        <div className="grid gap-2 sm:grid-cols-2">
+          {latest.mapResults
+            .filter((map) => map.active)
+            .map((map) => (
+              <Metric
+                key={map.map}
+                label={map.map}
+                value={`${map.wins}W–${map.losses}L · ${map.matches} matches`}
+              />
+            ))}
+        </div>
+        {latest.mapResults.some((map) => !map.active) && (
+          <p className="mt-2 text-[10px] text-slate-500">
+            Inactive maps remain in historical exports but are excluded from the
+            current map-pool card.
+          </p>
+        )}
+      </>
+    );
+  return (
+    <Empty text="This registered card has no compatible evidence in the selected context." />
+  );
 }
 
-function PlayerActions({ actions, onReload }: { actions: CoachingAction[]; onReload: () => void }) { const [notice, setNotice] = useState(''); const update = async (id: string, state: CoachingAction['state']) => { try { const response = await apiFetch(`/api/coaching/actions/${id}/status`, { method: 'POST', body: JSON.stringify({ state }) }); const body = await response.json().catch(() => ({})); if (!response.ok) throw new Error(body.error || 'The action could not be updated.'); setNotice(state === 'acknowledged' ? 'Action acknowledged.' : 'Action started.'); onReload(); } catch (error: any) { setNotice(error.message); } }; return <section className="liquid-panel p-5"><h2 className="text-lg font-semibold">My coaching actions</h2><div className="mt-3 space-y-2">{actions.map(action => <div key={action.id} className="rounded-xl border border-violet-300/15 p-3"><p className="font-semibold">{action.title}</p><p className="mt-1 text-xs text-slate-400">{action.state.replaceAll('-', ' ')}</p><div className="mt-2 flex gap-2"><button className="ui-button min-h-9 px-3 text-xs" onClick={() => update(action.id, 'acknowledged')}>Acknowledge</button><button className="ui-button min-h-9 px-3 text-xs" onClick={() => update(action.id, 'in-progress')}>Start</button></div></div>)}</div>{notice && <p role="status" className="mt-3 text-xs text-cyan-200">{notice}</p>}</section>; }
-function Metric({ label, value }: { label: string; value: string; key?: string }) { return <div className="rounded-xl border border-white/[0.07] bg-black/10 p-3"><p className="text-[10px] uppercase tracking-wider text-slate-500">{label}</p><p className="mt-1 text-base font-semibold">{value}</p></div>; }
-function Empty({ text }: { text: string }) { return <p className="rounded-xl border border-dashed border-white/10 p-5 text-center text-xs text-slate-500">{text}</p>; }
-function Filter({ label, value, onChange, options }: { label: string; value: string; onChange: (value: string) => void; options: string[][] }) { return <label className="text-[10px] uppercase tracking-wider text-slate-400">{label}<select className="ui-field mt-1 h-10 w-full px-2 text-xs" value={value} onChange={event => onChange(event.target.value)}><option value="">All</option>{options.map(([key, text]) => <option key={key} value={key}>{text}</option>)}</select></label>; }
-function ExportButton({ onClick }: { onClick: () => void }) { return <button type="button" onClick={onClick} className="mb-3 ml-auto flex min-h-8 items-center gap-1 text-[10px] uppercase tracking-wider text-cyan-300"><Download className="h-3 w-3" />Export CSV</button>; }
-function rateText(value: { wins: number; samples: number; rate: number | null }) { return value.rate === null ? '—' : `${value.rate}% · ${value.wins}/${value.samples}`; }
-function exportCard(id: string, latest: PracticeBlockSummary | null, signals: CoachingSignal[], actions: CoachingAction[]) { const rows = id === 'review-queue' ? signals : id === 'active-actions' ? actions : latest ? [latest] : []; const blob = new Blob([`card,exportedAt,data\n${id},${new Date().toISOString()},"${JSON.stringify(rows).replaceAll('"', '""')}"\n`], { type: 'text/csv' }); const url = URL.createObjectURL(blob); const link = document.createElement('a'); link.href = url; link.download = `moetracker-${id}.csv`; link.click(); URL.revokeObjectURL(url); }
+function PlayerActions({
+  actions,
+  onReload,
+}: {
+  actions: CoachingAction[];
+  onReload: () => void;
+}) {
+  const [notice, setNotice] = useState("");
+  const update = async (id: string, state: CoachingAction["state"]) => {
+    try {
+      const response = await apiFetch(`/api/coaching/actions/${id}/status`, {
+        method: "POST",
+        body: JSON.stringify({ state }),
+      });
+      const body = await response.json().catch(() => ({}));
+      if (!response.ok)
+        throw new Error(body.error || "The action could not be updated.");
+      setNotice(
+        state === "acknowledged" ? "Action acknowledged." : "Action started.",
+      );
+      onReload();
+    } catch (error: any) {
+      setNotice(error.message);
+    }
+  };
+  return (
+    <section className="liquid-panel p-5">
+      <h2 className="text-lg font-semibold">My coaching actions</h2>
+      <div className="mt-3 space-y-2">
+        {actions.map((action) => (
+          <div
+            key={action.id}
+            className="rounded-xl border border-violet-300/15 p-3"
+          >
+            <p className="font-semibold">{action.title}</p>
+            <p className="mt-1 text-xs text-slate-400">
+              {action.state.replaceAll("-", " ")}
+            </p>
+            <div className="mt-2 flex gap-2">
+              <button
+                className="ui-button min-h-9 px-3 text-xs"
+                onClick={() => update(action.id, "acknowledged")}
+              >
+                Acknowledge
+              </button>
+              <button
+                className="ui-button min-h-9 px-3 text-xs"
+                onClick={() => update(action.id, "in-progress")}
+              >
+                Start
+              </button>
+            </div>
+          </div>
+        ))}
+      </div>
+      {notice && (
+        <p role="status" className="mt-3 text-xs text-cyan-200">
+          {notice}
+        </p>
+      )}
+    </section>
+  );
+}
+function Metric({
+  label,
+  value,
+}: {
+  label: string;
+  value: string;
+  key?: string;
+}) {
+  return (
+    <div className="rounded-xl border border-white/[0.07] bg-black/10 p-3">
+      <p className="text-[10px] uppercase tracking-wider text-slate-500">
+        {label}
+      </p>
+      <p className="mt-1 text-base font-semibold">{value}</p>
+    </div>
+  );
+}
+function Empty({ text }: { text: string }) {
+  return (
+    <p className="rounded-xl border border-dashed border-white/10 p-5 text-center text-xs text-slate-500">
+      {text}
+    </p>
+  );
+}
+function Filter({
+  label,
+  value,
+  onChange,
+  options,
+}: {
+  label: string;
+  value: string;
+  onChange: (value: string) => void;
+  options: string[][];
+}) {
+  return (
+    <label className="text-[10px] uppercase tracking-wider text-slate-400">
+      {label}
+      <select
+        className="ui-field mt-1 h-10 w-full px-2 text-xs"
+        value={value}
+        onChange={(event) => onChange(event.target.value)}
+      >
+        <option value="">All</option>
+        {options.map(([key, text]) => (
+          <option key={key} value={key}>
+            {text}
+          </option>
+        ))}
+      </select>
+    </label>
+  );
+}
+function ExportButton({ onClick }: { onClick: () => void }) {
+  return (
+    <button
+      type="button"
+      onClick={onClick}
+      className="mb-3 ml-auto flex min-h-8 items-center gap-1 text-[10px] uppercase tracking-wider text-cyan-300"
+    >
+      <Download className="h-3 w-3" />
+      Export CSV
+    </button>
+  );
+}
+function rateText(value: {
+  wins: number;
+  samples: number;
+  rate: number | null;
+}) {
+  return value.rate === null
+    ? "—"
+    : `${value.rate}% · ${value.wins}/${value.samples}`;
+}
+function exportCard(
+  id: string,
+  latest: PracticeBlockSummary | null,
+  signals: CoachingSignal[],
+  actions: CoachingAction[],
+) {
+  const rows =
+    id === "review-queue"
+      ? signals
+      : id === "active-actions"
+        ? actions
+        : latest
+          ? [latest]
+          : [];
+  const blob = new Blob(
+    [
+      `card,exportedAt,data\n${id},${new Date().toISOString()},"${JSON.stringify(rows).replaceAll('"', '""')}"\n`,
+    ],
+    { type: "text/csv" },
+  );
+  const url = URL.createObjectURL(blob);
+  const link = document.createElement("a");
+  link.href = url;
+  link.download = `moetracker-${id}.csv`;
+  link.click();
+  URL.revokeObjectURL(url);
+}

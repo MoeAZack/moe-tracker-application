@@ -13,7 +13,7 @@ const data: any = {
 describe('shared replay match log', () => {
   it('recognizes accepted replay-backed matches and shows the reviewed scoreboard', () => {
     expect(replayBackedMatches(data)).toHaveLength(1);
-    const html = renderToStaticMarkup(<ReplayMatchLog data={data} theme={{}} />);
+    const html = renderToStaticMarkup(<ReplayMatchLog data={data} theme={{}} defaultCollapsed={false} />);
     expect(html).toContain('Haven · Apex');
     expect(html).toContain('9–13');
     expect(html).toContain('22 rounds');
@@ -24,7 +24,7 @@ describe('shared replay match log', () => {
   it('includes coach-accepted screenshot matches as evidence-backed matches', () => {
     const screenshot = { ...data, matches: [{ ...data.matches[0], id: 'm2', sourceMetadata: { method: 'screenshot', capturedAt: '2026-10-13T08:00:00Z', provider: 'tesseract-local' } }], playerStats: [{ ...data.playerStats[0], matchId: 'm2', sourceMetadata: { method: 'screenshot', capturedAt: '2026-10-13T08:00:00Z', provider: 'tesseract-local' } }] };
     expect(replayBackedMatches(screenshot)).toHaveLength(1);
-    const html = renderToStaticMarkup(<ReplayMatchLog data={screenshot} theme={{}} />);
+    const html = renderToStaticMarkup(<ReplayMatchLog data={screenshot} theme={{}} defaultCollapsed={false} />);
     expect(html).toContain('Coach-accepted screenshot evidence');
     expect(html).toContain('1 accepted');
   });

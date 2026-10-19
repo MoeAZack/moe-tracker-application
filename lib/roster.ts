@@ -5,6 +5,7 @@ type Clock = () => string;
 
 const defaultId: IdFactory = () => crypto.randomUUID();
 const defaultClock: Clock = () => new Date().toISOString();
+export const ARCHIVED_PLAYER_RETENTION_DAYS = 60;
 
 function fail(message: string, status = 400): never {
   throw Object.assign(new Error(message), { status });
@@ -372,8 +373,9 @@ function assertUniqueActiveBatchName(db: any, name: string, excludedBatchId?: st
 export function createRosterPlayer(db: any, displayName: string, idFactory = defaultId, clock = defaultClock) {
   ensureRoster(db);
   const cleanName = displayName.trim();
-  if (db.rosterPlayers.some((player: any) => !player.retiredAt && player.displayName.toLocaleLowerCase() === cleanName.toLocaleLowerCase())) {
-    fail('An active roster player already uses this name.', 409);
+  const existing = db.rosterPlayers.find((player: any) => player.displayName.toLocaleLowerCase() === cleanName.toLocaleLowerCase());
+  if (existing) {
+    fail(existing.retiredAt ? 'An archived player already uses this name. Recover or permanently delete that identity first.' : 'An active roster player already uses this name.', 409);
   }
   const player = { id: idFactory(), displayName: cleanName, createdAt: clock() };
   db.rosterPlayers.push(player);
@@ -416,6 +418,7 @@ export function retireRosterPlayer(db: any, playerId: string, clock = defaultClo
   if (player.retiredAt) return { player, changed: false };
   const retiredAt = clock();
   player.retiredAt = retiredAt;
+  player.purgeAfter = new Date(Date.parse(retiredAt) + ARCHIVED_PLAYER_RETENTION_DAYS * 86_400_000).toISOString();
   for (const membership of db.coreMemberships) if (membership.playerId === playerId && !membership.endedAt) membership.endedAt = retiredAt;
   // Keep phase candidate/alias references immutable for audit history. The
   // player's retiredAt flag controls active availability without severing the
@@ -427,6 +430,103 @@ export function retireRosterPlayer(db: any, playerId: string, clock = defaultClo
   for (const consent of Object.values(db.engineAdapters?.ranked?.consents || {}) as any[]) if (consent.playerId === playerId && !consent.revokedAt) consent.revokedAt = retiredAt;
   syncLegacyCoreNames(db);
   return { player, changed: true };
+}
+
+export function restoreRosterPlayer(db: any, playerId: string) {
+  ensureRoster(db);
+  const player = playerById(db, playerId);
+  if (!player.retiredAt) return { player, changed: false };
+  const normalized = normalizedPlayerName(player.displayName);
+  if (db.rosterPlayers.some((entry: any) => entry.id !== playerId && !entry.retiredAt && normalizedPlayerName(entry.displayName) === normalized)) {
+    fail('An active player already uses this display name.', 409);
+  }
+  delete player.retiredAt;
+  delete player.purgeAfter;
+  syncLegacyCoreNames(db);
+  return { player, changed: true };
+}
+
+function removePlayerFromRound(round: any, playerId: string, normalizedName: string) {
+  const sameName = (value: unknown) => normalizedPlayerName(value) === normalizedName;
+  for (const key of ['firstKillBy', 'firstDeathBy', 'clutchPlayer', 'iglPlayer', 'thrownBy']) if (sameName(round?.[key])) round[key] = '';
+  const evidence = round?.screenshotEvidence;
+  if (!evidence) return;
+  evidence.players = (evidence.players || []).filter((item: any) => item.playerId !== playerId && !sameName(item.displayName));
+  for (const event of evidence.events || []) {
+    if (event.killerPlayerId === playerId) event.killerPlayerId = null;
+    if (event.victimPlayerId === playerId) event.victimPlayerId = null;
+  }
+  for (const event of evidence.objectives || []) if (event.playerId === playerId) event.playerId = null;
+}
+
+function scrubPlayerReferences(value: any, playerId: string): any {
+  if (Array.isArray(value)) return value.filter(item => item !== playerId && !(item && typeof item === 'object' && item.playerId === playerId)).map(item => scrubPlayerReferences(item, playerId));
+  if (!value || typeof value !== 'object') return value;
+  for (const [key, item] of Object.entries(value)) {
+    if (key === 'playerId' && item === playerId) value[key] = null;
+    else value[key] = scrubPlayerReferences(item, playerId);
+  }
+  return value;
+}
+
+/** Permanently erase one archived identity and every player-owned record/reference. */
+export function deleteRosterPlayer(db: any, playerId: string) {
+  ensureRoster(db);
+  const player = playerById(db, playerId);
+  if (!player.retiredAt) fail('Archive this player before permanently deleting them.', 409);
+  const name = normalizedPlayerName(player.displayName);
+  const sameName = (value: unknown) => normalizedPlayerName(value) === name;
+  const removedSignalIds = new Set((db.coachingSignals || []).filter((item: any) => item.context?.playerId === playerId).map((item: any) => item.id));
+  db.rosterPlayers = db.rosterPlayers.filter((item: any) => item.id !== playerId);
+  db.coreMemberships = db.coreMemberships.filter((item: any) => item.playerId !== playerId);
+  db.playerStats = (db.playerStats || []).filter((item: any) => item.playerId !== playerId && !(!item.playerId && sameName(item.displayNameSnapshot || item.player)));
+  db.soloq = (db.soloq || []).filter((item: any) => item.playerId !== playerId && !sameName(item.player));
+  db.attendanceCredits = (db.attendanceCredits || []).filter((item: any) => item.playerId !== playerId);
+  db.authKeys = (db.authKeys || []).filter((item: any) => item.playerId !== playerId && !(item.role === 'player' && sameName(item.label)));
+  db.allowedUsers = (db.allowedUsers || []).filter((item: any) => item.playerId !== playerId && !(item.role === 'player' && sameName(item.name)));
+  db.coachingSignals = (db.coachingSignals || []).filter((item: any) => item.context?.playerId !== playerId);
+  db.coachingActions = (db.coachingActions || []).filter((item: any) => !removedSignalIds.has(item.sourceSignalId) && !(item.ownerIds || []).includes(playerId));
+  db.identityCorrectionBatches = (db.identityCorrectionBatches || []).filter((item: any) => item.targetPlayerId !== playerId && item.sourceIdentity !== playerId);
+  db.tryoutDecisionNotes = (db.tryoutDecisionNotes || []).filter((item: any) => item.playerId !== playerId);
+  db.vodSubmissions = (db.vodSubmissions || []).filter((item: any) => item.playerId !== playerId);
+  for (const batch of db.tryoutBatches || []) {
+    batch.candidatePlayerIds = (batch.candidatePlayerIds || []).filter((id: string) => id !== playerId);
+    batch.aliases = (batch.aliases || []).filter((item: any) => item.playerId !== playerId);
+  }
+  for (const item of db.schedule || []) {
+    item.requiredPlayerIds = (item.requiredPlayerIds || []).filter((id: string) => id !== playerId);
+    item.attendanceCheckIns = (item.attendanceCheckIns || []).filter((entry: any) => entry.playerId !== playerId);
+    if (item.attendance) { delete item.attendance[playerId]; delete item.attendance[player.displayName]; }
+  }
+  for (const round of db.rounds || []) removePlayerFromRound(round, playerId, name);
+  for (const device of Object.values(db.replayIntake?.devices || {}) as any[]) if (device.owner?.playerId === playerId) device.owner.playerId = null;
+  for (const collection of ['accounts', 'consents', 'states']) {
+    const records = db.engineAdapters?.ranked?.[collection];
+    if (records) for (const [key, record] of Object.entries(records) as any) if (record?.playerId === playerId) delete records[key];
+  }
+  for (const record of Object.values(db.engineAdapters?.replay || {}) as any[]) {
+    if (record?.draft?.playerTotals) record.draft.playerTotals = record.draft.playerTotals.filter((item: any) => item.playerId !== playerId);
+    if (record?.draft?.evidence?.playerMetrics) record.draft.evidence.playerMetrics = record.draft.evidence.playerMetrics.filter((item: any) => item.playerId !== playerId);
+  }
+  const ratings = db.engineAdapters?.ratings?.records;
+  if (ratings) for (const [key, record] of Object.entries(ratings) as any) if (record?.result?.context?.playerId === playerId || record?.input?.context?.playerId === playerId) delete ratings[key];
+  scrubPlayerReferences(db.replayIntake, playerId);
+  scrubPlayerReferences(db.vodReviews, playerId);
+  scrubPlayerReferences(db.lineups, playerId);
+  scrubPlayerReferences(db.seasonArchives, playerId);
+  if (db.settings?.riotIds) delete db.settings.riotIds[player.displayName];
+  db.settings.players = (db.settings?.players || []).filter((value: string) => !sameName(value));
+  db.settings.inactivePlayers = (db.settings?.inactivePlayers || []).filter((value: string) => !sameName(value));
+  syncLegacyCoreNames(db);
+  return { deleted: true, playerId, displayName: player.displayName };
+}
+
+export function purgeExpiredRosterPlayers(db: any, now = new Date().toISOString()) {
+  ensureRoster(db);
+  const at = Date.parse(now);
+  const expired = db.rosterPlayers.filter((player: any) => player.retiredAt && Date.parse(player.purgeAfter || new Date(Date.parse(player.retiredAt) + ARCHIVED_PLAYER_RETENTION_DAYS * 86_400_000).toISOString()) <= at);
+  for (const player of expired) deleteRosterPlayer(db, player.id);
+  return { purged: expired.map((player: any) => ({ id: player.id, displayName: player.displayName })) };
 }
 
 export function addCoreMembership(db: any, playerId: string, sourceTryoutBatchId?: string, idFactory = defaultId, clock = defaultClock) {

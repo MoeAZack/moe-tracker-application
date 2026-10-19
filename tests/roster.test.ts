@@ -13,6 +13,9 @@ import {
   promoteTryoutCandidate,
   removeTryoutAlias,
   retireRosterPlayer,
+  restoreRosterPlayer,
+  deleteRosterPlayer,
+  purgeExpiredRosterPlayers,
   restoreTryoutBatch,
   setTryoutAlias,
   setTryoutsMode,
@@ -145,6 +148,7 @@ describe('roster domain', () => {
 
     expect(retireRosterPlayer(db, player.id, now)).toMatchObject({ changed: true });
     expect(player.retiredAt).toBe(now());
+    expect(player.purgeAfter).toBe('2026-12-11T10:00:00.000Z');
     expect(db.coreMemberships[0].endedAt).toBe(now());
     expect(batch.candidatePlayerIds).toEqual([player.id]);
     expect(db.authKeys).toEqual([{ id: 'other-key', role: 'player', label: 'Different Player' }]);
@@ -153,6 +157,38 @@ describe('roster domain', () => {
     expect(db.engineAdapters.ranked.consents.consent.revokedAt).toBe(now());
     expect(db.playerStats).toContainEqual(expect.objectContaining({ id: 'historical', playerId: player.id }));
     expect(db.settings.players).toEqual([]);
+  });
+
+  it('recovers an archived player before retention expires', () => {
+    const db: any = rosterDb(); db.authKeys = []; db.allowedUsers = [];
+    const player: any = createRosterPlayer(db, 'Recover Me', () => ids[0], now);
+    retireRosterPlayer(db, player.id, now);
+    expect(restoreRosterPlayer(db, player.id)).toMatchObject({ changed: true, player: { id: player.id } });
+    expect(player.retiredAt).toBeUndefined();
+    expect(player.purgeAfter).toBeUndefined();
+  });
+
+  it('permanently deletes only archived identities and their linked player data', () => {
+    const db: any = rosterDb(); db.authKeys = []; db.allowedUsers = []; db.schedule = []; db.rounds = []; db.coachingSignals = []; db.coachingActions = [];
+    const player = createRosterPlayer(db, 'Erase Me', () => ids[0], now);
+    db.playerStats.push({ id: 'owned', matchId: 'm1', playerId: player.id, player: 'Erase Me' });
+    db.schedule.push({ id: 'event', requiredPlayerIds: [player.id], attendanceCheckIns: [{ playerId: player.id }], attendance: { [player.id]: 'late' } });
+    expect(() => deleteRosterPlayer(db, player.id)).toThrow('Archive this player');
+    retireRosterPlayer(db, player.id, now);
+    expect(deleteRosterPlayer(db, player.id)).toMatchObject({ deleted: true, playerId: player.id });
+    expect(db.rosterPlayers).toEqual([]);
+    expect(db.playerStats.some((row: any) => row.playerId === player.id)).toBe(false);
+    expect(db.schedule[0].requiredPlayerIds).toEqual([]);
+    expect(db.schedule[0].attendanceCheckIns).toEqual([]);
+  });
+
+  it('automatically purges archived players after 60 days', () => {
+    const db: any = rosterDb(); db.authKeys = []; db.allowedUsers = [];
+    const player = createRosterPlayer(db, 'Expired', () => ids[0], now);
+    retireRosterPlayer(db, player.id, now);
+    expect(purgeExpiredRosterPlayers(db, '2026-12-11T09:59:59.000Z').purged).toEqual([]);
+    expect(purgeExpiredRosterPlayers(db, '2026-12-11T10:00:00.000Z').purged).toEqual([{ id: player.id, displayName: 'Expired' }]);
+    expect(db.rosterPlayers).toEqual([]);
   });
 
   it('creates a stable classified player without guessing links for earlier name-only rows', () => {
