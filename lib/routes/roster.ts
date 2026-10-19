@@ -14,6 +14,8 @@ import {
   promoteTryoutCandidate,
   removeTryoutAlias,
   retireRosterPlayer,
+  restoreRosterPlayer,
+  deleteRosterPlayer,
   restoreTryoutBatch,
   restoreSeasonArchive,
   setTryoutAlias,
@@ -55,6 +57,16 @@ export function registerRosterRoutes(app: Express) {
       const playerId = body.playerId || ensureObservedRosterPlayer(db, body.displayName!).id;
       return retireRosterPlayer(db, playerId);
     });
+  });
+
+  app.post('/api/roster/players/restore', (req, res) => {
+    const body = validate(schemas.rosterPlayerIdSchema, req.body, res); if (!body) return;
+    return mutate(req, res, db => restoreRosterPlayer(db, body.playerId));
+  });
+
+  app.post('/api/roster/players/delete', (req, res) => {
+    const body = validate(schemas.rosterPlayerIdSchema, req.body, res); if (!body) return;
+    return mutate(req, res, db => deleteRosterPlayer(db, body.playerId));
   });
 
   app.post('/api/roster/players/status', (req, res) => {

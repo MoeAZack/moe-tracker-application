@@ -50,7 +50,9 @@ export const settingsSchema = z.object({
   winReasons: z.array(z.string().max(100)).max(50).optional(),
   sites: z.array(z.string().max(20)).max(20).optional(),
   vetoActions: z.array(z.string().max(50)).max(20).optional(),
-  stats: looseObject.optional()
+  stats: looseObject.optional(),
+  coachingThresholds: looseObject.optional(),
+  deletedCoachingSignalFingerprints: z.array(z.string().max(240)).max(1000).optional()
 });
 
 export const attendanceCheckInSchema = z.object({ scheduleId: z.string().trim().min(1).max(200) }).strict();

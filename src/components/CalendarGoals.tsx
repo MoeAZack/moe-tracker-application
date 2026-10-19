@@ -353,7 +353,7 @@ export default function CalendarGoals({ data, theme, role, onUpsert, onRemove, o
                   <button
                     key={idx}
                     onClick={() => setSelectedDateStr(cell.dateStr)}
-                    className={`min-h-[70px] p-1.5 rounded-lg border flex flex-col text-left transition-all ${
+                    className={`min-h-[92px] p-1.5 rounded-lg border flex flex-col text-left transition-all ${
                       cell.currentMonth
                         ? isLight ? 'bg-slate-50 text-slate-800' : 'bg-white/5 text-slate-100'
                         : 'opacity-30'
@@ -367,7 +367,7 @@ export default function CalendarGoals({ data, theme, role, onUpsert, onRemove, o
                     
                     {/* Events indicators */}
                     <div className="mt-auto space-y-1 w-full overflow-hidden">
-                      {dayScheds.slice(0, 2).map((s) => {
+                      {dayScheds.slice(0, 3).map((s) => {
                         const cal = calendars.find(c => c.key === s.calendarKey) || { color: '#ff4655' };
                         return (
                           <div
@@ -379,8 +379,8 @@ export default function CalendarGoals({ data, theme, role, onUpsert, onRemove, o
                           </div>
                         );
                       })}
-                      {dayScheds.length > 2 && (
-                        <div className="text-[8px] text-gray-500 font-bold text-center">+{dayScheds.length - 2} more</div>
+                      {dayScheds.length > 3 && (
+                        <div className="text-[8px] text-gray-500 font-bold text-center">+{dayScheds.length - 3} more</div>
                       )}
                     </div>
                   </button>
@@ -554,6 +554,7 @@ export default function CalendarGoals({ data, theme, role, onUpsert, onRemove, o
                     <div>
                       <h5 className="text-base font-black tracking-tight leading-snug">{g.goal}</h5>
                       {g.notes && <p className="text-xs text-gray-400 mt-1 font-mono leading-relaxed">{g.notes}</p>}
+                      {g.matchId && <p className="mt-2 text-[10px] font-semibold text-cyan-300">Linked match · {(() => { const match = data.matches.find(item => item.id === g.matchId); return match ? `${match.date} · ${match.map || 'Map unknown'} vs ${match.opponent || 'Unknown'}` : 'Match unavailable'; })()}</p>}
                     </div>
                   </div>
 
@@ -815,6 +816,15 @@ export default function CalendarGoals({ data, theme, role, onUpsert, onRemove, o
                   {rosterPlayers.map(player => <option key={player.id} value={player.displayName}>{player.displayName}</option>)}
                 </select>
               </div>
+            </div>
+
+            <div className="space-y-1">
+              <label className="text-[10px] uppercase font-black text-gray-400 font-mono">Linked match (optional)</label>
+              <select value={editingGoal.matchId || ''} onChange={e => setEditingGoal({ ...editingGoal, matchId: e.target.value || undefined })} className="w-full p-2.5 bg-black/20 rounded border border-white/10 text-xs text-white">
+                <option value="">No specific match</option>
+                {[...(data.matches || [])].sort((a, b) => Date.parse(b.date) - Date.parse(a.date)).map(match => <option key={match.id} value={match.id}>{match.date} · {match.map || 'Map unknown'} vs {match.opponent || 'Unknown'}</option>)}
+              </select>
+              <p className="text-[10px] text-gray-500">The goal remains visible in Goals and is also attached to this match’s review context.</p>
             </div>
 
             <div className="pt-4 flex justify-end gap-2 border-t border-white/10">

@@ -215,7 +215,7 @@ export function evaluateAction(action: CoachingAction, summaries: readonly Pract
 }
 
 export const DASHBOARD_CARDS = [
-  { id: 'latest-block', label: 'Latest practice block', sizes: ['wide', 'full'], critical: false }, { id: 'review-queue', label: 'Review inbox', sizes: ['half', 'wide'], critical: true },
+  { id: 'latest-block', label: 'Latest practice block', sizes: ['full', 'wide'], critical: false }, { id: 'review-queue', label: 'Review inbox', sizes: ['full', 'wide'], critical: true },
   { id: 'active-actions', label: 'Active coaching actions', sizes: ['half', 'wide'], critical: false }, { id: 'evidence-health', label: 'Evidence health', sizes: ['half'], critical: true },
   { id: 'openings', label: 'Opening rounds', sizes: ['half', 'wide'], critical: false }, { id: 'economy', label: 'Economy discipline', sizes: ['half', 'wide'], critical: false },
   { id: 'roster', label: 'Player development', sizes: ['wide', 'full'], critical: false }, { id: 'maps', label: 'Map pool', sizes: ['half', 'wide'], critical: false },

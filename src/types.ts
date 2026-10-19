@@ -27,6 +27,7 @@ export interface RosterPlayer {
   createdAt: string;
   rosterStatus?: AppearanceType;
   retiredAt?: string;
+  purgeAfter?: string;
 }
 
 export interface IdentityCorrectionBatch {
@@ -158,6 +159,7 @@ export interface Settings {
     firstDeathCollapseRate?: number;
     maxActiveActionsPerPlayer?: number;
   };
+  deletedCoachingSignalFingerprints?: string[];
 }
 
 export interface Schedule {
@@ -217,6 +219,7 @@ export interface Goal {
   notes?: string;
   status: string;
   owner?: string;
+  matchId?: string;
 }
 
 export interface Match {

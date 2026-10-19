@@ -714,7 +714,7 @@ export default function App() {
             )}
             {activeTab === 'aitactical' && analyticsData && (
               <div className="space-y-8">
-                <CoachWorkflow data={analyticsData} role={role} onOpenMatch={(matchId) => { setReviewMatchId(matchId); setActiveTab('vod'); }} />
+                <CoachWorkflow data={analyticsData} role={role} preferredMatchId={reviewMatchId} onOpenMatch={(matchId) => { setReviewMatchId(matchId); setActiveTab('vod'); }} />
                 <AITacticalHub data={analyticsData} theme={theme} onUpsert={handleUpsert} onRemove={handleRemove} />
               </div>
             )}
