@@ -68,11 +68,10 @@ export default function RosterManager({ data, theme, onRefresh }: Props) {
       String(collapsed),
     );
   }, [collapsed]);
-  const [archivedOpen, setArchivedOpen] = useState(archivedPlayers.length > 0);
+  const [archivedOpen, setArchivedOpen] = useState(false);
   useEffect(() => {
     if (!archivedPlayers.length) return;
     setCollapsed(false);
-    setArchivedOpen(true);
   }, [archivedPlayers.length]);
 
   const mutate = async (route: string, body: unknown) => {
@@ -328,19 +327,15 @@ export default function RosterManager({ data, theme, onRefresh }: Props) {
               {archivedOpen && (
                 <div className="mt-3 space-y-2">
                   {archivedPlayers.map((player) => {
-                    const purgeAt =
-                      player.purgeAfter ||
-                      (player.retiredAt
-                        ? new Date(
-                            Date.parse(player.retiredAt) + 60 * 86_400_000,
-                          ).toISOString()
-                        : "");
-                    const days = Math.max(
-                      0,
-                      Math.ceil(
-                        (Date.parse(purgeAt) - Date.now()) / 86_400_000,
-                      ),
-                    );
+                    const days = player.purgeAfter
+                      ? Math.max(
+                          0,
+                          Math.ceil(
+                            (Date.parse(player.purgeAfter) - Date.now()) /
+                              86_400_000,
+                          ),
+                        )
+                      : null;
                     return (
                       <div
                         key={player.id}
@@ -351,8 +346,9 @@ export default function RosterManager({ data, theme, onRefresh }: Props) {
                             {player.displayName}
                           </p>
                           <p className="mt-0.5 text-[10px] text-slate-400">
-                            Automatic deletion in {days} day
-                            {days === 1 ? "" : "s"}
+                            {days === null
+                              ? "Legacy archive · no automatic deletion"
+                              : `Automatic deletion in ${days} day${days === 1 ? "" : "s"}`}
                           </p>
                         </div>
                         <div className="flex gap-2">

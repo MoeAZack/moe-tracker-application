@@ -84,7 +84,7 @@ describe("player password UI", () => {
     }
   });
 
-  it("surfaces archived players and their recovery action without opening an inner roster card", () => {
+  it("surfaces archived-player recovery as a top-level section that starts minimized", () => {
     const data = {
       rosterPlayers: [
         {
@@ -105,7 +105,8 @@ describe("player password UI", () => {
       />,
     );
     expect(html).toContain("Archived players");
-    expect(html).toContain("Recover player");
-    expect(html).toContain("Sandra");
+    expect(html).toContain("Show");
+    expect(html).not.toContain("Recover player");
+    expect(rosterSource).toContain("Recover player");
   });
 });
