@@ -5,8 +5,8 @@ import path from 'node:path';
 import evidenceModule from '../desktop/vod-timeline-evidence.cjs';
 import analyzerModule from '../desktop/vod-timeline-analyzer.cjs';
 
-const { aggregateVideoEvidence, parseKillFeedSnapshot, parseUltimateSnapshots } = evidenceModule;
-const { normalizeYoutubeUrl, youtubeVideoId, frameDifference, scoreboardGeometryScore, agentSelectGeometryScore, chooseGameBoundaries, inferPovPlayer, analyzeVodTimeline } = analyzerModule;
+const { aggregateVideoEvidence, parseKillFeedSnapshot, parseUltimateSnapshots, parseRoundStateSnapshot, buildRoundTimeline, buildObserverSegments, applyVisualTemplates, fuseVodEvidence } = evidenceModule;
+const { normalizeYoutubeUrl, youtubeVideoId, frameDifference, visualSignature, scoreboardGeometryScore, agentSelectGeometryScore, chooseGameBoundaries, inferPovPlayer, analyzeVodTimeline } = analyzerModule;
 const players = [
   { name: 'Alpha', team: 'ours' }, { name: 'Bravo', team: 'ours' }, { name: 'Charlie', team: 'ours' }, { name: 'Delta', team: 'ours' }, { name: 'Echo', team: 'ours' },
   { name: 'EnemyOne', team: 'theirs' }, { name: 'EnemyTwo', team: 'theirs' }, { name: 'EnemyThree', team: 'theirs' }, { name: 'EnemyFour', team: 'theirs' }, { name: 'EnemyFive', team: 'theirs' },
@@ -60,6 +60,56 @@ describe('VOD timeline evidence', () => {
     expect(result.coverage.temporalAmbiguities).toBe(1);
   });
 
+  it('uses score and buy-phase transitions as authoritative round boundaries', () => {
+    const states = [
+      parseRoundStateSnapshot({ timestampMs: 1_000, text: 'BUY PHASE 0 - 0 ROUND 1', confidence: .9 }),
+      parseRoundStateSnapshot({ timestampMs: 75_000, text: 'BUY PHASE 1 - 0 ROUND 2', confidence: .9 }),
+      parseRoundStateSnapshot({ timestampMs: 145_000, text: 'BUY PHASE 1 - 1 ROUND 3', confidence: .9 }),
+    ];
+    const result = buildRoundTimeline(states, [{ timestampMs: 30_000, kind: 'elimination' }, { timestampMs: 100_000, kind: 'elimination' }]);
+    expect(result.mode).toBe('authoritative');
+    expect(result.rounds).toHaveLength(3);
+    expect(result.rounds[1]).toMatchObject({ roundNumber: 2, boundarySource: 'round-state' });
+  });
+
+  it('tracks observer POV changes and attributes personal orb and ultimate evidence', () => {
+    const result = aggregateVideoEvidence({ players, observerMode: true, durationMs: 90_000,
+      povSnapshots: [{ timestampMs: 1_000, text: 'Alpha', confidence: .9 }, { timestampMs: 8_000, text: 'Alpha', confidence: .9 }],
+      objectiveSnapshots: [{ timestampMs: 9_000, text: 'ULTIMATE ORB CAPTURED', confidence: .9 }],
+      ultimateSnapshots: [{ timestampMs: 2_000, text: '7/7', confidence: .9 }, { timestampMs: 10_000, text: '0/7', confidence: .9 }],
+    });
+    expect(buildObserverSegments([{ timestampMs: 1_000, text: 'Alpha' }], players, null, true, 90_000)[0].player).toBe('Alpha');
+    expect(result.playerMetrics.find((row: any) => row.playerName === 'Alpha')).toMatchObject({ orbCaptures: 1, ultimateUses: 1 });
+  });
+
+  it('extracts weapon, headshot and assistant detail while tracking a persistent feed row once', () => {
+    const result = aggregateVideoEvidence({ players, durationMs: 30_000, killFeedSnapshots: [
+      { timestampMs: 1_000, text: 'Alpha Bravo Vandal HEADSHOT EnemyOne', confidence: .8 },
+      { timestampMs: 2_000, text: 'Alpha Bravo Vandal HEADSHOT EnemyOne', confidence: .9 },
+    ] });
+    expect(result.observations.filter((item: any) => item.kind === 'elimination')).toEqual([
+      expect.objectContaining({ killer: 'Alpha', victim: 'EnemyOne', weapon: 'vandal', headshot: true, assistants: ['Bravo'], firstSeenMs: 1_000, lastSeenMs: 2_000 }),
+    ]);
+  });
+
+  it('recognizes a learned visual icon only when one template wins clearly', () => {
+    const labeled = applyVisualTemplates([{ timestampMs: 1, text: 'Alpha EnemyOne', visualSignature: '000000000000000f' }], [
+      { id: 'hs-1', label: 'kill:headshot', signature: '000000000000000e', maxDistance: 2 },
+      { id: 'op-1', label: 'weapon:operator', signature: 'ffffffffffffffff', maxDistance: 2 },
+    ]);
+    expect(labeled[0]).toMatchObject({ visualLabels: ['kill:headshot'], visualMatch: { templateId: 'hs-1', distance: 1 } });
+  });
+
+  it('fuses independent VOD sources without double-counting the same event', () => {
+    const first = aggregateVideoEvidence({ players, durationMs: 30_000, killFeedSnapshots: [{ timestampMs: 1_000, text: 'Alpha Vandal EnemyOne' }] });
+    const second = aggregateVideoEvidence({ players, durationMs: 30_000, killFeedSnapshots: [{ timestampMs: 2_000, text: 'Alpha Vandal EnemyOne' }, { timestampMs: 8_000, text: 'Bravo Phantom EnemyTwo' }] });
+    first.source = { kind: 'youtube', sha256: 'a'.repeat(64), width: 1920, height: 1080, durationMs: 30_000, analyzedAt: new Date().toISOString() };
+    second.source = { kind: 'local-file', sha256: 'b'.repeat(64), width: 1920, height: 1080, durationMs: 30_000, analyzedAt: new Date().toISOString() };
+    const fused = fuseVodEvidence([first, second]);
+    expect(fused.fusion.sourceCount).toBe(2);
+    expect(fused.observations.filter((item: any) => item.kind === 'elimination')).toHaveLength(2);
+  });
+
   it('accepts only supported YouTube URL forms and detects changed frames', () => {
     expect(youtubeVideoId('https://youtu.be/abcdefghijk')).toBe('abcdefghijk');
     expect(youtubeVideoId('https://www.youtube.com/watch?v=abcdefghijk')).toBe('abcdefghijk');
@@ -71,6 +121,7 @@ describe('VOD timeline evidence', () => {
     expect(normalizeYoutubeUrl('youtube.com/live/6sx2Wpl0cHc?feature=share')).toBe('https://youtube.com/live/6sx2Wpl0cHc?feature=share');
     expect(youtubeVideoId('https://youtube.example/watch?v=abcdefghijk')).toBeNull();
     expect(frameDifference(Buffer.from([0, 0, 0]), Buffer.from([255, 0, 0]))).toBe(255);
+    expect(visualSignature(Buffer.alloc(128, 42))).toMatch(/^[a-f0-9]{16}$/);
   });
 
   it('ships the native image processor required by installed VOD discovery', async () => {

@@ -56,7 +56,7 @@ const same = (left: unknown, right: unknown) => typeof left === 'string' || type
   : comparable(left) === comparable(right);
 
 function sourceIsOcr(match: any) {
-  return match?.sourceMetadata?.method === 'screenshot' || match?.source === 'scrim-import' || !!match?.screenshotEvidence?.captureId;
+  return match?.sourceMetadata?.method === 'screenshot' || match?.sourceMetadata?.method === 'vod-submission' || match?.source === 'scrim-import' || match?.source === 'vod-submission' || !!match?.screenshotEvidence?.captureId;
 }
 
 const rowKey = (row: any, index: number) => String(row?.playerId || row?.id || `${normalizeCaptureName(row?.displayNameSnapshot || row?.player || '')}:${index}`);
@@ -73,8 +73,9 @@ export function correctionSamplesFromAcceptedEdit(input: {
   const recordedAt = input.recordedAt || new Date().toISOString();
   const captureId = input.beforeMatch.screenshotEvidence?.captureId || null;
   const modelVersion = String(input.beforeMatch.sourceMetadata?.model || OCR_LEARNING_VERSION).replace(/\+(?:autonomous|review)-v\d+$/i, '');
-  const layout = input.beforeMatch.screenshotEvidence?.diagnostics?.layout || 'unknown';
-  const resolution = input.beforeMatch.screenshotEvidence?.diagnostics?.resolution || 'unknown';
+  const vodSource = input.beforeMatch.sourceMetadata?.method === 'vod-submission' || input.beforeMatch.source === 'vod-submission';
+  const layout = input.beforeMatch.screenshotEvidence?.diagnostics?.layout || (vodSource ? 'vod-scoreboard' : 'unknown');
+  const resolution = input.beforeMatch.screenshotEvidence?.diagnostics?.resolution || (vodSource ? 'video-source' : 'unknown');
   const matchId = String(input.beforeMatch.id || input.nextMatch?.id || '');
   const samples: OcrCorrectionSample[] = [];
   const add = (field: OcrLearningField, predicted: unknown, corrected: unknown, playerId: string | null = null, rowIndex: number | null = null) => {

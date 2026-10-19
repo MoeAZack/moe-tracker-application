@@ -728,15 +728,19 @@ export interface VodSubmissionPlayer {
 }
 
 export interface VodTimelineEvidence {
-  schema: 'moetracker.vod-timeline-evidence/v1';
+  schema: 'moetracker.vod-timeline-evidence/v1' | 'moetracker.vod-timeline-evidence/v2';
   grade: 'video-observation';
   source: { kind: 'youtube' | 'local-file'; videoId?: string | null; sha256: string; width: number; height: number; durationMs: number; analyzedAt: string };
-  coverage: { durationMs: number; killFeedSnapshots: number; objectiveSnapshots: number; ultimateSnapshots: number; resolvedEliminations: number; inferredRoundGroups: number; temporalAmbiguities?: number; signals: Record<string, 'complete' | 'partial' | 'unsupported'> };
+  coverage: { durationMs: number; killFeedSnapshots: number; objectiveSnapshots: number; ultimateSnapshots: number; roundStateSnapshots?: number; scoreboardSnapshots?: number; resolvedEliminations: number; inferredRoundGroups: number; temporalAmbiguities?: number; roundDetection?: { mode: 'authoritative' | 'inferred'; confidence: number; detectedRounds: number }; signals: Record<string, 'complete' | 'partial' | 'unsupported'> };
   observations: Array<{ id: string; kind: string; timestampMs: number; confidence?: number | null; grade: 'video-observation' | 'ocr'; killer?: string; victim?: string; player?: string; rawText?: string; [key: string]: unknown }>;
-  rounds: Array<{ roundNumber: number; startedAtMs: number; endedAtMs: number; events: unknown[] }>;
+  rounds: Array<{ roundNumber: number; startedAtMs: number; endedAtMs: number; events: unknown[]; scoreBefore?: number[] | null; winner?: string | null; boundarySource?: string }>;
   playerMetrics: Array<{ playerName: string; team: 'ours' | 'theirs'; kills: number; deaths: number; trades: number; ultimateUses?: number | null; orbCaptures?: number | null; kastSuccessful?: number | null; kastCovered?: number | null; kastRate?: number | null }>;
   throwCandidates: unknown[];
   limitations: string[];
+  observerSegments?: Array<{ player: string; startedAtMs: number; endedAtMs: number; confidence: number; source: string }>;
+  reconciliation?: { status: 'matched' | 'conflict' | 'partial'; comparedFields: number; conflicts: unknown[]; scoreboardRows: unknown[] };
+  sourceSet?: VodTimelineEvidence['source'][];
+  fusion?: { sourceCount: number; fusedAt: string; conflicts: unknown[] };
 }
 
 export interface VodSubmission {

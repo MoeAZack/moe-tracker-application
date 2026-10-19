@@ -1,4 +1,7 @@
 import type { Match, PlayerStats, VodSubmission, VodSubmissionPlayer, VodTimelineEvidence } from '../src/types';
+import evidenceModule from '../desktop/vod-timeline-evidence.cjs';
+
+const { fuseVodEvidence } = evidenceModule as { fuseVodEvidence: (items: VodTimelineEvidence[]) => VodTimelineEvidence | null };
 
 type SubmissionInput = {
   vodUrl: string; imageSha256: string; matchId?: string; playerId: string | null; date: string; map: string | null; opponent: string | null;
@@ -76,9 +79,7 @@ export function integrateVodSubmission(db: any, input: SubmissionInput, actorNam
     input.timelineEvidence = structuredClone(input.timelineEvidence);
     // v1 is sampled OCR evidence. It cannot prove exact trade timing, complete
     // KAST, orb ownership, or an ultimate cast strongly enough for trusted stats.
-    for (const signal of ['trades', 'kast', 'ultimateUse', 'orbCapture', 'objectives']) {
-      if (input.timelineEvidence.coverage.signals[signal] === 'complete') input.timelineEvidence.coverage.signals[signal] = 'partial';
-    }
+    if (input.timelineEvidence.schema === 'moetracker.vod-timeline-evidence/v1') for (const signal of ['trades', 'kast', 'ultimateUse', 'orbCapture', 'objectives']) if (input.timelineEvidence.coverage.signals[signal] === 'complete') input.timelineEvidence.coverage.signals[signal] = 'partial';
   }
   db.vodSubmissions ||= [];
   const duplicate = db.vodSubmissions.find((item: VodSubmission) => item.submittedByPlayerId === input.playerId && item.imageSha256 === input.imageSha256 && item.vodUrl === input.vodUrl);
@@ -156,6 +157,9 @@ export function integrateVodSubmission(db: any, input: SubmissionInput, actorNam
   db.vodReviews ||= [];
   if (!db.vodReviews.some((review: any) => review.matchId === match!.id && review.vodUrl === input.vodUrl)) db.vodReviews.unshift({ id: ids.reviewId, matchId: match.id, title: `${players.find(row => row.rosterPlayerId === input.playerId)?.rosterDisplayName || actorName} VOD · ${match.map}`, vodUrl: input.vodUrl, date: input.date, createdAt: now, notes: [] });
   const submission: VodSubmission = { schema: 'moetracker.vod-submission/v1', id: ids.submissionId, submittedByPlayerId: input.playerId, submittedByName: players.find(row => row.rosterPlayerId === input.playerId)?.rosterDisplayName || actorName, vodUrl: input.vodUrl, imageSha256: input.imageSha256, date: input.date, map: input.map, opponent: input.opponent, ourScore: input.ourScore, theirScore: input.theirScore, requestedMatchId: input.matchId || null, linkedMatchId: match.id, linkMode: createdMatch ? 'new-match' : 'existing-match', status: 'integrated', rosterMatchCount: players.length, players, timelineEvidence: input.timelineEvidence || null, integration: { createdMatch, createdStats, filledFields, preservedFields }, createdAt: now, integratedAt: now };
-  if (duplicate) { Object.assign(duplicate, { timelineEvidence: submission.timelineEvidence, integration: submission.integration, integratedAt: now }); return duplicate; }
-  db.vodSubmissions.unshift(submission); return submission;
+  if (duplicate) Object.assign(duplicate, { timelineEvidence: submission.timelineEvidence, integration: submission.integration, integratedAt: now });
+  else db.vodSubmissions.unshift(submission);
+  const fused = fuseVodEvidence((db.vodSubmissions as VodSubmission[]).filter(item => item.linkedMatchId === match!.id && item.timelineEvidence).map(item => item.timelineEvidence!));
+  if (fused) (match as any).vodTimelineEvidence = fused;
+  return duplicate || submission;
 }

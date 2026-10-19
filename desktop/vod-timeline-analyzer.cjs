@@ -3,7 +3,7 @@ const crypto = require('node:crypto');
 const fs = require('node:fs');
 const fsp = require('node:fs/promises');
 const path = require('node:path');
-const { aggregateVideoEvidence } = require('./vod-timeline-evidence.cjs');
+const { aggregateVideoEvidence, applyVisualTemplates } = require('./vod-timeline-evidence.cjs');
 
 const MAX_DURATION_SECONDS = 4 * 60 * 60;
 const MAX_LOCAL_BYTES = 30 * 1024 * 1024 * 1024;
@@ -214,9 +214,16 @@ function frameDifference(left, right) {
   return count ? total / count : 0;
 }
 
+function visualSignature(frame) {
+  if (!frame?.length) return null;
+  const samples = 64; const stride = Math.max(1, Math.floor(frame.length / (samples + 1))); let previous = frame[0]; let bits = '';
+  for (let index = 1; index <= samples; index += 1) { const value = frame[Math.min(frame.length - 1, index * stride)]; bits += value >= previous ? '1' : '0'; previous = value; }
+  return BigInt(`0b${bits}`).toString(16).padStart(16, '0');
+}
+
 async function changedFrames(file, spec, durationSeconds, progress, signal, range = {}) {
   throwIfAborted(signal);
-  const frameBytes = spec.width * spec.height; const fps = spec.fps; const buckets = new Map(); let previous = null; let pending = Buffer.alloc(0); let index = 0;
+  const frameBytes = spec.width * spec.height; const fps = spec.fps; const buckets = new Map(); let previous = null; let pending = Buffer.alloc(0); let index = 0; let burstRemaining = 0;
   const filter = `fps=${fps},${spec.crop},scale=${spec.width}:${spec.height}:flags=fast_bilinear,format=gray`;
   const startSeconds = Math.max(0, Number(range.startMs || 0) / 1000); const endSeconds = Number(range.endMs) > Number(range.startMs || 0) ? Number(range.endMs) / 1000 : null; const sampledDuration = endSeconds ? endSeconds - startSeconds : durationSeconds;
   const args = ['-hide_banner', '-loglevel', 'error', ...(startSeconds ? ['-ss', String(startSeconds)] : []), '-i', file, ...(endSeconds ? ['-t', String(sampledDuration)] : []), '-an', '-vf', filter, '-f', 'rawvideo', '-pix_fmt', 'gray', 'pipe:1'];
@@ -229,9 +236,11 @@ async function changedFrames(file, spec, durationSeconds, progress, signal, rang
       throwIfAborted(signal);
       const frame = Buffer.from(pending.subarray(0, frameBytes)); pending = pending.subarray(frameBytes); const timestampMs = Math.round(startSeconds * 1000 + index / fps * 1000); index += 1;
       const difference = frameDifference(previous, frame); const changed = difference >= spec.threshold;
-      if (changed) {
+      if (changed) burstRemaining = Math.max(burstRemaining, spec.burstFrames || 0);
+      if (changed || burstRemaining > 0) {
         const bucket = Math.min(spec.maxCandidates - 1, Math.floor(timestampMs / Math.max(1, durationSeconds * 1000) * spec.maxCandidates)); const existing = buckets.get(bucket);
         if (!existing || difference > existing.difference) buckets.set(bucket, { timestampMs, pixels: frame, difference });
+        if (!changed) burstRemaining -= 1;
       }
       previous = frame;
       if (index % 100 === 0) progress?.({ stage: 'sampling', percent: Math.min(99, Math.round((timestampMs / 1000 - startSeconds) / Math.max(1, sampledDuration) * 100)), message: `Sampling ${spec.label} across the selected game…` });
@@ -249,7 +258,7 @@ async function recognizeFrames(frames, spec, worker, progress, offset, total, si
   for (let index = 0; index < frames.length; index += 1) {
     throwIfAborted(signal);
     const result = await worker.recognize(pgm(frames[index].pixels, spec.width, spec.height)); const text = String(result.data?.text || '').trim(); const confidence = Number(result.data?.confidence);
-    if (text) snapshots.push({ timestampMs: frames[index].timestampMs, text, confidence: Number.isFinite(confidence) ? Math.max(0, Math.min(1, confidence / 100)) : null });
+    if (text) snapshots.push({ timestampMs: frames[index].timestampMs, text, confidence: Number.isFinite(confidence) ? Math.max(0, Math.min(1, confidence / 100)) : null, visualSignature: visualSignature(frames[index].pixels) });
     progress?.({ stage: 'ocr', percent: Math.round((offset + index + 1) / Math.max(1, total) * 100), message: `Reading timeline evidence · ${offset + index + 1}/${total}` });
   }
   return snapshots;
@@ -276,10 +285,12 @@ async function analyzeVodTimeline(input, options = {}) {
     else file = await downloadYoutube(input.vodUrl, jobDirectory, progress, signal);
     const probe = await probeVideo(file, signal); progress?.({ stage: 'probe', percent: 100, message: `${Math.ceil(probe.durationSeconds / 60)} minute VOD detected · ${probe.width}×${probe.height}` });
     const specs = [
-      { key: 'killFeedSnapshots', label: 'kill feed', fps: .5, crop: 'crop=iw*0.42:ih*0.38:iw*0.58:0', width: 720, height: 366, threshold: .15, maxCandidates: 2400 },
-      { key: 'objectiveSnapshots', label: 'round and objective notices', fps: .4, crop: 'crop=iw*0.62:ih*0.34:iw*0.19:ih*0.02', width: 720, height: 222, threshold: .15, maxCandidates: 1200 },
-      { key: 'ultimateSnapshots', label: 'ultimate state', fps: .5, crop: 'crop=iw*0.28:ih*0.25:iw*0.36:ih*0.72', width: 520, height: 260, threshold: .15, maxCandidates: 1200 },
-      { key: 'povSnapshots', label: 'POV identity', fps: .1, crop: 'crop=iw*0.34:ih*0.28:0:ih*0.67', width: 560, height: 280, threshold: .08, maxCandidates: 240 },
+      { key: 'killFeedSnapshots', label: 'kill feed', fps: 2, crop: 'crop=iw*0.42:ih*0.38:iw*0.58:0', width: 720, height: 366, threshold: .15, burstFrames: 3, maxCandidates: 3600 },
+      { key: 'objectiveSnapshots', label: 'round and objective notices', fps: 1, crop: 'crop=iw*0.62:ih*0.34:iw*0.19:ih*0.02', width: 720, height: 222, threshold: .15, burstFrames: 2, maxCandidates: 1800 },
+      { key: 'roundStateSnapshots', label: 'round state and score', fps: 1, crop: 'crop=iw*0.46:ih*0.20:iw*0.27:0', width: 700, height: 240, threshold: .10, burstFrames: 2, maxCandidates: 1800 },
+      { key: 'ultimateSnapshots', label: 'ultimate state', fps: 1, crop: 'crop=iw*0.28:ih*0.25:iw*0.36:ih*0.72', width: 520, height: 260, threshold: .12, burstFrames: 2, maxCandidates: 1800 },
+      { key: 'povSnapshots', label: 'POV identity', fps: .25, crop: 'crop=iw*0.34:ih*0.28:0:ih*0.67', width: 560, height: 280, threshold: .08, burstFrames: 1, maxCandidates: 600 },
+      { key: 'scoreboardSnapshots', label: 'scoreboard totals', fps: .2, crop: 'crop=iw*0.78:ih*0.72:iw*0.11:ih*0.14', width: 1100, height: 680, threshold: .12, burstFrames: 1, maxCandidates: 480 },
     ];
     const candidates = {};
     for (const spec of specs) candidates[spec.key] = await changedFrames(file, spec, probe.durationSeconds, progress, signal, { startMs: input.startMs, endMs: input.endMs });
@@ -290,13 +301,14 @@ async function analyzeVodTimeline(input, options = {}) {
     let offset = 0; const snapshots = {};
     try { for (const spec of specs) { snapshots[spec.key] = await recognizeFrames(candidates[spec.key], spec, worker, progress, offset, total, signal); offset += candidates[spec.key].length; } }
     finally { await worker.terminate(); }
+    if (Array.isArray(input.visualTemplates) && input.visualTemplates.length) for (const spec of specs) snapshots[spec.key] = applyVisualTemplates(snapshots[spec.key], input.visualTemplates);
     const rangeDurationMs = Number(input.endMs) > Number(input.startMs || 0) ? Number(input.endMs) - Number(input.startMs || 0) : probe.durationMs;
     const inferredPov = input.observerMode ? null : (input.povPlayerName || inferPovPlayer(snapshots.povSnapshots || [], input.players || []));
-    const evidence = aggregateVideoEvidence({ players: input.players || [], povPlayerName: inferredPov || null, durationMs: rangeDurationMs, killFeedSnapshots: snapshots.killFeedSnapshots, objectiveSnapshots: snapshots.objectiveSnapshots, ultimateSnapshots: snapshots.ultimateSnapshots });
+    const evidence = aggregateVideoEvidence({ players: input.players || [], povPlayerName: inferredPov || null, observerMode: !!input.observerMode, durationMs: rangeDurationMs, killFeedSnapshots: snapshots.killFeedSnapshots, objectiveSnapshots: snapshots.objectiveSnapshots, roundStateSnapshots: snapshots.roundStateSnapshots, ultimateSnapshots: snapshots.ultimateSnapshots, povSnapshots: snapshots.povSnapshots, scoreboardSnapshots: snapshots.scoreboardSnapshots });
     evidence.limitations.push(inferredPov ? `POV identity used for personal orb and ultimate evidence: ${inferredPov}.` : 'No single player POV identity was proven; personal orb and ultimate totals remain unknown.');
     evidence.source = { kind: input.sourceKind || (downloaded ? 'youtube' : 'local-file'), videoId: input.videoId || youtubeVideoId(input.vodUrl), sha256: input.sourceSha256 || await sha256File(file), width: probe.width, height: probe.height, durationMs: probe.durationMs, analyzedAt: new Date().toISOString() };
     progress?.({ stage: 'complete', percent: 100, message: `Timeline scan complete · ${evidence.observations.length} supported observations.` }); return evidence;
   } finally { clearTimeout(timeout); options.signal?.removeEventListener('abort', externalAbort); await fsp.rm(jobDirectory, { recursive: true, force: true }).catch(() => {}); }
 }
 
-module.exports = { normalizeYoutubeUrl, youtubeVideoId, probeVideo, analyzeVodTimeline, discoverVodGames, changedFrames, frameDifference, ensureDiskSpace, scoreboardGeometryScore, agentSelectGeometryScore, chooseGameBoundaries, inferPovPlayer };
+module.exports = { normalizeYoutubeUrl, youtubeVideoId, probeVideo, analyzeVodTimeline, discoverVodGames, changedFrames, frameDifference, visualSignature, ensureDiskSpace, scoreboardGeometryScore, agentSelectGeometryScore, chooseGameBoundaries, inferPovPlayer };
