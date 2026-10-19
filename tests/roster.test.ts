@@ -191,6 +191,15 @@ describe('roster domain', () => {
     expect(db.rosterPlayers).toEqual([]);
   });
 
+  it('never auto-deletes a legacy retired identity without an explicit purge date', () => {
+    const db: any = rosterDb(); db.authKeys = []; db.allowedUsers = [];
+    const player: any = createRosterPlayer(db, 'Legacy Variant', () => ids[0], now);
+    player.retiredAt = '2020-01-01T00:00:00.000Z';
+    delete player.purgeAfter;
+    expect(purgeExpiredRosterPlayers(db, '2030-01-01T00:00:00.000Z').purged).toEqual([]);
+    expect(db.rosterPlayers).toContain(player);
+  });
+
   it('creates a stable classified player without guessing links for earlier name-only rows', () => {
     const db: any = rosterDb();
     db.playerStats.push({ id: 'stat-2', player: 'Legacy-Name', matchId: 'm2', kills: 11 });
