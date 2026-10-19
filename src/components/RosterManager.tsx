@@ -464,7 +464,7 @@ export default function RosterManager({ data, theme, onRefresh }: Props) {
               </h4>
               <form
                 onSubmit={createPlayer}
-                className="grid grid-cols-1 gap-2 sm:grid-cols-[1fr_1fr_auto]"
+                className="grid grid-cols-1 gap-2 sm:grid-cols-2"
               >
                 <input
                   aria-label="New player display name"
@@ -494,7 +494,7 @@ export default function RosterManager({ data, theme, onRefresh }: Props) {
                 </div>
                 <button
                   disabled={busy}
-                  className="flex items-center gap-1 px-3 py-2 rounded bg-[#ff4655] text-white text-xs font-bold disabled:opacity-50"
+                  className="flex items-center justify-center gap-1 rounded bg-[#ff4655] px-3 py-2 text-xs font-bold text-white disabled:opacity-50 sm:col-span-2"
                 >
                   <UserPlus className="w-4 h-4" aria-hidden="true" />
                   {pendingPasswordPlayer ? "Retry password" : "Add player"}
@@ -552,19 +552,20 @@ export default function RosterManager({ data, theme, onRefresh }: Props) {
                   return (
                     <div
                       key={player.id}
-                      className="flex flex-wrap items-center justify-between gap-3 p-2 rounded bg-black/15"
+                      className="rounded-lg border border-white/[0.04] bg-black/15 p-3"
                     >
-                      <div>
-                        <p className="font-bold">{player.displayName}</p>
-                        <p className="text-xs text-gray-400">
-                          {isCore ? "Core player" : "Squad player"}
-                        </p>
-                      </div>
-                      <PlayerPasswordForm
-                        playerId={player.id}
-                        playerName={player.displayName}
-                      />
-                      <div className="flex flex-wrap justify-end gap-2">
+                      <div className="flex flex-wrap items-center justify-between gap-3">
+                        <div className="min-w-[8rem]">
+                          <p className="font-bold">{player.displayName}</p>
+                          <p className="text-xs text-gray-400">
+                            {isCore ? "Core player" : "Squad player"}
+                          </p>
+                        </div>
+                        <div className="flex flex-1 flex-wrap justify-end gap-2">
+                          <PlayerPasswordForm
+                            playerId={player.id}
+                            playerName={player.displayName}
+                          />
                         <button
                           type="button"
                           disabled={busy}
@@ -591,6 +592,7 @@ export default function RosterManager({ data, theme, onRefresh }: Props) {
                           <Archive className="h-3.5 w-3.5" aria-hidden="true" />
                           Archive
                         </button>
+                        </div>
                       </div>
                     </div>
                   );

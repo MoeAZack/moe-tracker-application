@@ -3,6 +3,7 @@ import { Copy, KeyRound, X } from 'lucide-react';
 import { apiFetch } from '../utils/api';
 
 export default function PlayerPasswordForm({ playerId, playerName }: { playerId: string; playerName: string }) {
+  const [open, setOpen] = useState(false);
   const [password, setPassword] = useState(''); const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null); const [savedPassword, setSavedPassword] = useState<string | null>(null);
   const [copyStatus, setCopyStatus] = useState<'copied' | 'fallback' | null>(null);
@@ -15,7 +16,7 @@ export default function PlayerPasswordForm({ playerId, playerName }: { playerId:
     } catch (err: any) { setError(err?.message || 'Password reset failed.'); }
     finally { setBusy(false); }
   };
-  const dismiss = () => { setSavedPassword(null); setPassword(''); setError(null); setCopyStatus(null); };
+  const dismiss = () => { setSavedPassword(null); setPassword(''); setError(null); setCopyStatus(null); setOpen(false); };
   const copyLogin = async () => {
     try {
       if (!navigator.clipboard?.writeText) throw new Error('Clipboard unavailable');
@@ -28,8 +29,9 @@ export default function PlayerPasswordForm({ playerId, playerName }: { playerId:
     <button type="button" className="ui-button px-2 py-1" onClick={copyLogin}><Copy className="mr-1 inline h-3.5 w-3.5" />{copyStatus === 'copied' ? 'Copied' : 'Copy login details'}</button>
     {copyStatus === 'fallback' && <label className="block text-amber-200">Copy unavailable. Select these login details:<textarea readOnly className="ui-field mt-1 w-full p-2" value={`Player: ${playerName}\nPassword: ${savedPassword}`} /></label>}
   </div>;
-  return <form onSubmit={save} className="space-y-1">
-    <div className="flex gap-1"><input aria-label={`New password for ${playerName}`} type="password" minLength={10} required value={password} onChange={event => setPassword(event.target.value)} placeholder="10+ characters" autoComplete="new-password" className="ui-field min-h-9 w-40 px-2 text-xs" /><button disabled={busy || password.length < 10} className="ui-button min-h-9 px-2 text-xs font-bold disabled:opacity-50"><KeyRound className="mr-1 inline h-3.5 w-3.5" />Set</button></div>
+  if (!open) return <button type="button" onClick={() => setOpen(true)} className="ui-button min-h-9 px-3 text-xs"><KeyRound className="mr-1 inline h-3.5 w-3.5" />Password</button>;
+  return <form onSubmit={save} className="w-full space-y-1 rounded-lg border border-white/10 bg-black/15 p-2">
+    <div className="flex flex-wrap gap-1"><input aria-label={`New password for ${playerName}`} type="password" minLength={10} required value={password} onChange={event => setPassword(event.target.value)} placeholder="10+ characters" autoComplete="new-password" className="ui-field min-h-9 min-w-0 flex-1 px-2 text-xs" /><button disabled={busy || password.length < 10} className="ui-button min-h-9 px-2 text-xs font-bold disabled:opacity-50"><KeyRound className="mr-1 inline h-3.5 w-3.5" />Set</button><button type="button" onClick={dismiss} className="ui-button min-h-9 px-2 text-xs">Cancel</button></div>
     <p className="text-[10px] text-gray-500">Minimum 10 characters. Resetting it immediately revokes prior password sessions.</p>
     {error && <p role="alert" className="text-[10px] text-rose-400">{error}</p>}
   </form>;

@@ -34,20 +34,19 @@ describe("player password UI", () => {
     expect(html).not.toContain('id="access-key"');
   });
 
-  it("renders a per-player set/reset form without exposing an old password", () => {
+  it("keeps per-player password reset collapsed until requested", () => {
     const html = renderToStaticMarkup(
       <PlayerPasswordForm playerId="player-1" playerName="Ahmed" />,
     );
-    expect(html).toContain('aria-label="New password for Ahmed"');
-    expect(html).toContain('placeholder="10+ characters"');
-    expect(html).toContain('type="password"');
-    expect(html).toContain('minLength="10"');
-    expect(html).toContain("immediately revokes prior password sessions");
+    expect(html).toContain("Password");
+    expect(html).not.toContain('aria-label="New password for Ahmed"');
+    expect(passwordFormSource).toContain('aria-label={`New password for ${playerName}`}');
+    expect(passwordFormSource).toContain("immediately revokes prior password sessions");
     expect(html).not.toContain("Copy login details");
     expect(html).not.toContain("Login:");
   });
 
-  it("offers an optional password on roster creation and a reset form on the player card", () => {
+  it("offers an optional password on roster creation and a compact password action on the player card", () => {
     const data = {
       rosterPlayers: [{ id: "player-1", displayName: "Ahmed" }],
       coreMemberships: [],
@@ -63,8 +62,8 @@ describe("player password UI", () => {
     );
     expect(html).toContain('aria-label="Optional player password"');
     expect(html).toContain('placeholder="Password (optional, 10+ characters)"');
-    expect(html).toContain('aria-label="New password for Ahmed"');
-    expect(html).toContain('placeholder="10+ characters"');
+    expect(html).toContain("Password");
+    expect(html).not.toContain('aria-label="New password for Ahmed"');
   });
 
   it("marks a created player before refresh and provides observable clipboard fallbacks", () => {
