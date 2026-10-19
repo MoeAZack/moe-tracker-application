@@ -615,6 +615,20 @@ export interface Round {
   screenshotEvidence?: RoundScreenshotEvidence;
   advantageEvidence?: import('../lib/roundAdvantage').RoundAdvantageEvidence;
   vodEvidence?: { sourceSubmissionIds: string[]; roundNumber: number; observations: unknown[]; updatedAt: string };
+  replayEvidence?: { tradeOpportunities: number | null; successfulTrades: number | null; tacticalAssessment: string };
+  reviewCockpit?: {
+    note?: string;
+    classifications?: Array<{
+      type: import('../lib/roundReviewCockpit').ReviewClassificationType;
+      status: 'confirmed' | 'dismissed';
+      player?: string | null;
+      reason?: string;
+      updatedAt: string;
+      updatedBy: string;
+    }>;
+    clips?: Array<{ id: string; fileName: string; label: string; startMs: number; endMs: number; createdAt: string }>;
+    updatedAt: string;
+  };
 }
 
 export interface Veto {

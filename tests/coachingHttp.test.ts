@@ -18,6 +18,14 @@ beforeEach(async () => { await fs.writeFile(dbPath, JSON.stringify(fixture())); 
 afterAll(async () => { await new Promise<void>(resolve => server.close(() => resolve())); await fs.rm(tempDir, { recursive: true, force: true }); vi.unstubAllEnvs(); });
 
 describe('coaching workflow HTTP contract', () => {
+  it('stores round review decisions, notes and local clip references on the canonical round', async () => {
+    const coach = await login(adminKey);
+    const first = await request(coach, '/api/vod/round-review', { matchId: 'm1', roundNo: 1, note: 'Hold the crossfire before re-peeking.', classification: { type: 'first-death-review', status: 'confirmed', player: 'caelia', reason: 'Confirmed during VOD review.' } });
+    expect(first.status).toBe(200); expect(await first.json()).toMatchObject({ reviewCockpit: { note: 'Hold the crossfire before re-peeking.', classifications: [{ type: 'first-death-review', status: 'confirmed', player: 'caelia' }] } });
+    const second = await request(coach, '/api/vod/round-review', { matchId: 'm1', roundNo: 1, clips: [{ id: 'clip-1', fileName: 'round-1.mp4', label: 'R1 advantage lost', startMs: 12000, endMs: 28000 }] });
+    expect(second.status).toBe(200); expect((await second.json()).reviewCockpit.clips).toEqual([expect.objectContaining({ id: 'clip-1', fileName: 'round-1.mp4' })]);
+    const player = await login(playerKey); expect((await request(player, '/api/vod/round-review', { matchId: 'm1', roundNo: 1, note: 'overwrite' })).status).toBe(403);
+  });
   it('lets only a coach link a PRACC session to match and goal progress', async () => {
     const player = await login(playerKey); const body = { scheduleId: '00000000-0000-4000-8000-000000000020', matchIds: ['m1'], goalIds: ['goal-1'] };
     expect((await request(player, '/api/practice-sessions/link', body)).status).toBe(403);

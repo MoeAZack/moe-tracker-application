@@ -89,6 +89,32 @@ export function registerVodLineupRoutes(app: Express) {
     } catch (err: any) { res.status(500).json({ error: err.message }); }
   });
 
+  // Persist coach decisions on the canonical round so every review surface sees
+  // the same note, classifications and locally generated clip references.
+  app.post('/api/vod/round-review', async (req, res) => {
+    try {
+      const body = validate(schemas.vodRoundReviewSchema, req.body, res); if (!body) return;
+      const db = await readDB();
+      const round = (db.rounds || []).find((item: any) => item.matchId === body.matchId && item.roundNo === body.roundNo);
+      if (!round) return res.status(404).json({ error: 'Round not found.' });
+      const now = new Date().toISOString(); const by = author(req).name;
+      round.reviewCockpit ||= { classifications: [], clips: [], updatedAt: now };
+      if (body.note !== undefined) round.reviewCockpit.note = body.note.trim();
+      if (body.classification) {
+        round.reviewCockpit.classifications ||= [];
+        const index = round.reviewCockpit.classifications.findIndex((item: any) => item.type === body.classification!.type && String(item.player || '') === String(body.classification!.player || ''));
+        const decision = { ...body.classification, updatedAt: now, updatedBy: by };
+        if (index >= 0) round.reviewCockpit.classifications[index] = decision; else round.reviewCockpit.classifications.push(decision);
+      }
+      if (body.clips?.length) {
+        round.reviewCockpit.clips ||= [];
+        for (const clip of body.clips) if (!round.reviewCockpit.clips.some((item: any) => item.id === clip.id)) round.reviewCockpit.clips.push({ ...clip, createdAt: now });
+      }
+      round.reviewCockpit.updatedAt = now;
+      await saveDB(db); res.json(round);
+    } catch (err: any) { res.status(500).json({ error: err.message }); }
+  });
+
   // POST create/update a lineup (coach)
   app.post('/api/lineup/save', async (req, res) => {
     try {
