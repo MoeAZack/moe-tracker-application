@@ -210,10 +210,7 @@ export default function CoachWorkflow({
     status: CoachingSignal["status"],
   ) => {
     const reason =
-      status === "dismissed"
-        ? window.prompt("Why is this signal being dismissed?")
-        : "";
-    if (status === "dismissed" && !reason) return;
+      status === "dismissed" ? "Dismissed by coach from Review Inbox." : "";
     setBusy(signal.id);
     try {
       const response = await apiFetch(
@@ -876,13 +873,62 @@ function renderCard(
               </span>
             </div>
             <div className="mt-3 flex flex-wrap gap-2">
-              {signal.status === "dismissed" ? <><button className="ui-button ui-button-primary min-h-9 px-3 text-[11px]" onClick={() => mutate(signal, "new")}>Recover</button><button className="ui-button min-h-9 border-rose-400/25 px-3 text-[11px] text-rose-300" onClick={() => remove(signal)}><Trash2 className="h-3.5 w-3.5" />Delete</button></> : <>
-                <button disabled={signal.status === "reviewing"} className={`ui-button min-h-9 px-3 text-[11px] disabled:opacity-60 ${signal.status === "reviewing" ? "ui-button-primary" : ""}`} onClick={() => { mutate(signal, "reviewing"); if (signal.matchIds[0]) onOpenMatch(signal.matchIds[0]); }}>Review</button>
-                <button disabled={signal.status === "accepted"} className={`ui-button min-h-9 px-3 text-[11px] disabled:opacity-60 ${signal.status === "accepted" ? "ui-button-primary" : ""}`} onClick={() => mutate(signal, "accepted")}>Accept</button>
-                <button disabled={signal.status === "needs-evidence"} className={`ui-button min-h-9 px-3 text-[11px] disabled:opacity-60 ${signal.status === "needs-evidence" ? "ui-button-primary" : ""}`} onClick={() => mutate(signal, "needs-evidence")}>Needs evidence</button>
-                <button className="ui-button min-h-9 px-3 text-[11px]" onClick={() => correct(signal)}>Correct</button>
-                <button className="ui-button min-h-9 px-3 text-[11px]" onClick={() => mutate(signal, "dismissed")}>Dismiss</button>
-              </>}
+              {signal.status === "dismissed" ? (
+                <>
+                  <button
+                    className="ui-button ui-button-primary min-h-9 px-3 text-[11px]"
+                    onClick={() => mutate(signal, "new")}
+                  >
+                    Recover
+                  </button>
+                  <button
+                    className="ui-button min-h-9 border-rose-400/25 px-3 text-[11px] text-rose-300"
+                    onClick={() => remove(signal)}
+                  >
+                    <Trash2 className="h-3.5 w-3.5" />
+                    Delete
+                  </button>
+                </>
+              ) : (
+                <>
+                  <button
+                    disabled={signal.status === "reviewing"}
+                    className={`ui-button min-h-9 px-3 text-[11px] disabled:opacity-60 ${signal.status === "reviewing" ? "ui-button-primary" : ""}`}
+                    onClick={() => {
+                      mutate(signal, "reviewing");
+                      if (signal.matchIds[0]) onOpenMatch(signal.matchIds[0]);
+                    }}
+                  >
+                    Review
+                  </button>
+                  <button
+                    disabled={signal.status === "accepted"}
+                    className={`ui-button min-h-9 px-3 text-[11px] disabled:opacity-60 ${signal.status === "accepted" ? "ui-button-primary" : ""}`}
+                    onClick={() => mutate(signal, "accepted")}
+                  >
+                    Accept
+                  </button>
+                  <button
+                    disabled={signal.status === "needs-evidence"}
+                    className={`ui-button min-h-9 px-3 text-[11px] disabled:opacity-60 ${signal.status === "needs-evidence" ? "ui-button-primary" : ""}`}
+                    onClick={() => mutate(signal, "needs-evidence")}
+                  >
+                    Needs evidence
+                  </button>
+                  <button
+                    className="ui-button min-h-9 px-3 text-[11px]"
+                    onClick={() => correct(signal)}
+                  >
+                    Correct
+                  </button>
+                  <button
+                    className="ui-button min-h-9 px-3 text-[11px]"
+                    onClick={() => mutate(signal, "dismissed")}
+                  >
+                    Dismiss
+                  </button>
+                </>
+              )}
               {signal.status === "accepted" && !signal.relatedActionId && (
                 <button
                   className="ui-button ui-button-primary min-h-9 px-3 text-[11px]"
@@ -902,9 +948,7 @@ function renderCard(
             </div>
           </div>
         ))}
-        {!signals.length && (
-          <Empty text="No review items match this view." />
-        )}
+        {!signals.length && <Empty text="No review items match this view." />}
       </div>
     );
   if (id === "active-actions")
