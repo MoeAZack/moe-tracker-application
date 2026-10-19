@@ -3,6 +3,7 @@ import { TrackerData } from '../types';
 import { Award, Layers, Users } from 'lucide-react';
 import { percentageTextClass } from '../utils/percentageColor';
 import { matchOutcome } from '../../lib/analyticsEvidence';
+import { AgentPortrait, MapThumbnail } from './ValorantMedia';
 
 interface ComponentProps {
   data: TrackerData;
@@ -20,6 +21,7 @@ export default function TeamCompositions({ data, theme }: ComponentProps) {
   const playerStats = data.playerStats || [];
   const maps = data.settings.maps || [];
   const agentsList = data.settings.agents || [];
+  const activeAgentKeys = useMemo(() => new Set(agentsList.map(agent => agent.toLocaleLowerCase('en'))), [agentsList]);
 
   // --- MAP COMPOSITIONS ANALYTICS ---
   const mapCompositions = useMemo(() => {
@@ -40,7 +42,7 @@ export default function TeamCompositions({ data, theme }: ComponentProps) {
       if (mStats.length === 0) return;
 
       // Collect the agents and sort them alphabetically
-      const agents = mStats.map(s => s.agent).filter(Boolean).sort();
+      const agents = mStats.map(s => s.agent).filter(agent => agent && activeAgentKeys.has(agent.toLocaleLowerCase('en'))).sort();
       if (agents.length === 0) return;
 
       const compKey = agents.join(', ');
@@ -53,7 +55,7 @@ export default function TeamCompositions({ data, theme }: ComponentProps) {
     });
 
     return comps;
-  }, [maps, matches, playerStats]);
+  }, [maps, matches, playerStats, activeAgentKeys]);
 
   // --- AGENT PICK RATES & PERFORMANCE ---
   const agentPerformance = useMemo(() => {
@@ -91,7 +93,6 @@ export default function TeamCompositions({ data, theme }: ComponentProps) {
           pickRate: Math.round(pickRate)
         };
       })
-      .filter(x => x.played > 0)
       .sort((a, b) => b.played - a.played);
   }, [agentsList, playerStats, matches]);
 
@@ -120,7 +121,7 @@ export default function TeamCompositions({ data, theme }: ComponentProps) {
               <tbody className="divide-y divide-white/5">
                 {agentPerformance.map((ap) => (
                   <tr key={ap.agent} className="hover:bg-white/5">
-                    <td className="py-2.5 px-3 font-bold text-white text-xs">{ap.agent}</td>
+                    <td className="py-2.5 px-3 font-bold text-white text-xs"><span className="flex items-center gap-2"><AgentPortrait name={ap.agent} className="h-9 w-9 rounded-lg" />{ap.agent}</span></td>
                     <td className="py-2.5 px-3 text-center font-bold text-gray-300">{ap.played}</td>
                     <td className="py-2.5 px-3 text-center text-gray-400">
                       <span className="text-emerald-400 font-bold">{ap.wins}W</span> - <span className="text-rose-400 font-bold">{ap.losses}L</span>
@@ -151,21 +152,19 @@ export default function TeamCompositions({ data, theme }: ComponentProps) {
           <div className="space-y-4 max-h-[500px] overflow-y-auto pr-1">
             {Object.entries(mapCompositions).map(([mapName, comps]) => {
               const compEntries = Object.entries(comps);
-              if (compEntries.length === 0) return null;
-
               return (
-                <div key={mapName} className="space-y-2 border-b border-white/5 pb-3">
-                  <h5 className="text-xs uppercase font-black text-white font-mono">{mapName}</h5>
+                <div key={mapName} className="space-y-2 rounded-xl border border-white/[0.07] bg-black/10 p-3">
+                  <div className="flex items-center gap-3"><MapThumbnail name={mapName} className="h-12 w-20 rounded-lg" /><div><h5 className="text-xs uppercase font-black text-white font-mono">{mapName}</h5><p className="mt-0.5 text-[9px] text-gray-500">{compEntries.length ? `${compEntries.length} recorded composition${compEntries.length === 1 ? '' : 's'}` : 'Active map · no composition evidence yet'}</p></div></div>
                   <div className="space-y-2 font-mono text-[11px]">
                     {compEntries.map(([compKey, c]) => {
                       const total = c.wins + c.losses;
                       const wr = total > 0 ? Math.round((c.wins / total) * 100) : 0;
                       return (
                         <div key={compKey} className="flex justify-between items-center bg-black/10 p-2.5 rounded border border-white/5">
-                          <div className="flex flex-wrap gap-1 max-w-[70%]">
+                          <div className="flex flex-wrap gap-1.5 max-w-[75%]">
                             {c.agents.map((ag) => (
-                              <span key={ag} className="px-1.5 py-0.5 rounded bg-white/5 border border-white/5 text-[9px] font-bold text-gray-300">
-                                {ag}
+                              <span key={ag} className="inline-flex items-center gap-1 rounded-lg border border-white/5 bg-white/5 py-1 pl-1 pr-2 text-[9px] font-bold text-gray-300">
+                                <AgentPortrait name={ag} className="h-7 w-7 rounded-md" />{ag}
                               </span>
                             ))}
                           </div>
@@ -176,13 +175,11 @@ export default function TeamCompositions({ data, theme }: ComponentProps) {
                         </div>
                       );
                     })}
+                    {compEntries.length === 0 && <p className="rounded-lg border border-dashed border-white/10 px-3 py-4 text-center text-[10px] text-gray-500">This map is ready for its first logged composition.</p>}
                   </div>
                 </div>
               );
             })}
-            {Object.values(mapCompositions).every(c => Object.keys(c).length === 0) && (
-              <p className="py-10 text-center text-gray-500 font-mono text-xs">No comps logged yet. Add matches to see details!</p>
-            )}
           </div>
         </div>
       </div>

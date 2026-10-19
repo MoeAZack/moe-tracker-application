@@ -1352,6 +1352,13 @@ export function ReplayReviewEvidence({
   const mappingById = new Map<string, Mapping>(
     mappings.map((item: Mapping) => [item.parserPlayerId, item]),
   );
+  const rosterNameById = new Map<string, string>(roster.map((item: any) => [item.id, item.displayName]));
+  const reviewedPlayerName = (parserPlayerId: string | null | undefined) => {
+    if (!parserPlayerId) return 'Unknown player';
+    const overlay = mappingById.get(parserPlayerId);
+    return (overlay?.rosterPlayerId ? rosterNameById.get(overlay.rosterPlayerId) : null) || overlay?.displayName || evidence(scoreboard.players.find((item: any) => item.playerId === parserPlayerId)?.displayName) || 'Unresolved player';
+  };
+  const reviewedTeamName = (parserTeamId: string | null | undefined) => parserTeamId ? (parserTeamId === teamId ? (data.settings?.teamName || 'Our team') : 'Opponent') : 'Unknown team';
   const ourPlayers = scoreboard.players.filter(
     (item: any) => item.teamId === teamId,
   );
@@ -1499,6 +1506,7 @@ export function ReplayReviewEvidence({
                 };
                 const ours = player.teamId === teamId;
                 const metrics = metricsByPlayer.get(player.playerId);
+                const reviewedName = reviewedPlayerName(player.playerId);
                 return (
                   <tr
                     key={player.playerId}
@@ -1506,11 +1514,11 @@ export function ReplayReviewEvidence({
                   >
                     <td className="px-3 py-2">
                       <span className="font-medium text-slate-200">
-                        {evidence(player.displayName) ||
+                        {accepted ? reviewedName : evidence(player.displayName) ||
                           `Anonymous player ${index + 1}`}
                       </span>
                       <span className="block font-mono text-[9px] text-slate-600">
-                        {player.teamId} · {player.playerId.slice(0, 10)}
+                        {accepted ? `${ours ? 'Our roster' : 'Opponent'} · identity resolved` : `${player.teamId} · ${player.playerId.slice(0, 10)}`}
                       </span>
                     </td>
                     <td className="px-3 py-2">
@@ -1629,12 +1637,12 @@ export function ReplayReviewEvidence({
                       {round.roundNumber}
                     </td>
                     <td className="px-3 py-2 text-slate-400">
-                      {round.winnerTeamId || "Unknown"}
+                      {accepted ? reviewedTeamName(round.winnerTeamId) : round.winnerTeamId || "Unknown"}
                       {round.endReason ? ` · ${round.endReason}` : ""}
                     </td>
                     <td className="px-3 py-2 text-slate-400">
                       {opening?.status === "resolved"
-                        ? `${opening.firstKillPlayerId} → ${opening.firstDeathPlayerId}`
+                        ? `${reviewedPlayerName(opening.firstKillPlayerId)} → ${reviewedPlayerName(opening.firstDeathPlayerId)}`
                         : `Unknown · ${opening?.reason || "unavailable"}`}
                     </td>
                     <td className="px-3 py-2 text-slate-400">
@@ -1643,7 +1651,7 @@ export function ReplayReviewEvidence({
                     </td>
                     <td className="px-3 py-2 text-slate-400">
                       {round.derived.clutches
-                        ?.map((item: any) => `${item.playerId} ${item.result}`)
+                        ?.map((item: any) => `${reviewedPlayerName(item.playerId)} ${item.result}`)
                         .join(", ") || "—"}
                     </td>
                   </tr>

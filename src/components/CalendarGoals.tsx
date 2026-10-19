@@ -1,6 +1,6 @@
 import React, { useState, useMemo, useEffect } from 'react';
 import { TrackerData, Schedule, Goal } from '../types';
-import { Calendar, ChevronLeft, ChevronRight, Plus, Edit2, Trash2, CalendarDays, ClipboardList, Clock, AlertCircle, CheckCircle2, ShieldCheck } from 'lucide-react';
+import { Calendar, ChevronLeft, ChevronRight, Plus, Edit2, Trash2, CalendarDays, ClipboardList, Clock, AlertCircle, CheckCircle2, ShieldCheck, MinusCircle } from 'lucide-react';
 import { apiFetch } from '../utils/api';
 import { attendancePolicy, attendanceStatus, attendanceSummary, attendanceWindow } from '../../lib/attendance';
 import { repeatedHourlyScheduleRows } from '../../lib/schedule';
@@ -199,7 +199,7 @@ export default function CalendarGoals({ data, theme, role, onUpsert, onRemove, o
       const response = await apiFetch(path, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) });
       const result = await response.json().catch(() => ({}));
       if (!response.ok) throw new Error(result.error || 'Attendance could not be updated.');
-      setAttendanceMessage(path.includes('green-credit') ? 'Green dot recorded.' : path.includes('/correct') ? 'Attendance correction saved with its reason.' : result.checkIn?.status === 'late' ? 'Checked in late — one strike recorded.' : 'Checked in on time.');
+      setAttendanceMessage(path.includes('/revoke') ? 'Green dot removed; its audit history is preserved.' : path.includes('green-credit') ? 'Green dot recorded.' : path.includes('/correct') ? 'Attendance correction saved with its reason.' : result.checkIn?.status === 'late' ? 'Checked in late — one strike recorded.' : 'Checked in on time.');
       await onRefresh(); setNow(new Date());
     } catch (error: any) { setAttendanceMessage(error?.message || 'Attendance could not be updated.'); }
     finally { setAttendanceBusy(''); }
@@ -209,6 +209,14 @@ export default function CalendarGoals({ data, theme, role, onUpsert, onRemove, o
     const reason = window.prompt(`Why is ${displayName} receiving a green dot?`, 'Consistent on-time attendance');
     if (!reason?.trim()) return;
     await postAttendance('/api/attendance/green-credit', { playerId, reason: reason.trim() }, `green:${playerId}`);
+  };
+
+  const removeGreenDot = async (playerId: string, displayName: string) => {
+    const credit = [...(data.attendanceCredits || [])].reverse().find(item => item.playerId === playerId && item.kind === 'green' && !item.revokedAt);
+    if (!credit) return;
+    const reason = window.prompt(`Why is ${displayName}'s latest green dot being removed?`, 'Coach adjustment');
+    if (!reason?.trim()) return;
+    await postAttendance('/api/attendance/green-credit/revoke', { creditId: credit.id, reason: reason.trim() }, `green-remove:${playerId}`);
   };
 
   const correctAttendance = async (scheduleId: string, playerId: string, status: string) => {
@@ -298,7 +306,7 @@ export default function CalendarGoals({ data, theme, role, onUpsert, onRemove, o
                 {attendanceSummaries.map(({ player, summary }) => <article key={player.id} className="rounded-lg border border-white/10 bg-black/10 p-3">
                   <div className="flex items-start justify-between gap-2"><div><p className="text-sm font-bold">{player.displayName}</p><p className="mt-1 text-[10px] text-gray-400">{summary.onTime} on time · {summary.late} late · {summary.absent} absent · streak {summary.onTimeStreak}</p></div><div className="flex items-center gap-1" aria-label={`${summary.redDots} red dots and ${summary.greenDots} green dots`}><span className="text-sm text-rose-400">{'●'.repeat(summary.redDots) || '○'}</span>{summary.greenDots > 0 && <span className="text-sm text-emerald-400">{'●'.repeat(summary.greenDots)}</span>}</div></div>
                   <div className="mt-3 flex flex-wrap items-center justify-between gap-2"><span className="text-[10px] font-bold text-amber-200">{summary.strikes} strikes · {summary.strikesTowardNextRedDot}/{policy.strikesPerRedDot} toward next</span><span className="text-[10px] font-black text-rose-200">{summary.cost > 0 ? `${summary.cost} ${summary.currency}` : 'No active cost'}</span></div>
-                  {role === 'coach' && <button type="button" title={summary.redDots < 1 ? 'Green dots remove an existing red dot.' : 'Remove one red dot and keep the history.'} disabled={summary.redDots < 1 || attendanceBusy === `green:${player.id}`} onClick={() => void giveGreenDot(player.id, player.displayName)} className="mt-3 inline-flex min-h-9 items-center gap-1.5 rounded-lg border border-emerald-400/25 bg-emerald-400/10 px-3 text-[10px] font-bold text-emerald-200 disabled:opacity-40"><ShieldCheck className="h-3.5 w-3.5" /> Give green dot</button>}
+                  {role === 'coach' && <div className="mt-3 flex flex-wrap gap-2"><button type="button" title="Coach-awarded credit; it can be given regardless of the current attendance balance." disabled={attendanceBusy === `green:${player.id}`} onClick={() => void giveGreenDot(player.id, player.displayName)} className="inline-flex min-h-9 items-center gap-1.5 rounded-lg border border-emerald-400/25 bg-emerald-400/10 px-3 text-[10px] font-bold text-emerald-200 disabled:opacity-40"><ShieldCheck className="h-3.5 w-3.5" /> Give green dot</button><button type="button" title="Remove the latest active green dot while keeping its audit history." disabled={summary.greenDots < 1 || attendanceBusy === `green-remove:${player.id}`} onClick={() => void removeGreenDot(player.id, player.displayName)} className="inline-flex min-h-9 items-center gap-1.5 rounded-lg border border-slate-400/20 bg-slate-400/5 px-3 text-[10px] font-bold text-slate-300 disabled:opacity-35"><MinusCircle className="h-3.5 w-3.5" /> Remove green dot</button></div>}
                 </article>)}
               </div>
               {attendanceMessage && <p role="status" className="mt-3 text-xs text-cyan-200">{attendanceMessage}</p>}

@@ -57,7 +57,7 @@ export const settingsSchema = z.object({
 
 export const attendanceCheckInSchema = z.object({ scheduleId: z.string().trim().min(1).max(200) }).strict();
 export const attendanceGreenCreditSchema = z.object({ playerId: z.string().uuid(), reason: z.string().trim().min(1).max(500) }).strict();
-export const attendanceCreditRevokeSchema = z.object({ creditId: z.string().uuid(), reason: z.string().trim().min(1).max(500) }).strict();
+export const attendanceCreditRevokeSchema = z.object({ creditId: z.string().trim().min(1).max(200), reason: z.string().trim().min(1).max(500) }).strict();
 export const attendanceCorrectionSchema = z.object({ scheduleId: z.string().trim().min(1).max(200), playerId: z.string().uuid(), status: z.enum(['on-time', 'late', 'excused', 'clear']), reason: z.string().trim().min(1).max(500) }).strict();
 
 const unknownInt = (max: number) => z.number().finite().int().min(0).max(max).nullable().optional();

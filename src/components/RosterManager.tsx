@@ -475,23 +475,18 @@ export default function RosterManager({ data, theme, onRefresh }: Props) {
                   placeholder="Player display name"
                   className="flex-1 p-2 rounded bg-black/25 border border-white/10"
                 />
-                <div>
-                  <input
-                    aria-label="Optional player password"
-                    type="password"
-                    minLength={10}
-                    value={newPlayerPassword}
-                    onChange={(event) =>
-                      setNewPlayerPassword(event.target.value)
-                    }
-                    placeholder="Password (optional, 10+ characters)"
-                    autoComplete="new-password"
-                    className="w-full p-2 rounded bg-black/25 border border-white/10"
-                  />
-                  <p className="mt-1 text-[10px] text-gray-500">
-                    Player passwords require at least 10 characters.
-                  </p>
-                </div>
+                <input
+                  aria-label="Optional player password"
+                  type="password"
+                  minLength={10}
+                  value={newPlayerPassword}
+                  onChange={(event) =>
+                    setNewPlayerPassword(event.target.value)
+                  }
+                  placeholder="Password (optional, 10+ characters)"
+                  autoComplete="new-password"
+                  className="w-full p-2 rounded bg-black/25 border border-white/10"
+                />
                 <button
                   disabled={busy}
                   className="flex items-center justify-center gap-1 rounded bg-[#ff4655] px-3 py-2 text-xs font-bold text-white disabled:opacity-50 sm:col-span-2"

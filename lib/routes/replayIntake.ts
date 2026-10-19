@@ -303,7 +303,13 @@ function acceptReviewIntoEngines(db: any, store: ReplayStore, job: ReplayParserJ
     const corrected = correctedFields(existing); const replay: Record<string, any> = { kills: evidenceNumber(raw.kills) ?? metrics.kills ?? null, deaths: evidenceNumber(raw.deaths) ?? metrics.deaths ?? null, assists: evidenceNumber(raw.assists) ?? metrics.assists ?? null, acs: null, adr: metrics.damage === null || metrics.damage === undefined || !draft.coverage?.playedRounds ? null : metrics.damage / draft.coverage.playedRounds, hs: metrics.headshotPercentage ?? null, headshots: metrics.headshotKills ?? null, headshotEligibleKills: metrics.eligibleHeadshotKills ?? null, orbPoints: metrics.orbCaptures ?? null, ultimateUses: metrics.ultimateUses ?? null, kastSuccessful: metrics.kastSuccessful ?? null, kastCovered: metrics.kastCovered ?? null, fk: evidenceNumber(raw.firstBloods), fd: evidenceNumber(raw.firstDeaths), plants: evidenceNumber(raw.plants), defuses: evidenceNumber(raw.defuses) };
     const facts = Object.fromEntries(Object.entries(replay).map(([field, value]) => [field, mergeVerifiedField(existing, field, value, corrected)]));
     const accepted = { ...existing, id: existing?.id || `replay:${review.matchId}:${overlay.rosterPlayerId}`, matchId: review.matchId, playerId: overlay.rosterPlayerId, player: overlay.displayName, displayNameSnapshot: overlay.displayName, appearanceType: existing?.appearanceType || (activeCoreIds.has(overlay.rosterPlayerId) ? 'core' : 'standIn'), agent: evidenceText(raw.agent) || existing?.agent || 'Unknown', ...facts, sourceMetadata: { method: 'provider-import', capturedAt: acceptedAt, provider: 'vrfkit', externalId: review.sha256 }, evidenceReconciliation: replayScreenshotReconciliation(existing, replay, acceptedAt), corrections: [...(existing?.corrections || []), { correctedAt: review.updatedAt, correctedBy: user.username, fields: ['player-name-mapping'] }] };
-    return preserveIdentitySnapshot(existing, accepted);
+    // Accepting the coach-reviewed replay overlay is the explicit identity
+    // correction boundary. Replace anonymous/parser labels and unstable IDs
+    // with the selected roster identity while preserving unrelated history.
+    return preserveIdentitySnapshot(existing, accepted, {
+      fields: ['playerId', 'displayNameSnapshot', 'appearanceType'],
+      reason: 'Coach accepted replay identity overlay',
+    });
   });
   const replacedPlayerIds = new Set(acceptedRows.map((item: any) => item.playerId));
   const replacedRowIds = new Set(acceptedRows.map((item: any) => item.id));
