@@ -1,7 +1,7 @@
 {
   "name": "moe-tracker-application",
   "private": true,
-  "version": "0.1.70",
+  "version": "0.1.71",
   "description": "Offline-first desktop replay analysis and team statistics for VALORANT practice",
   "author": "MoeAZack",
   "main": "desktop/main.cjs",
@@ -51,6 +51,7 @@
     "react": "^19.0.1",
     "react-dom": "^19.0.1",
     "recharts": "^3.9.2",
+    "sharp": "^0.35.5",
     "tesseract.js": "7.0.0",
     "vite": "^6.2.3",
     "youtube-dl-exec": "^3.1.17",
@@ -122,6 +123,7 @@
       "node_modules/ffmpeg-static/**/*",
       "node_modules/ffprobe-static/**/*",
       "node_modules/youtube-dl-exec/bin/**/*",
+      "node_modules/@img/**/*",
       "node_modules/tesseract.js/**/*",
       "node_modules/tesseract.js-core/**/*",
       "node_modules/@tesseract.js-data/eng/**/*"
