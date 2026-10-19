@@ -742,7 +742,7 @@ export interface VodTimelineEvidence {
 export interface VodSubmission {
   schema: 'moetracker.vod-submission/v1';
   id: string;
-  submittedByPlayerId: string;
+  submittedByPlayerId: string | null;
   submittedByName: string;
   vodUrl: string;
   imageSha256: string;

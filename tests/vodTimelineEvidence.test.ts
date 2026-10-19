@@ -6,7 +6,7 @@ import evidenceModule from '../desktop/vod-timeline-evidence.cjs';
 import analyzerModule from '../desktop/vod-timeline-analyzer.cjs';
 
 const { aggregateVideoEvidence, parseKillFeedSnapshot, parseUltimateSnapshots } = evidenceModule;
-const { youtubeVideoId, frameDifference, analyzeVodTimeline } = analyzerModule;
+const { youtubeVideoId, frameDifference, scoreboardGeometryScore, analyzeVodTimeline } = analyzerModule;
 const players = [
   { name: 'Alpha', team: 'ours' }, { name: 'Bravo', team: 'ours' }, { name: 'Charlie', team: 'ours' }, { name: 'Delta', team: 'ours' }, { name: 'Echo', team: 'ours' },
   { name: 'EnemyOne', team: 'theirs' }, { name: 'EnemyTwo', team: 'theirs' }, { name: 'EnemyThree', team: 'theirs' }, { name: 'EnemyFour', team: 'theirs' }, { name: 'EnemyFive', team: 'theirs' },
@@ -63,8 +63,15 @@ describe('VOD timeline evidence', () => {
   it('accepts only supported YouTube URL forms and detects changed frames', () => {
     expect(youtubeVideoId('https://youtu.be/abcdefghijk')).toBe('abcdefghijk');
     expect(youtubeVideoId('https://www.youtube.com/watch?v=abcdefghijk')).toBe('abcdefghijk');
+    expect(youtubeVideoId('https://www.youtube.com/live/6sx2Wpl0cHc?feature=share')).toBe('6sx2Wpl0cHc');
     expect(youtubeVideoId('https://youtube.example/watch?v=abcdefghijk')).toBeNull();
     expect(frameDifference(Buffer.from([0, 0, 0]), Buffer.from([255, 0, 0]))).toBe(255);
+  });
+
+  it('ranks repeated scoreboard row geometry above a blank video frame', () => {
+    const width = 480; const height = 270; const blank = Buffer.alloc(width * height * 3, 20); const board = Buffer.from(blank);
+    for (let row = 0; row <= 10; row += 1) { const y = Math.round((321 + row * 48) * height / 1080); for (let x = Math.round(430 * width / 1920); x <= Math.round(1740 * width / 1920); x += 1) for (let channel = 0; channel < 3; channel += 1) board[(y * width + x) * 3 + channel] = 220; }
+    expect(scoreboardGeometryScore(board, width, height)).toBeGreaterThan(scoreboardGeometryScore(blank, width, height) + 20);
   });
 
   it('cancels a long-running analysis before starting external video tools', async () => {

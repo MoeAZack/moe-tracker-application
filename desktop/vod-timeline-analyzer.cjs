@@ -73,13 +73,84 @@ async function downloadYoutube(url, directory, progress, signal) {
   const target = path.join(directory, `${id}.mp4`); const executable = ytDlpPath();
   await new Promise((resolve, reject) => {
     throwIfAborted(signal);
-    const child = spawn(executable, ['--no-playlist', '--newline', '--no-warnings', '--max-filesize', '30G', '--match-filter', 'duration <= 14400', '-f', 'bestvideo[height<=1080]/best[height<=1080]/best', '-o', target, url], { windowsHide: true, stdio: ['ignore', 'pipe', 'pipe'] });
+    const child = spawn(executable, ['--no-playlist', '--newline', '--no-warnings', '--write-info-json', '--max-filesize', '30G', '--match-filter', 'duration <= 14400', '-f', 'bestvideo[height<=1080]/best[height<=1080]/best', '-o', target, url], { windowsHide: true, stdio: ['ignore', 'pipe', 'pipe'] });
     let settled = false; const finish = (callback, value) => { if (settled) return; settled = true; signal?.removeEventListener('abort', onAbort); callback(value); }; const onAbort = () => { child.kill(); finish(reject, abortError(signal)); }; signal?.addEventListener('abort', onAbort, { once: true });
     let output = ''; const update = chunk => { const text = String(chunk); output += text; const matches = [...text.matchAll(/(\d{1,3}(?:\.\d+)?)%/g)]; const percent = matches.length ? Math.min(100, Math.round(Number(matches.at(-1)[1]))) : null; progress?.({ stage: 'download', percent, message: percent === null ? 'Downloading the YouTube VOD locally…' : `Downloading the YouTube VOD locally · ${percent}%` }); };
     child.stdout.on('data', update); child.stderr.on('data', update); child.on('error', error => finish(reject, error)); child.on('close', code => code === 0 ? finish(resolve) : finish(reject, new Error(output.trim().slice(-1000) || 'YouTube could not provide this VOD. Try the original video file.')));
   });
   if (!fs.existsSync(target)) throw new Error('YouTube did not produce a readable local VOD. Try the original video file.');
   progress?.({ stage: 'download', percent: 100, message: 'YouTube VOD is ready for local analysis.' }); return target;
+}
+
+function scoreboardGeometryScore(frame, width, height) {
+  const luminance = (x, y) => { const index = (y * width + x) * 3; return (77 * frame[index] + 150 * frame[index + 1] + 29 * frame[index + 2]) >> 8; };
+  let best = 0;
+  for (let offset = -8; offset <= 8; offset += 2) {
+    let edges = 0; let samples = 0;
+    for (let row = 0; row <= 10; row += 1) {
+      const y = Math.round((321 + offset + row * 48) * height / 1080);
+      if (y < 2 || y + 2 >= height) continue;
+      for (let referenceX = 430; referenceX <= 1740; referenceX += 24) {
+        const x = Math.round(referenceX * width / 1920);
+        edges += Math.abs(luminance(x, y - 1) - luminance(x, y + 1)); samples += 1;
+      }
+    }
+    best = Math.max(best, samples ? edges / samples : 0);
+  }
+  let saturated = 0; let headerSamples = 0;
+  for (let referenceY = 150; referenceY <= 215; referenceY += 8) for (let referenceX = 25; referenceX <= 335; referenceX += 12) {
+    const x = Math.round(referenceX * width / 1920); const y = Math.round(referenceY * height / 1080); const index = (y * width + x) * 3;
+    const high = Math.max(frame[index], frame[index + 1], frame[index + 2]); const low = Math.min(frame[index], frame[index + 1], frame[index + 2]);
+    if (high - low > 70) saturated += 1; headerSamples += 1;
+  }
+  return best + (headerSamples ? saturated / headerSamples * 35 : 0);
+}
+
+async function sampleScoreboardCandidates(file, durationSeconds, progress, signal) {
+  const width = 480; const height = 270; const fps = 1 / 8; const frameBytes = width * height * 3;
+  const child = spawn(ffmpegPath(), ['-hide_banner', '-loglevel', 'error', '-i', file, '-an', '-vf', `fps=${fps},scale=${width}:${height}:flags=fast_bilinear,format=rgb24`, '-f', 'rawvideo', '-pix_fmt', 'rgb24', 'pipe:1'], { windowsHide: true, stdio: ['ignore', 'pipe', 'pipe'] });
+  const onAbort = () => child.kill(); signal?.addEventListener('abort', onAbort, { once: true }); let stderr = ''; let pending = Buffer.alloc(0); let index = 0; const ranked = [];
+  child.stderr.on('data', chunk => { stderr += String(chunk); });
+  for await (const chunk of child.stdout) {
+    pending = Buffer.concat([pending, chunk]);
+    while (pending.length >= frameBytes) {
+      throwIfAborted(signal); const frame = Buffer.from(pending.subarray(0, frameBytes)); pending = pending.subarray(frameBytes);
+      const timestampMs = Math.round(index / fps * 1000); const score = scoreboardGeometryScore(frame, width, height); ranked.push({ timestampMs, score }); index += 1;
+      if (index % 30 === 0) progress?.({ stage: 'discover', percent: Math.min(98, Math.round(timestampMs / 1000 / durationSeconds * 100)), message: 'Finding completed match scoreboards…' });
+    }
+  }
+  const code = await new Promise((resolve, reject) => { child.on('error', reject); child.on('close', resolve); }); signal?.removeEventListener('abort', onAbort); throwIfAborted(signal);
+  if (code !== 0) throw new Error(stderr.trim() || 'FFmpeg could not inspect the VOD for match boundaries.');
+  ranked.sort((a, b) => b.score - a.score); const chosen = [];
+  for (const candidate of ranked) {
+    if (chosen.every(item => Math.abs(item.timestampMs - candidate.timestampMs) >= 90_000)) chosen.push(candidate);
+    if (chosen.length >= 12) break;
+  }
+  return chosen.sort((a, b) => a.timestampMs - b.timestampMs);
+}
+
+async function extractFrame(file, timestampMs, target, signal) {
+  await run(ffmpegPath(), ['-hide_banner', '-loglevel', 'error', '-ss', String(Math.max(0, timestampMs / 1000)), '-i', file, '-frames:v', '1', '-vf', 'scale=1920:1080:flags=lanczos', '-y', target], { signal });
+}
+
+async function sha256File(file) {
+  return new Promise((resolve, reject) => { const hash = crypto.createHash('sha256'); const stream = fs.createReadStream(file); stream.on('data', chunk => hash.update(chunk)); stream.on('error', reject); stream.on('end', () => resolve(hash.digest('hex'))); });
+}
+
+async function discoverVodGames(input, options = {}) {
+  const progress = options.progress; const workRoot = options.workRoot || path.join(require('node:os').tmpdir(), 'moetracker-vod'); await fsp.mkdir(workRoot, { recursive: true }); await ensureDiskSpace(workRoot, options.minimumFreeBytes || MIN_FREE_BYTES);
+  const signal = options.signal; throwIfAborted(signal); const cacheId = crypto.randomUUID(); const directory = path.join(workRoot, `source-${cacheId}`); await fsp.mkdir(directory, { recursive: true });
+  try {
+    const downloaded = !input.localPath; const file = input.localPath ? path.resolve(String(input.localPath)) : await downloadYoutube(input.vodUrl, directory, progress, signal);
+    const probe = await probeVideo(file, signal); const candidates = await sampleScoreboardCandidates(file, probe.durationSeconds, progress, signal); const games = [];
+    for (let index = 0; index < candidates.length; index += 1) {
+      const target = path.join(directory, `scoreboard-${String(index + 1).padStart(2, '0')}.png`); await extractFrame(file, candidates[index].timestampMs, target, signal);
+      games.push({ timestampMs: candidates[index].timestampMs, score: candidates[index].score, mediaType: 'image/png', base64: (await fsp.readFile(target)).toString('base64') });
+      progress?.({ stage: 'discover', percent: Math.round((index + 1) / Math.max(1, candidates.length) * 100), message: `Preparing scoreboard candidates · ${index + 1}/${candidates.length}` });
+    }
+    let uploadDate = null; if (downloaded) { const infoPath = path.join(directory, `${youtubeVideoId(input.vodUrl)}.info.json`); const info = JSON.parse(await fsp.readFile(infoPath, 'utf8').catch(() => '{}')); if (/^\d{8}$/.test(String(info.upload_date || ''))) uploadDate = `${info.upload_date.slice(0, 4)}-${info.upload_date.slice(4, 6)}-${info.upload_date.slice(6, 8)}`; }
+    return { cacheId, directory, file, downloaded, uploadDate, videoId: youtubeVideoId(input.vodUrl), sourceSha256: await sha256File(file), durationMs: probe.durationMs, width: probe.width, height: probe.height, games };
+  } catch (error) { await fsp.rm(directory, { recursive: true, force: true }).catch(() => {}); throw error; }
 }
 
 function frameDifference(left, right) {
@@ -89,25 +160,27 @@ function frameDifference(left, right) {
   return count ? total / count : 0;
 }
 
-async function changedFrames(file, spec, durationSeconds, progress, signal) {
+async function changedFrames(file, spec, durationSeconds, progress, signal, range = {}) {
   throwIfAborted(signal);
   const frameBytes = spec.width * spec.height; const fps = spec.fps; const buckets = new Map(); let previous = null; let pending = Buffer.alloc(0); let index = 0;
   const filter = `fps=${fps},${spec.crop},scale=${spec.width}:${spec.height}:flags=fast_bilinear,format=gray`;
-  const child = spawn(ffmpegPath(), ['-hide_banner', '-loglevel', 'error', '-i', file, '-an', '-vf', filter, '-f', 'rawvideo', '-pix_fmt', 'gray', 'pipe:1'], { windowsHide: true, stdio: ['ignore', 'pipe', 'pipe'] });
+  const startSeconds = Math.max(0, Number(range.startMs || 0) / 1000); const endSeconds = Number(range.endMs) > Number(range.startMs || 0) ? Number(range.endMs) / 1000 : null; const sampledDuration = endSeconds ? endSeconds - startSeconds : durationSeconds;
+  const args = ['-hide_banner', '-loglevel', 'error', ...(startSeconds ? ['-ss', String(startSeconds)] : []), '-i', file, ...(endSeconds ? ['-t', String(sampledDuration)] : []), '-an', '-vf', filter, '-f', 'rawvideo', '-pix_fmt', 'gray', 'pipe:1'];
+  const child = spawn(ffmpegPath(), args, { windowsHide: true, stdio: ['ignore', 'pipe', 'pipe'] });
   const onAbort = () => child.kill(); signal?.addEventListener('abort', onAbort, { once: true });
   let stderr = ''; child.stderr.on('data', chunk => { stderr += String(chunk); });
   for await (const chunk of child.stdout) {
     pending = Buffer.concat([pending, chunk]);
     while (pending.length >= frameBytes) {
       throwIfAborted(signal);
-      const frame = Buffer.from(pending.subarray(0, frameBytes)); pending = pending.subarray(frameBytes); const timestampMs = Math.round(index / fps * 1000); index += 1;
+      const frame = Buffer.from(pending.subarray(0, frameBytes)); pending = pending.subarray(frameBytes); const timestampMs = Math.round(startSeconds * 1000 + index / fps * 1000); index += 1;
       const difference = frameDifference(previous, frame); const changed = difference >= spec.threshold;
       if (changed) {
         const bucket = Math.min(spec.maxCandidates - 1, Math.floor(timestampMs / Math.max(1, durationSeconds * 1000) * spec.maxCandidates)); const existing = buckets.get(bucket);
         if (!existing || difference > existing.difference) buckets.set(bucket, { timestampMs, pixels: frame, difference });
       }
       previous = frame;
-      if (index % 100 === 0) progress?.({ stage: 'sampling', percent: Math.min(99, Math.round(timestampMs / 1000 / durationSeconds * 100)), message: `Sampling ${spec.label} across the timeline…` });
+      if (index % 100 === 0) progress?.({ stage: 'sampling', percent: Math.min(99, Math.round((timestampMs / 1000 - startSeconds) / Math.max(1, sampledDuration) * 100)), message: `Sampling ${spec.label} across the selected game…` });
     }
   }
   const code = await new Promise((resolve, reject) => { child.on('error', reject); child.on('close', resolve); }); signal?.removeEventListener('abort', onAbort); throwIfAborted(signal);
@@ -134,7 +207,7 @@ async function analyzeVodTimeline(input, options = {}) {
   const controller = new AbortController(); const externalAbort = () => controller.abort(options.signal?.reason || new Error('VOD analysis was cancelled.'));
   if (options.signal?.aborted) externalAbort(); else options.signal?.addEventListener('abort', externalAbort, { once: true });
   const timeout = setTimeout(() => controller.abort(new Error('VOD analysis exceeded its safe processing time. Retry with the original local video or a shorter recording.')), options.timeoutMs || DEFAULT_JOB_TIMEOUT_MS);
-  const signal = controller.signal; const jobDirectory = path.join(workRoot, crypto.randomUUID()); await fsp.mkdir(jobDirectory, { recursive: true }); let file;
+  const signal = controller.signal; const jobDirectory = path.join(workRoot, crypto.randomUUID()); await fsp.mkdir(jobDirectory, { recursive: true }); let file; const downloaded = !input.localPath;
   try {
     throwIfAborted(signal);
     if (input.localPath) { file = path.resolve(String(input.localPath)); if (!fs.existsSync(file)) throw new Error('The selected local VOD no longer exists.'); }
@@ -146,7 +219,7 @@ async function analyzeVodTimeline(input, options = {}) {
       { key: 'ultimateSnapshots', label: 'ultimate state', fps: .5, crop: 'crop=iw*0.28:ih*0.25:iw*0.36:ih*0.72', width: 520, height: 260, threshold: .15, maxCandidates: 1200 },
     ];
     const candidates = {};
-    for (const spec of specs) candidates[spec.key] = await changedFrames(file, spec, probe.durationSeconds, progress, signal);
+    for (const spec of specs) candidates[spec.key] = await changedFrames(file, spec, probe.durationSeconds, progress, signal, { startMs: input.startMs, endMs: input.endMs });
     const total = specs.reduce((sum, spec) => sum + candidates[spec.key].length, 0); progress?.({ stage: 'ocr', percent: 0, message: `Reading ${total} changed HUD frames locally…` });
     const { createWorker, PSM } = require('tesseract.js');
     const langPath = path.dirname(unpackedExecutable(require.resolve('@tesseract.js-data/eng/4.0.0/eng.traineddata.gz')));
@@ -154,10 +227,11 @@ async function analyzeVodTimeline(input, options = {}) {
     let offset = 0; const snapshots = {};
     try { for (const spec of specs) { snapshots[spec.key] = await recognizeFrames(candidates[spec.key], spec, worker, progress, offset, total, signal); offset += candidates[spec.key].length; } }
     finally { await worker.terminate(); }
-    const evidence = aggregateVideoEvidence({ players: input.players || [], povPlayerName: input.povPlayerName || null, durationMs: probe.durationMs, ...snapshots });
-    evidence.source = { kind: downloaded ? 'youtube' : 'local-file', videoId: youtubeVideoId(input.vodUrl), sha256: await new Promise((resolve, reject) => { const hash = crypto.createHash('sha256'); const stream = fs.createReadStream(file); stream.on('data', chunk => hash.update(chunk)); stream.on('error', reject); stream.on('end', () => resolve(hash.digest('hex'))); }), width: probe.width, height: probe.height, durationMs: probe.durationMs, analyzedAt: new Date().toISOString() };
+    const rangeDurationMs = Number(input.endMs) > Number(input.startMs || 0) ? Number(input.endMs) - Number(input.startMs || 0) : probe.durationMs;
+    const evidence = aggregateVideoEvidence({ players: input.players || [], povPlayerName: input.povPlayerName || null, durationMs: rangeDurationMs, ...snapshots });
+    evidence.source = { kind: input.sourceKind || (downloaded ? 'youtube' : 'local-file'), videoId: input.videoId || youtubeVideoId(input.vodUrl), sha256: input.sourceSha256 || await sha256File(file), width: probe.width, height: probe.height, durationMs: probe.durationMs, analyzedAt: new Date().toISOString() };
     progress?.({ stage: 'complete', percent: 100, message: `Timeline scan complete · ${evidence.observations.length} supported observations.` }); return evidence;
   } finally { clearTimeout(timeout); options.signal?.removeEventListener('abort', externalAbort); await fsp.rm(jobDirectory, { recursive: true, force: true }).catch(() => {}); }
 }
 
-module.exports = { youtubeVideoId, probeVideo, analyzeVodTimeline, changedFrames, frameDifference, ensureDiskSpace };
+module.exports = { youtubeVideoId, probeVideo, analyzeVodTimeline, discoverVodGames, changedFrames, frameDifference, ensureDiskSpace, scoreboardGeometryScore };

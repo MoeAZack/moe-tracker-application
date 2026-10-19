@@ -204,6 +204,7 @@ export const vodSubmissionSchema = z.object({
   imageSha256: z.string().regex(/^[a-f0-9]{64}$/),
   matchId: z.string().trim().max(200).optional(),
   playerId: rosterId.optional(),
+  coachTeamEvidence: z.boolean().optional(),
   date: z.string().regex(/^\d{4}-\d{2}-\d{2}$/),
   map: z.string().trim().max(100).nullable(),
   opponent: z.string().trim().max(160).nullable(),
