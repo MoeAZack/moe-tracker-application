@@ -6,7 +6,7 @@ import evidenceModule from '../desktop/vod-timeline-evidence.cjs';
 import analyzerModule from '../desktop/vod-timeline-analyzer.cjs';
 
 const { aggregateVideoEvidence, parseKillFeedSnapshot, parseUltimateSnapshots } = evidenceModule;
-const { youtubeVideoId, frameDifference, scoreboardGeometryScore, agentSelectGeometryScore, chooseGameBoundaries, inferPovPlayer, analyzeVodTimeline } = analyzerModule;
+const { normalizeYoutubeUrl, youtubeVideoId, frameDifference, scoreboardGeometryScore, agentSelectGeometryScore, chooseGameBoundaries, inferPovPlayer, analyzeVodTimeline } = analyzerModule;
 const players = [
   { name: 'Alpha', team: 'ours' }, { name: 'Bravo', team: 'ours' }, { name: 'Charlie', team: 'ours' }, { name: 'Delta', team: 'ours' }, { name: 'Echo', team: 'ours' },
   { name: 'EnemyOne', team: 'theirs' }, { name: 'EnemyTwo', team: 'theirs' }, { name: 'EnemyThree', team: 'theirs' }, { name: 'EnemyFour', team: 'theirs' }, { name: 'EnemyFive', team: 'theirs' },
@@ -64,6 +64,11 @@ describe('VOD timeline evidence', () => {
     expect(youtubeVideoId('https://youtu.be/abcdefghijk')).toBe('abcdefghijk');
     expect(youtubeVideoId('https://www.youtube.com/watch?v=abcdefghijk')).toBe('abcdefghijk');
     expect(youtubeVideoId('https://www.youtube.com/live/6sx2Wpl0cHc?feature=share')).toBe('6sx2Wpl0cHc');
+    expect(youtubeVideoId('youtube.com/live/6sx2Wpl0cHc?feature=share')).toBe('6sx2Wpl0cHc');
+    expect(youtubeVideoId('https://www.youtube.com/watch?v=-rYGPdX\\_NNU')).toBe('-rYGPdX_NNU');
+    expect(youtubeVideoId('[player VOD](https://www.youtube.com/watch?v=-rYGPdX_NNU)')).toBe('-rYGPdX_NNU');
+    expect(normalizeYoutubeUrl('<https://youtu.be/abcdefghijk?feature=share>')).toBe('https://youtu.be/abcdefghijk?feature=share');
+    expect(normalizeYoutubeUrl('youtube.com/live/6sx2Wpl0cHc?feature=share')).toBe('https://youtube.com/live/6sx2Wpl0cHc?feature=share');
     expect(youtubeVideoId('https://youtube.example/watch?v=abcdefghijk')).toBeNull();
     expect(frameDifference(Buffer.from([0, 0, 0]), Buffer.from([255, 0, 0]))).toBe(255);
   });

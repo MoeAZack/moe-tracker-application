@@ -34,9 +34,16 @@ function ffmpegPath() { return unpackedExecutable(require('ffmpeg-static')); }
 function ffprobePath() { return unpackedExecutable(require('ffprobe-static').path); }
 function ytDlpPath() { return unpackedExecutable(path.join(path.dirname(require.resolve('youtube-dl-exec/package.json')), 'bin', process.platform === 'win32' ? 'yt-dlp.exe' : 'yt-dlp')); }
 
+function normalizeYoutubeUrl(input) {
+  let value = String(input || '').trim().replace(/&amp;/gi, '&').replace(/\\([_?&=#-])/g, '$1');
+  const markdown = value.match(/\]\(\s*(https?:\/\/[^)\s]+)\s*\)/i); if (markdown) value = markdown[1];
+  else { const plain = value.match(/https?:\/\/[^\s<>\])]+/i); if (plain) value = plain[0]; else { const bare = value.match(/(?:www\.|m\.)?(?:youtube\.com|youtu\.be)\/[^\s<>\])]+/i); if (bare) value = `https://${bare[0]}`; } }
+  return value.replace(/^[<({\[]+|[>)}\],.;]+$/g, '');
+}
+
 function youtubeVideoId(input) {
   try {
-    const url = new URL(String(input || '').trim());
+    const url = new URL(normalizeYoutubeUrl(input));
     const host = url.hostname.toLowerCase().replace(/^www\./, '');
     if (host === 'youtu.be') return /^[A-Za-z0-9_-]{6,20}$/.test(url.pathname.slice(1)) ? url.pathname.slice(1) : null;
     if (!['youtube.com', 'm.youtube.com'].includes(host)) return null;
@@ -68,12 +75,12 @@ async function probeVideo(file, signal) {
 }
 
 async function downloadYoutube(url, directory, progress, signal) {
-  const id = youtubeVideoId(url); if (!id) throw new Error('Only standard YouTube, Shorts, Live, and youtu.be links can be scanned automatically.');
+  const normalizedUrl = normalizeYoutubeUrl(url); const id = youtubeVideoId(normalizedUrl); if (!id) throw new Error('Only standard YouTube, Shorts, Live, and youtu.be links can be scanned automatically.');
   progress?.({ stage: 'download', percent: 1, message: 'Preparing the YouTube VOD locally…' });
   const target = path.join(directory, `${id}.mp4`); const executable = ytDlpPath();
   await new Promise((resolve, reject) => {
     throwIfAborted(signal);
-    const child = spawn(executable, ['--no-playlist', '--newline', '--no-warnings', '--extractor-args', 'youtube:player_client=web,android', '--write-info-json', '--max-filesize', '30G', '--match-filter', 'duration <= 14400', '-f', 'bestvideo[height<=1080]/best[height<=1080]/best', '-o', target, '--', url], { windowsHide: true, stdio: ['ignore', 'pipe', 'pipe'] });
+    const child = spawn(executable, ['--no-playlist', '--newline', '--no-warnings', '--extractor-args', 'youtube:player_client=web,android', '--write-info-json', '--max-filesize', '30G', '--match-filter', 'duration <= 14400', '-f', 'bestvideo[height<=1080]/best[height<=1080]/best', '-o', target, '--', normalizedUrl], { windowsHide: true, stdio: ['ignore', 'pipe', 'pipe'] });
     let settled = false; const finish = (callback, value) => { if (settled) return; settled = true; signal?.removeEventListener('abort', onAbort); callback(value); }; const onAbort = () => { child.kill(); finish(reject, abortError(signal)); }; signal?.addEventListener('abort', onAbort, { once: true });
     let output = ''; const update = chunk => { const text = String(chunk); output += text; const matches = [...text.matchAll(/(\d{1,3}(?:\.\d+)?)%/g)]; const percent = matches.length ? Math.min(100, Math.round(Number(matches.at(-1)[1]))) : null; progress?.({ stage: 'download', percent, message: percent === null ? 'Downloading the YouTube VOD locally…' : `Downloading the YouTube VOD locally · ${percent}%` }); };
     child.stdout.on('data', update); child.stderr.on('data', update); child.on('error', error => finish(reject, error)); child.on('close', code => code === 0 ? finish(resolve) : finish(reject, new Error(output.trim().slice(-1000) || 'YouTube could not provide this VOD. Try the original video file.')));
@@ -193,7 +200,7 @@ async function discoverVodGames(input, options = {}) {
     }
     const recognizedBoundaries = await recognizeBoundaryMaps(boundaryCandidates, input.mapNames, signal);
     const boundaries = recognizedBoundaries.map(({ path: _path, ...item }) => item); const publicGames = games.map(({ path: _path, ...item }) => item);
-    return { cacheId, directory, file, downloaded, uploadDate, uploader, videoId: youtubeVideoId(input.vodUrl), sourceSha256: await sha256File(file), durationMs: probe.durationMs, width: probe.width, height: probe.height, games: publicGames, boundaries };
+    return { cacheId, directory, file, downloaded, uploadDate, uploader, vodUrl: input.vodUrl ? normalizeYoutubeUrl(input.vodUrl) : null, videoId: youtubeVideoId(input.vodUrl), sourceSha256: await sha256File(file), durationMs: probe.durationMs, width: probe.width, height: probe.height, games: publicGames, boundaries };
   } catch (error) { await fsp.rm(directory, { recursive: true, force: true }).catch(() => {}); throw error; }
 }
 
@@ -281,7 +288,7 @@ async function analyzeVodTimeline(input, options = {}) {
     try { for (const spec of specs) { snapshots[spec.key] = await recognizeFrames(candidates[spec.key], spec, worker, progress, offset, total, signal); offset += candidates[spec.key].length; } }
     finally { await worker.terminate(); }
     const rangeDurationMs = Number(input.endMs) > Number(input.startMs || 0) ? Number(input.endMs) - Number(input.startMs || 0) : probe.durationMs;
-    const inferredPov = input.povPlayerName || inferPovPlayer(snapshots.povSnapshots || [], input.players || []);
+    const inferredPov = input.observerMode ? null : (input.povPlayerName || inferPovPlayer(snapshots.povSnapshots || [], input.players || []));
     const evidence = aggregateVideoEvidence({ players: input.players || [], povPlayerName: inferredPov || null, durationMs: rangeDurationMs, killFeedSnapshots: snapshots.killFeedSnapshots, objectiveSnapshots: snapshots.objectiveSnapshots, ultimateSnapshots: snapshots.ultimateSnapshots });
     evidence.limitations.push(inferredPov ? `POV identity used for personal orb and ultimate evidence: ${inferredPov}.` : 'No single player POV identity was proven; personal orb and ultimate totals remain unknown.');
     evidence.source = { kind: input.sourceKind || (downloaded ? 'youtube' : 'local-file'), videoId: input.videoId || youtubeVideoId(input.vodUrl), sha256: input.sourceSha256 || await sha256File(file), width: probe.width, height: probe.height, durationMs: probe.durationMs, analyzedAt: new Date().toISOString() };
@@ -289,4 +296,4 @@ async function analyzeVodTimeline(input, options = {}) {
   } finally { clearTimeout(timeout); options.signal?.removeEventListener('abort', externalAbort); await fsp.rm(jobDirectory, { recursive: true, force: true }).catch(() => {}); }
 }
 
-module.exports = { youtubeVideoId, probeVideo, analyzeVodTimeline, discoverVodGames, changedFrames, frameDifference, ensureDiskSpace, scoreboardGeometryScore, agentSelectGeometryScore, chooseGameBoundaries, inferPovPlayer };
+module.exports = { normalizeYoutubeUrl, youtubeVideoId, probeVideo, analyzeVodTimeline, discoverVodGames, changedFrames, frameDifference, ensureDiskSpace, scoreboardGeometryScore, agentSelectGeometryScore, chooseGameBoundaries, inferPovPlayer };

@@ -623,7 +623,7 @@ handleTrusted('desktop:analyze-vod', async (event, input = {}) => {
   const jobKey = event.sender.id; if (activeVodAnalyses.has(jobKey)) throw new Error('A VOD analysis is already running in this window.');
   const controller = new AbortController(); activeVodAnalyses.set(jobKey, controller);
   try {
-    return await analyzeVodTimeline({ vodUrl: String(input.vodUrl || '').trim(), localPath, players, povPlayerName: String(input.povPlayerName || '').trim() || null, startMs: Number(input.startMs) || 0, endMs: Number(input.endMs) || null, sourceKind: cached?.downloaded ? 'youtube' : undefined, videoId: cached?.videoId || null, sourceSha256: cached?.sourceSha256 || null }, { progress, signal: controller.signal, workRoot: path.join(runtime.paths.local, 'Vod Analysis') });
+    return await analyzeVodTimeline({ vodUrl: String(input.vodUrl || '').trim(), localPath, players, povPlayerName: String(input.povPlayerName || '').trim() || null, observerMode: input.observerMode === true, startMs: Number(input.startMs) || 0, endMs: Number(input.endMs) || null, sourceKind: cached?.downloaded ? 'youtube' : undefined, videoId: cached?.videoId || null, sourceSha256: cached?.sourceSha256 || null }, { progress, signal: controller.signal, workRoot: path.join(runtime.paths.local, 'Vod Analysis') });
   } finally { activeVodAnalyses.delete(jobKey); if (localPath && !cached) approvedVodPaths.delete(localPath); }
 });
 handleTrusted('desktop:release-vod-analysis', async (event, cacheId) => {
