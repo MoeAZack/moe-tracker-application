@@ -149,7 +149,7 @@ export default function TeamCompositions({ data, theme }: ComponentProps) {
             <h4 className="font-black text-sm uppercase tracking-wide">Compositions by Map</h4>
           </div>
 
-          <div className="space-y-4 max-h-[500px] overflow-y-auto pr-1">
+          <div className="space-y-4">
             {Object.entries(mapCompositions).map(([mapName, comps]) => {
               const compEntries = Object.entries(comps);
               return (
