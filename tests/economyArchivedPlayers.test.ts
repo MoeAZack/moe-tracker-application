@@ -37,6 +37,10 @@ describe('economy weapon round outcomes', () => {
     expect(buildWeaponRoundOutcomes([{ displayName: 'Alpha', weapons: [{ weapon: 'Bandit', rounds: 4, wins: 3, kills: 4, deaths: 2 }] }])[0]).toMatchObject({ weapon: 'Bandit', rounds: 4, wins: 3 });
   });
 
+  it('retains Warden observations from existing and new captures', () => {
+    expect(buildWeaponRoundOutcomes([{ displayName: 'Alpha', weapons: [{ weapon: 'Warden', rounds: 7, wins: 4, kills: 8, deaths: 5 }] }])[0]).toMatchObject({ weapon: 'Warden', rounds: 7, wins: 4, losses: 3 });
+  });
+
   it('separates weapon choices by pistol, post-pistol, bonus, mid and full-buy context', () => {
     const evidence = (weapon: string, loadout: number) => ({ reviewStatus: 'confirmed', ourAverageLoadout: loadout, players: [{ playerId: 'p1', displayName: 'Alpha', team: 'ours', equippedWeapon: weapon, survived: true }], eventsComplete: true, events: [] });
     const groups = buildWeaponRoundOutcomesByEconomy([

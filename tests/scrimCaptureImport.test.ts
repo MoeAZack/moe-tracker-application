@@ -32,4 +32,8 @@ describe('scrim capture team inference', () => {
     expect(classifyTeamEquipment(['Vandal', 'Phantom', 'Bandit', 'Ghost', 'Sheriff'].map(equippedWeapon => ({ team: 'ours', equippedWeapon })), 'ours')).toBe('full');
     expect(classifyTeamEquipment(['Classic', 'Ghost', 'Sheriff', 'Ghost', 'Classic'].map(equippedWeapon => ({ team: 'ours', equippedWeapon })), 'ours')).toBe('eco');
   });
+
+  it('treats the Warden as a full-buy rifle', () => {
+    expect(classifyTeamEquipment(['Warden', 'Warden', 'Vandal', 'Ghost', 'Sheriff'].map(equippedWeapon => ({ team: 'ours', equippedWeapon })), 'ours')).toBe('full');
+  });
 });
