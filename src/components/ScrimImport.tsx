@@ -16,6 +16,7 @@ import { buildOpponentHistory } from '../../lib/opponentHistory';
 import { getCachedRecognitions, putCachedRecognitions, sha256Base64 } from '../utils/ocrRecognitionCache';
 import { correctionSamplesFromAcceptedEdit, OCR_LEARNING_VERSION, rosterWithLearnedAliases } from '../../lib/ocrLearning';
 import { getOcrLearningState, recordOcrCorrections, recordOcrSessionOutcome } from '../utils/ocrLearningStore';
+import { deriveRoundAdvantage } from '../../lib/roundAdvantage';
 
 interface Props {
   data: TrackerData;
@@ -271,7 +272,7 @@ export default function ScrimImport({ data, theme, onSaveMatch, onSaveRounds, on
           const label = equipment !== 'unknown' ? equipment : classifyAverageLoadout(value);
           return label === 'unknown' ? '' : label[0].toUpperCase() + label.slice(1);
         };
-        const roundRows = rounds.map((r) => ({ roundNo: r.roundNo, side: sideForRound(r.roundNo, meta.firstHalf), result: r.result, winBy: r.winBy || '', buy: economyLabel(r.screenshotEvidence?.ourAverageLoadout, r.screenshotEvidence, 'ours'), enemyBuy: economyLabel(r.screenshotEvidence?.enemyAverageLoadout, r.screenshotEvidence, 'theirs'), ...(r.screenshotEvidence ? { screenshotEvidence: r.screenshotEvidence } : {}) }));
+        const roundRows = rounds.map((r) => ({ roundNo: r.roundNo, side: sideForRound(r.roundNo, meta.firstHalf), result: r.result, winBy: r.winBy || '', buy: economyLabel(r.screenshotEvidence?.ourAverageLoadout, r.screenshotEvidence, 'ours'), enemyBuy: economyLabel(r.screenshotEvidence?.enemyAverageLoadout, r.screenshotEvidence, 'theirs'), ...(r.screenshotEvidence ? { screenshotEvidence: r.screenshotEvidence, advantageEvidence: deriveRoundAdvantage({ source: 'screenshot', complete: r.screenshotEvidence.reviewStatus === 'confirmed' && r.screenshotEvidence.eventsComplete === true, winner: r.result, events: (r.screenshotEvidence.events || []).map((event: any) => ({ sequence: event.sequence, victimTeam: event.victimTeam })) }) } : {}) }));
         await onSaveRounds(saved.id, roundRows);
       }
       if (pendingCaptureId && window.moeDesktop) await window.moeDesktop.completeScoreboard(pendingCaptureId);

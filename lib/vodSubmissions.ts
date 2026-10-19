@@ -1,5 +1,6 @@
 import type { Match, PlayerStats, VodSubmission, VodSubmissionPlayer, VodTimelineEvidence } from '../src/types';
 import evidenceModule from '../desktop/vod-timeline-evidence.cjs';
+import { deriveRoundAdvantage } from './roundAdvantage';
 
 const { fuseVodEvidence } = evidenceModule as { fuseVodEvidence: (items: VodTimelineEvidence[]) => VodTimelineEvidence | null };
 
@@ -160,6 +161,23 @@ export function integrateVodSubmission(db: any, input: SubmissionInput, actorNam
   if (duplicate) Object.assign(duplicate, { timelineEvidence: submission.timelineEvidence, integration: submission.integration, integratedAt: now });
   else db.vodSubmissions.unshift(submission);
   const fused = fuseVodEvidence((db.vodSubmissions as VodSubmission[]).filter(item => item.linkedMatchId === match!.id && item.timelineEvidence).map(item => item.timelineEvidence!));
-  if (fused) (match as any).vodTimelineEvidence = fused;
+  if (fused) {
+    (match as any).vodTimelineEvidence = fused;
+    db.rounds ||= [];
+    const submissionIds = (db.vodSubmissions as VodSubmission[]).filter(item => item.linkedMatchId === match!.id && item.timelineEvidence).map(item => item.id);
+    const completeEliminations = fused.coverage.signals.eliminations === 'complete';
+    for (const observedRound of fused.rounds || []) {
+      const events = (observedRound.events || []).filter((event: any) => event.kind === 'elimination');
+      const advantageEvidence = deriveRoundAdvantage({ source: 'vod', complete: completeEliminations && events.length > 0, winner: 'unknown', events: events.map((event: any, index: number) => ({ sequence: index + 1, victimTeam: event.victimTeam })) });
+      const existing = db.rounds.find((row: any) => row.matchId === match!.id && row.roundNo === observedRound.roundNumber);
+      const automaticResult = advantageEvidence.roundOutcome === 'converted' ? 'W' : advantageEvidence.roundOutcome === 'lost' ? 'L' : '';
+      const vodEvidence = { sourceSubmissionIds: submissionIds, roundNumber: observedRound.roundNumber, observations: structuredClone(observedRound.events || []), updatedAt: now };
+      if (existing) {
+        existing.vodEvidence = vodEvidence;
+        if ((!existing.advantageEvidence || existing.advantageEvidence.status !== 'complete') && advantageEvidence.status === 'complete') existing.advantageEvidence = advantageEvidence;
+        if (!existing.result && automaticResult) existing.result = automaticResult;
+      } else db.rounds.push({ id: `vod:${match!.id}:round:${observedRound.roundNumber}`, matchId: match!.id, roundNo: observedRound.roundNumber, side: '', result: automaticResult, winBy: '', advantageEvidence, vodEvidence, sourceMetadata: { method: 'vod-submission', capturedAt: now, provider: 'local-ocr', externalId: ids.submissionId } });
+    }
+  }
   return duplicate || submission;
 }

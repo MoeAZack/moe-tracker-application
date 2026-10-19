@@ -284,17 +284,19 @@ export default function MapBestStats({ data, evidenceData = data, theme, onUpser
       return equipment !== 'unknown' ? equipment : classifyAverageLoadout(team === 'ours' ? evidence.ourAverageLoadout : evidence.enemyAverageLoadout);
     };
 
-    const lostTwoPlayerAdvantage = (round: any) => {
+    const lostAdvantageLabel = (round: any) => {
+      const canonical = (round.advantageEvidence?.states || []).filter((state: any) => state.outcome === 'lost').sort((a: any, b: any) => b.differential - a.differential || b.oursAlive - a.oursAlive)[0];
+      if (canonical) return `Lost ${canonical.label} player advantage`;
       const evidence = round.screenshotEvidence;
       const events = [...(evidence?.events || [])].sort((a: any, b: any) => a.sequence - b.sequence);
-      if (evidence?.reviewStatus !== 'confirmed' || evidence?.eventsComplete !== true || !events.length || events.some((event: any, index: number) => event.sequence !== index + 1)) return false;
+      if (evidence?.reviewStatus !== 'confirmed' || evidence?.eventsComplete !== true || !events.length || events.some((event: any, index: number) => event.sequence !== index + 1)) return null;
       let ours = 5, theirs = 5, peak = 0;
       for (const event of events) {
         if (event.victimTeam === 'ours') ours = Math.max(0, ours - 1);
         if (event.victimTeam === 'theirs') theirs = Math.max(0, theirs - 1);
         peak = Math.max(peak, ours - theirs);
       }
-      return peak >= 2;
+      return peak >= 2 ? 'Lost 2+ player advantage' : null;
     };
 
     allRounds.forEach(r => {
@@ -347,9 +349,7 @@ export default function MapBestStats({ data, evidenceData = data, theme, onUpser
         const lostPostPistol = pistolRound !== null && knownResult(numberedByMatch.get(r.matchId)?.get(pistolRound)?.result) === 'win';
         const reason = ours === 'full' && (theirs === 'eco' || theirs === 'low') ? 'Anti-eco loss'
           : lostPostPistol ? 'Failed post-pistol conversion'
-            : lostTwoPlayerAdvantage(r) ? 'Lost 2+ player advantage'
-              : ours === 'full' ? 'Full-buy loss'
-                : null;
+            : lostAdvantageLabel(r) || (ours === 'full' ? 'Full-buy loss' : null);
         if (reason) {
           const mapRow = mapThrows[match.map] || (mapThrows[match.map] = { totalThrows: 0, evidenceLosses: 0, reasons: {}, players: {} });
           mapRow.evidenceLosses += 1;

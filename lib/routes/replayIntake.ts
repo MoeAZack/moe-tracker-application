@@ -21,6 +21,7 @@ import { clientIp, requestRateLimit } from '../utils';
 import { historicalPlayerLabel, mergeAcceptedPlayerStat, preserveIdentitySnapshot } from '../identitySnapshot';
 import { replayScreenshotReconciliation } from '../ocrLearning';
 import { confusableCaptureKey, normalizeCaptureName } from '../scrimCaptureImport';
+import { deriveRoundAdvantage } from '../roundAdvantage';
 
 const REPLAY_TYPE = 'application/vnd.valorant.replay';
 const MAX_REPLAY_BYTES = Number(process.env.REPLAY_MAX_BYTES || 2 * 1024 * 1024 * 1024);
@@ -322,6 +323,7 @@ function acceptReviewIntoEngines(db: any, store: ReplayStore, job: ReplayParserJ
     const clutch = Array.isArray(round.derived?.clutches) ? round.derived.clutches.find((item: any) => displayNames.has(item.playerId)) : null;
     const existing = (db.rounds || []).find((item: any) => item.matchId === review.matchId && item.roundNo === round.roundNumber) || {};
     const corrected = correctedFields(existing); const replaySide = side === 'attack' ? 'Attack' : side === 'defense' ? 'Defense' : null;
+    const advantageEvidence = deriveRoundAdvantage({ source: 'replay', complete: Array.isArray(round.derived?.multikills), winner: round.winnerTeamId ? (round.winnerTeamId === review.teamId ? 'ours' : 'theirs') : 'unknown', events: (round.events || []).filter((event: any) => event.kind === 'player-elimination').map((event: any, index: number) => ({ sequence: index + 1, victimTeam: rawRows.get(event.victimPlayerId)?.teamId === review.teamId ? 'ours' : rawRows.get(event.victimPlayerId)?.teamId ? 'theirs' : null })) });
     const replayRound = { side: replaySide, result: round.winnerTeamId ? (round.winnerTeamId === review.teamId ? 'W' : 'L') : null, winBy: round.endReason || null,
       firstKillBy: opening.status === 'resolved' ? displayNames.get(opening.firstKillPlayerId) || opening.firstKillPlayerId || null : null,
       firstDeathBy: opening.status === 'resolved' ? displayNames.get(opening.firstDeathPlayerId) || opening.firstDeathPlayerId || null : null };
@@ -336,6 +338,7 @@ function acceptReviewIntoEngines(db: any, store: ReplayStore, job: ReplayParserJ
       clutchResult: mergeVerifiedField(existing, 'clutchResult', clutch?.result === 'won' ? 'W' : clutch?.result === 'lost' ? 'L' : null, corrected),
       sourceMetadata: { method: 'provider-import', capturedAt: acceptedAt, provider: 'vrfkit', externalId: review.sha256 },
       replayEvidence: { tradeOpportunities: round.derived?.tradeOpportunities ?? null, successfulTrades: round.derived?.successfulTrades ?? null, tacticalAssessment: 'unreviewed' },
+      advantageEvidence,
       evidenceReconciliation: replayScreenshotReconciliation(existing, replayRound, acceptedAt),
       corrections: existing.corrections || [],
     };

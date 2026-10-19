@@ -2,6 +2,7 @@ import type { TrackerData } from '../src/types';
 import { autonomousCaptureDecision } from './ocrAutonomy';
 import { classifyAverageLoadout, classifyTeamEquipment } from './scrimRoundAnalytics';
 import { suggestOpponentFromEnemyRoster } from './ocrLearning';
+import { deriveRoundAdvantage } from './roundAdvantage';
 
 const numberOrNull = (value: unknown) => value === null || value === undefined || value === '' || !Number.isFinite(Number(value)) ? null : Number(value);
 
@@ -61,6 +62,6 @@ export function buildAutomaticCaptureImport(extracted: any, data: TrackerData, c
     const label = equipment !== 'unknown' ? equipment : classifyAverageLoadout(value);
     return label === 'unknown' ? '' : label[0].toUpperCase() + label.slice(1);
   };
-  const roundRows = rounds.map(round => ({ roundNo: round.roundNo, side: sideForRound(round.roundNo, firstHalf), result: round.result, winBy: round.winBy || '', buy: economyLabel(round.screenshotEvidence?.ourAverageLoadout, round.screenshotEvidence, 'ours'), enemyBuy: economyLabel(round.screenshotEvidence?.enemyAverageLoadout, round.screenshotEvidence, 'theirs'), screenshotEvidence: round.screenshotEvidence }));
+  const roundRows = rounds.map(round => ({ roundNo: round.roundNo, side: sideForRound(round.roundNo, firstHalf), result: round.result, winBy: round.winBy || '', buy: economyLabel(round.screenshotEvidence?.ourAverageLoadout, round.screenshotEvidence, 'ours'), enemyBuy: economyLabel(round.screenshotEvidence?.enemyAverageLoadout, round.screenshotEvidence, 'theirs'), screenshotEvidence: round.screenshotEvidence, advantageEvidence: deriveRoundAdvantage({ source: 'screenshot', complete: round.screenshotEvidence?.reviewStatus === 'confirmed' && round.screenshotEvidence?.eventsComplete === true, winner: round.result, events: (round.screenshotEvidence?.events || []).map((event: any) => ({ sequence: event.sequence, victimTeam: event.victimTeam })) }) }));
   return { decision, payload: { match, stats, roundRows } };
 }

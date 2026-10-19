@@ -71,4 +71,16 @@ describe('player VOD submission integration', () => {
     const upgraded = integrateVodSubmission(db, { ...input, timelineEvidence: timeline }, 'caelia', { ...ids, submissionId: 'should-not-be-used' }, '2026-10-18T14:10:00Z');
     expect(upgraded.id).toBe(first.id); expect(upgraded.timelineEvidence).toBeTruthy(); expect(db.vodSubmissions).toHaveLength(1);
   });
+
+  it('materializes accepted v2 VOD rounds and exact lost advantages without overwriting coach results', () => {
+    const db = fixture(); db.rounds = [{ id: 'coach-r1', matchId: 'm1', roundNo: 1, side: 'Attack', result: 'W' }];
+    const lostEvents = [
+      ['theirs'], ['theirs'], ['ours'], ['ours'], ['theirs'], ['theirs'], ['ours'], ['ours'], ['ours'],
+    ].map(([victimTeam], index) => ({ id: `e${index}`, kind: 'elimination', timestampMs: 1_000 + index * 1_000, grade: 'video-observation', killer: `killer-${index}`, victim: `victim-${index}`, victimTeam }));
+    const timeline: any = { schema: 'moetracker.vod-timeline-evidence/v2', grade: 'video-observation', source: { kind: 'youtube', sha256: 'b'.repeat(64), width: 1920, height: 1080, durationMs: 60_000, analyzedAt: '2026-10-18T14:00:00Z' }, coverage: { durationMs: 60_000, killFeedSnapshots: 20, objectiveSnapshots: 0, ultimateSnapshots: 0, resolvedEliminations: 18, inferredRoundGroups: 2, signals: { eliminations: 'complete', trades: 'partial', kast: 'partial' } }, observations: lostEvents, rounds: [{ roundNumber: 1, startedAtMs: 1_000, endedAtMs: 20_000, events: lostEvents }, { roundNumber: 2, startedAtMs: 30_000, endedAtMs: 50_000, events: lostEvents }], playerMetrics: [], throwCandidates: [], limitations: [] };
+    integrateVodSubmission(db, { ...input, matchId: 'm1', timelineEvidence: timeline }, 'caelia', ids, '2026-10-18T14:00:00Z');
+    expect(db.rounds.find((round: any) => round.roundNo === 1)).toMatchObject({ id: 'coach-r1', result: 'W', advantageEvidence: { source: 'vod', roundOutcome: 'lost' } });
+    expect(db.rounds.find((round: any) => round.roundNo === 2)).toMatchObject({ result: 'L', advantageEvidence: { states: expect.arrayContaining([expect.objectContaining({ label: '5v3', outcome: 'lost' }), expect.objectContaining({ label: '3v1', outcome: 'lost' }), expect.objectContaining({ label: '2v1', outcome: 'lost' })]) } });
+    expect(db.matches[0].vodTimelineEvidence.fusion.sourceCount).toBe(1);
+  });
 });
