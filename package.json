@@ -1,7 +1,7 @@
 {
   "name": "moe-tracker-application",
   "private": true,
-  "version": "0.1.71",
+  "version": "0.1.72",
   "description": "Offline-first desktop replay analysis and team statistics for VALORANT practice",
   "author": "MoeAZack",
   "main": "desktop/main.cjs",

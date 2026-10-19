@@ -1,150 +1,46 @@
 const crypto = require('node:crypto');
+const WEAPONS = ['classic','shorty','frenzy','ghost','sheriff','stinger','spectre','bucky','judge','bulldog','guardian','phantom','vandal','marshal','outlaw','operator','ares','odin','bandit','warden','knife'];
 
-function normalizeName(value) {
-  return String(value || '').normalize('NFKD').replace(/[\u0300-\u036f]/g, '').toLowerCase().replace(/[^a-z0-9]/g, '');
-}
-
-function editDistance(left, right) {
-  const row = Array.from({ length: right.length + 1 }, (_, index) => index);
-  for (let i = 1; i <= left.length; i += 1) {
-    let diagonal = row[0]; row[0] = i;
-    for (let j = 1; j <= right.length; j += 1) {
-      const previous = row[j];
-      row[j] = Math.min(row[j] + 1, row[j - 1] + 1, diagonal + (left[i - 1] === right[j - 1] ? 0 : 1));
-      diagonal = previous;
-    }
-  }
-  return row[right.length];
-}
-
-function nameAppears(text, name) {
-  const haystack = normalizeName(text); const needle = normalizeName(name);
-  if (!needle || needle.length < 3) return false;
-  if (haystack.includes(needle)) return true;
-  const words = String(text || '').split(/\s+/).map(normalizeName).filter(Boolean);
-  return words.some(word => word.length >= 3 && editDistance(word, needle) <= Math.max(1, Math.floor(needle.length * .18)));
-}
-
-function orderedNames(text, players) {
-  const normalized = normalizeName(text);
-  return players.map(player => {
-    const needle = normalizeName(player.name); const exact = normalized.indexOf(needle);
-    if (exact >= 0) return { ...player, index: exact };
-    const rawIndex = String(text || '').toLowerCase().indexOf(String(player.name || '').toLowerCase());
-    return nameAppears(text, player.name) ? { ...player, index: rawIndex >= 0 ? rawIndex : Number.MAX_SAFE_INTEGER } : null;
-  }).filter(Boolean).sort((a, b) => a.index - b.index);
-}
-
-function observationId(kind, timestampMs, text) {
-  return crypto.createHash('sha256').update(`${kind}:${Math.round(timestampMs / 250)}:${String(text || '').trim().toLowerCase()}`).digest('hex').slice(0, 24);
-}
+function normalizeName(value) { return String(value || '').normalize('NFKD').replace(/[\u0300-\u036f]/g, '').toLowerCase().replace(/[^a-z0-9]/g, ''); }
+function editDistance(left, right) { const row = Array.from({ length: right.length + 1 }, (_, i) => i); for (let i=1;i<=left.length;i+=1) { let diagonal=row[0]; row[0]=i; for (let j=1;j<=right.length;j+=1) { const previous=row[j]; row[j]=Math.min(row[j]+1,row[j-1]+1,diagonal+(left[i-1]===right[j-1]?0:1)); diagonal=previous; } } return row[right.length]; }
+function nameAppears(text, name) { const haystack=normalizeName(text), needle=normalizeName(name); if (!needle || needle.length<3) return false; if (haystack.includes(needle)) return true; return String(text||'').split(/\s+/).map(normalizeName).filter(Boolean).some(word=>word.length>=3&&editDistance(word,needle)<=Math.max(1,Math.floor(needle.length*.18))); }
+function orderedNames(text, players) { const normalized=normalizeName(text); return players.map(player=>{ const needle=normalizeName(player.name), exact=normalized.indexOf(needle); if (exact>=0) return {...player,index:exact}; const rawIndex=String(text||'').toLowerCase().indexOf(String(player.name||'').toLowerCase()); return nameAppears(text,player.name)?{...player,index:rawIndex>=0?rawIndex:Number.MAX_SAFE_INTEGER}:null; }).filter(Boolean).sort((a,b)=>a.index-b.index); }
+function observationId(kind,timestampMs,text) { return crypto.createHash('sha256').update(`${kind}:${Math.round(timestampMs/250)}:${String(text||'').trim().toLowerCase()}`).digest('hex').slice(0,24); }
+function signatureDistance(left,right) { if (!/^[a-f0-9]{16}$/i.test(String(left||''))||!/^[a-f0-9]{16}$/i.test(String(right||''))) return Number.POSITIVE_INFINITY; let value=BigInt(`0x${left}`)^BigInt(`0x${right}`), count=0; while (value) { count+=Number(value&1n); value>>=1n; } return count; }
+function applyVisualTemplates(snapshots,templates=[]) { return snapshots.map(snapshot=>{ const ranked=templates.map(template=>({...template,distance:signatureDistance(snapshot.visualSignature,template.signature)})).filter(item=>item.distance<=Number(item.maxDistance??6)).sort((a,b)=>a.distance-b.distance); if (!ranked.length||ranked[1]?.distance===ranked[0].distance) return snapshot; return {...snapshot,visualLabels:[ranked[0].label],visualMatch:{label:ranked[0].label,distance:ranked[0].distance,templateId:ranked[0].id||null}}; }); }
 
 function parseKillFeedSnapshot(snapshot, players) {
-  const lines = String(snapshot.text || '').split(/[\r\n]+/).map(line => line.trim()).filter(Boolean);
-  const events = [];
-  for (const line of lines) {
-    const names = orderedNames(line, players);
-    if (names.length < 2) continue;
-    const killer = names[0]; const victim = names[names.length - 1];
-    if (killer.name === victim.name || killer.team === victim.team) continue;
-    events.push({
-      id: observationId('elimination', snapshot.timestampMs, `${killer.name}:${victim.name}`),
-      kind: 'elimination', timestampMs: snapshot.timestampMs, confidence: Math.min(snapshot.confidence ?? .72, .92),
-      grade: 'video-observation', killer: killer.name, victim: victim.name, killerTeam: killer.team, victimTeam: victim.team,
-      rawText: line,
-    });
+  const events=[];
+  for (const line of String(snapshot.text||'').split(/[\r\n]+/).map(value=>value.trim()).filter(Boolean)) {
+    const names=orderedNames(line,players); if (names.length<2) continue;
+    const killer=names[0], victim=names[names.length-1]; if (killer.name===victim.name||killer.team===victim.team) continue;
+    const weapon=WEAPONS.find(item=>new RegExp(`\\b${item}\\b`,'i').test(line))||null;
+    events.push({ id:observationId('elimination',snapshot.timestampMs,`${killer.name}:${victim.name}`),kind:'elimination',timestampMs:snapshot.timestampMs,firstSeenMs:snapshot.timestampMs,lastSeenMs:snapshot.timestampMs,confidence:Math.min(snapshot.confidence??.72,.94),grade:'video-observation',killer:killer.name,victim:victim.name,killerTeam:killer.team,victimTeam:victim.team,assistants:names.slice(1,-1).filter(item=>item.team===killer.team).map(item=>item.name),weapon:weapon||snapshot.visualLabels?.find(label=>label.startsWith('weapon:'))?.slice(7)||null,headshot:/head\s*shot|headshot|\bhs\b/i.test(line)||snapshot.visualLabels?.includes('kill:headshot')?true:null,visualSignature:snapshot.visualSignature||null,visualMatch:snapshot.visualMatch||null,rawText:line });
   }
   return events;
 }
 
-function parseObjectiveSnapshot(snapshot) {
-  const text = String(snapshot.text || '').toLowerCase(); const events = [];
-  const add = kind => events.push({ id: observationId(kind, snapshot.timestampMs, text), kind, timestampMs: snapshot.timestampMs, confidence: snapshot.confidence ?? .76, grade: 'ocr', rawText: snapshot.text });
-  if (/spike\s+(planted|plant)/.test(text)) add('plant');
-  if (/spike\s+(defused|defuse)|defus(ed|ing)/.test(text)) add('defuse');
-  if (/ultimate\s+orb|ult\s+orb|orb\s+captur(ed|e)/.test(text)) add('orb-capture');
-  return events;
-}
+function parseObjectiveSnapshot(snapshot,players=[]) { const text=String(snapshot.text||''), lower=text.toLowerCase(), events=[], names=orderedNames(text,players); const add=kind=>events.push({id:observationId(kind,snapshot.timestampMs,lower),kind,timestampMs:snapshot.timestampMs,confidence:snapshot.confidence??.76,grade:'ocr',player:names[0]?.name,visualSignature:snapshot.visualSignature||null,rawText:text}); if (/spike\s+(planted|plant)/.test(lower)) add('plant'); if (/spike\s+(defused|defuse)|defus(ed|ing)/.test(lower)) add('defuse'); if (/ultimate\s+orb|ult\s+orb|orb\s+captur(ed|e)/.test(lower)) add('orb-capture'); return events; }
 
-function parseUltimateSnapshots(snapshots, playerName) {
-  const states = [];
-  for (const snapshot of snapshots) {
-    const matches = [...String(snapshot.text || '').matchAll(/(?:ult(?:imate)?\s*)?(\d{1,2})\s*[\/|]\s*(\d{1,2})/gi)];
-    if (!matches.length) continue;
-    const match = matches[0]; const current = Number(match[1]); const required = Number(match[2]);
-    if (current > required || required < 5 || required > 10) continue;
-    const previous = states.at(-1);
-    if (!previous || previous.current !== current || previous.required !== required) states.push({ id: observationId('ultimate-state', snapshot.timestampMs, `${current}/${required}`), kind: 'ultimate-state', timestampMs: snapshot.timestampMs, confidence: snapshot.confidence ?? .7, grade: 'ocr', player: playerName, current, required, rawText: snapshot.text });
-  }
-  const uses = []; const candidates = [];
-  for (let index = 1; index < states.length; index += 1) {
-    const before = states[index - 1]; const after = states[index];
-    const gap = after.timestampMs - before.timestampMs;
-    if (after.required !== before.required || after.current > 1 || gap <= 0 || gap >= 20_000) continue;
-    if (before.current === before.required) uses.push({ id: observationId('ultimate-use', after.timestampMs, playerName), kind: 'ultimate-use', timestampMs: after.timestampMs, confidence: Math.min(before.confidence, after.confidence, .86), grade: 'video-observation', player: playerName });
-    else if (before.current === before.required - 1) candidates.push({ id: observationId('ultimate-use-candidate', after.timestampMs, playerName), kind: 'ultimate-use-candidate', timestampMs: after.timestampMs, confidence: Math.min(before.confidence, after.confidence, .55), grade: 'ocr', player: playerName, reason: 'not-confirmed-ready' });
-  }
-  return { states, uses, candidates };
-}
+function parseRoundStateSnapshot(snapshot) { const text=String(snapshot.text||''), lower=text.toLowerCase(); const scores=[...text.matchAll(/(?:^|\s)(\d{1,2})\s*[-:|]\s*(\d{1,2})(?:\s|$)/g)].map(match=>[Number(match[1]),Number(match[2])]).filter(([a,b])=>a<=30&&b<=30); const roundMatch=text.match(/(?:round|rnd)\s*(\d{1,2})/i), timerMatch=text.match(/\b([0-1]?\d):([0-5]\d)\b/); const winner=/attackers?\s+(?:win|won)|attack\s+victory/i.test(text)?'attack':/defenders?\s+(?:win|won)|defen[cs]e\s+victory/i.test(text)?'defense':null; const phase=/buy\s*phase|buy\s+time/i.test(text)?'buy':/round\s+(?:win|won)|victory|defeat|flawless|thrifty|clutch/i.test(text)?'complete':timerMatch?'live':null; if (!scores.length&&!roundMatch&&!timerMatch&&!winner&&!phase) return null; return {id:observationId('round-state',snapshot.timestampMs,text),kind:'round-state',timestampMs:snapshot.timestampMs,confidence:snapshot.confidence??.7,grade:'ocr',roundNumber:roundMatch?Number(roundMatch[1]):null,score:scores[0]||null,timerSeconds:timerMatch?Number(timerMatch[1])*60+Number(timerMatch[2]):null,phase,winner,rawText:text}; }
 
-function dedupeEvents(events, windowMs = 5_000) {
-  const sorted = [...events].sort((a, b) => a.timestampMs - b.timestampMs); const kept = [];
-  for (const event of sorted) {
-    const duplicate = kept.findLast(item => item.kind === event.kind && item.killer === event.killer && item.victim === event.victim && item.player === event.player && event.timestampMs - item.timestampMs <= windowMs);
-    if (!duplicate) kept.push(event);
-    else if (event.confidence > duplicate.confidence) Object.assign(duplicate, event);
-  }
-  return kept;
-}
+function trackKillFeedRows(snapshots,players,persistenceMs=7000) { const tracked=[]; for (const snapshot of [...snapshots].sort((a,b)=>a.timestampMs-b.timestampMs)) for (const event of parseKillFeedSnapshot(snapshot,players)) { const previous=tracked.findLast(item=>item.killer===event.killer&&item.victim===event.victim&&event.timestampMs-item.lastSeenMs<=persistenceMs); if (previous) { previous.lastSeenMs=event.timestampMs; previous.confidence=Math.max(previous.confidence||0,event.confidence||0); previous.weapon||=event.weapon; previous.headshot||=event.headshot; previous.assistants=[...new Set([...(previous.assistants||[]),...(event.assistants||[])])]; } else tracked.push(event); } return tracked; }
 
-function groupRounds(eliminations, gapMs = 22_000) {
-  const rounds = [];
-  for (const event of [...eliminations].sort((a, b) => a.timestampMs - b.timestampMs)) {
-    const current = rounds.at(-1);
-    if (!current || event.timestampMs - current.events.at(-1).timestampMs > gapMs) rounds.push({ roundNumber: rounds.length + 1, startedAtMs: event.timestampMs, endedAtMs: event.timestampMs, events: [event] });
-    else { current.events.push(event); current.endedAtMs = event.timestampMs; }
-  }
-  return rounds;
-}
+function buildObserverSegments(snapshots,players,explicitPlayer=null,observerMode=false,durationMs=0) { if (explicitPlayer) return [{player:explicitPlayer,startedAtMs:0,endedAtMs:durationMs,confidence:1,source:'explicit'}]; if (!observerMode) return []; const points=snapshots.flatMap(snapshot=>{ const matches=players.filter(player=>nameAppears(snapshot.text,player.name)); return matches.length===1?[{player:matches[0].name,timestampMs:snapshot.timestampMs,confidence:snapshot.confidence??.65}]:[]; }).sort((a,b)=>a.timestampMs-b.timestampMs); const segments=[]; for (const point of points) { const current=segments.at(-1); if (current&&current.player===point.player&&point.timestampMs-current.endedAtMs<=20000) { current.endedAtMs=point.timestampMs; current.confidence=Math.max(current.confidence,point.confidence); } else segments.push({player:point.player,startedAtMs:point.timestampMs,endedAtMs:point.timestampMs,confidence:point.confidence,source:'observer-hud'}); } return segments; }
+function observerAt(segments,timestampMs) { return segments.findLast(item=>timestampMs>=item.startedAtMs-2000&&timestampMs<=item.endedAtMs+12000)?.player||null; }
 
-function aggregateVideoEvidence({ players, killFeedSnapshots = [], objectiveSnapshots = [], ultimateSnapshots = [], povPlayerName = null, durationMs = 0 }) {
-  const eliminations = dedupeEvents(killFeedSnapshots.flatMap(snapshot => parseKillFeedSnapshot(snapshot, players)));
-  const objectives = dedupeEvents(objectiveSnapshots.flatMap(parseObjectiveSnapshot));
-  const ultimate = povPlayerName ? parseUltimateSnapshots(ultimateSnapshots, povPlayerName) : { states: [], uses: [], candidates: [] };
-  const rounds = groupRounds(eliminations);
-  const metrics = players.map(player => {
-    const kills = eliminations.filter(event => event.killer === player.name).length;
-    const deaths = eliminations.filter(event => event.victim === player.name).length;
-    const ultimateUses = ultimate.uses.filter(event => event.player === player.name).length;
-    const orbCaptures = objectives.filter(event => event.kind === 'orb-capture' && (!povPlayerName || player.name === povPlayerName)).length;
-    let kastSuccessful = 0; let kastCovered = 0; let trades = 0;
-    for (const round of rounds) {
-      const killed = round.events.some(event => event.killer === player.name); const died = round.events.find(event => event.victim === player.name);
-      const traded = !!died && round.events.some(event => event.killerTeam === player.team && event.victim === died.killer && event.timestampMs > died.timestampMs && event.timestampMs - died.timestampMs <= 5_000);
-      if (traded) trades += 1;
-      if (round.events.some(event => event.killerTeam === player.team || event.victimTeam === player.team)) { kastCovered += 1; if (killed || traded || !died) kastSuccessful += 1; }
-    }
-    return { playerName: player.name, team: player.team, kills, deaths, trades, ultimateUses: player.name === povPlayerName && ultimate.states.length >= 2 ? ultimateUses : null, orbCaptures: player.name === povPlayerName && orbCaptures > 0 ? orbCaptures : null, kastSuccessful: kastCovered ? kastSuccessful : null, kastCovered: kastCovered || null, kastRate: kastCovered ? Math.round(kastSuccessful / kastCovered * 1000) / 10 : null };
-  });
-  const expectedTeam = players.filter(player => player.team === 'ours' && Number.isInteger(player.expectedKills) && Number.isInteger(player.expectedDeaths));
-  const eliminationComplete = expectedTeam.length === 5 && expectedTeam.every(player => {
-    const observed = metrics.find(metric => metric.playerName === player.name); return observed && observed.kills === player.expectedKills && observed.deaths === player.expectedDeaths;
-  });
-  const coverage = {
-    durationMs, killFeedSnapshots: killFeedSnapshots.length, objectiveSnapshots: objectiveSnapshots.length, ultimateSnapshots: ultimateSnapshots.length,
-    resolvedEliminations: eliminations.length, inferredRoundGroups: rounds.length,
-    temporalAmbiguities: [...new Set(eliminations.map(event => event.timestampMs))].filter(timestamp => eliminations.filter(event => event.timestampMs === timestamp).length > 1).length,
-    signals: {
-      eliminations: eliminationComplete ? 'complete' : killFeedSnapshots.length ? (eliminations.length ? 'partial' : 'unsupported') : 'unsupported',
-      // Scoreboard reconciliation proves event counts, not the exact ordering
-      // needed for a five-second trade window. Sampled OCR remains reviewable
-      // evidence but can never promote a zero/positive trade count as complete.
-      trades: rounds.length ? 'partial' : 'unsupported', kast: rounds.length ? 'partial' : 'unsupported',
-      objectives: objectiveSnapshots.length ? 'partial' : 'unsupported', ultimateUse: ultimate.states.length >= 2 ? 'partial' : 'unsupported',
-      orbCapture: objectives.some(event => event.kind === 'orb-capture') ? 'partial' : 'unsupported', throws: 'unsupported',
-    },
-  };
-  return { schema: 'moetracker.vod-timeline-evidence/v1', grade: 'video-observation', coverage, observations: [...eliminations, ...objectives, ...ultimate.states, ...ultimate.uses, ...ultimate.candidates].sort((a, b) => a.timestampMs - b.timestampMs), rounds, playerMetrics: metrics, throwCandidates: [], limitations: ['Round groups inferred from covered kill-feed activity are not authoritative round boundaries.', 'Sampled kill-feed frames do not prove exact five-second trade timing.', 'Ultimate counter resets remain candidates unless the counter was confirmed fully ready.', 'Invisible or unreadable HUD events remain unknown.', 'Throw intent is never inferred as fact.'] };
-}
+function parseUltimateSnapshots(snapshots,playerAt) { const states=[]; for (const snapshot of snapshots) { const match=[...String(snapshot.text||'').matchAll(/(?:ult(?:imate)?\s*)?(\d{1,2})\s*[\/|]\s*(\d{1,2})/gi)][0]; if (!match) continue; const current=Number(match[1]), required=Number(match[2]); if (current>required||required<5||required>10) continue; const player=typeof playerAt==='function'?playerAt(snapshot.timestampMs):playerAt; const previous=states.at(-1); if (!previous||previous.current!==current||previous.required!==required||previous.player!==player) states.push({id:observationId('ultimate-state',snapshot.timestampMs,`${player}:${current}/${required}`),kind:'ultimate-state',timestampMs:snapshot.timestampMs,confidence:snapshot.confidence??.7,grade:'ocr',player:player||undefined,current,required,rawText:snapshot.text}); } const uses=[], candidates=[]; for (let index=1;index<states.length;index+=1) { const before=states[index-1],after=states[index],gap=after.timestampMs-before.timestampMs; if (!before.player||before.player!==after.player||after.required!==before.required||after.current>1||gap<=0||gap>=20000) continue; if (before.current===before.required) uses.push({id:observationId('ultimate-use',after.timestampMs,before.player),kind:'ultimate-use',timestampMs:after.timestampMs,player:before.player,confidence:Math.min(before.confidence,after.confidence,.88),grade:'video-observation'}); else if (before.current===before.required-1) candidates.push({id:observationId('ultimate-use-candidate',after.timestampMs,before.player),kind:'ultimate-use-candidate',timestampMs:after.timestampMs,player:before.player,confidence:Math.min(before.confidence,after.confidence,.55),grade:'ocr',reason:'not-confirmed-ready'}); } return {states,uses,candidates}; }
 
-module.exports = { normalizeName, nameAppears, parseKillFeedSnapshot, parseObjectiveSnapshot, parseUltimateSnapshots, dedupeEvents, groupRounds, aggregateVideoEvidence };
+function dedupeEvents(events,windowMs=5000) { const kept=[]; for (const event of [...events].sort((a,b)=>a.timestampMs-b.timestampMs)) { const duplicate=kept.findLast(item=>item.kind===event.kind&&item.killer===event.killer&&item.victim===event.victim&&item.player===event.player&&event.timestampMs-item.timestampMs<=windowMs); if (!duplicate) kept.push(event); else if ((event.confidence||0)>(duplicate.confidence||0)) Object.assign(duplicate,event); } return kept; }
+function groupRounds(eliminations,gapMs=22000) { const rounds=[]; for (const event of [...eliminations].sort((a,b)=>a.timestampMs-b.timestampMs)) { const current=rounds.at(-1); if (!current||event.timestampMs-current.events.at(-1).timestampMs>gapMs) rounds.push({roundNumber:rounds.length+1,startedAtMs:event.timestampMs,endedAtMs:event.timestampMs,events:[event],boundarySource:'kill-gap'}); else { current.events.push(event); current.endedAtMs=event.timestampMs; } } return rounds; }
+
+function buildRoundTimeline(roundStates,events) { const states=roundStates.filter(Boolean).sort((a,b)=>a.timestampMs-b.timestampMs), starts=[]; for (const state of states) { const scoreTotal=state.score?state.score[0]+state.score[1]:null, inferred=state.roundNumber||(scoreTotal!==null?scoreTotal+1:null); if (state.phase!=='buy'&&!state.roundNumber&&!state.score) continue; const previous=starts.at(-1); if (!previous||(inferred&&previous.roundNumber!==inferred)||state.timestampMs-previous.timestampMs>75000) starts.push({timestampMs:state.timestampMs,roundNumber:inferred||starts.length+1,score:state.score,confidence:state.confidence}); } if (starts.length<2) return {mode:'inferred',confidence:starts.length ? .45 : .25,rounds:groupRounds(events)}; const rounds=starts.map((start,index)=>{ const next=starts[index+1],endedAtMs=next?Math.max(start.timestampMs,next.timestampMs-1):Math.max(start.timestampMs,events.at(-1)?.timestampMs||start.timestampMs),roundEvents=events.filter(event=>event.timestampMs>=start.timestampMs&&event.timestampMs<=endedAtMs),completed=states.findLast(state=>state.timestampMs>=start.timestampMs&&state.timestampMs<=endedAtMs&&(state.phase==='complete'||state.winner)); return {roundNumber:start.roundNumber,startedAtMs:start.timestampMs,endedAtMs,scoreBefore:start.score||null,winner:completed?.winner||null,events:roundEvents,boundarySource:'round-state'}; }); return {mode:'authoritative',confidence:Math.min(.96,.7+Math.min(.26,starts.length*.015)),rounds}; }
+
+function parseScoreboardSnapshots(snapshots,players) { const rows=[]; for (const snapshot of snapshots) for (const line of String(snapshot.text||'').split(/[\r\n]+/)) { const matched=players.filter(player=>nameAppears(line,player.name)); if (matched.length!==1) continue; const values=[...line.matchAll(/\b\d{1,3}\b/g)].map(match=>Number(match[0])); if (values.length<3) continue; rows.push({playerName:matched[0].name,timestampMs:snapshot.timestampMs,values:values.slice(-6),confidence:snapshot.confidence??.65,rawText:line.trim()}); } const latest=new Map(); for (const row of rows) if (!latest.has(row.playerName)||row.timestampMs>latest.get(row.playerName).timestampMs) latest.set(row.playerName,row); return [...latest.values()].map(row=>({...row,kills:row.values.at(-3)??null,deaths:row.values.at(-2)??null,assists:row.values.at(-1)??null})); }
+function reconcileEvidence(evidence,scoreboardRows=[]) { const conflicts=[]; let compared=0; for (const row of scoreboardRows) { const metric=evidence.playerMetrics.find(item=>item.playerName===row.playerName); if (!metric) continue; for (const field of ['kills','deaths']) { if (row[field]===null) continue; compared+=1; if (metric[field]!==row[field]) conflicts.push({playerName:row.playerName,field,timeline:metric[field],scoreboard:row[field]}); } } const complete=compared>=10&&conflicts.length===0; if (complete) evidence.coverage.signals.eliminations='complete'; evidence.reconciliation={status:conflicts.length?'conflict':complete?'matched':'partial',comparedFields:compared,conflicts,scoreboardRows}; return evidence; }
+
+function aggregateVideoEvidence({players,killFeedSnapshots=[],objectiveSnapshots=[],ultimateSnapshots=[],roundStateSnapshots=[],scoreboardSnapshots=[],povSnapshots=[],povPlayerName=null,observerMode=false,durationMs=0}) { const observerSegments=buildObserverSegments(povSnapshots,players,povPlayerName,observerMode,durationMs), playerAt=timestamp=>povPlayerName||observerAt(observerSegments,timestamp); const eliminations=trackKillFeedRows(killFeedSnapshots,players), objectives=dedupeEvents(objectiveSnapshots.flatMap(snapshot=>parseObjectiveSnapshot(snapshot,players))).map(event=>event.kind==='orb-capture'&&!event.player?{...event,player:playerAt(event.timestampMs)||undefined}:event), ultimate=parseUltimateSnapshots(ultimateSnapshots,playerAt), roundStates=roundStateSnapshots.map(parseRoundStateSnapshot).filter(Boolean), timeline=buildRoundTimeline(roundStates,eliminations), rounds=timeline.rounds; const metrics=players.map(player=>{ const kills=eliminations.filter(event=>event.killer===player.name).length,deaths=eliminations.filter(event=>event.victim===player.name).length; let kastSuccessful=0,kastCovered=0,trades=0; for (const round of rounds) { const killed=round.events.some(event=>event.killer===player.name),assisted=round.events.some(event=>event.assistants?.includes(player.name)),died=round.events.find(event=>event.victim===player.name),traded=!!died&&round.events.some(event=>event.killerTeam===player.team&&event.victim===died.killer&&event.timestampMs>died.timestampMs&&event.timestampMs-died.timestampMs<=5000); if (traded) trades+=1; if (round.events.some(event=>event.killerTeam===player.team||event.victimTeam===player.team)) { kastCovered+=1; if (killed||assisted||traded||!died) kastSuccessful+=1; } } const ultimateUses=ultimate.uses.filter(event=>event.player===player.name).length,orbCaptures=objectives.filter(event=>event.kind==='orb-capture'&&event.player===player.name).length; return {playerName:player.name,team:player.team,kills,deaths,trades,ultimateUses:ultimate.states.some(event=>event.player===player.name)?ultimateUses:null,orbCaptures:objectives.some(event=>event.kind==='orb-capture'&&event.player===player.name)?orbCaptures:null,kastSuccessful:kastCovered?kastSuccessful:null,kastCovered:kastCovered||null,kastRate:kastCovered?Math.round(kastSuccessful/kastCovered*1000)/10:null}; }); const expectedTeam=players.filter(player=>player.team==='ours'&&Number.isInteger(player.expectedKills)&&Number.isInteger(player.expectedDeaths)), expectedComplete=expectedTeam.length===5&&expectedTeam.every(player=>{ const observed=metrics.find(metric=>metric.playerName===player.name); return observed&&observed.kills===player.expectedKills&&observed.deaths===player.expectedDeaths; }); const authoritative=timeline.mode==='authoritative'; const coverage={durationMs,killFeedSnapshots:killFeedSnapshots.length,objectiveSnapshots:objectiveSnapshots.length,ultimateSnapshots:ultimateSnapshots.length,roundStateSnapshots:roundStateSnapshots.length,scoreboardSnapshots:scoreboardSnapshots.length,resolvedEliminations:eliminations.length,inferredRoundGroups:rounds.length,temporalAmbiguities:[...new Set(eliminations.map(event=>event.timestampMs))].filter(timestamp=>eliminations.filter(event=>event.timestampMs===timestamp).length>1).length,roundDetection:{mode:timeline.mode,confidence:timeline.confidence,detectedRounds:rounds.length},signals:{eliminations:expectedComplete?'complete':eliminations.length?'partial':'unsupported',trades:rounds.length?'partial':'unsupported',kast:rounds.length?'partial':'unsupported',objectives:objectiveSnapshots.length?'partial':'unsupported',ultimateUse:ultimate.states.length>=2?'partial':'unsupported',orbCapture:objectives.some(event=>event.kind==='orb-capture'&&event.player)?'partial':'unsupported',scoreboard:scoreboardSnapshots.length?'partial':'unsupported',throws:'unsupported'}}; const evidence={schema:'moetracker.vod-timeline-evidence/v2',grade:'video-observation',coverage,observerSegments,observations:[...eliminations,...objectives,...roundStates,...ultimate.states,...ultimate.uses,...ultimate.candidates].sort((a,b)=>a.timestampMs-b.timestampMs),rounds,playerMetrics:metrics,throwCandidates:[],limitations:[authoritative?'Round boundaries use recognized round/score state; unreadable transitions remain reviewable gaps.':'Round-state OCR was insufficient, so round groups fall back to kill-feed gaps.','Kill-feed timing is tracked at adaptive sampled-frame resolution.','Invisible or unreadable HUD events remain unknown.','Throw intent is never inferred as fact.']}; return reconcileEvidence(evidence,parseScoreboardSnapshots(scoreboardSnapshots,players)); }
+
+function fuseVodEvidence(items) { const sources=items.filter(Boolean); if (!sources.length) return null; const base=structuredClone(sources[0]),all=sources.flatMap(item=>item.observations||[]); base.observations=dedupeEvents(all,4000); base.sourceSet=sources.map(item=>item.source).filter(Boolean); base.coverage.durationMs=Math.max(...sources.map(item=>item.coverage?.durationMs||0)); base.coverage.resolvedEliminations=base.observations.filter(item=>item.kind==='elimination').length; base.coverage.signals=Object.fromEntries([...new Set(sources.flatMap(item=>Object.keys(item.coverage?.signals||{})))].map(key=>[key,sources.some(item=>item.coverage?.signals?.[key]==='complete')?'complete':sources.some(item=>item.coverage?.signals?.[key]==='partial')?'partial':'unsupported'])); base.fusion={sourceCount:sources.length,fusedAt:new Date().toISOString(),conflicts:sources.flatMap(item=>item.reconciliation?.conflicts||[])}; base.limitations=[...new Set(sources.flatMap(item=>item.limitations||[]))]; return base; }
+
+module.exports={normalizeName,nameAppears,signatureDistance,applyVisualTemplates,parseKillFeedSnapshot,parseObjectiveSnapshot,parseRoundStateSnapshot,parseUltimateSnapshots,parseScoreboardSnapshots,trackKillFeedRows,buildObserverSegments,observerAt,dedupeEvents,groupRounds,buildRoundTimeline,reconcileEvidence,aggregateVideoEvidence,fuseVodEvidence};
