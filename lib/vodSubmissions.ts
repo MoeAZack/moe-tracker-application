@@ -1,7 +1,7 @@
 import type { Match, PlayerStats, VodSubmission, VodSubmissionPlayer, VodTimelineEvidence } from '../src/types';
 
 type SubmissionInput = {
-  vodUrl: string; imageSha256: string; matchId?: string; playerId: string; date: string; map: string | null; opponent: string | null;
+  vodUrl: string; imageSha256: string; matchId?: string; playerId: string | null; date: string; map: string | null; opponent: string | null;
   ourScore: number | null; theirScore: number | null;
   players: Array<Omit<VodSubmissionPlayer, 'rosterPlayerId' | 'rosterDisplayName'>>;
   timelineEvidence?: VodTimelineEvidence | null;
@@ -85,7 +85,7 @@ export function integrateVodSubmission(db: any, input: SubmissionInput, actorNam
   if (duplicate && (!input.timelineEvidence || duplicate.timelineEvidence)) return duplicate;
   if (duplicate) { input.matchId = duplicate.linkedMatchId; ids.submissionId = duplicate.id; }
   const players = resolveFive(db, input.players);
-  if (!players.some(row => row.rosterPlayerId === input.playerId)) throw Object.assign(new Error('The submitting player must be one of the five identified players.'), { status: 403 });
+  if (input.playerId && !players.some(row => row.rosterPlayerId === input.playerId)) throw Object.assign(new Error('The submitting player must be one of the five identified players.'), { status: 403 });
   const requested = input.matchId ? (db.matches || []).find((match: Match) => match.id === input.matchId) : null;
   if (input.matchId && !requested) throw Object.assign(new Error('The selected match no longer exists.'), { status: 404 });
   const rosterIds = new Set(players.map(row => row.rosterPlayerId));
@@ -97,7 +97,7 @@ export function integrateVodSubmission(db: any, input: SubmissionInput, actorNam
     match = {
       id: ids.matchId, date: input.date, type: 'VOD submission', opponent: input.opponent || 'Unknown opponent', map: input.map || 'Unknown map',
       attW: null, attL: null, defW: null, defL: null, ourScore: input.ourScore, theirScore: input.theirScore, vod: input.vodUrl,
-      notes: 'Created automatically from a player VOD submission after five roster identities matched.', source: 'vod-submission',
+      notes: `Created automatically from a ${input.playerId ? 'player' : 'coach'} VOD submission after five roster identities matched.`, source: 'vod-submission',
       sourceMetadata: { method: 'vod-submission', capturedAt: now, provider: 'local-ocr', externalId: ids.submissionId },
       comparisonEvidence: { accepted: true }, rosterContext: { kind: 'mixed' }, vodSubmissionIds: [ids.submissionId],
     };
@@ -155,7 +155,7 @@ export function integrateVodSubmission(db: any, input: SubmissionInput, actorNam
   }
   db.vodReviews ||= [];
   if (!db.vodReviews.some((review: any) => review.matchId === match!.id && review.vodUrl === input.vodUrl)) db.vodReviews.unshift({ id: ids.reviewId, matchId: match.id, title: `${players.find(row => row.rosterPlayerId === input.playerId)?.rosterDisplayName || actorName} VOD · ${match.map}`, vodUrl: input.vodUrl, date: input.date, createdAt: now, notes: [] });
-  const submission: VodSubmission = { schema: 'moetracker.vod-submission/v1', id: ids.submissionId, submittedByPlayerId: input.playerId, submittedByName: players.find(row => row.rosterPlayerId === input.playerId)?.rosterDisplayName || actorName, vodUrl: input.vodUrl, imageSha256: input.imageSha256, date: input.date, map: input.map, opponent: input.opponent, ourScore: input.ourScore, theirScore: input.theirScore, requestedMatchId: input.matchId || null, linkedMatchId: match.id, linkMode: createdMatch ? 'new-match' : 'existing-match', status: 'integrated', rosterMatchCount: 5, players, timelineEvidence: input.timelineEvidence || null, integration: { createdMatch, createdStats, filledFields, preservedFields }, createdAt: now, integratedAt: now };
+  const submission: VodSubmission = { schema: 'moetracker.vod-submission/v1', id: ids.submissionId, submittedByPlayerId: input.playerId, submittedByName: players.find(row => row.rosterPlayerId === input.playerId)?.rosterDisplayName || actorName, vodUrl: input.vodUrl, imageSha256: input.imageSha256, date: input.date, map: input.map, opponent: input.opponent, ourScore: input.ourScore, theirScore: input.theirScore, requestedMatchId: input.matchId || null, linkedMatchId: match.id, linkMode: createdMatch ? 'new-match' : 'existing-match', status: 'integrated', rosterMatchCount: players.length, players, timelineEvidence: input.timelineEvidence || null, integration: { createdMatch, createdStats, filledFields, preservedFields }, createdAt: now, integratedAt: now };
   if (duplicate) { Object.assign(duplicate, { timelineEvidence: submission.timelineEvidence, integration: submission.integration, integratedAt: now }); return duplicate; }
   db.vodSubmissions.unshift(submission); return submission;
 }

@@ -35,4 +35,9 @@ describe('VOD submission HTTP workflow', () => {
     const other = await login(otherKey); expect((await (await call(other, 'GET')).json()).submissions).toEqual([]);
     const coach = await login(coachKey); expect((await (await call(coach, 'GET')).json()).submissions).toHaveLength(1);
   });
+
+  it('lets a coach integrate team VOD evidence without pretending to be a player', async () => {
+    const coach = await login(coachKey); const body = { vodUrl: 'https://www.youtube.com/live/6sx2Wpl0cHc', imageSha256: 'd'.repeat(64), matchId: 'm1', coachTeamEvidence: true, date: '2026-10-18', map: 'Ascent', opponent: 'PYO', ourScore: 13, theirScore: 9, players: roster.map((item, index) => ({ observedName: item.displayName, agent: null, kills: 18 - index, deaths: 9 + index, assists: 4, acs: null, adr: null, hs: null, fk: null, fd: null, plants: null, defuses: null, trades: null })), timelineEvidence: null };
+    const submitted = await call(coach, 'POST', body); expect(submitted.status).toBe(201); expect((await submitted.json()).submission).toMatchObject({ submittedByPlayerId: null, submittedByName: 'Coach team VOD', linkedMatchId: 'm1', rosterMatchCount: 5 });
+  });
 });
