@@ -4,6 +4,8 @@ import * as schemas from '../../schemas';
 import { readDB, saveDB } from '../store';
 import { uid, validate } from '../utils';
 import { integrateVodSubmission } from '../vodSubmissions';
+import { recomputeAcceptedMatchAggregates } from '../aggregateVersioning';
+import { refreshCoachingWorkflow } from './coaching';
 
 export function registerVodSubmissionRoutes(app: Express) {
   app.get('/api/vod-submissions', async (req, res) => {
@@ -31,6 +33,9 @@ export function registerVodSubmissionRoutes(app: Express) {
         players: body.players.map(row => ({ observedName: row.observedName, agent: row.agent || null, kills: metric(row.kills), deaths: metric(row.deaths), assists: metric(row.assists), acs: metric(row.acs), adr: metric(row.adr), hs: metric(row.hs), fk: metric(row.fk), fd: metric(row.fd), plants: metric(row.plants), defuses: metric(row.defuses), trades: metric(row.trades) })),
         timelineEvidence: body.timelineEvidence || null,
       }, rosterPlayer?.displayName || 'Coach team VOD', { submissionId: uid(), matchId: uid(), statId: uid, reviewId: uid() });
+      db.analyticsBuilds ||= {};
+      db.analyticsBuilds[submission.linkedMatchId] = recomputeAcceptedMatchAggregates(db, submission.linkedMatchId);
+      refreshCoachingWorkflow(db, user.username || rosterPlayer?.displayName || 'VOD automation');
       await saveDB(db);
       res.status(201).json({ submission });
     } catch (error: any) { res.status(error.status || 500).json({ error: error.message }); }

@@ -8,6 +8,7 @@ import { buildMapRoundIntelligence } from '../../lib/mapRoundAnalytics';
 import { percentageBarClass, percentageTextClass } from '../utils/percentageColor';
 import { canonicalValorantWeapon } from '../../lib/valorantCatalog';
 import { MapThumbnail, WeaponThumbnail } from './ValorantMedia';
+import { summarizeRoundAdvantages } from '../../lib/roundAdvantage';
 
 interface Props {
   data: TrackerData;
@@ -209,6 +210,7 @@ export default function EconomyAnalytics({ data, theme, focusedMatchId, focusedR
   }, [rounds, data.playerStats, data.rosterPlayers, focusedMatchId]);
   const weaponOutcomeGroups = useMemo(() => buildWeaponRoundOutcomesByEconomy(rounds), [rounds]);
   const weaponMapGroups = useMemo(() => buildWeaponRoundOutcomesByMap(matches, rounds, data.settings.maps || []), [matches, rounds, data.settings.maps]);
+  const advantageRows = useMemo(() => summarizeRoundAdvantages(rounds), [rounds]);
 
   return (
     <div className="space-y-6">
@@ -218,6 +220,8 @@ export default function EconomyAnalytics({ data, theme, focusedMatchId, focusedR
       </div>
 
       <ReplayMatchLog data={reviewData} theme={theme} title="Economy evidence by match" description="Round results are included immediately; buy-type metrics stay unknown until the replay or coach provides them." />
+
+      {advantageRows.length > 0 && <section className={`rounded-xl border ${theme.border} ${theme.cardBg} p-5`} aria-labelledby="advantage-conversion"><div className="flex flex-wrap items-end justify-between gap-2"><div><h3 id="advantage-conversion" className="text-xs font-bold uppercase tracking-widest text-amber-300">Player-advantage conversion</h3><p className="mt-1 text-xs text-gray-500">Exact states from complete ordered replay, screenshot, or VOD elimination evidence. A round can contain more than one distinct state, such as 5v3 and later 3v1.</p></div><span className="text-[10px] text-gray-500">Unknown outcomes are never counted as wins or losses</span></div><div className="mt-4 grid gap-3 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-5">{advantageRows.map(row => <article key={row.label} className="rounded-xl border border-white/10 bg-black/15 p-4"><div className="flex items-center justify-between"><strong className="font-mono text-xl text-white">{row.label}</strong><span className={`font-mono text-sm font-bold ${percentageTextClass(row.conversionRate)}`}>{row.conversionRate === null ? 'Unknown' : `${row.conversionRate}%`}</span></div><p className="mt-2 text-[10px] text-gray-500">{row.opportunities} observed</p><div className="mt-2 flex gap-3 font-mono text-xs"><span className="text-emerald-300">{row.converted} converted</span><span className="text-rose-300">{row.lost} lost</span>{row.unknown > 0 && <span className="text-gray-400">{row.unknown} unknown</span>}</div></article>)}</div></section>}
 
       {screenshotPlayers.length > 0 && <section className={`rounded-xl border ${theme.border} ${theme.cardBg} p-5`} aria-labelledby="screenshot-player-metrics"><div className="flex flex-wrap items-end justify-between gap-2"><div><h3 id="screenshot-player-metrics" className="text-xs uppercase font-bold tracking-widest text-gray-500">Screenshot-derived player metrics</h3><p className="mt-1 text-xs text-gray-500">Confirmed round screens only. Weapon means equipped weapon, not a proven purchase.{!hasActiveRoster ? ' No active roster is configured, so historical match participants are included.' : ''}</p></div><span className="text-[10px] text-gray-500">Trades are follow-up kills within 5 seconds</span></div><div className="mt-4 overflow-x-auto"><table className="w-full min-w-[820px] text-left text-xs"><thead className="text-[10px] uppercase tracking-wider text-gray-500"><tr><th className="pb-2">Player</th><th className="pb-2">Rounds</th><th className="pb-2">Openings</th><th className="pb-2">Trades</th><th className="pb-2">Multi-kills</th><th className="pb-2">Low-buy wins</th><th className="pb-2">Full-buy losses</th><th className="pb-2">Anti-eco losses</th><th className="pb-2">Top weapon</th><th className="pb-2">KAST</th></tr></thead><tbody>{screenshotPlayers.map(player => { const weapon = player.weapons[0]; const kast = player.kast?.covered ? Math.round(player.kast.successful / player.kast.covered * 100) : null; return <tr key={player.identity} className="border-t border-white/5"><td className="py-3 font-semibold">{player.displayName}</td><td>{player.coveredRounds}</td><td>{player.firstKills}–{player.firstDeaths}</td><td>{player.trades ?? 'Unknown'}</td><td>{player.multikills.two}×2K · {player.multikills.three}×3K · {player.multikills.four}×4K · {player.multikills.ace} ace</td><td>{player.lowBudgetWins}</td><td>{player.highBudgetLosses}</td><td>{player.antiEcoLosses}</td><td>{weapon ? `${weapon.weapon} · ${weapon.wins}/${weapon.rounds}` : 'Unknown'}</td><td className={percentageTextClass(kast)}>{kast === null ? 'Unknown' : `${kast}% (${player.kast!.covered})`}</td></tr>; })}</tbody></table></div></section>}
 

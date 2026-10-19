@@ -1,5 +1,6 @@
 import type { CoachingAction, CoachingSignal, DashboardView, Match, PlayerStats, PracticeBlock, Round, TrackerData } from '../src/types';
 import { resolvePracticeBlocks } from './practiceBlocks';
+import { summarizeRoundAdvantages } from './roundAdvantage';
 
 export const COACHING_WORKFLOW_VERSION = 'moetracker.coaching-workflow/v1' as const;
 export const DASHBOARD_LAYOUT_VERSION = 1 as const;
@@ -44,6 +45,7 @@ export interface PracticeBlockSummary {
   header: { opponents: string[]; maps: string[]; result: { wins: number; losses: number; undecided: number }; sources: string[]; rosterStatuses: string[] };
   openings: { pistols: Record<'ATT' | 'DEF', { wins: number; samples: number; rate: number | null }>; firstThree: Record<'ATT' | 'DEF', { wins: number; samples: number; rate: number | null }>; firstKills: number; firstDeaths: number; recoveriesAfterFirstDeath: number | null; firstDeathSamples: number };
   economy: { lowBuyWins: number; lowBuyRounds: number; fullBuyLosses: number; fullBuyRounds: number; antiEcoLosses: number; antiEcoRounds: number; knownBuyRounds: number; totalRounds: number; weaponObservations: number };
+  advantages: { opportunities: number; converted: number; lost: number; unknown: number; conversionRate: number | null; byState: ReturnType<typeof summarizeRoundAdvantages> };
   roster: Array<{ playerId: string | null; player: string; agents: string[]; matches: number; kills: number; deaths: number; assists: number; kd: number | null; acs: number | null; adr: number | null; hs: number | null; fk: number; fd: number; kast: number | null; plants: number; defuses: number; multikills: number }>;
   compositions: Array<{ agents: string[]; matches: number; wins: number; losses: number }>;
   mapResults: Array<{ map: string; matches: number; wins: number; losses: number; active: boolean }>;
@@ -70,6 +72,7 @@ export function buildPracticeBlockSummary(data: WorkflowData, block: Pick<Practi
   const mapGroups = new Map<string, { map: string; matches: number; wins: number; losses: number; active: boolean }>(); const inactiveMaps = new Set(data.settings?.inactiveMaps || []);
   for (const match of acceptedMatches) { const map = match.map || 'Unknown'; const current = mapGroups.get(map) || { map, matches: 0, wins: 0, losses: 0, active: !inactiveMaps.has(map) }; current.matches += 1; const result = score(match); if (result && result.ours > result.theirs) current.wins += 1; else if (result && result.ours < result.theirs) current.losses += 1; mapGroups.set(map, current); }
   const fdRounds = rounds.filter(round => !!round.firstDeathBy && knownResult(round));
+  const advantageRows = summarizeRoundAdvantages(rounds); const advantageTotals = advantageRows.reduce((acc, row) => ({ opportunities: acc.opportunities + row.opportunities, converted: acc.converted + row.converted, lost: acc.lost + row.lost, unknown: acc.unknown + row.unknown }), { opportunities: 0, converted: 0, lost: 0, unknown: 0 });
   const practiceTimes = matches.map(match => Date.parse(match.sourceMetadata?.capturedAt || match.date)).filter(Number.isFinite).sort((a, b) => a - b);
   return {
     schema: COACHING_WORKFLOW_VERSION, blockId: block.id, name: block.name, matchIds: [...block.matchIds], generatedAt: now,
@@ -79,6 +82,7 @@ export function buildPracticeBlockSummary(data: WorkflowData, block: Pick<Practi
     header: { opponents: [...new Set(acceptedMatches.map(match => match.opponent).filter(Boolean))].sort(), maps: [...new Set(acceptedMatches.map(match => match.map).filter(Boolean))].sort(), result: { wins: decided.filter(item => item.score.ours > item.score.theirs).length, losses: decided.filter(item => item.score.ours < item.score.theirs).length, undecided: acceptedMatches.length - decided.length }, sources: [...new Set(acceptedMatches.map(match => match.sourceMetadata?.method || match.source || 'unknown'))].sort(), rosterStatuses: [...new Set(stats.map(row => row.appearanceType || 'unclassified'))].sort() },
     openings: { pistols: { ATT: pistol('ATT'), DEF: pistol('DEF') }, firstThree: { ATT: firstThree('ATT'), DEF: firstThree('DEF') }, firstKills: total(stats, 'fk'), firstDeaths: total(stats, 'fd'), recoveriesAfterFirstDeath: fdRounds.length ? fdRounds.filter(won).length : null, firstDeathSamples: fdRounds.length },
     economy: { lowBuyWins: rounds.filter(round => ['eco', 'low', 'half', 'force'].includes(buy(round)) && won(round)).length, lowBuyRounds: rounds.filter(round => ['eco', 'low', 'half', 'force'].includes(buy(round)) && knownResult(round)).length, fullBuyLosses: rounds.filter(round => buy(round) === 'full' && !won(round) && knownResult(round)).length, fullBuyRounds: rounds.filter(round => buy(round) === 'full' && knownResult(round)).length, antiEcoLosses: rounds.filter(round => enemyBuy(round) === 'eco' && !won(round) && knownResult(round)).length, antiEcoRounds: rounds.filter(round => enemyBuy(round) === 'eco' && knownResult(round)).length, knownBuyRounds: rounds.filter(round => !!round.buy).length, totalRounds: rounds.length, weaponObservations: stats.reduce((sum, row) => sum + (row.screenshotMetrics?.weapons?.length || 0), 0) },
+    advantages: { ...advantageTotals, conversionRate: advantageTotals.converted + advantageTotals.lost ? rate(advantageTotals.converted, advantageTotals.converted + advantageTotals.lost) : null, byState: advantageRows },
     roster, compositions: [...compositionGroups.values()].sort((a, b) => b.matches - a.matches), mapResults: [...mapGroups.values()].sort((a, b) => b.matches - a.matches || a.map.localeCompare(b.map)),
   };
 }
@@ -103,6 +107,7 @@ export function generateReviewSignalDrafts(summary: PracticeBlockSummary, thresh
   if (summary.economy.fullBuyLosses >= (thresholds.fullBuyLosses || 2)) drafts.push(signal(summary, 'full-buy-loss', 'critical', 'Repeated full-buy losses', `${summary.economy.fullBuyLosses}/${summary.economy.fullBuyRounds} covered full-buy rounds were lost.`, { value: Number(rate(summary.economy.fullBuyLosses, summary.economy.fullBuyRounds)), samples: summary.economy.fullBuyRounds, unit: '%' }, { economy: 'full' }));
   if (summary.economy.antiEcoLosses >= (thresholds.antiEcoLosses || 1)) drafts.push(signal(summary, 'anti-eco-loss', 'critical', 'Anti-eco loss', `${summary.economy.antiEcoLosses}/${summary.economy.antiEcoRounds} covered rounds were lost against a known enemy eco.`, { value: Number(rate(summary.economy.antiEcoLosses, summary.economy.antiEcoRounds)), samples: summary.economy.antiEcoRounds, unit: '%' }, { economy: 'anti-eco' }));
   if (summary.openings.firstDeathSamples >= min) { const recoveries = summary.openings.recoveriesAfterFirstDeath || 0; const collapse = 100 - Number(rate(recoveries, summary.openings.firstDeathSamples)); if (collapse >= (thresholds.firstDeathCollapseRate || 70)) drafts.push(signal(summary, 'first-death-collapse', 'warning', 'First-death collapse', `The team recovered ${recoveries}/${summary.openings.firstDeathSamples} covered rounds after conceding first death.`, { value: collapse, samples: summary.openings.firstDeathSamples, unit: '%' })); }
+  if (summary.advantages.lost >= 1) drafts.push(signal(summary, 'advantage-collapse', summary.advantages.lost >= 2 ? 'critical' : 'warning', 'Player-advantage rounds lost', `${summary.advantages.lost}/${summary.advantages.converted + summary.advantages.lost} decided advantage states were lost (${summary.advantages.byState.filter(row => row.lost).map(row => `${row.label}: ${row.lost}`).join(' · ')}).`, { value: Number(rate(summary.advantages.lost, summary.advantages.converted + summary.advantages.lost)), samples: summary.advantages.converted + summary.advantages.lost, unit: '%' }, { advantageStates: summary.advantages.byState.filter(row => row.lost).map(row => row.label).join(', ') }));
   for (const player of summary.roster) if (player.fd >= 3 && player.fd > player.fk) drafts.push(signal(summary, 'repeated-player-first-death', 'warning', `${player.player} opening deaths`, `${player.player} recorded ${player.fk} first kills and ${player.fd} first deaths.`, { value: Number(rate(player.fd, player.fk + player.fd)), samples: player.fk + player.fd, unit: '%' }, { playerId: player.playerId || undefined, player: player.player }));
   for (const map of summary.mapResults) if (map.active && map.matches >= min && map.losses > map.wins) drafts.push(signal(summary, 'map-underperformance', 'info', `${map.map} block result`, `${map.wins}W–${map.losses}L across ${map.matches} accepted matches.`, { value: Number(rate(map.wins, map.matches)), samples: map.matches, unit: '%' }, { map: map.map }));
   return drafts.sort((a, b) => ({ critical: 0, warning: 1, info: 2 }[a.severity] - { critical: 0, warning: 1, info: 2 }[b.severity] || a.fingerprint.localeCompare(b.fingerprint)));
@@ -180,7 +185,7 @@ export function migrateLegacyActionChecks(actions: readonly CoachingAction[], si
 }
 
 export function coachingContextMatches(expected: CoachingSignal['context'] = {}, actual: CoachingSignal['context'] = {}) {
-  return (['map', 'side', 'economy', 'playerId', 'player', 'agent', 'composition'] as const).every(key => !expected[key] || expected[key] === actual[key]);
+  return (['map', 'side', 'economy', 'playerId', 'player', 'agent', 'composition', 'advantageStates'] as const).every(key => !expected[key] || expected[key] === actual[key]);
 }
 
 function observedMetric(summary: PracticeBlockSummary, check: NonNullable<CoachingAction['check']>) {
@@ -189,6 +194,7 @@ function observedMetric(summary: PracticeBlockSummary, check: NonNullable<Coachi
   if (check.signalType === 'full-buy-loss') return summary.economy.fullBuyRounds ? { value: Number(rate(summary.economy.fullBuyLosses, summary.economy.fullBuyRounds)), samples: summary.economy.fullBuyRounds, unit: '%' } : null;
   if (check.signalType === 'anti-eco-loss') return summary.economy.antiEcoRounds ? { value: Number(rate(summary.economy.antiEcoLosses, summary.economy.antiEcoRounds)), samples: summary.economy.antiEcoRounds, unit: '%' } : null;
   if (check.signalType === 'first-death-collapse') return summary.openings.recoveriesAfterFirstDeath === null ? null : { value: 100 - Number(rate(summary.openings.recoveriesAfterFirstDeath, summary.openings.firstDeathSamples)), samples: summary.openings.firstDeathSamples, unit: '%' };
+  if (check.signalType === 'advantage-collapse') { const decided = summary.advantages.converted + summary.advantages.lost; return decided ? { value: Number(rate(summary.advantages.lost, decided)), samples: decided, unit: '%' } : null; }
   if (check.signalType === 'repeated-player-first-death') { const player = summary.roster.find(row => context.playerId ? row.playerId === context.playerId : row.player === context.player); return player && player.fk + player.fd ? { value: Number(rate(player.fd, player.fk + player.fd)), samples: player.fk + player.fd, unit: '%' } : null; }
   if (check.signalType === 'map-underperformance') { const map = summary.mapResults.find(row => row.map === context.map); return map ? { value: Number(rate(map.wins, map.matches)), samples: map.matches, unit: '%' } : null; }
   if (check.signalType === 'evidence-health') {

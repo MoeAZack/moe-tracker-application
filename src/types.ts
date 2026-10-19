@@ -312,7 +312,7 @@ export interface CoachingSignal {
   title: string;
   explanation: string;
   metric: { value: number; samples: number; unit: string };
-  context: { map?: string; side?: string; economy?: string; playerId?: string; player?: string; agent?: string; composition?: string; evidenceDimension?: 'match-acceptance' | 'round-completeness' };
+  context: { map?: string; side?: string; economy?: string; playerId?: string; player?: string; agent?: string; composition?: string; advantageStates?: string; evidenceDimension?: 'match-acceptance' | 'round-completeness' };
   evidence: { matchIds: string[]; roundIds?: string[]; sourceTypes: string[]; confidence: 'high' | 'medium' | 'low' };
   relatedActionId?: string;
   classificationCorrections?: Array<{ at: string; by: string; reason: string; original: { type: CoachingSignal['type']; context: CoachingSignal['context'] }; corrected: { type: CoachingSignal['type']; context: CoachingSignal['context'] } }>;
@@ -613,6 +613,8 @@ export interface Round {
   midRoundIglChange?: boolean | string;
   strategies?: string; // Comma-separated strategies run
   screenshotEvidence?: RoundScreenshotEvidence;
+  advantageEvidence?: import('../lib/roundAdvantage').RoundAdvantageEvidence;
+  vodEvidence?: { sourceSubmissionIds: string[]; roundNumber: number; observations: unknown[]; updatedAt: string };
 }
 
 export interface Veto {

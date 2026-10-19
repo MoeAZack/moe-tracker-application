@@ -18,7 +18,7 @@ const evidenceFields = [
   'side', 'buy', 'enemyBuy', 'result', 'winBy', 'plant', 'site', 'notes',
   'isThrow', 'thrownBy', 'throwReason', 'firstKillBy', 'firstDeathBy',
   'clutchType', 'clutchPlayer', 'clutchResult', 'iglPlayer', 'iglRole',
-  'midRoundIglChange', 'strategies', 'sourceMetadata', 'replayEvidence', 'corrections',
+  'midRoundIglChange', 'strategies', 'sourceMetadata', 'replayEvidence', 'advantageEvidence', 'vodEvidence', 'corrections',
 ] as const;
 
 export function roundHasEvidence(round: Record<string, unknown>): boolean {

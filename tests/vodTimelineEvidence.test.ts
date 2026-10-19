@@ -108,6 +108,8 @@ describe('VOD timeline evidence', () => {
     const fused = fuseVodEvidence([first, second]);
     expect(fused.fusion.sourceCount).toBe(2);
     expect(fused.observations.filter((item: any) => item.kind === 'elimination')).toHaveLength(2);
+    expect(fused.rounds).toHaveLength(1);
+    expect(fused.rounds[0].events).toHaveLength(2);
   });
 
   it('accepts only supported YouTube URL forms and detects changed frames', () => {
