@@ -24,6 +24,13 @@ describe('replay review workspace semantics', () => {
     expect(dirtyHtml).toContain('Unsaved changes'); expect(dirtyHtml).not.toContain('Accept this saved revision'); expect(dirtyHtml).toMatch(/<button[^>]*disabled=""[^>]*>Accept replay<\/button>/);
   });
 
+  it('shows accepted reviewed identities instead of parser IDs in scoreboard and round evidence', () => {
+    const accepted = { ...detail, review: { ...detail.review, status: 'accepted' } };
+    const html = renderToStaticMarkup(<ReplayReviewEvidence detail={accepted} data={{ ...data, settings: { teamName: 'MOE' } }} matchId="m1" setMatchId={() => {}} teamId="team-us" setTeamId={() => {}} mappings={mappings} setMapping={() => {}} teams={['team-us', 'team-them']} busy="" dirty={false} confirmed={true} setConfirmed={() => {}} saveReview={() => {}} accept={() => {}} />);
+    expect(html).toContain('Alpha'); expect(html).toContain('Alpha → Opponent X'); expect(html).toContain('MOE'); expect(html).toContain('identity resolved');
+    expect(html).not.toContain('team-us · raw-a'); expect(html).not.toContain('raw-a → raw-x');
+  });
+
   it('proposes actual screenshot names only for unique exact K/D/A matches', () => {
     const replay = [
       { playerId: 'one', kills: available(22), deaths: available(16), assists: available(5) },

@@ -46,6 +46,17 @@ function matchRosterIds(db: any, matchId: string) {
   return new Set((db.playerStats || []).filter((row: any) => row.matchId === matchId).map((row: any) => row.playerId || (db.rosterPlayers || []).find((player: any) => similarVodName(row.displayNameSnapshot || row.player, player.displayName))?.id).filter(Boolean));
 }
 
+function hasUniqueKdaCoverage(db: any, matchId: string, players: VodSubmissionPlayer[]) {
+  const rows: PlayerStats[] = (db.playerStats || []).filter((row: PlayerStats) => row.matchId === matchId);
+  const claimed = new Set<string>();
+  const metric = (value: unknown) => typeof value === 'number' && Number.isFinite(value) ? value : null;
+  return players.every(player => {
+    const candidates = rows.filter(row => !claimed.has(row.id) && metric(row.kills) === metric(player.kills) && metric(row.deaths) === metric(player.deaths) && metric(row.assists) === metric(player.assists));
+    if (candidates.length !== 1) return false;
+    claimed.add(candidates[0].id); return true;
+  });
+}
+
 function identityMatches(input: SubmissionInput, match: Match) {
   const sameDate = match.date === input.date;
   const sameMap = !input.map || !match.map || normalizeVodName(match.map) === normalizeVodName(input.map);
@@ -78,7 +89,7 @@ export function integrateVodSubmission(db: any, input: SubmissionInput, actorNam
   const requested = input.matchId ? (db.matches || []).find((match: Match) => match.id === input.matchId) : null;
   if (input.matchId && !requested) throw Object.assign(new Error('The selected match no longer exists.'), { status: 404 });
   const rosterIds = new Set(players.map(row => row.rosterPlayerId));
-  if (requested && [...rosterIds].filter(id => matchRosterIds(db, requested.id).has(id)).length < 5) throw Object.assign(new Error('The selected match does not contain the same five-player roster. Choose the correct match or create a new VOD entry.'), { status: 409 });
+  if (requested && [...rosterIds].filter(id => matchRosterIds(db, requested.id).has(id)).length < 5 && !hasUniqueKdaCoverage(db, requested.id, players)) throw Object.assign(new Error('The selected match does not contain the same five-player roster or five unique K/D/A rows. Choose the correct match or create a new VOD entry.'), { status: 409 });
   const automatic = !requested ? (db.matches || []).filter((match: Match) => identityMatches(input, match) && [...rosterIds].every(id => matchRosterIds(db, match.id).has(id))) : [];
   let match: Match | undefined = requested || (automatic.length === 1 ? automatic[0] : undefined);
   const createdMatch = !match;
@@ -96,12 +107,23 @@ export function integrateVodSubmission(db: any, input: SubmissionInput, actorNam
     match.vodSubmissionIds = [...new Set([...(match.vodSubmissionIds || []), ids.submissionId])];
   }
   let createdStats = 0; let filledFields = 0; let preservedFields = 0;
+  const claimedStatIds = new Set<string>();
   for (const observed of players) {
-    let stat: PlayerStats | undefined = (db.playerStats || []).find((row: PlayerStats) => row.matchId === match!.id && (row.playerId === observed.rosterPlayerId || similarVodName(row.displayNameSnapshot || row.player, observed.rosterDisplayName)));
+    const matchRows: PlayerStats[] = (db.playerStats || []).filter((row: PlayerStats) => row.matchId === match!.id && !claimedStatIds.has(row.id));
+    const candidateNumber = (value: unknown) => typeof value === 'number' && Number.isFinite(value) ? value : null;
+    const kdaMatches = matchRows.filter(row => candidateNumber(row.kills) === candidateNumber(observed.kills) && candidateNumber(row.deaths) === candidateNumber(observed.deaths) && candidateNumber(row.assists) === candidateNumber(observed.assists));
+    let stat: PlayerStats | undefined = matchRows.find(row => row.playerId === observed.rosterPlayerId || similarVodName(row.displayNameSnapshot || row.player, observed.rosterDisplayName)) || (kdaMatches.length === 1 ? kdaMatches[0] : undefined);
     if (!stat) {
       stat = { id: ids.statId(), matchId: match.id, playerId: observed.rosterPlayerId, player: observed.rosterDisplayName, displayNameSnapshot: observed.rosterDisplayName, appearanceType: appearanceType(db, observed.rosterPlayerId), agent: observed.agent || 'Unknown', kAtt: null, kDef: null, dAtt: null, dDef: null, aAtt: null, aDef: null, kills: null, deaths: null, assists: null, sourceMetadata: { method: 'vod-submission', capturedAt: now, provider: 'local-ocr', externalId: ids.submissionId } };
       db.playerStats.push(stat); createdStats += 1;
     }
+    claimedStatIds.add(stat.id);
+    // A five-player roster match is accepted identity evidence. Canonicalize
+    // legacy anonymous/parser rows instead of leaving a duplicate beside them.
+    stat.playerId = observed.rosterPlayerId;
+    stat.player = observed.rosterDisplayName;
+    stat.displayNameSnapshot = observed.rosterDisplayName;
+    stat.appearanceType = appearanceType(db, observed.rosterPlayerId);
     const fields: string[] = [];
     if ((!stat.agent || stat.agent === 'Unknown') && observed.agent) { stat.agent = observed.agent; fields.push('agent'); } else if (observed.agent) preservedFields += 1;
     for (const field of METRIC_FIELDS) {

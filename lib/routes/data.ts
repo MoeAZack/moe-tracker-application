@@ -171,7 +171,6 @@ export function registerDataRoutes(app: Express, options: { websiteSummaryOnly?:
       const body = validate(schemas.attendanceGreenCreditSchema, req.body, res); if (!body) return;
       const db = await readDB();
       if (!(db.rosterPlayers || []).some((player: any) => player.id === body.playerId && !player.retiredAt)) return res.status(404).json({ error: 'Active roster player was not found.' });
-      if (attendanceSummary(db, body.playerId).redDots < 1) return res.status(409).json({ error: 'This player has no active red dot to remove.' });
       db.attendanceCredits ||= [];
       const credit = { id: uid(), playerId: body.playerId, kind: 'green', reason: body.reason, createdAt: new Date().toISOString(), createdBy: (req as any).user.username || 'Coach' };
       db.attendanceCredits.push(credit); await saveDB(db);
