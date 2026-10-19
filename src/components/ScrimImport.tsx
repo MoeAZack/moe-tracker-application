@@ -125,17 +125,17 @@ export default function ScrimImport({ data, theme, onSaveMatch, onSaveRounds, on
       if (!scoreboardCapture) throw new Error('The capture session has no scoreboard image.');
       const phaseAliases = new Map<string, string[]>();
       for (const batch of data.tryoutBatches || []) for (const entry of batch.aliases || []) phaseAliases.set(entry.playerId, [...(phaseAliases.get(entry.playerId) || []), entry.alias]);
-      const baseRoster = data.rosterPlayers?.length
-        ? data.rosterPlayers.map(player => ({ id: player.id, displayName: player.displayName, aliases: phaseAliases.get(player.id) || [] }))
+      const baseRoster = rosterPlayers.length
+        ? rosterPlayers.map(player => ({ id: player.id, displayName: player.displayName, aliases: phaseAliases.get(player.id) || [] }))
         : roster.map(displayName => ({ displayName }));
       const learning = await getOcrLearningState(data.rosterPlayers || []);
-      const rosterPlayers = rosterWithLearnedAliases(baseRoster, learning.aliases);
+      const extractionRosterPlayers = rosterWithLearnedAliases(baseRoster, learning.aliases);
       adapter = await createBrowserLocalTesseractAdapter();
       const hashes = new Map<string, Promise<string>>();
       let cacheHits = 0; let cacheMisses = 0;
       const extracted = await extractCaptureSession({
         captures: session.captures,
-        rosterPlayers,
+        rosterPlayers: extractionRosterPlayers,
         adapter,
         loadImage: capture => imageFromBase64(capture.base64, capture.mediaType),
         knownMaps: maps,

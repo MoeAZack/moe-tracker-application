@@ -19,14 +19,14 @@ describe('live logger tryout defaults', () => {
     expect(getLiveLoggerDefaults(data)).toMatchObject({
       activeRoster: ['Candidate One'],
       rosterContext: { kind: 'tryout', tryoutBatchId: 'phase-2' },
-      appearanceByPlayer: { 'Core One': 'core', 'Candidate One': 'tryout', 'Retired Candidate': 'tryout' },
+      appearanceByPlayer: { 'Core One': 'core', 'Candidate One': 'tryout' },
     });
   });
 
   it('uses the core roster outside tryout mode and preserves a phase when changing to mixed', () => {
     const data: any = {
-      settings: { tryoutsMode: false, activeTryoutBatchId: null, players: ['Core One'] },
-      rosterPlayers: [{ id: 'core-1', displayName: 'Core One' }],
+      settings: { tryoutsMode: false, activeTryoutBatchId: null, players: ['Core One', 'Archived One'] },
+      rosterPlayers: [{ id: 'core-1', displayName: 'Core One' }, { id: 'old', displayName: 'Archived One', retiredAt: '2026-10-18' }],
       tryoutBatches: [],
     };
 
