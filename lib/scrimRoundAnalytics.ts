@@ -36,7 +36,7 @@ export function classifyAverageLoadout(value: unknown): EconomyClass {
   return 'full';
 }
 
-const FULL_WEAPONS = ['vandal', 'phantom', 'operator', 'odin', 'guardian', 'outlaw'];
+const FULL_WEAPONS = ['vandal', 'phantom', 'warden', 'operator', 'odin', 'guardian', 'outlaw'];
 const LOW_WEAPONS = ['spectre', 'stinger', 'bulldog', 'judge', 'bucky', 'marshal', 'ares'];
 const PISTOLS = ['classic', 'ghost', 'sheriff', 'frenzy', 'shorty', 'bandit'];
 
