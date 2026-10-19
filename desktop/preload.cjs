@@ -13,6 +13,8 @@ contextBridge.exposeInMainWorld('moeDesktop', Object.freeze({
   analyzeVod: (input) => ipcRenderer.invoke('desktop:analyze-vod', input),
   releaseVodAnalysis: (cacheId) => ipcRenderer.invoke('desktop:release-vod-analysis', cacheId),
   cancelVodAnalysis: () => ipcRenderer.invoke('desktop:cancel-vod-analysis'),
+  createReviewClips: (input) => ipcRenderer.invoke('desktop:create-review-clips', input),
+  openReviewClip: (fileName) => ipcRenderer.invoke('desktop:open-review-clip', fileName),
   onVodAnalysisProgress: (callback) => {
     const listener = (_event, payload) => callback(payload);
     ipcRenderer.on('desktop:vod-analysis-progress', listener);

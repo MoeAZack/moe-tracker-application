@@ -188,6 +188,18 @@ export const vodSaveSchema = z.object({ review: looseObject });
 export const vodNoteSchema = z.object({ reviewId: nonEmpty, seconds: z.number().min(0).max(86_400).optional(), timeLabel: z.string().max(20).optional(), roundNo: z.number().int().min(1).max(100).optional(), text: shortText });
 export const vodNoteRemoveSchema = z.object({ reviewId: nonEmpty, noteId: nonEmpty });
 export const vodReplySchema = z.object({ reviewId: nonEmpty, noteId: nonEmpty, text: shortText });
+export const vodRoundReviewSchema = z.object({
+  matchId: nonEmpty,
+  roundNo: z.number().int().min(1).max(100),
+  note: z.string().max(5_000).optional(),
+  classification: z.object({
+    type: z.enum(['advantage-collapse', 'failed-trade-spacing', 'economy-mismatch', 'post-plant-loss', 'first-death-review', 'utility-unused-review']),
+    status: z.enum(['confirmed', 'dismissed']),
+    player: z.string().max(100).nullable().optional(),
+    reason: z.string().max(500).optional(),
+  }).optional(),
+  clips: z.array(z.object({ id: nonEmpty, fileName: z.string().min(1).max(255), label: z.string().min(1).max(200), startMs: z.number().int().min(0), endMs: z.number().int().min(1) })).max(20).optional(),
+});
 const vodMetric = z.number().finite().int().min(0).max(2000).nullable();
 const vodSignalSupport = z.enum(['complete', 'partial', 'unsupported']);
 const vodTimelineEvidenceSchema = z.object({

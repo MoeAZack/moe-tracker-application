@@ -311,4 +311,33 @@ async function analyzeVodTimeline(input, options = {}) {
   } finally { clearTimeout(timeout); options.signal?.removeEventListener('abort', externalAbort); await fsp.rm(jobDirectory, { recursive: true, force: true }).catch(() => {}); }
 }
 
-module.exports = { normalizeYoutubeUrl, youtubeVideoId, probeVideo, analyzeVodTimeline, discoverVodGames, changedFrames, frameDifference, visualSignature, ensureDiskSpace, scoreboardGeometryScore, agentSelectGeometryScore, chooseGameBoundaries, inferPovPlayer };
+function safeClipName(value) { return String(value || 'review').normalize('NFKD').replace(/[^a-zA-Z0-9 _.-]/g, '').trim().replace(/\s+/g, '-').slice(0, 80) || 'review'; }
+
+async function createReviewClips(input, options = {}) {
+  const moments = Array.isArray(input.moments) ? input.moments.slice(0, 20) : [];
+  if (!moments.length) throw new Error('Choose at least one supported review moment.');
+  const outputRoot = path.resolve(options.outputRoot || path.join(require('node:os').tmpdir(), 'moetracker-review-clips'));
+  const workRoot = path.resolve(options.workRoot || path.join(require('node:os').tmpdir(), 'moetracker-vod'));
+  await fsp.mkdir(outputRoot, { recursive: true }); await fsp.mkdir(workRoot, { recursive: true });
+  const jobDirectory = path.join(workRoot, `clips-${crypto.randomUUID()}`); await fsp.mkdir(jobDirectory, { recursive: true });
+  let sourceFile = input.localPath ? path.resolve(String(input.localPath)) : null;
+  try {
+    if (sourceFile) { if (!fs.existsSync(sourceFile)) throw new Error('The selected local VOD no longer exists.'); }
+    else sourceFile = await downloadYoutube(input.vodUrl, jobDirectory, options.progress, options.signal);
+    const probe = await probeVideo(sourceFile, options.signal); const output = [];
+    for (let index = 0; index < moments.length; index += 1) {
+      throwIfAborted(options.signal); const moment = moments[index] || {};
+      const center = Math.max(0, Math.min(probe.durationMs, Number(moment.timestampMs) || 0));
+      const startMs = Math.max(0, Number.isFinite(Number(moment.startMs)) ? Number(moment.startMs) : center - 8_000);
+      const endMs = Math.min(probe.durationMs, Number.isFinite(Number(moment.endMs)) ? Number(moment.endMs) : center + 8_000);
+      if (endMs - startMs < 2_000 || endMs - startMs > 90_000) throw new Error('Review clips must be between 2 and 90 seconds.');
+      const id = crypto.randomUUID(); const fileName = `${safeClipName(moment.label)}-${String(Math.round(center / 1000)).padStart(5, '0')}-${id.slice(0, 8)}.mp4`; const target = path.join(outputRoot, fileName);
+      await run(ffmpegPath(), ['-hide_banner', '-loglevel', 'error', '-ss', String(startMs / 1000), '-i', sourceFile, '-t', String((endMs - startMs) / 1000), '-map', '0:v:0', '-map', '0:a?', '-c:v', 'libx264', '-preset', 'veryfast', '-crf', '23', '-c:a', 'aac', '-movflags', '+faststart', '-y', target], { signal: options.signal });
+      output.push({ id, fileName, path: target, label: String(moment.label || 'Review moment').slice(0, 200), startMs: Math.round(startMs), endMs: Math.round(endMs) });
+      options.progress?.({ stage: 'clips', percent: Math.round((index + 1) / moments.length * 100), message: `Creating review clips · ${index + 1}/${moments.length}` });
+    }
+    return output;
+  } finally { await fsp.rm(jobDirectory, { recursive: true, force: true }).catch(() => {}); }
+}
+
+module.exports = { normalizeYoutubeUrl, youtubeVideoId, probeVideo, analyzeVodTimeline, discoverVodGames, createReviewClips, changedFrames, frameDifference, visualSignature, ensureDiskSpace, scoreboardGeometryScore, agentSelectGeometryScore, chooseGameBoundaries, inferPovPlayer };

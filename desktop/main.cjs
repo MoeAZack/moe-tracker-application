@@ -19,7 +19,7 @@ const { canonical, refreshScreenshotOutboxFromData } = require('./sync-outbox.cj
 const { hasRecentRecoveryBackup } = require('./recovery-backup.cjs');
 const { isTrustedSenderUrl, sessionIsFresh } = require('./session-security.cjs');
 const { loginCredentials } = require('./session-credentials.cjs');
-const { analyzeVodTimeline, discoverVodGames } = require('./vod-timeline-analyzer.cjs');
+const { analyzeVodTimeline, discoverVodGames, createReviewClips } = require('./vod-timeline-analyzer.cjs');
 
 let mainWindow;
 let tray;
@@ -631,6 +631,22 @@ handleTrusted('desktop:release-vod-analysis', async (event, cacheId) => {
   discoveredVodSources.delete(String(cacheId)); if (!cached.downloaded) approvedVodPaths.delete(cached.file); await fsp.rm(cached.directory, { recursive: true, force: true }).catch(() => {}); return { released: true };
 });
 handleTrusted('desktop:cancel-vod-analysis', event => { const controller = activeVodAnalyses.get(event.sender.id); if (!controller) return { cancelled: false }; controller.abort(new Error('VOD analysis was cancelled.')); return { cancelled: true }; });
+handleTrusted('desktop:create-review-clips', async (event, input = {}) => {
+  const localPath = input.localPath ? path.resolve(String(input.localPath)) : null;
+  if (localPath && !approvedVodPaths.has(localPath)) throw new Error('Choose the local VOD through Moe Tracker before creating clips.');
+  const progress = payload => { if (!event.sender.isDestroyed()) event.sender.send('desktop:vod-analysis-progress', payload); };
+  const jobKey = event.sender.id; if (activeVodAnalyses.has(jobKey)) throw new Error('A VOD task is already running in this window.');
+  const controller = new AbortController(); activeVodAnalyses.set(jobKey, controller);
+  try {
+    return await createReviewClips({ vodUrl: String(input.vodUrl || '').trim(), localPath, moments: Array.isArray(input.moments) ? input.moments : [] }, { progress, signal: controller.signal, workRoot: path.join(runtime.paths.local, 'Vod Analysis'), outputRoot: path.join(runtime.paths.local, 'Review Clips') });
+  } finally { activeVodAnalyses.delete(jobKey); }
+});
+handleTrusted('desktop:open-review-clip', async (_event, fileName) => {
+  const name = path.basename(String(fileName || '')); if (!name || name !== String(fileName || '') || !name.toLowerCase().endsWith('.mp4')) throw new Error('Unknown review clip.');
+  const root = path.resolve(runtime.paths.local, 'Review Clips'); const target = path.resolve(root, name);
+  if (!target.startsWith(`${root}${path.sep}`) || !fs.existsSync(target)) throw new Error('This review clip is not available on this PC.');
+  const error = await shell.openPath(target); if (error) throw new Error(error); return { opened: true };
+});
 handleTrusted('desktop:sync-now', syncNow);
 handleTrusted('desktop:pair-device', (event, input) => { requireTrustedSender(event); return pairDevice(input || {}); });
 handleTrusted('desktop:set-sync-mode', async (_event, mode) => { if (!['offline-first', 'connected'].includes(mode)) throw new Error('Unknown synchronization mode.'); if (mode === 'connected' && !runtime.config.cloudPairing) throw new Error('Pair this device before enabling connected sync.'); runtime.config.mode = mode; await saveRuntimeConfig(); return { mode }; });
