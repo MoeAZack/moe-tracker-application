@@ -200,7 +200,7 @@ const vodTimelineEvidenceSchema = z.object({
   throwCandidates: z.array(z.unknown()).max(200), limitations: z.array(z.string().max(500)).max(20),
 }).strict();
 export const vodSubmissionSchema = z.object({
-  vodUrl: z.string().trim().url().max(2000).refine(value => /^https?:\/\//i.test(value), 'VOD links must use HTTP or HTTPS.'),
+  vodUrl: z.string().trim().max(2000).refine(value => /^https?:\/\//i.test(value) || /^moetracker-local:\/\/sha256\/[a-f0-9]{64}$/.test(value), 'VOD sources must be an HTTP link or a verified local video.'),
   imageSha256: z.string().regex(/^[a-f0-9]{64}$/),
   matchId: z.string().trim().max(200).optional(),
   playerId: rosterId.optional(),
