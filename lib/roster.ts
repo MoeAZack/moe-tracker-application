@@ -524,7 +524,10 @@ export function deleteRosterPlayer(db: any, playerId: string) {
 export function purgeExpiredRosterPlayers(db: any, now = new Date().toISOString()) {
   ensureRoster(db);
   const at = Date.parse(now);
-  const expired = db.rosterPlayers.filter((player: any) => player.retiredAt && Date.parse(player.purgeAfter || new Date(Date.parse(player.retiredAt) + ARCHIVED_PLAYER_RETENTION_DAYS * 86_400_000).toISOString()) <= at);
+  // Retired identities created before the explicit 60-day archive workflow do
+  // not carry purgeAfter. Never reinterpret those legacy/variant identities as
+  // coach-approved deletions.
+  const expired = db.rosterPlayers.filter((player: any) => player.retiredAt && player.purgeAfter && Date.parse(player.purgeAfter) <= at);
   for (const player of expired) deleteRosterPlayer(db, player.id);
   return { purged: expired.map((player: any) => ({ id: player.id, displayName: player.displayName })) };
 }
