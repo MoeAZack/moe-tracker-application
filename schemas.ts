@@ -204,6 +204,7 @@ export const vodSubmissionSchema = z.object({
   imageSha256: z.string().regex(/^[a-f0-9]{64}$/),
   matchId: z.string().trim().max(200).optional(),
   playerId: rosterId.optional(),
+  coachTeamEvidence: z.boolean().optional(),
   date: z.string().regex(/^\d{4}-\d{2}-\d{2}$/),
   map: z.string().trim().max(100).nullable(),
   opponent: z.string().trim().max(160).nullable(),
@@ -214,7 +215,7 @@ export const vodSubmissionSchema = z.object({
     agent: z.string().trim().max(100).nullable(),
     kills: vodMetric, deaths: vodMetric, assists: vodMetric, acs: vodMetric, adr: vodMetric,
     hs: vodMetric, fk: vodMetric, fd: vodMetric, plants: vodMetric, defuses: vodMetric, trades: vodMetric,
-  }).strict()).length(5),
+  }).strict()).max(5).refine(rows => rows.length === 0 || rows.length === 5, 'VOD evidence must contain either five proven roster identities or no player assignment.'),
   timelineEvidence: vodTimelineEvidenceSchema.nullable().optional(),
 }).strict();
 

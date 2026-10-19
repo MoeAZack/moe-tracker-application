@@ -19,7 +19,7 @@ const { canonical, refreshScreenshotOutboxFromData } = require('./sync-outbox.cj
 const { hasRecentRecoveryBackup } = require('./recovery-backup.cjs');
 const { isTrustedSenderUrl, sessionIsFresh } = require('./session-security.cjs');
 const { loginCredentials } = require('./session-credentials.cjs');
-const { analyzeVodTimeline } = require('./vod-timeline-analyzer.cjs');
+const { analyzeVodTimeline, discoverVodGames } = require('./vod-timeline-analyzer.cjs');
 
 let mainWindow;
 let tray;
@@ -599,17 +599,36 @@ handleTrusted('desktop:choose-vod-file', async () => {
   return { canceled: false, path: selected, name: path.basename(selected) };
 });
 const activeVodAnalyses = new Map();
-handleTrusted('desktop:analyze-vod', async (event, input = {}) => {
-  const players = Array.isArray(input.players) ? input.players.slice(0, 10).map(item => ({ name: String(item?.name || '').trim().slice(0, 100), team: item?.team === 'theirs' ? 'theirs' : 'ours', expectedKills: Number.isInteger(item?.expectedKills) && item.expectedKills >= 0 ? item.expectedKills : null, expectedDeaths: Number.isInteger(item?.expectedDeaths) && item.expectedDeaths >= 0 ? item.expectedDeaths : null })).filter(item => item.name) : [];
-  if (players.length < 5) throw new Error('Timeline analysis needs at least five identified scoreboard names.');
+const discoveredVodSources = new Map();
+handleTrusted('desktop:discover-vod-games', async (event, input = {}) => {
   const localPath = input.localPath ? path.resolve(String(input.localPath)) : null;
   if (localPath && !approvedVodPaths.has(localPath)) throw new Error('Choose the local VOD through Moe Tracker before analyzing it.');
   const progress = payload => { if (!event.sender.isDestroyed()) event.sender.send('desktop:vod-analysis-progress', payload); };
   const jobKey = event.sender.id; if (activeVodAnalyses.has(jobKey)) throw new Error('A VOD analysis is already running in this window.');
   const controller = new AbortController(); activeVodAnalyses.set(jobKey, controller);
   try {
-    return await analyzeVodTimeline({ vodUrl: String(input.vodUrl || '').trim(), localPath, players, povPlayerName: String(input.povPlayerName || '').trim() || null }, { progress, signal: controller.signal, workRoot: path.join(runtime.paths.local, 'Vod Analysis') });
-  } finally { activeVodAnalyses.delete(jobKey); if (localPath) approvedVodPaths.delete(localPath); }
+    const result = await discoverVodGames({ vodUrl: String(input.vodUrl || '').trim(), localPath, expectedGames: input.expectedGames, mapNames: Array.isArray(input.mapNames) ? input.mapNames.slice(0, 50).map(item => String(item || '').slice(0, 100)) : [] }, { progress, signal: controller.signal, workRoot: path.join(runtime.paths.local, 'Vod Analysis') });
+    discoveredVodSources.set(result.cacheId, { directory: result.directory, file: result.file, downloaded: result.downloaded, videoId: result.videoId, durationMs: result.durationMs, sourceSha256: result.sourceSha256, owner: event.sender.id, createdAt: Date.now() });
+    const { directory: _directory, file: _file, downloaded: _downloaded, sourceSha256: _sourceSha256, ...publicResult } = result; return publicResult;
+  } finally { activeVodAnalyses.delete(jobKey); }
+});
+handleTrusted('desktop:analyze-vod', async (event, input = {}) => {
+  const players = Array.isArray(input.players) ? input.players.slice(0, 10).map(item => ({ name: String(item?.name || '').trim().slice(0, 100), team: item?.team === 'theirs' ? 'theirs' : 'ours', expectedKills: Number.isInteger(item?.expectedKills) && item.expectedKills >= 0 ? item.expectedKills : null, expectedDeaths: Number.isInteger(item?.expectedDeaths) && item.expectedDeaths >= 0 ? item.expectedDeaths : null })).filter(item => item.name) : [];
+  if (players.length < 1) throw new Error('Timeline analysis needs at least one observed player identity.');
+  const cached = input.cacheId ? discoveredVodSources.get(String(input.cacheId)) : null;
+  if (input.cacheId && (!cached || cached.owner !== event.sender.id)) throw new Error('The detected VOD session expired. Detect the games again.');
+  const localPath = cached?.file || (input.localPath ? path.resolve(String(input.localPath)) : null);
+  if (localPath && !approvedVodPaths.has(localPath)) throw new Error('Choose the local VOD through Moe Tracker before analyzing it.');
+  const progress = payload => { if (!event.sender.isDestroyed()) event.sender.send('desktop:vod-analysis-progress', payload); };
+  const jobKey = event.sender.id; if (activeVodAnalyses.has(jobKey)) throw new Error('A VOD analysis is already running in this window.');
+  const controller = new AbortController(); activeVodAnalyses.set(jobKey, controller);
+  try {
+    return await analyzeVodTimeline({ vodUrl: String(input.vodUrl || '').trim(), localPath, players, povPlayerName: String(input.povPlayerName || '').trim() || null, startMs: Number(input.startMs) || 0, endMs: Number(input.endMs) || null, sourceKind: cached?.downloaded ? 'youtube' : undefined, videoId: cached?.videoId || null, sourceSha256: cached?.sourceSha256 || null }, { progress, signal: controller.signal, workRoot: path.join(runtime.paths.local, 'Vod Analysis') });
+  } finally { activeVodAnalyses.delete(jobKey); if (localPath && !cached) approvedVodPaths.delete(localPath); }
+});
+handleTrusted('desktop:release-vod-analysis', async (event, cacheId) => {
+  const cached = discoveredVodSources.get(String(cacheId || '')); if (!cached || cached.owner !== event.sender.id) return { released: false };
+  discoveredVodSources.delete(String(cacheId)); if (!cached.downloaded) approvedVodPaths.delete(cached.file); await fsp.rm(cached.directory, { recursive: true, force: true }).catch(() => {}); return { released: true };
 });
 handleTrusted('desktop:cancel-vod-analysis', event => { const controller = activeVodAnalyses.get(event.sender.id); if (!controller) return { cancelled: false }; controller.abort(new Error('VOD analysis was cancelled.')); return { cancelled: true }; });
 handleTrusted('desktop:sync-now', syncNow);

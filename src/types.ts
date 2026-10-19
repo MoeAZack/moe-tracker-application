@@ -742,7 +742,7 @@ export interface VodTimelineEvidence {
 export interface VodSubmission {
   schema: 'moetracker.vod-submission/v1';
   id: string;
-  submittedByPlayerId: string;
+  submittedByPlayerId: string | null;
   submittedByName: string;
   vodUrl: string;
   imageSha256: string;
@@ -755,7 +755,7 @@ export interface VodSubmission {
   linkedMatchId: string;
   linkMode: 'existing-match' | 'new-match';
   status: 'integrated';
-  rosterMatchCount: 5;
+  rosterMatchCount: number;
   players: VodSubmissionPlayer[];
   timelineEvidence?: VodTimelineEvidence | null;
   integration: { createdMatch: boolean; createdStats: number; filledFields: number; preservedFields: number };
