@@ -36,7 +36,7 @@ declare global {
       installUpdate(): Promise<{ installing: boolean }>;
       processMatch(): Promise<{ state: string; message: string; items?: any[] }>;
       chooseVodFile(): Promise<{ canceled: boolean; path?: string; name?: string }>;
-      discoverVodGames(input: { vodUrl?: string; localPath?: string }): Promise<{ cacheId: string; uploadDate: string | null; videoId: string | null; durationMs: number; width: number; height: number; games: Array<{ timestampMs: number; score: number; mediaType: string; base64: string }> }>;
+      discoverVodGames(input: { vodUrl?: string; localPath?: string; expectedGames?: number }): Promise<{ cacheId: string; uploadDate: string | null; videoId: string | null; durationMs: number; width: number; height: number; games: Array<{ timestampMs: number; score: number; mediaType: string; base64: string }> }>;
       analyzeVod(input: { vodUrl?: string; localPath?: string; cacheId?: string; startMs?: number; endMs?: number | null; povPlayerName?: string | null; players: Array<{ name: string; team: 'ours' | 'theirs'; expectedKills?: number | null; expectedDeaths?: number | null }> }): Promise<any>;
       releaseVodAnalysis(cacheId: string): Promise<{ released: boolean }>;
       cancelVodAnalysis(): Promise<{ cancelled: boolean }>;

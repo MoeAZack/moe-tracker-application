@@ -106,7 +106,7 @@ function scoreboardGeometryScore(frame, width, height) {
   return best + (headerSamples ? saturated / headerSamples * 35 : 0);
 }
 
-async function sampleScoreboardCandidates(file, durationSeconds, progress, signal) {
+async function sampleScoreboardCandidates(file, durationSeconds, progress, signal, expectedGames = null) {
   const width = 480; const height = 270; const fps = 1 / 8; const frameBytes = width * height * 3;
   const child = spawn(ffmpegPath(), ['-hide_banner', '-loglevel', 'error', '-i', file, '-an', '-vf', `fps=${fps},scale=${width}:${height}:flags=fast_bilinear,format=rgb24`, '-f', 'rawvideo', '-pix_fmt', 'rgb24', 'pipe:1'], { windowsHide: true, stdio: ['ignore', 'pipe', 'pipe'] });
   const onAbort = () => child.kill(); signal?.addEventListener('abort', onAbort, { once: true }); let stderr = ''; let pending = Buffer.alloc(0); let index = 0; const ranked = [];
@@ -121,10 +121,12 @@ async function sampleScoreboardCandidates(file, durationSeconds, progress, signa
   }
   const code = await new Promise((resolve, reject) => { child.on('error', reject); child.on('close', resolve); }); signal?.removeEventListener('abort', onAbort); throwIfAborted(signal);
   if (code !== 0) throw new Error(stderr.trim() || 'FFmpeg could not inspect the VOD for match boundaries.');
+  const requestedGames = Number.isInteger(Number(expectedGames)) ? Math.max(1, Math.min(12, Number(expectedGames))) : null;
+  const candidateLimit = requestedGames ? Math.min(48, Math.max(12, requestedGames * 8)) : 12;
   ranked.sort((a, b) => b.score - a.score); const chosen = [];
   for (const candidate of ranked) {
-    if (chosen.every(item => Math.abs(item.timestampMs - candidate.timestampMs) >= 90_000)) chosen.push(candidate);
-    if (chosen.length >= 12) break;
+    if (chosen.every(item => Math.abs(item.timestampMs - candidate.timestampMs) >= 30_000)) chosen.push(candidate);
+    if (chosen.length >= candidateLimit) break;
   }
   return chosen.sort((a, b) => a.timestampMs - b.timestampMs);
 }
@@ -142,7 +144,7 @@ async function discoverVodGames(input, options = {}) {
   const signal = options.signal; throwIfAborted(signal); const cacheId = crypto.randomUUID(); const directory = path.join(workRoot, `source-${cacheId}`); await fsp.mkdir(directory, { recursive: true });
   try {
     const downloaded = !input.localPath; const file = input.localPath ? path.resolve(String(input.localPath)) : await downloadYoutube(input.vodUrl, directory, progress, signal);
-    const probe = await probeVideo(file, signal); const candidates = await sampleScoreboardCandidates(file, probe.durationSeconds, progress, signal); const games = [];
+    const probe = await probeVideo(file, signal); const candidates = await sampleScoreboardCandidates(file, probe.durationSeconds, progress, signal, input.expectedGames); const games = [];
     for (let index = 0; index < candidates.length; index += 1) {
       const target = path.join(directory, `scoreboard-${String(index + 1).padStart(2, '0')}.png`); await extractFrame(file, candidates[index].timestampMs, target, signal);
       games.push({ timestampMs: candidates[index].timestampMs, score: candidates[index].score, mediaType: 'image/png', base64: (await fsp.readFile(target)).toString('base64') });
