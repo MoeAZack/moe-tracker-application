@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { buildWeaponRoundOutcomes, excludeArchivedScreenshotPlayers } from '../src/components/EconomyAnalytics';
+import { buildWeaponRoundOutcomes, buildWeaponRoundOutcomesByEconomy, excludeArchivedScreenshotPlayers } from '../src/components/EconomyAnalytics';
 
 describe('economy archived players', () => {
   it('removes archived names from screenshot-derived player metrics without deleting match evidence', () => {
@@ -35,5 +35,19 @@ describe('economy weapon round outcomes', () => {
 
   it('retains every catalog weapon, including Bandit', () => {
     expect(buildWeaponRoundOutcomes([{ displayName: 'Alpha', weapons: [{ weapon: 'Bandit', rounds: 4, wins: 3, kills: 4, deaths: 2 }] }])[0]).toMatchObject({ weapon: 'Bandit', rounds: 4, wins: 3 });
+  });
+
+  it('separates weapon choices by pistol, post-pistol, bonus, mid and full-buy context', () => {
+    const evidence = (weapon: string, loadout: number) => ({ reviewStatus: 'confirmed', ourAverageLoadout: loadout, players: [{ playerId: 'p1', displayName: 'Alpha', team: 'ours', equippedWeapon: weapon, survived: true }], eventsComplete: true, events: [] });
+    const groups = buildWeaponRoundOutcomesByEconomy([
+      { id: 'r1', matchId: 'm1', roundNo: 1, result: 'W', screenshotEvidence: evidence('Sheriff', 800) },
+      { id: 'r2', matchId: 'm1', roundNo: 2, result: 'W', screenshotEvidence: evidence('Bandit', 1800) },
+      { id: 'r3', matchId: 'm1', roundNo: 3, result: 'L', screenshotEvidence: evidence('Spectre', 2800) },
+      { id: 'r4', matchId: 'm1', roundNo: 4, result: 'W', buy: 'Half', screenshotEvidence: evidence('Bulldog', 3700) },
+      { id: 'r5', matchId: 'm1', roundNo: 5, result: 'L', buy: 'Full', screenshotEvidence: evidence('Operator', 4500) },
+    ] as any);
+    expect(groups.map(group => [group.id, group.outcomes[0].weapon, group.outcomes[0].wins, group.outcomes[0].losses])).toEqual([
+      ['pistol', 'Sheriff', 1, 0], ['post-pistol', 'Bandit', 1, 0], ['bonus', 'Spectre', 0, 1], ['mid', 'Bulldog', 1, 0], ['full', 'Operator', 0, 1],
+    ]);
   });
 });
