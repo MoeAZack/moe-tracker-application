@@ -13,6 +13,7 @@ import {
   Trash2,
   Unplug,
   UploadCloud,
+  X,
 } from "lucide-react";
 import { apiFetch } from "../utils/api";
 import type { TrackerData } from "../types";
@@ -842,15 +843,6 @@ export default function ReplayWorkspace({
           </button>
         </div>
       </header>
-      <details className="storage-replay-disclosure">
-        <summary className="ui-button inline-flex min-h-11 cursor-pointer items-center gap-2 px-3 text-xs">
-          <HardDrive className="h-4 w-4" aria-hidden="true" />
-          Storage usage and retention
-        </summary>
-        <div className="mt-3">
-          <StorageIndicator expanded />
-        </div>
-      </details>
       <div
         ref={notice}
         tabIndex={-1}
@@ -863,13 +855,13 @@ export default function ReplayWorkspace({
             className="flex items-center gap-2 border-l-2 border-rose-400 bg-rose-950/40 px-3 py-2 text-sm text-rose-200"
           >
             <AlertTriangle className="h-4 w-4" />
-            {error}
+            <span className="min-w-0 flex-1">{error}</span><button type="button" aria-label="Dismiss error" onClick={() => setError("")} className="inline-flex h-8 w-8 items-center justify-center rounded-lg hover:bg-white/10"><X className="h-4 w-4" /></button>
           </p>
         )}
         {message && (
           <p className="flex items-center gap-2 border-l-2 border-teal-400 bg-teal-950/30 px-3 py-2 text-sm text-teal-200">
             <Check className="h-4 w-4" />
-            {message}
+            <span className="min-w-0 flex-1">{message}</span><button type="button" aria-label="Dismiss message" onClick={() => setMessage("")} className="inline-flex h-8 w-8 items-center justify-center rounded-lg hover:bg-white/10"><X className="h-4 w-4" /></button>
           </p>
         )}
       </div>
@@ -886,6 +878,7 @@ export default function ReplayWorkspace({
             {devices.filter((item) => item.status === "active").length} active
           </span>
         </summary>
+        <div className="border-t border-slate-700 p-4"><StorageIndicator expanded /></div>
         <div className="grid gap-4 border-t border-slate-700 p-4 lg:grid-cols-[minmax(0,1fr)_20rem]">
           <div className="ui-table-shell">
             <table className="w-full min-w-[680px] text-left text-xs">
@@ -1005,11 +998,13 @@ export default function ReplayWorkspace({
       </details>
 
       {isCoach && (
-        <section
+        <details
+          defaultOpen={screenshots.length > 0}
           className="liquid-panel overflow-hidden rounded-xl"
           aria-labelledby="scoreboard-first-title"
         >
-          <div className="grid gap-4 p-4 lg:grid-cols-[minmax(0,1fr)_22rem] lg:p-5">
+          <summary className="flex min-h-12 cursor-pointer list-none items-center justify-between gap-3 px-4 py-3 focus:outline-none focus:ring-2 focus:ring-inset focus:ring-cyan-400"><span className="flex items-center gap-2 text-sm font-semibold"><ImagePlus className="h-4 w-4 text-cyan-300" />Add scoreboard screenshot</span><span className="text-xs text-slate-500">{screenshots.length ? `${screenshots.length} draft${screenshots.length === 1 ? '' : 's'}` : 'Expand'}</span></summary>
+          <div className="grid gap-4 border-t border-white/10 p-4 lg:grid-cols-[minmax(0,1fr)_22rem] lg:p-5">
             <div className="flex gap-3">
               <span className="flex h-11 w-11 shrink-0 items-center justify-center rounded-xl border border-cyan-400/30 bg-cyan-400/10 text-cyan-300 shadow-[0_0_24px_rgba(34,211,238,0.12)]">
                 <ImagePlus className="h-5 w-5" />
@@ -1148,7 +1143,7 @@ export default function ReplayWorkspace({
               </ul>
             </div>
           )}
-        </section>
+        </details>
       )}
 
       {!isCoach ? (

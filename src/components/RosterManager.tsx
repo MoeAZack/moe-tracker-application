@@ -13,6 +13,7 @@ interface Props {
 
 export default function RosterManager({ data, theme, onRefresh }: Props) {
   const players = (data.rosterPlayers || []).filter(player => !player.retiredAt);
+  const archivedPlayers = (data.rosterPlayers || []).filter(player => !!player.retiredAt);
   const memberships = data.coreMemberships || [];
   const batches = data.tryoutBatches || [];
   const seasonArchives = data.seasonArchives || [];
@@ -33,6 +34,7 @@ export default function RosterManager({ data, theme, onRefresh }: Props) {
     ? window.localStorage.getItem('moe.roster-manager.collapsed.v2') !== 'false'
     : false);
   useEffect(() => { window.localStorage.setItem('moe.roster-manager.collapsed.v2', String(collapsed)); }, [collapsed]);
+  const [archivedOpen, setArchivedOpen] = useState(false);
 
   const mutate = async (route: string, body: unknown) => {
     setBusy(true);
@@ -89,8 +91,14 @@ export default function RosterManager({ data, theme, onRefresh }: Props) {
   };
 
   const removePlayer = async (playerId: string, name: string) => {
-    if (!window.confirm(`Remove “${name}” from the active roster? Their historical match evidence will be preserved, while active membership, access keys, and collection devices are revoked.`)) return;
+    if (!window.confirm(`Archive “${name}”? They will leave the active roster immediately and can be recovered for 60 days before automatic deletion.`)) return;
     await mutate('/api/roster/players/remove', { playerId });
+  };
+
+  const restorePlayer = async (playerId: string) => mutate('/api/roster/players/restore', { playerId });
+  const deletePlayer = async (playerId: string, name: string) => {
+    if (!window.confirm(`Permanently delete “${name}” and all of their stored player data? This cannot be undone.`)) return;
+    await mutate('/api/roster/players/delete', { playerId });
   };
 
   const archiveSeason = async (event: React.FormEvent) => {
@@ -225,10 +233,21 @@ export default function RosterManager({ data, theme, onRefresh }: Props) {
                     className={`px-3 py-1.5 rounded text-xs font-bold disabled:opacity-50 ${isCore ? 'bg-gray-600/40' : 'bg-emerald-600/70'}`}
                   >
                     {isCore ? 'End core membership' : 'Add to core'}
-                  </button><button type="button" disabled={busy} onClick={() => void removePlayer(player.id, player.displayName)} className="flex items-center gap-1 rounded border border-rose-500/30 bg-rose-500/10 px-3 py-1.5 text-xs font-bold text-rose-300 hover:bg-rose-500/20 disabled:opacity-50"><Trash2 className="h-3.5 w-3.5" aria-hidden="true" />Remove</button></div>
+                  </button><button type="button" disabled={busy} onClick={() => void removePlayer(player.id, player.displayName)} className="flex items-center gap-1 rounded border border-amber-500/30 bg-amber-500/10 px-3 py-1.5 text-xs font-bold text-amber-200 hover:bg-amber-500/20 disabled:opacity-50"><Archive className="h-3.5 w-3.5" aria-hidden="true" />Archive</button></div>
               </div>
             );
           })}
+          <div className="border-t border-white/10 pt-3">
+            <button type="button" aria-expanded={archivedOpen} onClick={() => setArchivedOpen(value => !value)} className="ui-button flex min-h-10 w-full items-center justify-between px-3 text-xs">
+              <span className="flex items-center gap-2"><Archive className="h-4 w-4" />Archived players <span className="rounded-full bg-white/10 px-2 py-0.5">{archivedPlayers.length}</span></span>
+              <ChevronDown className={`h-4 w-4 transition-transform ${archivedOpen ? 'rotate-180' : ''}`} />
+            </button>
+            {archivedOpen && <div className="mt-2 space-y-2">{archivedPlayers.map(player => {
+              const purgeAt = player.purgeAfter || (player.retiredAt ? new Date(Date.parse(player.retiredAt) + 60 * 86_400_000).toISOString() : '');
+              const days = Math.max(0, Math.ceil((Date.parse(purgeAt) - Date.now()) / 86_400_000));
+              return <div key={player.id} className="flex flex-wrap items-center justify-between gap-3 rounded-lg border border-amber-300/10 bg-amber-300/[0.03] p-3"><div><p className="font-bold text-slate-200">{player.displayName}</p><p className="mt-0.5 text-[10px] text-slate-500">Automatic deletion in {days} day{days === 1 ? '' : 's'}</p></div><div className="flex gap-2"><button type="button" disabled={busy} onClick={() => void restorePlayer(player.id)} className="ui-button min-h-9 px-3 text-[11px]"><RotateCcw className="h-3.5 w-3.5" />Recover</button><button type="button" disabled={busy} onClick={() => void deletePlayer(player.id, player.displayName)} className="ui-button min-h-9 border-rose-400/25 px-3 text-[11px] text-rose-300"><Trash2 className="h-3.5 w-3.5" />Delete permanently</button></div></div>;
+            })}{!archivedPlayers.length && <p className="rounded-lg border border-dashed border-white/10 p-4 text-center text-xs text-slate-500">No archived players.</p>}</div>}
+          </div>
         </div>
 
         <TryoutModePanel enabled={tryoutsMode} activeBatchId={activeTryoutBatchId} batches={batches} players={players} corePlayerIds={activeCore} busy={busy} mutate={mutate} />

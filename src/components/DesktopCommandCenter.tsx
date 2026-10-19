@@ -1,5 +1,5 @@
 import React, { useEffect, useState } from 'react';
-import { AlertTriangle, CheckCircle2, Cloud, FolderOpen, Image, LoaderCircle, PauseCircle, Play, PlayCircle, ScanLine, Trash2, WifiOff } from 'lucide-react';
+import { AlertTriangle, CheckCircle2, Cloud, FolderOpen, Image, LoaderCircle, PauseCircle, Play, PlayCircle, ScanLine, Trash2, WifiOff, X } from 'lucide-react';
 
 export default function DesktopCommandCenter({ onOpenReplay, onOpenCapture }: { onOpenReplay?: () => void; onOpenCapture?: () => void }) {
   const bridge = typeof window === 'undefined' ? undefined : window.moeDesktop;
@@ -7,6 +7,7 @@ export default function DesktopCommandCenter({ onOpenReplay, onOpenCapture }: { 
   const [busy, setBusy] = useState('');
   const [notice, setNotice] = useState('');
   const [captureRounds, setCaptureRounds] = useState<number | ''>('');
+  const [dismissedAttention, setDismissedAttention] = useState('');
   const refresh = async () => bridge && setStatus(await bridge.getStatus());
   useEffect(() => {
     let active = true;
@@ -25,6 +26,7 @@ export default function DesktopCommandCenter({ onOpenReplay, onOpenCapture }: { 
   const pendingScoreboards = Number(status?.pendingScoreboards || 0);
   const replays = status?.replays || [];
   const hasAttention = pendingScoreboards > 0 || Number(status?.sync?.pending || 0) > 0;
+  const attentionKey = `${pendingScoreboards}:${Number(status?.sync?.pending || 0)}:${Boolean(status?.sync?.paired)}`;
   return <section className="desktop-intake overflow-hidden rounded-2xl" aria-labelledby="desktop-intake-title">
     <header className="desktop-intake-header">
       <div className="min-w-0">
@@ -72,8 +74,8 @@ export default function DesktopCommandCenter({ onOpenReplay, onOpenCapture }: { 
       </aside>
     </div>
 
-    {hasAttention && <div className="mx-4 mb-4 flex flex-wrap items-center gap-x-4 gap-y-2 rounded-xl border border-amber-300/20 bg-amber-300/[0.06] px-4 py-3 text-xs text-amber-100" role="status"><AlertTriangle className="h-4 w-4 shrink-0 text-amber-300" />{pendingScoreboards > 0 && <span>{pendingScoreboards} capture{pendingScoreboards === 1 ? '' : 's'} awaiting review</span>}{Number(status?.sync?.pending || 0) > 0 && <span>{status?.sync?.paired ? `${status.sync.pending} change${status.sync.pending === 1 ? '' : 's'} waiting to sync` : `${status.sync.pending} change${status.sync.pending === 1 ? '' : 's'} saved locally · pair this PC in Settings to share them`}</span>}</div>}
+    {hasAttention && dismissedAttention !== attentionKey && <div className="mx-4 mb-4 flex flex-wrap items-center gap-x-4 gap-y-2 rounded-xl border border-amber-300/20 bg-amber-300/[0.06] px-4 py-3 text-xs text-amber-100" role="status"><AlertTriangle className="h-4 w-4 shrink-0 text-amber-300" /><span className="min-w-0 flex-1">{pendingScoreboards > 0 && <span className="mr-4">{pendingScoreboards} capture{pendingScoreboards === 1 ? '' : 's'} awaiting review</span>}{Number(status?.sync?.pending || 0) > 0 && <span>{status?.sync?.paired ? `${status.sync.pending} change${status.sync.pending === 1 ? '' : 's'} waiting to sync` : `${status.sync.pending} change${status.sync.pending === 1 ? '' : 's'} saved locally · pair this PC in Settings to share them`}</span>}</span><button type="button" aria-label="Dismiss alert" onClick={() => setDismissedAttention(attentionKey)} className="ml-auto inline-flex h-8 w-8 items-center justify-center rounded-lg text-amber-200 hover:bg-white/10"><X className="h-4 w-4" /></button></div>}
 
-    {notice && <div className="mx-4 mb-4 rounded-lg border border-cyan-300/15 bg-cyan-300/[0.05] px-4 py-3 text-xs text-cyan-100" role="status">{notice}</div>}
+    {notice && <div className="mx-4 mb-4 flex items-center gap-3 rounded-lg border border-cyan-300/15 bg-cyan-300/[0.05] px-4 py-3 text-xs text-cyan-100" role="status"><span className="min-w-0 flex-1">{notice}</span><button type="button" aria-label="Dismiss message" onClick={() => setNotice('')} className="inline-flex h-8 w-8 items-center justify-center rounded-lg hover:bg-white/10"><X className="h-4 w-4" /></button></div>}
   </section>;
 }

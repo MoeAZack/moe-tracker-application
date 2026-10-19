@@ -9,7 +9,8 @@ function text(value: unknown, max = 160) { return typeof value === 'string' ? va
 
 export function refreshCoachingWorkflow(db: any, who = 'system', now = new Date().toISOString()) {
   const summaries = buildAllPracticeBlockSummaries(db, now);
-  const drafts = summaries.flatMap(summary => generateReviewSignalDrafts(summary, db.settings?.coachingThresholds));
+  const deletedFingerprints = new Set<string>(db.settings?.deletedCoachingSignalFingerprints || []);
+  const drafts = summaries.flatMap(summary => generateReviewSignalDrafts(summary, db.settings?.coachingThresholds)).filter(draft => !deletedFingerprints.has(draft.fingerprint));
   db.coachingSignals = reconcileReviewSignals(db.coachingSignals || [], drafts, who);
   for (const signal of db.coachingSignals as CoachingSignal[]) {
     const related = (db.coachingActions || []).find((action: CoachingAction) => !['resolved', 'cancelled'].includes(action.state) && action.check?.signalType === signal.type && coachingContextMatches(action.check.context, signal.context) && action.sourceSignalId !== signal.id && Date.parse(action.createdAt) < Date.parse(signal.createdAt));
@@ -55,6 +56,18 @@ export function registerCoachingRoutes(app: Express) {
       const current: CoachingSignal = db.coachingSignals[index]; const correctedContext = { ...current.context, ...(req.body?.context && typeof req.body.context === 'object' ? req.body.context : {}) }; const now = new Date().toISOString();
       db.coachingSignals[index] = { ...current, type: correctedType, context: correctedContext, updatedAt: now, classificationCorrections: [...(current.classificationCorrections || []), { at: now, by: actor(req), reason, original: { type: current.type, context: structuredClone(current.context) }, corrected: { type: correctedType, context: structuredClone(correctedContext) } }] };
       await saveDB(db); res.json(db.coachingSignals[index]);
+    } catch (error: any) { res.status(error.status || 500).json({ error: error.message }); }
+  });
+
+  app.delete('/api/coaching/signals/:id', async (req, res) => {
+    if (!requireCoach(req, res)) return;
+    try {
+      const db = await readDB(); const index = (db.coachingSignals || []).findIndex((item: CoachingSignal) => item.id === req.params.id);
+      if (index < 0) return res.status(404).json({ error: 'Review signal not found.' });
+      const signal = db.coachingSignals[index] as CoachingSignal;
+      if (signal.status !== 'dismissed') return res.status(409).json({ error: 'Dismiss the review item before deleting it.' });
+      db.settings ||= {}; db.settings.deletedCoachingSignalFingerprints = [...new Set([...(db.settings.deletedCoachingSignalFingerprints || []), signal.fingerprint])].slice(-1000);
+      db.coachingSignals.splice(index, 1); await saveDB(db); res.json({ deleted: true, id: signal.id });
     } catch (error: any) { res.status(error.status || 500).json({ error: error.message }); }
   });
 

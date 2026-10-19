@@ -1,5 +1,5 @@
-import React, { useMemo } from 'react';
-import { ChevronRight, Film, ShieldCheck } from 'lucide-react';
+import React, { useMemo, useState } from 'react';
+import { ChevronDown, ChevronRight, Film, ShieldCheck } from 'lucide-react';
 import type { Match, PlayerStats, TrackerData } from '../types';
 
 interface Props {
@@ -9,6 +9,7 @@ interface Props {
   description?: string;
   limit?: number;
   map?: string;
+  defaultCollapsed?: boolean;
 }
 
 const cairo = new Intl.DateTimeFormat('en-GB', { timeZone: 'Africa/Cairo', dateStyle: 'medium' });
@@ -30,7 +31,8 @@ export function evidenceBackedMatches(data: TrackerData) {
 }
 export const replayBackedMatches = evidenceBackedMatches;
 
-export default function ReplayMatchLog({ data, theme, title = 'Accepted replay match log', description = 'The same reviewed scoreboard and round evidence used throughout MoeTracker.', limit = 6, map }: Props) {
+export default function ReplayMatchLog({ data, theme, title = 'Accepted replay match log', description = 'The same reviewed scoreboard and round evidence used throughout MoeTracker.', limit = 6, map, defaultCollapsed = true }: Props) {
+  const [collapsed, setCollapsed] = useState(defaultCollapsed);
   const rows = useMemo(() => evidenceBackedMatches(data)
     .filter(match => !map || match.map === map)
     .sort((left, right) => order(right) - order(left))
@@ -47,9 +49,9 @@ export default function ReplayMatchLog({ data, theme, title = 'Accepted replay m
         <p className="flex items-center gap-2 text-sm font-semibold"><Film className="h-4 w-4 text-cyan-300" aria-hidden="true" />{title}</p>
         <p className="mt-1 text-xs text-slate-400">{description}</p>
       </div>
-      <span className="rounded-full border border-cyan-300/20 bg-cyan-300/10 px-2.5 py-1 text-[10px] font-semibold text-cyan-200">{rows.length} accepted</span>
+      <div className="flex items-center gap-2"><span className="rounded-full border border-cyan-300/20 bg-cyan-300/10 px-2.5 py-1 text-[10px] font-semibold text-cyan-200">{rows.length} accepted</span><button type="button" aria-expanded={!collapsed} aria-label={`${collapsed ? 'Expand' : 'Minimize'} ${title}`} onClick={() => setCollapsed(value => !value)} className="ui-button inline-flex min-h-9 items-center gap-1.5 px-3 text-[10px]">{collapsed ? 'Expand' : 'Minimize'}<ChevronDown className={`h-3.5 w-3.5 transition-transform ${collapsed ? '' : 'rotate-180'}`} /></button></div>
     </div>
-    <div className="divide-y divide-white/8">
+    {!collapsed && <div className="divide-y divide-white/8">
       {rows.map(({ match, stats, rounds }) => {
         const buyRounds = rounds.filter(round => String(round.buy || '').trim()).length;
         return <details key={match.id} className="group">
@@ -65,7 +67,7 @@ export default function ReplayMatchLog({ data, theme, title = 'Accepted replay m
         </details>;
       })}
       {!rows.length && <p className="px-5 py-8 text-center text-sm text-slate-500">No coach-accepted evidence matches yet.</p>}
-    </div>
+    </div>}
   </section>;
 }
 

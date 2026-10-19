@@ -11,6 +11,7 @@ import { materializeFirstDeathsFromRoundEvidence, materializeRoundOpeningsFromSc
 import { recomputeAcceptedMatchAggregates } from '../aggregateVersioning';
 import { attendancePolicy, attendanceStatus, attendanceSummary, attendanceWindow } from '../attendance';
 import { refreshCoachingWorkflow } from './coaching';
+import { purgeExpiredRosterPlayers } from '../roster';
 
 // Core data + match logging: full payload, reset, settings, generic upsert/remove,
 // and match/round/veto saves. Protected routes (registered after the auth middleware).
@@ -24,6 +25,8 @@ export function registerDataRoutes(app: Express, options: { websiteSummaryOnly?:
   app.get('/api/data', async (req, res) => {
     try {
       const db = await readDB();
+      const retention = purgeExpiredRosterPlayers(db);
+      if (retention.purged.length) await saveDB(db);
       const role = (req as any).user?.role === 'coach' ? 'coach' : 'player';
       const authenticatedPlayerId = (req as any).user?.playerId ?? null;
       res.json(options.websiteSummaryOnly ? toWebsiteTrackerData(db, role, authenticatedPlayerId) : toPublicTrackerData(db, role, authenticatedPlayerId));
@@ -35,6 +38,8 @@ export function registerDataRoutes(app: Express, options: { websiteSummaryOnly?:
   app.get('/api/website-summary', async (req, res) => {
     try {
       const db = await readDB();
+      const retention = purgeExpiredRosterPlayers(db);
+      if (retention.purged.length) await saveDB(db);
       res.json(toWebsiteTrackerData(db, (req as any).user?.role === 'coach' ? 'coach' : 'player', (req as any).user?.playerId ?? null));
     } catch (err: any) {
       res.status(500).json({ error: err.message });
@@ -111,6 +116,11 @@ export function registerDataRoutes(app: Express, options: { websiteSummaryOnly?:
         row.attendanceEnabled = Boolean(!row.allDay && row.attendanceEnabled && row.startTime && row.requiredPlayerIds.length);
         row.source = existing?.source === 'pracc' ? 'pracc' : 'manual';
         row.attendanceCheckIns = Array.isArray(existing?.attendanceCheckIns) ? existing.attendanceCheckIns : [];
+      }
+
+      if (sheet === 'Goals') {
+        row.matchId = typeof row.matchId === 'string' && row.matchId.trim() ? row.matchId.trim() : undefined;
+        if (row.matchId && !(db.matches || []).some((match: any) => match.id === row.matchId)) return res.status(400).json({ error: 'Linked match was not found.' });
       }
 
       if (!row.id) {

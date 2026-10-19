@@ -40,6 +40,14 @@ describe('coaching workflow HTTP contract', () => {
     expect((await request(player, `/api/coaching/actions/${unownedAction.id}/status`, { state: 'in-progress' })).status).toBe(403);
   });
 
+  it('allows dismissed review items to be recovered or permanently deleted', async () => {
+    const coach = await login(adminKey); const refreshed = await request(coach, '/api/coaching/refresh', {}); const source = (await refreshed.json()).signals[0];
+    const dismissed = await request(coach, `/api/coaching/signals/${source.id}/status`, { status: 'dismissed', reason: 'Not useful for this block.' }); expect(dismissed.status).toBe(200);
+    const recovered = await request(coach, `/api/coaching/signals/${source.id}/status`, { status: 'new' }); expect(recovered.status).toBe(200); expect((await recovered.json()).status).toBe('new');
+    await request(coach, `/api/coaching/signals/${source.id}/status`, { status: 'dismissed', reason: 'Delete after review.' });
+    const removed = await fetch(`${origin}/api/coaching/signals/${source.id}`, { method: 'DELETE', headers: { authorization: `Bearer ${coach}` } }); expect(removed.status).toBe(200); expect(await removed.json()).toEqual({ deleted: true, id: source.id });
+  });
+
   it('does not let an assigned player discover or update a private action by ID', async () => {
     const coach = await login(adminKey); const refreshed = await request(coach, '/api/coaching/refresh', {}); const source = (await refreshed.json()).signals[0];
     await request(coach, `/api/coaching/signals/${source.id}/status`, { status: 'accepted' });

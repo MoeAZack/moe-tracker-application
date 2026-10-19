@@ -1,7 +1,7 @@
 import { buildAcceptedMatchAggregatePlan, buildCanonicalAnalyticsExport, PLAYER_SCREENSHOT_BUILDER } from './aggregateVersioning';
 
 const PRIVATE_TOP_LEVEL_KEYS = new Set(['authKeys', 'allowedUsers', 'secretValues', '_storage', 'authenticatedViewer', 'tryoutDecisionNotes', 'identityCorrectionBatches']);
-const PRIVATE_SETTING_KEYS = new Set(['discordWebhook', 'gridApiKey', 'henrikApiKey', 'praccCalendarUrl', 'praccCalendarLastAttemptAt', 'praccCalendarLastSyncedAt', 'praccCalendarLastError']);
+const PRIVATE_SETTING_KEYS = new Set(['discordWebhook', 'gridApiKey', 'henrikApiKey', 'praccCalendarUrl', 'praccCalendarLastAttemptAt', 'praccCalendarLastSyncedAt', 'praccCalendarLastError', 'deletedCoachingSignalFingerprints']);
 
 /** Build the tracker payload that is safe to send to the authenticated role. */
 export function toPublicTrackerData(db: Record<string, any>, role: 'coach' | 'player' = 'coach', authenticatedPlayerId?: string | null) {
@@ -113,7 +113,7 @@ export function toWebsiteTrackerData(db: Record<string, any>, role: 'coach' | 'p
     dashboardViews: role === 'coach' ? structuredClone(safe.dashboardViews || []) : [],
     schedule: (safe.schedule || []).map((item: any) => selectFields(item, ['id', 'date', 'kind', 'primary', 'secondary', 'notes', 'attendance', 'calendarKey', 'startTime', 'allDay', 'durationMinutes', 'repeatSeriesId', 'repeatIndex', 'repeatCount', 'attendanceEnabled', 'requiredPlayerIds', 'attendanceCheckIns', 'source', 'sourceEventId', 'practiceBlockId', 'linkedGoalIds', 'progressLinkedAt'])),
     attendanceCredits: structuredClone(safe.attendanceCredits || []),
-    goals: (safe.goals || []).map((item: any) => selectFields(item, ['id', 'date', 'goal', 'notes', 'status', 'owner'])),
+    goals: (safe.goals || []).map((item: any) => selectFields(item, ['id', 'date', 'goal', 'notes', 'status', 'owner', 'matchId'])),
     matches: (safe.matches || []).map((item: any) => ({
       ...selectFields(item, WEBSITE_MATCH_FIELDS),
       comparisonEvidence: { accepted: item.sourceMetadata?.method === 'screenshot' ? item.reviewConfirmation?.alliedSideConfirmed === true : !!item.sourceMetadata && item.sourceMetadata.method !== 'unknown' },
