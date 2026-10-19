@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import { createSeed } from '../lib/seed';
 import { integrateVodSubmission, similarVodName } from '../lib/vodSubmissions';
+import { vodSubmissionSchema } from '../schemas';
 
 const roster = ['caelia', 'dexle', 'majusIa', 'bellatrix', 'Sandra'].map((displayName, index) => ({ id: `player-${index + 1}`, displayName, createdAt: '2026-10-18T10:00:00Z' }));
 const players = roster.map((player, index) => ({ observedName: index === 2 ? 'majusla' : player.displayName, agent: ['Cypher', 'Jett', 'Phoenix', 'Omen', 'Sova'][index], kills: 20 - index, deaths: 12 + index, assists: 3 + index, acs: 200 + index, adr: 140 + index, hs: 25 + index, fk: index, fd: index + 1, plants: index === 2 ? 1 : 0, defuses: index === 4 ? 1 : 0, trades: index + 2 }));
@@ -13,6 +14,12 @@ function fixture() {
 }
 
 describe('player VOD submission integration', () => {
+  it('accepts a privacy-safe local VOD fingerprint but rejects local file paths', () => {
+    const { playerId: _playerId, ...coachInput } = input;
+    expect(vodSubmissionSchema.safeParse({ ...coachInput, coachTeamEvidence: true, vodUrl: `moetracker-local://sha256/${'b'.repeat(64)}` }).success).toBe(true);
+    expect(vodSubmissionSchema.safeParse({ ...coachInput, coachTeamEvidence: true, vodUrl: 'file:///C:/private/team-vod.mp4' }).success).toBe(false);
+  });
+
   it('accepts a minor OCR name error, links five identities and fills only missing match fields', () => {
     expect(similarVodName('majusla', 'majusIa')).toBe(true);
     const db = fixture(); const submission = integrateVodSubmission(db, { ...input, matchId: 'm1' }, 'caelia', ids, '2026-10-18T14:00:00Z');

@@ -73,6 +73,12 @@ describe('VOD timeline evidence', () => {
     expect(frameDifference(Buffer.from([0, 0, 0]), Buffer.from([255, 0, 0]))).toBe(255);
   });
 
+  it('ships the native image processor required by installed VOD discovery', async () => {
+    const packageJson = JSON.parse(await fs.readFile(path.join(process.cwd(), 'package.json'), 'utf8'));
+    expect(packageJson.dependencies.sharp).toBeTruthy();
+    expect(packageJson.build.asarUnpack).toContain('node_modules/@img/**/*');
+  });
+
   it('ranks repeated scoreboard row geometry above a blank video frame', () => {
     const width = 480; const height = 270; const blank = Buffer.alloc(width * height * 3, 20); const board = Buffer.from(blank);
     for (let row = 0; row <= 10; row += 1) { const y = Math.round((321 + row * 48) * height / 1080); for (let x = Math.round(430 * width / 1920); x <= Math.round(1740 * width / 1920); x += 1) for (let channel = 0; channel < 3; channel += 1) board[(y * width + x) * 3 + channel] = 220; }

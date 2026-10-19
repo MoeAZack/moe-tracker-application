@@ -159,7 +159,7 @@ function chooseGameBoundaries(candidates, durationMs, expectedGames) {
   return selected.sort((a, b) => a.timestampMs - b.timestampMs);
 }
 
-async function recognizeBoundaryMaps(boundaries, mapNames, signal) {
+async function recognizeBoundaryMaps(boundaries, mapNames, progress, signal) {
   if (!boundaries.length) return [];
   const known = [...new Set((mapNames || []).map(name => String(name || '').trim()).filter(Boolean))];
   if (!known.length) return boundaries.map(item => ({ ...item, map: null }));
@@ -167,8 +167,10 @@ async function recognizeBoundaryMaps(boundaries, mapNames, signal) {
   const langPath = path.dirname(unpackedExecutable(require.resolve('@tesseract.js-data/eng/4.0.0/eng.traineddata.gz'))); const worker = await createWorker('eng', undefined, { langPath });
   await worker.setParameters({ tessedit_pageseg_mode: PSM.SPARSE_TEXT }); const normalized = value => String(value || '').toLowerCase().replace(/[^a-z0-9]/g, ''); const output = [];
   try {
-    for (const item of boundaries) {
+    for (let index = 0; index < boundaries.length; index += 1) {
+      const item = boundaries[index];
       throwIfAborted(signal); const crop = await sharp(item.path).extract({ left: 0, top: 0, width: 760, height: 760 }).resize({ width: 1520 }).grayscale().normalize().png().toBuffer(); const result = await worker.recognize(crop); const text = normalized(result.data?.text); const map = known.find(name => text.includes(normalized(name))) || null; output.push({ ...item, map });
+      progress?.({ stage: 'discover', percent: Math.round((index + 1) / boundaries.length * 100), message: `Reading map names · ${index + 1}/${boundaries.length}` });
     }
   } finally { await worker.terminate(); }
   return output;
@@ -198,9 +200,10 @@ async function discoverVodGames(input, options = {}) {
     if (boundaryCandidates.length === requestedBoundaryCount - 1 && boundaryCandidates[0]?.timestampMs > 10 * 60_000) {
       const target = path.join(directory, 'game-start-00.png'); await extractFrame(file, 0, target, signal); boundaryCandidates.unshift({ timestampMs: 0, score: 0, agentSelectScore: 0, path: target, mediaType: 'image/png', base64: (await fsp.readFile(target)).toString('base64') });
     }
-    const recognizedBoundaries = await recognizeBoundaryMaps(boundaryCandidates, input.mapNames, signal);
+    const recognizedBoundaries = await recognizeBoundaryMaps(boundaryCandidates, input.mapNames, progress, signal);
     const boundaries = recognizedBoundaries.map(({ path: _path, ...item }) => item); const publicGames = games.map(({ path: _path, ...item }) => item);
-    return { cacheId, directory, file, downloaded, uploadDate, uploader, vodUrl: input.vodUrl ? normalizeYoutubeUrl(input.vodUrl) : null, videoId: youtubeVideoId(input.vodUrl), sourceSha256: await sha256File(file), durationMs: probe.durationMs, width: probe.width, height: probe.height, games: publicGames, boundaries };
+    const sourceSha256 = await sha256File(file); const vodUrl = input.vodUrl ? normalizeYoutubeUrl(input.vodUrl) : `moetracker-local://sha256/${sourceSha256}`;
+    return { cacheId, directory, file, downloaded, uploadDate, uploader, vodUrl, videoId: youtubeVideoId(input.vodUrl), sourceSha256, durationMs: probe.durationMs, width: probe.width, height: probe.height, games: publicGames, boundaries };
   } catch (error) { await fsp.rm(directory, { recursive: true, force: true }).catch(() => {}); throw error; }
 }
 
