@@ -8,7 +8,11 @@ describe('workspace navigation layout', () => {
     expect(app).toContain(order);
     expect(app).toContain("{ id: 'calendar', label: 'Schedule & Goals', icon: Calendar, group: 'Schedule & Goals' }");
     expect(app).toContain("{ id: 'comps', label: 'Compositions', icon: Layers, group: 'Playbook' }");
+    expect(app).toContain("{ id: 'playerstats', label: 'Player Stats', icon: Activity, group: 'Team' }");
     expect(app).toContain("{ id: 'comparisons', label: 'Tryout comparisons', icon: GitCompareArrows, group: 'Team' }");
+    expect(app).toMatch(/activeTab === 'playerstats'[\s\S]*<PlayerSoloTracker/);
+    const rosterRoute = app.slice(app.indexOf("{activeTab === 'roster'"), app.indexOf("{activeTab === 'playerstats'"));
+    expect(rosterRoute).not.toContain('<PlayerSoloTracker');
   });
 
   it('can hide tryout comparisons for the current session from Settings without deleting data', () => {
@@ -29,5 +33,15 @@ describe('workspace navigation layout', () => {
     expect(players).toContain('<span className="text-rose-300">{row.deaths}</span>');
     expect(players).toContain('tone="cyan"');
     expect(players).toContain('tone="violet"');
+    expect(players).toContain('Map performance');
+    expect(players).toContain('Agent performance');
+    expect(players).toContain('aria-expanded={open}');
+  });
+
+  it('adds equal-weight player map form to the best-map calculator', () => {
+    const maps = fs.readFileSync('src/components/MapBestStats.tsx', 'utf8');
+    expect(maps).toContain('playerPerformanceWeight = 15');
+    expect(maps).toContain('Player form');
+    expect(maps).toContain('equal-weight player form');
   });
 });

@@ -7,6 +7,7 @@ import ReplayMatchLog from './ReplayMatchLog';
 import MapRoundIntelligencePanel from './MapRoundIntelligencePanel';
 import { buildMapRoundIntelligence } from '../../lib/mapRoundAnalytics';
 import { percentageTextClass } from '../utils/percentageColor';
+import { reconcileObservedPlayerRows } from '../../lib/uiIntegration';
 
 interface ComponentProps {
   data: TrackerData;
@@ -157,7 +158,8 @@ export default function MapBestStats({ data, evidenceData = data, theme, onUpser
     const weights = data.settings.weights || { mapWin: 25, attWin: 12.5, defWin: 12.5, pistol: 20, eco: 10, bonus: 10, kd: 10 };
     const statsConfig = data.settings.stats || { shrinkK: 10, lowSample: 15 };
 
-    const totalWeight = Object.values(weights).reduce((a, b) => a + b, 0);
+    const playerPerformanceWeight = 15;
+    const totalWeight = Object.values(weights).reduce((a, b) => a + b, 0) + playerPerformanceWeight;
 
     return (Object.entries(mapStatsTable) as [string, any][]).map(([mapName, s]) => {
       const n = s.actualPlayed;
@@ -184,6 +186,23 @@ export default function MapBestStats({ data, evidenceData = data, theme, onUpser
       // Map KD to a 0-1 scale, where 1.0 is 0.5, 1.5 is 0.75, 0.5 is 0.25, etc.
       const kdScore = Math.max(0, Math.min(1.0, kdRatio / 2.0));
 
+      // Equal-weight current-player form prevents one high-volume fragger from
+      // hiding a weak roster fit. Each player's reconciled map K/D contributes
+      // once to the map score, alongside the existing team result factors.
+      const mapMatchIds = new Set(matches.filter(match => match.map === mapName).map(match => match.id));
+      const rowsByPlayer = new Map<string, typeof playerStats>();
+      for (const row of playerStats.filter(row => mapMatchIds.has(row.matchId))) {
+        const key = row.playerId || `name:${String(row.displayNameSnapshot || row.player || '').trim().toLocaleLowerCase()}`;
+        rowsByPlayer.set(key, [...(rowsByPlayer.get(key) || []), row]);
+      }
+      const playerScores = [...rowsByPlayer.values()].map(rows => {
+        const reconciled = reconcileObservedPlayerRows(rows);
+        const kills = reconciled.reduce((sum, row) => sum + (typeof row.kills === 'number' ? row.kills : 0), 0);
+        const deaths = reconciled.reduce((sum, row) => sum + (typeof row.deaths === 'number' ? row.deaths : 0), 0);
+        return deaths > 0 ? Math.max(0, Math.min(1, (kills / deaths) / 2)) : kills > 0 ? 1 : null;
+      }).filter((value): value is number => value !== null);
+      const playerPerformanceScore = playerScores.length ? playerScores.reduce((sum, value) => sum + value, 0) / playerScores.length : 0.5;
+
       // Weighted score
       const score = (
         (wr * weights.mapWin) +
@@ -192,7 +211,8 @@ export default function MapBestStats({ data, evidenceData = data, theme, onUpser
         (pistolWr * weights.pistol) +
         (ecoWr * weights.eco) +
         (bonusWr * weights.bonus) +
-        (kdScore * weights.kd)
+        (kdScore * weights.kd) +
+        (playerPerformanceScore * playerPerformanceWeight)
       ) / (totalWeight || 1);
 
       // 95% Wilson Score Interval (highly accurate for small sample sizes and extreme rates)
@@ -219,10 +239,12 @@ export default function MapBestStats({ data, evidenceData = data, theme, onUpser
         pistolWr: Math.round(pistolWr * 100),
         ecoWr: Math.round(ecoWr * 100),
         bonusWr: Math.round(bonusWr * 100),
-        kd: kdRatio.toFixed(2)
+        kd: kdRatio.toFixed(2),
+        playerPerformance: Math.round(playerPerformanceScore * 100),
+        contributingPlayers: playerScores.length,
       };
     }).sort((a, b) => b.score - a.score);
-  }, [mapStatsTable, data.settings.weights, data.settings.stats]);
+  }, [mapStatsTable, data.settings.weights, data.settings.stats, matches, playerStats]);
 
   // --- TACTICAL LOSS & THROW ANALYTICS ---
   const throwStats = useMemo(() => {
@@ -576,10 +598,10 @@ export default function MapBestStats({ data, evidenceData = data, theme, onUpser
       {activeSubTab === 'calculator' && (
         <div className="space-y-6">
           <div className={`p-5 rounded-xl border ${isLight ? 'bg-white border-slate-200 text-slate-800 shadow-sm' : 'bg-white/5 border-white/10'} space-y-4`}>
-            <div className="flex items-center justify-between">
+            <div className="flex flex-wrap items-start justify-between gap-3">
               <div className="flex items-center gap-2">
                 <Calculator className={`w-5 h-5 ${theme.text}`} />
-                <h4 className="font-black text-sm uppercase tracking-wide">Esports Weighted Best Map Rating</h4>
+                <div><h4 className="font-black text-sm uppercase tracking-wide">Esports Weighted Best Map Rating</h4><p className="mt-1 text-[10px] text-gray-500">Team results, side conversions, economy, team K/D and equal-weight player performance per map.</p></div>
               </div>
               <span className="text-[10px] text-gray-500 font-mono uppercase bg-black/10 px-2 py-1 rounded">Shrink K: {data.settings.stats?.shrinkK || 10}</span>
             </div>
@@ -598,6 +620,7 @@ export default function MapBestStats({ data, evidenceData = data, theme, onUpser
                     <th className="py-3 px-4 text-center">Pistols</th>
                     <th className="py-3 px-4 text-center">Ecos</th>
                     <th className="py-3 px-4 text-center">K/D</th>
+                    <th className="py-3 px-4 text-center">Player form</th>
                   </tr>
                 </thead>
                 <tbody className="divide-y divide-white/5">
@@ -616,6 +639,7 @@ export default function MapBestStats({ data, evidenceData = data, theme, onUpser
                       <td className={`py-3.5 px-4 text-center ${percentageTextClass(cm.pistolWr)}`}>{cm.pistolWr}%</td>
                       <td className={`py-3.5 px-4 text-center ${percentageTextClass(cm.ecoWr)}`}>{cm.ecoWr}%</td>
                       <td className="py-3.5 px-4 text-center font-bold text-gray-300">{cm.kd}</td>
+                      <td className={`py-3.5 px-4 text-center font-bold ${percentageTextClass(cm.contributingPlayers ? cm.playerPerformance : null)}`}>{cm.contributingPlayers ? `${cm.playerPerformance}% · ${cm.contributingPlayers}P` : '—'}</td>
                     </tr>
                   ))}
                 </tbody>
@@ -628,7 +652,7 @@ export default function MapBestStats({ data, evidenceData = data, theme, onUpser
             <div className={`p-5 rounded-xl border border-white/5 bg-gradient-to-r from-red-500/5 to-transparent space-y-2`}>
               <h5 className="text-xs uppercase font-black tracking-widest text-[#ff4655] font-mono">Performance vs. Play Rate Insights</h5>
               <p className="text-xs text-gray-300 leading-relaxed font-mono">
-                Your highest-rated map is <strong className="text-white font-black">{calculatedBestMaps[0].map}</strong> (Score Index of {calculatedBestMaps[0].score}), driven by a balanced {calculatedBestMaps[0].wr}% raw win rate across {calculatedBestMaps[0].n} recorded instances. 
+                Your highest-rated map is <strong className="text-white font-black">{calculatedBestMaps[0].map}</strong> (Score Index of {calculatedBestMaps[0].score}), combining a {calculatedBestMaps[0].wr}% raw win rate across {calculatedBestMaps[0].n} recorded instances with {calculatedBestMaps[0].contributingPlayers ? `${calculatedBestMaps[0].playerPerformance}% equal-weight player form from ${calculatedBestMaps[0].contributingPlayers} players` : 'neutral player-form evidence while individual samples are unavailable'}.
                 {Number(calculatedBestMaps[0].kd) >= 1.1 ? ` Strong team KD ratio of ${calculatedBestMaps[0].kd} on this map suggests robust map geometry familiarity & clean defensive anchor rotations.` : ''} 
                 We highly recommend prioritizing picking <strong className="text-white">{calculatedBestMaps[0].map}</strong> in veto procedures when actor sequence allows, while continuing to hold defensive strategies on weaker pools.
               </p>
