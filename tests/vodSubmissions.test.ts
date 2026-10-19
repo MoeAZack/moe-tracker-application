@@ -29,6 +29,14 @@ describe('player VOD submission integration', () => {
     expect(db.playerStats).toHaveLength(5);
   });
 
+  it('replaces a uniquely matching anonymous scoreboard row with the accepted roster identity', () => {
+    const db = fixture();
+    db.playerStats = players.map((observed, index) => ({ id: `anonymous-${index}`, matchId: 'm1', player: `Anonymous player ${index + 1}`, displayNameSnapshot: `player-${Math.random().toString(16).slice(2)}`, agent: 'Unknown', kAtt: null, kDef: null, dAtt: null, dDef: null, aAtt: null, aDef: null, kills: observed.kills, deaths: observed.deaths, assists: observed.assists }));
+    const submission = integrateVodSubmission(db, { ...input, matchId: 'm1' }, 'caelia', ids, '2026-10-18T14:00:00Z');
+    expect(submission.integration.createdStats).toBe(0); expect(db.playerStats).toHaveLength(5);
+    expect(db.playerStats.map((row: any) => [row.playerId, row.player, row.displayNameSnapshot])).toEqual(roster.map(player => [player.id, player.displayName, player.displayName]));
+  });
+
   it('rejects integration unless five unique active roster identities resolve', () => {
     const db = fixture(); const invalid = { ...input, players: input.players.map((row, index) => index === 4 ? { ...row, observedName: 'unknown-player' } : row) };
     expect(() => integrateVodSubmission(db, invalid, 'caelia', ids)).toThrow(/match exactly one active roster player/i);

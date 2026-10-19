@@ -50,4 +50,12 @@ describe('attendance HTTP permissions and idempotency', () => {
       const response = await fetch(`${origin}${pathName}`, { method: 'POST', headers: { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' }, body: JSON.stringify(body) }); expect(response.status).toBe(403);
     }
   });
+
+  it('lets the coach award and revoke a green dot without requiring a prior red dot', async () => {
+    const token = await login(adminKey);
+    const create = await fetch(`${origin}/api/attendance/green-credit`, { method: 'POST', headers: { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' }, body: JSON.stringify({ playerId, reason: 'Positive team contribution' }) });
+    expect(create.status).toBe(201); const created = await create.json(); expect(created.summary).toMatchObject({ redDots: 0, greenDots: 1 });
+    const revoke = await fetch(`${origin}/api/attendance/green-credit/revoke`, { method: 'POST', headers: { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' }, body: JSON.stringify({ creditId: created.credit.id, reason: 'Coach adjustment' }) });
+    expect(revoke.status).toBe(200); expect((await revoke.json()).summary).toMatchObject({ redDots: 0, greenDots: 0 });
+  });
 });

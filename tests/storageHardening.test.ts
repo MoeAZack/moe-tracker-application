@@ -35,6 +35,12 @@ describe('schema-v2 Firestore codec', () => {
     expect(() => ensureStorageSchema({ _storage: { schemaVersion: STORAGE_SCHEMA_VERSION + 1 } })).toThrow(/newer/);
   });
 
+  it('preserves the coach-selected active and inactive agent catalogs', () => {
+    const input: any = state(); input.settings = { agents: ['Omen', 'Custom Agent'], inactiveAgents: ['Jett'] };
+    const normalized = ensureStorageSchema(input);
+    expect(normalized.settings.agents).toEqual(['Omen', 'Custom Agent']); expect(normalized.settings.inactiveAgents).toEqual(['Jett']);
+  });
+
   it('allows exactly one transactional cold-start activation', () => {
     const winnerVersion = planRevisionActivation(null, undefined, 'initialize');
     expect(winnerVersion).toBe(1);

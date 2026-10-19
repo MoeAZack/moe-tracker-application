@@ -24,6 +24,6 @@ describe('attendance schedule UI', () => {
   it('shows coach ledger, correction and green-credit controls', () => {
     const penalized = structuredClone(data); penalized.schedule.push(...[1, 2, 3].map(index => ({ ...data.schedule[0], id: `old-${index}`, date: `2026-10-0${index}`, attendanceCheckIns: [{ id: `late-${index}`, playerId, checkedInAt: `2026-10-0${index}T12:20:00Z`, status: 'late' }] })));
     const html = renderToStaticMarkup(<CalendarGoals {...props} data={penalized} role="coach" />);
-    expect(html).toContain('Attendance ledger'); expect(html).toContain('Give green dot'); expect(html).toContain('Correct…'); expect(html).toContain('ADD EVENT');
+    expect(html).toContain('Attendance ledger'); expect(html).toContain('Give green dot'); expect(html).toContain('Remove green dot'); expect(html).toContain('Correct…'); expect(html).toContain('ADD EVENT');
   });
 });

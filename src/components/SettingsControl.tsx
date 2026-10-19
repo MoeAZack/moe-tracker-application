@@ -151,6 +151,7 @@ export default function SettingsControl({ data, theme, onSaveSettings, onRefresh
   // Form helpers for adding items
   const [newMap, setNewMap] = useState('');
   const [newAgent, setNewAgent] = useState('');
+  const [poolSaving, setPoolSaving] = useState(false);
 
   // Weights state
   const [wMapWin, setWMapWin] = useState(data.settings.weights?.mapWin ?? 25);
@@ -193,72 +194,66 @@ export default function SettingsControl({ data, theme, onSaveSettings, onRefresh
   const [saveSuccess, setSaveSuccess] = useState(false);
 
   // --- MUTATION HELPERS FOR LISTS ---
-  const handleAddMap = () => {
+  const persistPools = async (maps: string[], rotatedMaps: string[], agents: string[], rotatedAgents: string[]) => {
+    setPoolSaving(true);
+    try { await onSaveSettings({ ...data.settings, maps, inactiveMaps: rotatedMaps, agents, inactiveAgents: rotatedAgents }); }
+    finally { setPoolSaving(false); }
+  };
+
+  const handleAddMap = async () => {
     const val = newMap.trim();
     if (!val) return;
-    if (activeMaps.includes(val) || inactiveMaps.includes(val)) {
+    if ([...activeMaps, ...inactiveMaps].some(map => map.toLocaleLowerCase('en') === val.toLocaleLowerCase('en'))) {
       alert('This map is already in the map pools list!');
       return;
     }
-    setActiveMaps([...activeMaps, val]);
+    const next = [...activeMaps, val];
+    await persistPools(next, inactiveMaps, activeAgents, inactiveAgents);
+    setActiveMaps(next);
     setNewMap('');
   };
 
-  const handleToggleMap = (mName: string, isCurrentlyActive: boolean) => {
-    if (isCurrentlyActive) {
-      setActiveMaps(activeMaps.filter(x => x !== mName));
-      if (!inactiveMaps.includes(mName)) {
-        setInactiveMaps([...inactiveMaps, mName]);
-      }
-    } else {
-      setInactiveMaps(inactiveMaps.filter(x => x !== mName));
-      if (!activeMaps.includes(mName)) {
-        setActiveMaps([...activeMaps, mName]);
-      }
-    }
+  const handleToggleMap = async (mName: string, isCurrentlyActive: boolean) => {
+    const nextActive = isCurrentlyActive ? activeMaps.filter(x => x !== mName) : [...activeMaps, mName];
+    const nextInactive = isCurrentlyActive ? [...inactiveMaps.filter(x => x !== mName), mName] : inactiveMaps.filter(x => x !== mName);
+    await persistPools(nextActive, nextInactive, activeAgents, inactiveAgents);
+    setActiveMaps(nextActive); setInactiveMaps(nextInactive);
   };
 
-  const handleDeleteMap = (mName: string, isFromActive: boolean) => {
+  const handleDeleteMap = async (mName: string, isFromActive: boolean) => {
     if (confirmOnDelete && !window.confirm(`Permanently delete map "${mName}"?`)) return;
-    if (isFromActive) {
-      setActiveMaps(activeMaps.filter(x => x !== mName));
-    } else {
-      setInactiveMaps(inactiveMaps.filter(x => x !== mName));
-    }
+    const nextActive = isFromActive ? activeMaps.filter(x => x !== mName) : activeMaps;
+    const nextInactive = isFromActive ? inactiveMaps : inactiveMaps.filter(x => x !== mName);
+    await persistPools(nextActive, nextInactive, activeAgents, inactiveAgents);
+    setActiveMaps(nextActive); setInactiveMaps(nextInactive);
   };
 
-  const handleAddAgent = () => {
+  const handleAddAgent = async () => {
     const val = newAgent.trim();
     if (!val) return;
-    if (activeAgents.includes(val) || inactiveAgents.includes(val)) {
+    if ([...activeAgents, ...inactiveAgents].some(agent => agent.toLocaleLowerCase('en') === val.toLocaleLowerCase('en'))) {
       alert('This Agent is already in the list!');
       return;
     }
-    setActiveAgents([...activeAgents, val]);
+    const next = [...activeAgents, val];
+    await persistPools(activeMaps, inactiveMaps, next, inactiveAgents);
+    setActiveAgents(next);
     setNewAgent('');
   };
 
-  const handleToggleAgent = (aName: string, isCurrentlyActive: boolean) => {
-    if (isCurrentlyActive) {
-      setActiveAgents(activeAgents.filter(x => x !== aName));
-      if (!inactiveAgents.includes(aName)) {
-        setInactiveAgents([...inactiveAgents, aName]);
-      }
-    } else {
-      setInactiveAgents(inactiveAgents.filter(x => x !== aName));
-      if (!activeAgents.includes(aName)) {
-        setActiveAgents([...activeAgents, aName]);
-      }
-    }
+  const handleToggleAgent = async (aName: string, isCurrentlyActive: boolean) => {
+    const nextActive = isCurrentlyActive ? activeAgents.filter(x => x !== aName) : [...activeAgents, aName];
+    const nextInactive = isCurrentlyActive ? [...inactiveAgents.filter(x => x !== aName), aName] : inactiveAgents.filter(x => x !== aName);
+    await persistPools(activeMaps, inactiveMaps, nextActive, nextInactive);
+    setActiveAgents(nextActive); setInactiveAgents(nextInactive);
   };
 
-  const handleDeleteAgent = (aName: string, isFromActive: boolean) => {
+  const handleDeleteAgent = async (aName: string, isFromActive: boolean) => {
     if (confirmOnDelete && !window.confirm(`Permanently remove agent "${aName}"?`)) return;
-    if (isFromActive) {
-      setActiveAgents(activeAgents.filter(x => x !== aName));
-    } else {
-      setInactiveAgents(inactiveAgents.filter(x => x !== aName));
-    }
+    const nextActive = isFromActive ? activeAgents.filter(x => x !== aName) : activeAgents;
+    const nextInactive = isFromActive ? inactiveAgents : inactiveAgents.filter(x => x !== aName);
+    await persistPools(activeMaps, inactiveMaps, nextActive, nextInactive);
+    setActiveAgents(nextActive); setInactiveAgents(nextInactive);
   };
 
   // --- SAVE ---
@@ -618,6 +613,7 @@ export default function SettingsControl({ data, theme, onSaveSettings, onRefresh
                       <h5 className="text-[11px] font-bold font-mono uppercase text-[#ff4655] tracking-wider">
                         1. MAPS POOLS ROTATION ({activeMaps.length} Active, {inactiveMaps.length} Rotated Out)
                       </h5>
+                      <p className="text-[9px] text-gray-500">Pool changes save immediately and update every selector and analytics surface.{poolSaving ? ' Saving…' : ''}</p>
                       
                       <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                         {/* Active Maps */}
@@ -699,12 +695,13 @@ export default function SettingsControl({ data, theme, onSaveSettings, onRefresh
                           placeholder="Insert new Map name (e.g. Abyss)"
                           value={newMap}
                           onChange={e => setNewMap(e.target.value)}
-                          onKeyDown={e => { if (e.key === 'Enter') { e.preventDefault(); handleAddMap(); } }}
+                          onKeyDown={e => { if (e.key === 'Enter') { e.preventDefault(); void handleAddMap(); } }}
                           className="flex-1 p-2 bg-black/25 text-white border border-white/10 rounded text-xs font-mono"
                         />
                         <button
                           type="button"
-                          onClick={handleAddMap}
+                          disabled={poolSaving}
+                          onClick={() => void handleAddMap()}
                           className="px-4 py-2 bg-cyan-500 hover:bg-cyan-600 text-white font-black text-xs font-mono rounded-lg flex items-center gap-1.5"
                         >
                           <Plus className="w-4 h-4" /> ADD MAP
@@ -718,6 +715,7 @@ export default function SettingsControl({ data, theme, onSaveSettings, onRefresh
                       <h5 className="text-[11px] font-bold font-mono uppercase text-[#ff4655] tracking-wider">
                         2. AGENT POOLS ({activeAgents.length} Active, {inactiveAgents.length} Inactive)
                       </h5>
+                      <p className="text-[9px] text-gray-500">Active agents populate selectors and metric rows immediately; disabled agents stay only in historical evidence.</p>
                       
                       <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                         {/* Active Agents */}
@@ -799,12 +797,13 @@ export default function SettingsControl({ data, theme, onSaveSettings, onRefresh
                           placeholder="Insert Agent name (e.g. Vyse)"
                           value={newAgent}
                           onChange={e => setNewAgent(e.target.value)}
-                          onKeyDown={e => { if (e.key === 'Enter') { e.preventDefault(); handleAddAgent(); } }}
+                          onKeyDown={e => { if (e.key === 'Enter') { e.preventDefault(); void handleAddAgent(); } }}
                           className="flex-1 p-2 bg-black/25 text-white border border-white/10 rounded text-xs font-mono"
                         />
                         <button
                           type="button"
-                          onClick={handleAddAgent}
+                          disabled={poolSaving}
+                          onClick={() => void handleAddAgent()}
                           className="px-4 py-2 bg-amber-500 hover:bg-amber-600 text-white font-black text-xs font-mono rounded-lg flex items-center gap-1.5"
                         >
                           <Plus className="w-4 h-4" /> ADD AGENT

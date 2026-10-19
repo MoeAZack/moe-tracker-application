@@ -14,7 +14,6 @@ export const FIRESTORE_CHUNK_BYTES = 480 * 1024;
 // name, transform, and index overhead rather than batching by operation count only.
 export const FIRESTORE_BATCH_SAFE_BYTES = 7 * 1024 * 1024;
 export const FIRESTORE_BATCH_MAX_WRITES = 350;
-const CURRENT_VALORANT_AGENTS = ['Astra', 'Breach', 'Brimstone', 'Chamber', 'Clove', 'Cypher', 'Deadlock', 'Fade', 'Gekko', 'Harbor', 'Iso', 'Jett', 'KAY/O', 'Killjoy', 'Miks', 'Neon', 'Omen', 'Phoenix', 'Raze', 'Reyna', 'Sage', 'Skye', 'Sova', 'Tejo', 'Veto', 'Viper', 'Vyse', 'Waylay', 'Yoru'];
 
 const GROWTH_ARRAYS = new Set(['matches', 'playerStats', 'vodSubmissions', 'seasonArchives']);
 const GROWTH_TREES = new Set(['replayIntake', 'engineAdapters', 'analyticsBuilds']);
@@ -100,9 +99,6 @@ export function ensureStorageSchema(input: any, now = new Date().toISOString()) 
     ledger.push({ from: declared, to: STORAGE_SCHEMA_VERSION, at: now });
   }
   input._storage = { schemaVersion: STORAGE_SCHEMA_VERSION, migratedAt: declared < STORAGE_SCHEMA_VERSION ? now : String(input._storage?.migratedAt || now), migrationLedger: ledger } satisfies StorageMetadata;
-  if (input.settings && Array.isArray(input.settings.agents)) {
-    input.settings.agents = [...new Set([...input.settings.agents.filter((agent: unknown) => typeof agent === 'string' && agent.trim()), ...CURRENT_VALORANT_AGENTS])].sort((left, right) => String(left).localeCompare(String(right)));
-  }
   if (input.settings) ensureScheduleCalendars(input.settings);
   return input;
 }

@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { buildWeaponRoundOutcomes, buildWeaponRoundOutcomesByEconomy, excludeArchivedScreenshotPlayers } from '../src/components/EconomyAnalytics';
+import { buildWeaponRoundOutcomes, buildWeaponRoundOutcomesByEconomy, buildWeaponRoundOutcomesByMap, excludeArchivedScreenshotPlayers } from '../src/components/EconomyAnalytics';
 
 describe('economy archived players', () => {
   it('removes archived names from screenshot-derived player metrics without deleting match evidence', () => {
@@ -49,5 +49,11 @@ describe('economy weapon round outcomes', () => {
     expect(groups.map(group => [group.id, group.outcomes[0].weapon, group.outcomes[0].wins, group.outcomes[0].losses])).toEqual([
       ['pistol', 'Sheriff', 1, 0], ['post-pistol', 'Bandit', 1, 0], ['bonus', 'Spectre', 0, 1], ['mid', 'Bulldog', 1, 0], ['full', 'Operator', 0, 1],
     ]);
+  });
+
+  it('separates weapon outcomes by active map and excludes disabled maps', () => {
+    const evidence = (weapon: string) => ({ reviewStatus: 'confirmed', players: [{ playerId: 'p1', displayName: 'Alpha', team: 'ours', equippedWeapon: weapon, survived: true }], eventsComplete: true, events: [] });
+    const groups = buildWeaponRoundOutcomesByMap([{ id: 'm1', map: 'Ascent' }, { id: 'm2', map: 'Bind' }] as any, [{ id: 'r1', matchId: 'm1', roundNo: 4, result: 'W', screenshotEvidence: evidence('Operator') }, { id: 'r2', matchId: 'm2', roundNo: 4, result: 'L', screenshotEvidence: evidence('Operator') }] as any, ['Ascent']);
+    expect(groups).toEqual([{ map: 'Ascent', outcomes: [expect.objectContaining({ weapon: 'Operator', wins: 1, losses: 0 })] }]);
   });
 });
