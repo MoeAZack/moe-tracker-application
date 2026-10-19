@@ -607,14 +607,14 @@ handleTrusted('desktop:discover-vod-games', async (event, input = {}) => {
   const jobKey = event.sender.id; if (activeVodAnalyses.has(jobKey)) throw new Error('A VOD analysis is already running in this window.');
   const controller = new AbortController(); activeVodAnalyses.set(jobKey, controller);
   try {
-    const result = await discoverVodGames({ vodUrl: String(input.vodUrl || '').trim(), localPath, expectedGames: input.expectedGames }, { progress, signal: controller.signal, workRoot: path.join(runtime.paths.local, 'Vod Analysis') });
+    const result = await discoverVodGames({ vodUrl: String(input.vodUrl || '').trim(), localPath, expectedGames: input.expectedGames, mapNames: Array.isArray(input.mapNames) ? input.mapNames.slice(0, 50).map(item => String(item || '').slice(0, 100)) : [] }, { progress, signal: controller.signal, workRoot: path.join(runtime.paths.local, 'Vod Analysis') });
     discoveredVodSources.set(result.cacheId, { directory: result.directory, file: result.file, downloaded: result.downloaded, videoId: result.videoId, durationMs: result.durationMs, sourceSha256: result.sourceSha256, owner: event.sender.id, createdAt: Date.now() });
     const { directory: _directory, file: _file, downloaded: _downloaded, sourceSha256: _sourceSha256, ...publicResult } = result; return publicResult;
   } finally { activeVodAnalyses.delete(jobKey); }
 });
 handleTrusted('desktop:analyze-vod', async (event, input = {}) => {
   const players = Array.isArray(input.players) ? input.players.slice(0, 10).map(item => ({ name: String(item?.name || '').trim().slice(0, 100), team: item?.team === 'theirs' ? 'theirs' : 'ours', expectedKills: Number.isInteger(item?.expectedKills) && item.expectedKills >= 0 ? item.expectedKills : null, expectedDeaths: Number.isInteger(item?.expectedDeaths) && item.expectedDeaths >= 0 ? item.expectedDeaths : null })).filter(item => item.name) : [];
-  if (players.length < 5) throw new Error('Timeline analysis needs at least five identified scoreboard names.');
+  if (players.length < 1) throw new Error('Timeline analysis needs at least one observed player identity.');
   const cached = input.cacheId ? discoveredVodSources.get(String(input.cacheId)) : null;
   if (input.cacheId && (!cached || cached.owner !== event.sender.id)) throw new Error('The detected VOD session expired. Detect the games again.');
   const localPath = cached?.file || (input.localPath ? path.resolve(String(input.localPath)) : null);

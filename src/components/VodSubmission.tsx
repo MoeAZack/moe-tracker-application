@@ -11,6 +11,7 @@ const fileFromBase64 = (base64: string, name: string, type: string) => {
   const binary = atob(base64); const bytes = new Uint8Array(binary.length); for (let index = 0; index < binary.length; index += 1) bytes[index] = binary.charCodeAt(index);
   return new File([bytes], name, { type });
 };
+const sha256File = async (file: File) => [...new Uint8Array(await crypto.subtle.digest('SHA-256', await file.arrayBuffer()))].map(value => value.toString(16).padStart(2, '0')).join('');
 
 export default function VodSubmission({ data, role, onRefresh }: Props) {
   const [history, setHistory] = useState<VodSubmissionRecord[]>([]);
@@ -60,7 +61,7 @@ export default function VodSubmission({ data, role, onRefresh }: Props) {
     let cacheId = '';
     try {
       const requestedGames = Math.max(1, Math.min(12, Number.parseInt(expectedGames, 10) || 1));
-      const discovery = await window.moeDesktop.discoverVodGames({ vodUrl: vodUrl.trim(), expectedGames: requestedGames, ...(localVod ? { localPath: localVod.path } : {}) }); cacheId = discovery.cacheId;
+      const discovery = await window.moeDesktop.discoverVodGames({ vodUrl: vodUrl.trim(), expectedGames: requestedGames, mapNames: data.settings.maps || [], ...(localVod ? { localPath: localVod.path } : {}) }); cacheId = discovery.cacheId;
       const detected: Array<{ timestampMs: number; draft: ScreenshotReviewDraft; imageSha256: string; selected: number[] }> = [];
       const signatures = new Set<string>();
       for (let index = 0; index < discovery.games.length; index += 1) {
@@ -74,16 +75,34 @@ export default function VodSubmission({ data, role, onRefresh }: Props) {
         } catch { /* Geometry and identity gates intentionally discard non-scoreboard candidates. */ }
       }
       detected.sort((left, right) => left.timestampMs - right.timestampMs);
-      if (!detected.length) throw new Error('No complete scoreboard with five active roster names was found. Keep the post-match scoreboard visible longer or use the manual scoreboard option below.');
-      if (detected.length !== requestedGames) throw new Error(`Expected ${requestedGames} game${requestedGames === 1 ? '' : 's'}, but found ${detected.length} complete scoreboard${detected.length === 1 ? '' : 's'}. Nothing was imported; the incomplete candidates remain available through the manual scoreboard workflow.`);
+      if (detected.length !== requestedGames) {
+        const boundaries = discovery.boundaries || [];
+        if (boundaries.length !== requestedGames) throw new Error(`Expected ${requestedGames} game${requestedGames === 1 ? '' : 's'}, but found ${detected.length} complete scoreboard${detected.length === 1 ? '' : 's'} and ${boundaries.length} reliable game start${boundaries.length === 1 ? '' : 's'}. Nothing was imported; use the manual scoreboard workflow for the missing evidence.`);
+        const dateKey = discovery.uploadDate || date; const imported: Array<{ map: string; score: string; status: string }> = [];
+        for (let index = 0; index < boundaries.length; index += 1) {
+          const boundary = boundaries[index]; const mapName = boundary.map || 'Unknown map'; const rosterIds = new Set(activeRoster.map(player => player.id));
+          const possibleMatches = matches.filter(candidate => candidate.date === dateKey && (!boundary.map || candidate.map?.toLocaleLowerCase() === boundary.map.toLocaleLowerCase()) && [...rosterIds].every(id => data.playerStats.some(stat => stat.matchId === candidate.id && stat.playerId === id)));
+          const linked = possibleMatches.length === 1 ? possibleMatches[0] : null; const endMs = boundaries[index + 1]?.timestampMs || discovery.durationMs;
+          setTimelineProgress({ percent: Math.round(index / boundaries.length * 100), message: `Analyzing game ${index + 1}/${boundaries.length} · ${mapName}…` });
+          const observedNames = [...new Set([...(discovery.uploader ? [discovery.uploader] : []), ...activeRoster.map(player => player.displayName)])].slice(0, 10);
+          const players = observedNames.map(name => ({ name, team: 'ours' as const }));
+          const evidence = await window.moeDesktop.analyzeVod({ vodUrl: vodUrl.trim(), cacheId, startMs: boundary.timestampMs, endMs, players });
+          const publicTimeline = JSON.parse(JSON.stringify(evidence, (key, item) => key === 'rawText' ? undefined : item)); const frame = fileFromBase64(boundary.base64, `vod-game-start-${index + 1}.png`, boundary.mediaType);
+          const response = await apiFetch('/api/vod-submissions', { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ vodUrl: vodUrl.trim(), imageSha256: await sha256File(frame), ...(linked ? { matchId: linked.id } : {}), coachTeamEvidence: true, date: dateKey, map: boundary.map, opponent: linked?.opponent || null, ourScore: linked?.ourScore ?? null, theirScore: linked?.theirScore ?? null, players: [], timelineEvidence: publicTimeline }) });
+          const payload = await response.json(); if (!response.ok) throw new Error(payload.error || `Game ${index + 1} could not be integrated.`);
+          imported.push({ map: mapName, score: linked && typeof linked.ourScore === 'number' ? `${linked.ourScore}–${linked.theirScore}` : 'Score pending', status: payload.submission.linkMode === 'new-match' ? 'Timeline imported · scoreboard pending' : 'Linked and timeline imported' });
+        }
+        setBatchResult(imported); setMessage(`${imported.length} game${imported.length === 1 ? '' : 's'} separated and integrated. This VOD did not show complete post-match scoreboards, so unavailable totals remain pending instead of being guessed.`); setVodUrl(''); setLocalVod(null); await Promise.all([load(), Promise.resolve(onRefresh())]); return;
+      }
       const imported: Array<{ map: string; score: string; status: string }> = [];
       for (let index = 0; index < detected.length; index += 1) {
         const game = detected[index]; const rows = game.selected.map(rowIndex => game.draft.stats[rowIndex]); const rosterIds = new Set(rows.map(row => row.matchedPlayerId).filter(Boolean));
         const dateKey = discovery.uploadDate || date; const possibleMatches = matches.filter(candidate => candidate.date === dateKey && candidate.map?.toLocaleLowerCase() === game.draft.match.map?.toLocaleLowerCase() && candidate.ourScore === game.draft.match.ourScore && candidate.theirScore === game.draft.match.theirScore && [...rosterIds].every(id => data.playerStats.some(stat => stat.matchId === candidate.id && stat.playerId === id)));
-        const linked = possibleMatches.length === 1 ? possibleMatches[0] : null; const startMs = index ? Math.min(game.timestampMs, detected[index - 1].timestampMs + 60_000) : 0;
+        const linked = possibleMatches.length === 1 ? possibleMatches[0] : null; const reliableBoundaries = discovery.boundaries?.length === detected.length ? discovery.boundaries : null;
+        const startMs = reliableBoundaries?.[index]?.timestampMs ?? (index ? Math.min(game.timestampMs, detected[index - 1].timestampMs + 60_000) : 0); const endMs = reliableBoundaries?.[index + 1]?.timestampMs ?? game.timestampMs;
         setTimelineProgress({ percent: Math.round(index / detected.length * 100), message: `Analyzing game ${index + 1}/${detected.length} · ${game.draft.match.map}…` });
         const ours = new Set(game.selected); const players = game.draft.stats.map((row, rowIndex) => ({ name: row.extractedName, team: ours.has(rowIndex) ? 'ours' as const : 'theirs' as const, expectedKills: row.kills, expectedDeaths: row.deaths })).filter(row => row.name).slice(0, 10);
-        const evidence = await window.moeDesktop.analyzeVod({ vodUrl: vodUrl.trim(), cacheId, startMs, endMs: game.timestampMs, players });
+        const evidence = await window.moeDesktop.analyzeVod({ vodUrl: vodUrl.trim(), cacheId, startMs, endMs, players });
         const publicTimeline = JSON.parse(JSON.stringify(evidence, (key, item) => key === 'rawText' ? undefined : item));
         const response = await apiFetch('/api/vod-submissions', { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ vodUrl: vodUrl.trim(), imageSha256: game.imageSha256, ...(linked ? { matchId: linked.id } : {}), coachTeamEvidence: true, date: dateKey, map: game.draft.match.map, opponent: linked?.opponent || null, ourScore: game.draft.match.ourScore, theirScore: game.draft.match.theirScore, players: rows.map(row => ({ observedName: row.extractedName, agent: row.agent, kills: value(row.kills), deaths: value(row.deaths), assists: value(row.assists), acs: value(row.acs), adr: value(row.adr), hs: value(row.hs), fk: value(row.fk), fd: value(row.fd), plants: value(row.plants), defuses: value(row.defuses), trades: value(row.trades) })), timelineEvidence: publicTimeline }) });
         const payload = await response.json(); if (!response.ok) throw new Error(payload.error || `Game ${index + 1} could not be integrated.`);

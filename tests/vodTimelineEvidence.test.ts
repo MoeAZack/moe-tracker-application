@@ -6,7 +6,7 @@ import evidenceModule from '../desktop/vod-timeline-evidence.cjs';
 import analyzerModule from '../desktop/vod-timeline-analyzer.cjs';
 
 const { aggregateVideoEvidence, parseKillFeedSnapshot, parseUltimateSnapshots } = evidenceModule;
-const { youtubeVideoId, frameDifference, scoreboardGeometryScore, analyzeVodTimeline } = analyzerModule;
+const { youtubeVideoId, frameDifference, scoreboardGeometryScore, agentSelectGeometryScore, chooseGameBoundaries, inferPovPlayer, analyzeVodTimeline } = analyzerModule;
 const players = [
   { name: 'Alpha', team: 'ours' }, { name: 'Bravo', team: 'ours' }, { name: 'Charlie', team: 'ours' }, { name: 'Delta', team: 'ours' }, { name: 'Echo', team: 'ours' },
   { name: 'EnemyOne', team: 'theirs' }, { name: 'EnemyTwo', team: 'theirs' }, { name: 'EnemyThree', team: 'theirs' }, { name: 'EnemyFour', team: 'theirs' }, { name: 'EnemyFive', team: 'theirs' },
@@ -72,6 +72,24 @@ describe('VOD timeline evidence', () => {
     const width = 480; const height = 270; const blank = Buffer.alloc(width * height * 3, 20); const board = Buffer.from(blank);
     for (let row = 0; row <= 10; row += 1) { const y = Math.round((321 + row * 48) * height / 1080); for (let x = Math.round(430 * width / 1920); x <= Math.round(1740 * width / 1920); x += 1) for (let channel = 0; channel < 3; channel += 1) board[(y * width + x) * 3 + channel] = 220; }
     expect(scoreboardGeometryScore(board, width, height)).toBeGreaterThan(scoreboardGeometryScore(blank, width, height) + 20);
+  });
+
+  it('uses both lobby color and row geometry to choose the requested game starts', () => {
+    const candidates = [
+      { timestampMs: 300_000, score: 33, agentSelectScore: 70 }, { timestampMs: 500_000, score: 32, agentSelectScore: 72 },
+      { timestampMs: 2_640_000, score: 8, agentSelectScore: 81 },
+      { timestampMs: 3_864_000, score: 33, agentSelectScore: 71 }, { timestampMs: 7_488_000, score: 33, agentSelectScore: 71 },
+      { timestampMs: 8_928_000, score: 4, agentSelectScore: 87 },
+    ];
+    expect(chooseGameBoundaries(candidates, 10_180_000, 3).map((item: any) => item.timestampMs)).toEqual([500_000, 3_864_000, 7_488_000]);
+  });
+
+  it('infers a stable player POV only when one roster name clearly dominates', () => {
+    const snapshots = [1, 2, 3, 4].map(timestampMs => ({ timestampMs, text: 'Alpha SWITCH PLAYER' }));
+    expect(inferPovPlayer(snapshots, players)).toBe('Alpha');
+    expect(inferPovPlayer([...snapshots, ...snapshots.map(item => ({ ...item, text: 'Bravo SWITCH PLAYER' }))], players)).toBeNull();
+    const width = 120; const height = 90; const blue = Buffer.alloc(width * height * 3); for (let index = 0; index < blue.length; index += 3) { blue[index] = 50; blue[index + 1] = 150; blue[index + 2] = 210; }
+    expect(agentSelectGeometryScore(blue, width, height)).toBeGreaterThan(50);
   });
 
   it('cancels a long-running analysis before starting external video tools', async () => {

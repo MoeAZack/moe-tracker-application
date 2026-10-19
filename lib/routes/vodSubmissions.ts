@@ -19,6 +19,7 @@ export function registerVodSubmissionRoutes(app: Express) {
       const body = validate(schemas.vodSubmissionSchema, req.body, res); if (!body) return;
       const user = (req as any).user || {};
       const coachTeamEvidence = user.role === 'coach' && body.coachTeamEvidence === true;
+      if (!coachTeamEvidence && body.players.length !== 5) return res.status(400).json({ error: 'Player VOD evidence requires five proven roster identities.' });
       const playerId = coachTeamEvidence ? null : (user.role === 'coach' ? body.playerId : user.playerId);
       if (!playerId && !coachTeamEvidence) return res.status(400).json({ error: 'This account must be linked to a roster player before submitting VOD evidence.' });
       const db = await readDB(); const rosterPlayer = playerId ? (db.rosterPlayers || []).find((player: any) => player.id === playerId && !player.retiredAt) : null;

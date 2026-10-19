@@ -215,7 +215,7 @@ export const vodSubmissionSchema = z.object({
     agent: z.string().trim().max(100).nullable(),
     kills: vodMetric, deaths: vodMetric, assists: vodMetric, acs: vodMetric, adr: vodMetric,
     hs: vodMetric, fk: vodMetric, fd: vodMetric, plants: vodMetric, defuses: vodMetric, trades: vodMetric,
-  }).strict()).length(5),
+  }).strict()).max(5).refine(rows => rows.length === 0 || rows.length === 5, 'VOD evidence must contain either five proven roster identities or no player assignment.'),
   timelineEvidence: vodTimelineEvidenceSchema.nullable().optional(),
 }).strict();
 
