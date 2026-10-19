@@ -2,6 +2,7 @@ import type { CoreMembership, Match, PlayerStats, TrackerData, VodReview } from 
 import { toCairoDateKey } from './coachAnalytics';
 import { buildPlayerScreenshotMetrics, combinePlayerScreenshotMetrics, combineStoredScreenshotMetrics } from './scrimRoundAnalytics';
 import { confusableCaptureKey, normalizeCaptureName } from './scrimCaptureImport';
+import { currentAnalyticsPlayerStats } from './activePlayerAnalytics';
 
 export type IntegrationReadiness =
   | { status: 'ready'; detail: string }
@@ -79,15 +80,7 @@ const observedNameKey = (value: string) => confusableCaptureKey(normalizeCapture
  * every OCR-equivalent historical row belongs to the live observed player.
  */
 export function activeObservedPlayerStats(data: Pick<TrackerData, 'playerStats' | 'rosterPlayers'>): PlayerStats[] {
-  const retiredIds = new Set((data.rosterPlayers || []).filter(player => player.retiredAt).map(player => player.id));
-  const retiredNameKeys = new Set((data.rosterPlayers || []).filter(player => player.retiredAt).map(player => observedNameKey(player.displayName)));
-  const liveNameKeys = new Set<string>();
-  for (const row of (data.playerStats || [])) {
-    const key = observedNameKey(observedName(row));
-    if (!key) continue;
-    if (row.playerId?.trim() ? !retiredIds.has(row.playerId.trim()) : !retiredNameKeys.has(key)) liveNameKeys.add(key);
-  }
-  return (data.playerStats || []).filter(row => liveNameKeys.has(observedNameKey(observedName(row))));
+  return currentAnalyticsPlayerStats(data);
 }
 
 const reconciledFields: Array<keyof PlayerStats> = ['agent', 'appearanceType', 'kAtt', 'kDef', 'dAtt', 'dDef', 'aAtt', 'aDef', 'kills', 'deaths', 'assists', 'acs', 'adr', 'hs', 'fk', 'fd', 'plants', 'defuses', 'trades', 'kastSuccessful', 'kastCovered', 'ultimateUses', 'orbPoints'];

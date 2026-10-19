@@ -1,6 +1,6 @@
 # Moe Tracker Application
 
-Version 0.1.61 separates Economy weapon outcomes into comparable buy contexts: pistol, post-pistol, bonus, eco, low/force, mid/half, and full buys. This keeps choices such as Sheriff versus Bandit, Bulldog versus Guardian, and Operator versus rifles from being mixed into one misleading overall rate. Version 0.1.60 validates those weapon outcomes against the shared VALORANT weapon catalog so OCR noise cannot appear as a real weapon category. See [VOD timeline analysis](docs/VOD-TIMELINE-ANALYSIS.md) for VOD coverage and evidence limits.
+Version 0.1.62 applies one current-player identity projection to every analytics tab, preventing archived players from lingering in Economy, Performance, Maps, Compositions, Coach analytics, Tryouts, or Solo Queue while preserving their immutable Match Review evidence. Live Logger and automatic screenshot import also exclude archived identities from new entries. Version 0.1.61 separates Economy weapon outcomes into comparable pistol, conversion, bonus, eco, low/force, mid/half, and full-buy contexts. See [VOD timeline analysis](docs/VOD-TIMELINE-ANALYSIS.md) for VOD coverage and evidence limits.
 
 Windows-first, offline-first practice analysis for a VALORANT team. The desktop application watches replay folders, keeps detailed evidence on the PC, supports local scoreboard OCR, and synchronizes only accepted summaries to the lightweight team website.
 

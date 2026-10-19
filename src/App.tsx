@@ -12,6 +12,7 @@ import { DEFAULT_ANALYTICS_MAP_SCOPE, projectAnalyticsMapScope, type AnalyticsMa
 import { reportDesktopDiagnostic } from './utils/desktopDiagnostics';
 import DesktopReplayAutomation from './components/DesktopReplayAutomation';
 import ReviewContextBar from './components/ReviewContextBar';
+import { projectCurrentPlayerAnalytics } from '../lib/activePlayerAnalytics';
 
 // Heavy route views are code-split so the initial bundle only loads the shell + login.
 const Dashboard = lazy(() => import('./components/Dashboard'));
@@ -204,7 +205,11 @@ export default function App() {
   const [historicalTryoutId, setHistoricalTryoutId] = useState('');
   const [analyticsMapScope, setAnalyticsMapScope] = useState<AnalyticsMapScope>(DEFAULT_ANALYTICS_MAP_SCOPE);
   const workspaceData = useMemo(() => data ? filterTryoutWorkspace(data) : null, [data]);
-  const analyticsBaseData = useMemo(() => data ? filterAnalyticsHistory(filterTryoutWorkspace(data, historicalTryoutId), 'all', !!historicalTryoutId) : null, [data, historicalTryoutId]);
+  const analyticsBaseData = useMemo(() => {
+    if (!data) return null;
+    const selected = filterAnalyticsHistory(filterTryoutWorkspace(data, historicalTryoutId), 'all', !!historicalTryoutId);
+    return historicalTryoutId ? selected : projectCurrentPlayerAnalytics(selected);
+  }, [data, historicalTryoutId]);
   const analyticsProjection = useMemo(() => analyticsBaseData ? projectAnalyticsMapScope(analyticsBaseData, analyticsMapScope) : null, [analyticsBaseData, analyticsMapScope]);
   const analyticsData = analyticsProjection?.data || null;
 
