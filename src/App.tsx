@@ -62,7 +62,7 @@ export default function App() {
   const [error, setError] = useState<string | null>(null);
   
   // Navigation
-  const [activeTab, setActiveTab] = useState<'dashboard' | 'calendar' | 'matches' | 'replays' | 'maps' | 'comps' | 'roster' | 'settings' | 'livelogger' | 'aitactical' | 'vod' | 'vodsubmit' | 'lineups' | 'economy' | 'comparisons'>('dashboard');
+  const [activeTab, setActiveTab] = useState<'dashboard' | 'calendar' | 'matches' | 'replays' | 'maps' | 'comps' | 'roster' | 'playerstats' | 'settings' | 'livelogger' | 'aitactical' | 'vod' | 'vodsubmit' | 'lineups' | 'economy' | 'comparisons'>('dashboard');
   const [reviewMatchId, setReviewMatchId] = useState<string | null>(() => sessionStorage.getItem('moetracker-review-match'));
   const [reviewRoundNo, setReviewRoundNo] = useState<number | null>(() => { const value = Number(sessionStorage.getItem('moetracker-review-round')); return Number.isSafeInteger(value) && value > 0 ? value : null; });
   const [manualReplayDraft, setManualReplayDraft] = useState<ScreenshotReviewDraft | null>(null);
@@ -419,13 +419,14 @@ export default function App() {
     { id: 'lineups', label: 'Lineup Library', icon: Crosshair, group: 'Playbook' },
     { id: 'aitactical', label: 'Coach Workspace', icon: Sparkles, group: 'Team' },
     { id: 'roster', label: 'Roster & Solo Q', icon: Users, group: 'Team' },
+    { id: 'playerstats', label: 'Player Stats', icon: Activity, group: 'Team' },
     { id: 'comparisons', label: 'Tryout comparisons', icon: GitCompareArrows, group: 'Team' },
     { id: 'settings', label: 'Settings', icon: SettingsIcon, group: 'Team' },
   ] as const;
 
   const tryoutComparisonsVisible = showTryoutComparisons ?? Boolean((data?.settings as any)?.tryoutsMode);
   const visibleTabs = useMemo(() => {
-    const surfaceTabs = desktopMode ? tabsList : tabsList.filter(tab => ['dashboard', 'calendar', 'matches', 'vodsubmit', 'economy', 'aitactical', 'maps', 'roster', 'comparisons'].includes(tab.id));
+    const surfaceTabs = desktopMode ? tabsList : tabsList.filter(tab => ['dashboard', 'calendar', 'matches', 'vodsubmit', 'economy', 'aitactical', 'maps', 'roster', 'playerstats', 'comparisons'].includes(tab.id));
     const roleTabs = role === 'player' ? surfaceTabs.filter(tab => !['settings', 'livelogger', 'vod', 'aitactical'].includes(tab.id)) : surfaceTabs;
     return tryoutComparisonsVisible ? roleTabs : roleTabs.filter(tab => tab.id !== 'comparisons');
   }, [desktopMode, role, tryoutComparisonsVisible]);
@@ -640,7 +641,7 @@ export default function App() {
 
         {data && desktopMode && <DesktopReplayAutomation data={data} role={role} onProcessed={fetchDatabase} onSaveMatch={handleSaveMatch} onSaveRounds={handleSaveRounds} />}
         <div className="aurora-utility-bar"><div className="aurora-utility-context"><span className="aurora-eyebrow">{data && activeTryoutPhase(data) ? `Tryouts · ${activeTryoutPhase(data)?.name}` : 'Team workspace'}</span><span className="aurora-version-badge" title="Installed MoeTracker version">v{__APP_VERSION__}</span></div>{data && <TeamSyncIndicator teamName={data.settings.teamName || 'MoeTracker team'} role={role} desktopMode={desktopMode} />}</div>
-        {data && ['dashboard', 'economy', 'maps', 'comps', 'roster', 'comparisons'].includes(activeTab) && (data.tryoutBatches || []).some(batch => batch.status === 'archived') && <label className="mx-auto flex max-w-7xl w-full flex-wrap items-center gap-2 px-6 text-sm text-slate-300">Analytics history<select aria-label="Analytics phase" className="ui-field min-h-11 px-3" value={historicalTryoutId} onChange={event => setHistoricalTryoutId(event.target.value)}><option value="">Current workspace</option>{data.tryoutBatches.filter(batch => batch.status === 'archived').map(batch => <option key={batch.id} value={batch.id}>Archived tryouts · {batch.name}</option>)}</select>{historicalTryoutId && <span className="text-xs text-cyan-300">Viewing archived results only; new entries still use the current workspace.</span>}</label>}
+        {data && ['dashboard', 'economy', 'maps', 'comps', 'roster', 'playerstats', 'comparisons'].includes(activeTab) && (data.tryoutBatches || []).some(batch => batch.status === 'archived') && <label className="mx-auto flex max-w-7xl w-full flex-wrap items-center gap-2 px-6 text-sm text-slate-300">Analytics history<select aria-label="Analytics phase" className="ui-field min-h-11 px-3" value={historicalTryoutId} onChange={event => setHistoricalTryoutId(event.target.value)}><option value="">Current workspace</option>{data.tryoutBatches.filter(batch => batch.status === 'archived').map(batch => <option key={batch.id} value={batch.id}>Archived tryouts · {batch.name}</option>)}</select>{historicalTryoutId && <span className="text-xs text-cyan-300">Viewing archived results only; new entries still use the current workspace.</span>}</label>}
 
         {/* Main Workspace Frame */}
         <main className="flex-grow p-4 sm:p-6 lg:p-8 overflow-hidden max-w-7xl w-full mx-auto flex flex-col gap-6">
@@ -728,8 +729,10 @@ export default function App() {
             {activeTab === 'roster' && analyticsData && data && (
               <div className="space-y-6">
                 {role === 'coach' && <RosterManager data={data} theme={theme} onRefresh={fetchDatabase} />}
-                <PlayerSoloTracker data={analyticsData} theme={theme} role={role} onSyncSoloQ={handleSyncSoloQ} onRefresh={fetchDatabase} onOpenEvidence={(matchId, roundNo) => { setReviewMatchId(matchId); setReviewRoundNo(roundNo); setActiveTab('vod'); }} />
               </div>
+            )}
+            {activeTab === 'playerstats' && analyticsData && (
+              <PlayerSoloTracker data={analyticsData} theme={theme} role={role} onSyncSoloQ={handleSyncSoloQ} onRefresh={fetchDatabase} onOpenEvidence={(matchId, roundNo) => { setReviewMatchId(matchId); setReviewRoundNo(roundNo); setActiveTab('vod'); }} />
             )}
             {activeTab === 'settings' && data && (
               <div className="space-y-6">
