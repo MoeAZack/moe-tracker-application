@@ -26,9 +26,9 @@ Last reconciled: 20 October 2026, Africa/Cairo. This file is the permanent scope
 | 1.2 | One identity resolver for OCR, replay, VOD, roster aliases and opponents | Real-data validated | Shared resolver yields 0 unresolved and 0 ambiguous appearances in the installed test workspace. Opponent identity history remains Stage 6 scope. |
 | 1.3 | Archive, restore and 60-day purge without current-analytics leaks | Automatically tested | Historical rows remain immutable; physical expiry rehearsal remains. |
 | 1.4 | Versioned derived metrics and deterministic rebuilds | Real-data validated | Eight derived builds are linked by source hash/calculation version; canonical fingerprint is order-independent. |
-| 2.1 | Dynamic map catalog across pool, stats, compositions and calculator | Implemented | Runtime map settings exist; remove remaining hard-coded visual/calibration fallbacks. |
-| 2.2 | Dynamic agent catalog across stats and compositions | Implemented | Active/inactive agent settings exist; validate new-agent propagation physically. |
-| 2.3 | Dynamic weapon catalog including new weapons and clear artwork | Implemented | Weapon evidence exists; catalog metadata/art quality needs real Warden validation. |
+| 2.1 | Dynamic map catalog across pool, stats, compositions and calculator | Automatically tested | Shared runtime catalog drives selectors, zero-evidence rows, map analysis, calculator, compositions, economy and VOD discovery. |
+| 2.2 | Dynamic agent catalog across stats and compositions | Automatically tested | Case-insensitive runtime catalog propagates new agents and removes disabled agents from current metrics without deleting history. |
+| 2.3 | Dynamic weapon catalog including new weapons and clear artwork | Automatically tested | Warden is catalogued and classified as a full-buy weapon; all media uses deterministic local art with a labelled fallback. |
 | 3.1 | One resumable ingestion job for screenshot, replay, YouTube and local VOD | Automatically tested | Durable VOD/replay jobs exist; Stage 3 unifies progress and cancellation semantics. |
 | 3.2 | Multi-map coach/player VOD discovery with per-game matching | Automatically tested | Discovery and explicit expected-game count exist; broaden real VOD corpus. |
 | 3.3 | Incremental OCR/cache invalidation instead of full reprocessing | Automatically tested | Frame checkpoints resume; changed-frame decoder checkpointing remains open. |
