@@ -60,10 +60,10 @@ Last reconciled: 20 October 2026, Africa/Cairo. This file is the permanent scope
 
 | ID | Requirement | Highest gate | Evidence / next gate |
 | --- | --- | --- | --- |
-| 8.1 | Advantage states (2v1, 3v1, 5v3, etc.) and conversion/loss | Automatically tested | Replay/VOD/round evidence contracts integrated. |
-| 8.2 | Utility, orb and ultimate usage timelines | Automatically tested | Replay/VOD availability-gated timelines integrated. |
-| 8.3 | Trade distance, spacing, territory and execute/retake context | Automatically tested | Spatial v3 metrics integrated; representative coordinate coverage remains. |
-| 8.4 | Throws are coach-confirmed judgments, never automatic facts | Released | Existing evidence boundary retained. |
+| 8.1 | Advantage states (2v1, 3v1, 5v3, etc.) and conversion/loss | Automatically tested | `contextual-round-intelligence/v1` exposes only complete ordered-feed states and preserves unknown outcomes. |
+| 8.2 | Utility, orb and ultimate usage timelines | Automatically tested | One selected accepted feed prevents replay/VOD/screenshot double counting; unavailable values remain null. |
+| 8.3 | Trade distance, spacing, territory and execute/retake context | Automatically tested | Round context and five-second trade windows share the contextual ledger; coordinate metrics remain availability-gated in spatial v3. |
+| 8.4 | Throws are coach-confirmed judgments, never automatic facts | Released | Observed failures may be suggested, but tactical intent and “throw” labels remain coach decisions with audit history. |
 | 9.1 | Replay-backed 2D paths, kill markers and utility timelines | Automatically tested | Spatial pipeline v3. |
 | 9.2 | Cross-match death and utility heatmaps | Automatically tested | Cohort envelope used when official calibration is unavailable. |
 | 9.3 | Official map-bound calibration and orientation | Not started | Requires independently verified per-map assets/transforms. |
