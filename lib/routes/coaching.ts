@@ -4,6 +4,7 @@ import { buildAllPracticeBlockSummaries, coachingContextMatches, createCoachingA
 import { readDB, saveDB } from '../store';
 import { buildEvidenceFusionReport, upsertEvidenceResolution, type EvidenceSource } from '../evidenceFusion';
 import { recomputeAcceptedMatchAggregates } from '../aggregateVersioning';
+import { buildCoachingGoal } from '../coachingGoalLink';
 
 const actor = (req: Request) => String((req as any).user?.actorId || (req as any).user?.username || 'coach').slice(0, 120);
 function requireCoach(req: Request, res: Response) { if ((req as any).user?.role === 'coach') return true; res.status(403).json({ error: 'Coach access is required.' }); return false; }
@@ -28,8 +29,8 @@ export function registerCoachingRoutes(app: Express) {
     try {
       const matchId = text(req.body?.matchId, 160); const roundId = text(req.body?.roundId, 160); const field = text(req.body?.field, 80); const reason = text(req.body?.reason, 500); const selectedSource = req.body?.selectedSource as EvidenceSource;
       if (!matchId || !roundId || !field || !reason || !['coach', 'replay', 'screenshot', 'vod', 'manual'].includes(selectedSource)) return res.status(400).json({ error: 'Match, round, field, evidence source, and a reason are required.' });
-      const db = await readDB(); const round = (db.rounds || []).find((item: any) => item.id === roundId && item.matchId === matchId); if (!round) return res.status(404).json({ error: 'Round evidence was not found.' });
-      const current = buildEvidenceFusionReport(db, matchId, db.engineAdapters?.replay?.[matchId]); const fact = current.rounds.find(item => item.roundId === roundId)?.facts.find(item => item.field === field); const allowed = fact?.candidates.some(item => item.source === selectedSource && JSON.stringify(item.value) === JSON.stringify(req.body?.selectedValue)); if (!allowed) return res.status(409).json({ error: 'That evidence candidate is no longer current. Reload the match before resolving it.' });
+      const db = await readDB(); const entity = (db.rounds || []).find((item: any) => item.id === roundId && item.matchId === matchId) || (db.playerStats || []).find((item: any) => item.id === roundId && item.matchId === matchId); if (!entity) return res.status(404).json({ error: 'Round or player evidence was not found.' });
+      const current = buildEvidenceFusionReport(db, matchId, db.engineAdapters?.replay?.[matchId]); const fact = (current.rounds.find(item => item.roundId === roundId) || current.players.find(item => item.playerStatId === roundId))?.facts.find(item => item.field === field); const allowed = fact?.candidates.some(item => item.source === selectedSource && JSON.stringify(item.value) === JSON.stringify(req.body?.selectedValue)); if (!allowed) return res.status(409).json({ error: 'That evidence candidate is no longer current. Reload the match before resolving it.' });
       db.evidenceFusionResolutions ||= []; const resolution = upsertEvidenceResolution(db.evidenceFusionResolutions, { matchId, roundId, field, selectedSource, selectedValue: structuredClone(req.body?.selectedValue), reason }, actor(req));
       db.analyticsBuilds ||= {}; db.analyticsBuilds[matchId] = recomputeAcceptedMatchAggregates(db, matchId); refreshCoachingWorkflow(db, actor(req)); await saveDB(db); res.json({ resolution, build: db.analyticsBuilds[matchId] });
     } catch (error: any) { res.status(error.status || 500).json({ error: error.message }); }
@@ -94,7 +95,8 @@ export function registerCoachingRoutes(app: Express) {
       const overloaded = ownerIds.find((id: string) => (db.coachingActions || []).filter((action: CoachingAction) => action.ownerIds.includes(id) && !['resolved', 'cancelled'].includes(action.state)).length >= max);
       if (overloaded) return res.status(409).json({ error: `This player already has ${max} active coaching actions.` });
       const action = createCoachingAction({ signal: source, title: text(req.body?.title, 160), kind: req.body?.kind || 'team-task', ownerIds, dueBlockId: text(req.body?.dueBlockId, 120) || undefined, dueDate: text(req.body?.dueDate, 20) || undefined, priority: ['high', 'normal', 'low'].includes(req.body?.priority) ? req.body.priority : 'normal', visibility: ['private', 'staff', 'team'].includes(req.body?.visibility) ? req.body.visibility : 'staff' }, actor(req));
-      db.coachingActions ||= []; db.coachingActions.push(action); const index = db.coachingSignals.findIndex((item: CoachingSignal) => item.id === source.id); db.coachingSignals[index] = transitionSignal(source, 'converted-to-action', actor(req)); await saveDB(db); res.status(201).json({ action, signal: db.coachingSignals[index] });
+      const goal = buildCoachingGoal({ signal: source, action, matches: db.matches || [], rounds: db.rounds || [], rosterPlayers: db.rosterPlayers || [] }); action.goalId = goal.id;
+      db.coachingActions ||= []; db.coachingActions.push(action); db.goals ||= []; db.goals.push(goal); const index = db.coachingSignals.findIndex((item: CoachingSignal) => item.id === source.id); db.coachingSignals[index] = transitionSignal(source, 'converted-to-action', actor(req)); await saveDB(db); res.status(201).json({ action, goal, signal: db.coachingSignals[index] });
     } catch (error: any) { res.status(error.status || 500).json({ error: error.message }); }
   });
 

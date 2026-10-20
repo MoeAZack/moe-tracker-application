@@ -2,6 +2,7 @@ import React from 'react';
 import { renderToStaticMarkup } from 'react-dom/server';
 import { describe, expect, it } from 'vitest';
 import MapBestStats from '../src/components/MapBestStats';
+import fs from 'node:fs';
 
 describe('map discipline roster identities', () => {
   it('does not resurrect legacy setting names after the canonical roster is cleared', () => {
@@ -18,5 +19,12 @@ describe('map discipline roster identities', () => {
     expect(html).not.toContain('Player1');
     expect(html).not.toContain('Player2');
     expect(html).not.toContain('Former');
+  });
+
+  it('publishes the contribution ledger and names every neutral fallback', () => {
+    const source = fs.readFileSync('src/components/MapBestStats.tsx', 'utf8');
+    expect(source).toContain('buildMapScoreLedger');
+    expect(source).toContain('Score evidence');
+    expect(source).toContain('neutral fallback');
   });
 });

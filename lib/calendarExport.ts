@@ -17,7 +17,7 @@ export function buildScheduleIcs(schedule: readonly Schedule[], now = new Date()
       const [hour, minute] = String(row.startTime).split(':').map(Number); const end = new Date(`${row.date}T${String(hour).padStart(2, '0')}:${String(minute).padStart(2, '0')}:00Z`); end.setUTCMinutes(end.getUTCMinutes() + Math.max(15, Number(row.durationMinutes || 60)));
       lines.push(`DTSTART;TZID=Africa/Cairo:${start}`, `DTEND;TZID=Africa/Cairo:${compactDate(end.toISOString().slice(0, 10))}T${end.toISOString().slice(11, 19).replaceAll(':', '')}`);
     }
-    if (row.secondary || row.notes) lines.push(`DESCRIPTION:${escapeIcs([row.secondary, row.notes].filter(Boolean).join('\n'))}`);
+    if (row.secondary || row.notes || row.coachNotes) lines.push(`DESCRIPTION:${escapeIcs([row.secondary, row.notes, row.coachNotes].filter(Boolean).join('\n'))}`);
     if (row.calendarKey) lines.push(`CATEGORIES:${escapeIcs(row.calendarKey)}`);
     lines.push('END:VEVENT');
   }

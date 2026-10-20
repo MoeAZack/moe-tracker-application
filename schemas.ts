@@ -38,6 +38,8 @@ export const settingsSchema = z.object({
   inactiveMaps: z.array(z.string().min(1).max(100)).max(100).optional(),
   agents: z.array(z.string().min(1).max(100)).max(100).optional(),
   inactiveAgents: z.array(z.string().min(1).max(100)).max(100).optional(),
+  weapons: z.array(z.string().min(1).max(100)).max(100).optional(),
+  inactiveWeapons: z.array(z.string().min(1).max(100)).max(100).optional(),
   matchTypes: z.array(z.string().max(100)).max(50).optional(),
   attendanceStates: z.array(z.string().max(100)).max(50).optional(),
   goalStates: z.array(z.string().max(100)).max(50).optional(),
@@ -52,13 +54,23 @@ export const settingsSchema = z.object({
   vetoActions: z.array(z.string().max(50)).max(20).optional(),
   stats: looseObject.optional(),
   coachingThresholds: looseObject.optional(),
-  deletedCoachingSignalFingerprints: z.array(z.string().max(240)).max(1000).optional()
+  deletedCoachingSignalFingerprints: z.array(z.string().max(240)).max(1000).optional(),
+  featureFlags: z.object({
+    canonicalDataSpine: z.boolean().optional(), dynamicResourceCatalog: z.boolean().optional(), unifiedIngestion: z.boolean().optional(),
+    evidenceFusionV2: z.boolean().optional(), unifiedReviewWorkspace: z.boolean().optional(), metricsExplorer: z.boolean().optional(),
+    developmentLoopV2: z.boolean().optional(), contextualRoundIntelligence: z.boolean().optional(), spatialPlaybookV2: z.boolean().optional(),
+    teamOperationsV2: z.boolean().optional(), releaseCandidate02: z.boolean().optional(),
+  }).strict().optional()
 });
 
 export const attendanceCheckInSchema = z.object({ scheduleId: z.string().trim().min(1).max(200) }).strict();
 export const attendanceGreenCreditSchema = z.object({ playerId: z.string().uuid(), reason: z.string().trim().min(1).max(500) }).strict();
 export const attendanceCreditRevokeSchema = z.object({ creditId: z.string().trim().min(1).max(200), reason: z.string().trim().min(1).max(500) }).strict();
 export const attendanceCorrectionSchema = z.object({ scheduleId: z.string().trim().min(1).max(200), playerId: z.string().uuid(), status: z.enum(['on-time', 'late', 'excused', 'clear']), reason: z.string().trim().min(1).max(500) }).strict();
+export const scheduleMutationSchema = z.discriminatedUnion('action', [
+  z.object({ action: z.literal('upsert'), row: looseObject, repeatCount: z.number().int().min(1).max(12).default(1), scope: z.enum(['single', 'series']).default('single') }).strict(),
+  z.object({ action: z.literal('delete'), id: z.string().trim().min(1).max(200), scope: z.enum(['single', 'series']).default('single') }).strict(),
+]);
 
 const unknownInt = (max: number) => z.number().finite().int().min(0).max(max).nullable().optional();
 const unknownPercent = z.number().finite().min(0).max(100).nullable().optional();

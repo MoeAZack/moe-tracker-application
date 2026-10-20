@@ -1,7 +1,7 @@
 import type { CoreMembership, Match, PlayerStats, TrackerData, VodReview } from '../src/types';
 import { toCairoDateKey } from './coachAnalytics';
 import { buildPlayerScreenshotMetrics, combinePlayerScreenshotMetrics, combineStoredScreenshotMetrics } from './scrimRoundAnalytics';
-import { confusableCaptureKey, normalizeCaptureName } from './scrimCaptureImport';
+import { identityOcrKey } from './identityResolver';
 import { currentAnalyticsPlayerStats } from './activePlayerAnalytics';
 
 export type IntegrationReadiness =
@@ -71,7 +71,7 @@ const observedName = (row: PlayerStats) => row.displayNameSnapshot?.trim() || ro
 const normalizedObservedName = (value: string) => value.trim().toLocaleLowerCase('en');
 const observedIdentity = (row: PlayerStats) => row.playerId?.trim() || `unlinked-name:${normalizedObservedName(observedName(row))}`;
 
-const observedNameKey = (value: string) => confusableCaptureKey(normalizeCaptureName(value)) || normalizedObservedName(value);
+const observedNameKey = (value: string) => identityOcrKey(value) || normalizedObservedName(value);
 
 /**
  * Keep archived-only people out of the live dashboard without throwing away a

@@ -40,12 +40,16 @@ export default function CoachWorkflow({
   data,
   role,
   onOpenMatch,
+  onFocusMatch,
   preferredMatchId,
+  onRefresh,
 }: {
   data: TrackerData;
   role: string | null;
   onOpenMatch: (matchId: string) => void;
+  onFocusMatch?: (matchId: string) => void;
   preferredMatchId?: string | null;
+  onRefresh?: () => Promise<void>;
 }) {
   const [workflow, setWorkflow] = useState<WorkflowPayload | null>(null);
   const [busy, setBusy] = useState("");
@@ -234,8 +238,11 @@ export default function CoachWorkflow({
           ? "Review item recovered."
           : `Review item moved to ${status.replaceAll("-", " ")}.`,
       );
+      await onRefresh?.();
+      return true;
     } catch (error: any) {
       setNotice(error.message);
+      return false;
     } finally {
       setBusy("");
     }
@@ -331,6 +338,7 @@ export default function CoachWorkflow({
             }
           : current,
       );
+      await onRefresh?.();
     } catch (error: any) {
       setNotice(error.message);
     } finally {
@@ -804,6 +812,7 @@ export default function CoachWorkflow({
                     queueSignals,
                     activeActions,
                     onOpenMatch,
+                    onFocusMatch || onOpenMatch,
                     mutateSignal,
                     deleteSignal,
                     correctSignal,
@@ -841,7 +850,8 @@ function renderCard(
   signals: CoachingSignal[],
   actions: CoachingAction[],
   onOpenMatch: (id: string) => void,
-  mutate: (signal: CoachingSignal, status: CoachingSignal["status"]) => void,
+  onFocusMatch: (id: string) => void,
+  mutate: (signal: CoachingSignal, status: CoachingSignal["status"]) => Promise<boolean>,
   remove: (signal: CoachingSignal) => void,
   correct: (signal: CoachingSignal) => void,
   makeAction: (signal: CoachingSignal) => void,
@@ -894,9 +904,9 @@ function renderCard(
                   <button
                     disabled={signal.status === "reviewing"}
                     className={`ui-button min-h-9 px-3 text-[11px] disabled:opacity-60 ${signal.status === "reviewing" ? "ui-button-primary" : ""}`}
-                    onClick={() => {
-                      mutate(signal, "reviewing");
-                      if (signal.matchIds[0]) onOpenMatch(signal.matchIds[0]);
+                    onClick={async () => {
+                      const saved = await mutate(signal, "reviewing");
+                      if (saved && signal.matchIds[0]) onFocusMatch(signal.matchIds[0]);
                     }}
                   >
                     Review

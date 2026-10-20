@@ -8,6 +8,8 @@ import MapRoundIntelligencePanel from './MapRoundIntelligencePanel';
 import { buildMapRoundIntelligence } from '../../lib/mapRoundAnalytics';
 import { percentageTextClass } from '../utils/percentageColor';
 import { reconcileObservedPlayerRows } from '../../lib/uiIntegration';
+import { activeResourceNames, buildResourceCatalog, canonicalResourceName } from '../../lib/resourceCatalog';
+import { buildMapScoreLedger } from '../../lib/mapScoreLedger';
 
 interface ComponentProps {
   data: TrackerData;
@@ -28,7 +30,7 @@ export default function MapBestStats({ data, evidenceData = data, theme, onUpser
       const key = display.toLowerCase();
       if (key && !names.has(key)) names.set(key, display);
     };
-    [...(evidenceData.settings.maps || []), ...(evidenceData.settings.inactiveMaps || [])].forEach(add);
+    buildResourceCatalog(evidenceData, 'map').forEach(entry => add(entry.name));
     (evidenceData.matches || []).forEach(match => add(match.map));
     (evidenceData.strats || []).forEach(strat => add(strat.map));
     return [...names.values()];
@@ -48,7 +50,7 @@ export default function MapBestStats({ data, evidenceData = data, theme, onUpser
 
   const matches = data.matches || [];
   const playerStats = data.playerStats || [];
-  const maps = data.settings.maps || [];
+  const maps = useMemo(() => activeResourceNames(data, 'map'), [data]);
   const stratsList = evidenceData.strats || [];
   const stratRunsList = evidenceData.stratRuns || [];
   const roundIntelligenceByMap = useMemo(() => new Map(buildMapRoundIntelligence(matches, data.rounds || []).map(row => [row.map, row])), [matches, data.rounds]);
@@ -82,7 +84,7 @@ export default function MapBestStats({ data, evidenceData = data, theme, onUpser
 
     maps.forEach(mapName => {
       // 1. Get all matches for this map
-      const mapMatches = matches.filter(m => m.map === mapName);
+      const mapMatches = matches.filter(m => canonicalResourceName(data, 'map', m.map) === mapName);
       
       // 2. Sort them chronologically (oldest first, newest last)
       mapMatches.sort((a, b) => new Date(a.date).getTime() - new Date(b.date).getTime());
@@ -151,7 +153,7 @@ export default function MapBestStats({ data, evidenceData = data, theme, onUpser
     });
 
     return table;
-  }, [maps, matches, playerStats, data.rounds, data.settings.stats]);
+  }, [data, maps, matches, playerStats]);
 
   // --- BEST MAP CALCULATOR WEIGHTED ---
   const calculatedBestMaps = useMemo(() => {
@@ -159,8 +161,6 @@ export default function MapBestStats({ data, evidenceData = data, theme, onUpser
     const statsConfig = data.settings.stats || { shrinkK: 10, lowSample: 15 };
 
     const playerPerformanceWeight = 15;
-    const totalWeight = Object.values(weights).reduce((a, b) => a + b, 0) + playerPerformanceWeight;
-
     return (Object.entries(mapStatsTable) as [string, any][]).map(([mapName, s]) => {
       const n = s.actualPlayed;
       const weightedPlayed = s.played;
@@ -189,7 +189,7 @@ export default function MapBestStats({ data, evidenceData = data, theme, onUpser
       // Equal-weight current-player form prevents one high-volume fragger from
       // hiding a weak roster fit. Each player's reconciled map K/D contributes
       // once to the map score, alongside the existing team result factors.
-      const mapMatchIds = new Set(matches.filter(match => match.map === mapName).map(match => match.id));
+      const mapMatchIds = new Set(matches.filter(match => canonicalResourceName(data, 'map', match.map) === mapName).map(match => match.id));
       const rowsByPlayer = new Map<string, typeof playerStats>();
       for (const row of playerStats.filter(row => mapMatchIds.has(row.matchId))) {
         const key = row.playerId || `name:${String(row.displayNameSnapshot || row.player || '').trim().toLocaleLowerCase()}`;
@@ -203,17 +203,16 @@ export default function MapBestStats({ data, evidenceData = data, theme, onUpser
       }).filter((value): value is number => value !== null);
       const playerPerformanceScore = playerScores.length ? playerScores.reduce((sum, value) => sum + value, 0) / playerScores.length : 0.5;
 
-      // Weighted score
-      const score = (
-        (wr * weights.mapWin) +
-        (attWr * weights.attWin) +
-        (defWr * weights.defWin) +
-        (pistolWr * weights.pistol) +
-        (ecoWr * weights.eco) +
-        (bonusWr * weights.bonus) +
-        (kdScore * weights.kd) +
-        (playerPerformanceScore * playerPerformanceWeight)
-      ) / (totalWeight || 1);
+      const ledger = buildMapScoreLedger({
+        mapWin: { label: 'Shrunk match win rate', value: wr, weight: weights.mapWin, known: n > 0, samples: n },
+        attack: { label: 'Attack round win rate', value: attWr, weight: weights.attWin, known: (s.attW + s.attL) > 0, samples: s.attW + s.attL },
+        defense: { label: 'Defense round win rate', value: defWr, weight: weights.defWin, known: (s.defW + s.defL) > 0, samples: s.defW + s.defL },
+        pistol: { label: 'Pistol conversion', value: pistolWr, weight: weights.pistol, known: pistolTotal > 0, samples: pistolTotal },
+        eco: { label: 'Post-pistol conversion', value: ecoWr, weight: weights.eco, known: ecoTotal > 0, samples: ecoTotal },
+        bonus: { label: 'Earned bonus conversion', value: bonusWr, weight: weights.bonus, known: bonusTotal > 0, samples: bonusTotal },
+        kd: { label: 'Team K/D score', value: kdScore, weight: weights.kd, known: (s.kills + s.deaths) > 0, samples: s.kills + s.deaths },
+        playerForm: { label: 'Equal-weight player form', value: playerPerformanceScore, weight: playerPerformanceWeight, known: playerScores.length > 0, samples: playerScores.length },
+      });
 
       // 95% Wilson Score Interval (highly accurate for small sample sizes and extreme rates)
       let ciLow = 0;
@@ -230,7 +229,8 @@ export default function MapBestStats({ data, evidenceData = data, theme, onUpser
 
       return {
         map: mapName,
-        score: Math.round(score * 1000) / 10,
+        score: ledger.score,
+        ledger,
         n,
         wr: Math.round(rawWr * 100),
         ci: `${Math.round(ciLow * 100)}% - ${Math.round(ciHigh * 100)}%`,
@@ -307,7 +307,7 @@ export default function MapBestStats({ data, evidenceData = data, theme, onUpser
       if (isAThrow || hasReason || hasPlayer) {
         const match = allMatches.find(m => m.id === r.matchId);
         if (match) {
-          const mapName = match.map;
+          const mapName = canonicalResourceName(data, 'map', match.map) || match.map;
           if (!mapThrows[mapName]) {
             mapThrows[mapName] = { totalThrows: 0, evidenceLosses: 0, reasons: {}, players: {} };
           }
@@ -351,7 +351,8 @@ export default function MapBestStats({ data, evidenceData = data, theme, onUpser
           : lostPostPistol ? 'Failed post-pistol conversion'
             : lostAdvantageLabel(r) || (ours === 'full' ? 'Full-buy loss' : null);
         if (reason) {
-          const mapRow = mapThrows[match.map] || (mapThrows[match.map] = { totalThrows: 0, evidenceLosses: 0, reasons: {}, players: {} });
+          const canonicalMap = canonicalResourceName(data, 'map', match.map) || match.map;
+          const mapRow = mapThrows[canonicalMap] || (mapThrows[canonicalMap] = { totalThrows: 0, evidenceLosses: 0, reasons: {}, players: {} });
           mapRow.evidenceLosses += 1;
           mapRow.reasons[reason] = (mapRow.reasons[reason] || 0) + 1;
           reasonFrequency[reason] = (reasonFrequency[reason] || 0) + 1;
@@ -360,7 +361,7 @@ export default function MapBestStats({ data, evidenceData = data, theme, onUpser
     });
 
     return { mapThrows, playerIssues, reasonFrequency };
-  }, [data.rounds, data.matches, maps, data.rosterPlayers]);
+  }, [data, maps]);
 
   const topMapThrow = useMemo(() => {
     let topMap = 'None';
@@ -621,6 +622,7 @@ export default function MapBestStats({ data, evidenceData = data, theme, onUpser
                     <th className="py-3 px-4 text-center">Ecos</th>
                     <th className="py-3 px-4 text-center">K/D</th>
                     <th className="py-3 px-4 text-center">Player form</th>
+                    <th className="py-3 px-4 text-center">Score evidence</th>
                   </tr>
                 </thead>
                 <tbody className="divide-y divide-white/5">
@@ -640,6 +642,7 @@ export default function MapBestStats({ data, evidenceData = data, theme, onUpser
                       <td className={`py-3.5 px-4 text-center ${percentageTextClass(cm.ecoWr)}`}>{cm.ecoWr}%</td>
                       <td className="py-3.5 px-4 text-center font-bold text-gray-300">{cm.kd}</td>
                       <td className={`py-3.5 px-4 text-center font-bold ${percentageTextClass(cm.contributingPlayers ? cm.playerPerformance : null)}`}>{cm.contributingPlayers ? `${cm.playerPerformance}% · ${cm.contributingPlayers}P` : '—'}</td>
+                      <td className="py-3.5 px-4 text-center"><details className="relative"><summary className="cursor-pointer whitespace-nowrap text-cyan-300">{cm.ledger.coveragePercent}% · {cm.ledger.confidence}</summary><div className="mt-2 min-w-[280px] space-y-1 rounded-lg border border-white/10 bg-slate-950 p-2 text-left text-[10px]">{cm.ledger.contributions.map(item => <p key={item.key} className="flex justify-between gap-3"><span className={item.status === 'observed' ? 'text-slate-300' : 'text-amber-300'}>{item.label}{item.status === 'neutral-fallback' ? ' · neutral fallback' : ` · ${item.samples} samples`}</span><strong>{item.weightedPoints.toFixed(1)} / {item.weight}</strong></p>)}</div></details></td>
                     </tr>
                   ))}
                 </tbody>

@@ -17,11 +17,12 @@ This matrix is the release acceptance record for the requested P0–P4, replay s
 
 ## Evidence boundaries still open
 
-- Official map overlay calibration: each map still needs independently verified world bounds and orientation. Relative replay geometry works now, but map artwork is intentionally hidden until that transform is declared.
+- Production map calibration coverage: the fail-closed v1 contract now verifies bounds, orientation, asset checksum and provenance before enabling artwork, official heatmaps, route clusters or utility-space rows. Each real map still needs independently verified calibration evidence; relative replay geometry remains exploratory until then.
+- External team notifications: schedule and attendance operations are coherent locally, but WhatsApp/Telegram/Discord delivery remains intentionally unavailable until credentials, consent, destinations, quiet hours and retry/deduplication rules are configured.
 - Predictive validation: ratings are calibrated to the current team cohort, but are descriptive. They are not advertised as win prediction, hidden MMR, or universal player rank.
 - VOD decoder checkpointing: completed OCR frames resume. The FFmpeg changed-frame extraction stage restarts because a streaming decoder cannot safely resume from an arbitrary byte state.
 - Real-corpus replay coverage: the parser path and normalized contracts are tested, but representative retained replays across every current map/patch remain an acceptance task.
-- Windows trust: the installer remains unsigned and still needs a physical-PC, screen-reader, high-contrast, and 200% zoom acceptance pass.
+- Windows trust: the 0.1.78 installer and same-PC in-place upgrade pass, and automated keyboard, forced-colors and 100/125/150/200% gates are clean. The artifact remains unsigned and still needs an independent physical-PC plus human screen-reader/high-contrast acceptance.
 - External delivery: Discord/Telegram/WhatsApp delivery, quiet hours, retries, and deduplication remain future integrations.
 
 No open boundary above silently disables the accepted features. When required evidence is missing, the relevant UI shows unavailable/relative status instead of inventing data.

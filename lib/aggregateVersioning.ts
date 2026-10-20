@@ -36,6 +36,7 @@ type AggregateContainer = {
   evidenceFusionResolutions?: EvidenceFusionResolution[];
   calibratedPlayerRatings?: CalibratedPlayerRating[];
   rosterPlayers?: any[];
+  settings?: { mapCalibrations?: unknown[] };
 };
 
 const canonical = (value: unknown): string => {
@@ -68,10 +69,13 @@ function sourceRows(container: AggregateContainer, match: Match) {
 
 function sourceHash(match: Match, rounds: readonly Round[], stats: readonly PlayerStats[], resolutions: readonly EvidenceFusionResolution[] = []) {
   const { roundAnalytics: _derived, ...sourceMatch } = match;
-  const identities = stats.map(stat => ({ id: stat.id, playerId: stat.playerId || null,
-    displayNameSnapshot: stat.displayNameSnapshot ?? null, player: stat.player }))
+  const playerFacts = stats.map((stat: any) => ({
+    id: stat.id, playerId: stat.playerId || null, displayNameSnapshot: stat.displayNameSnapshot ?? null, player: stat.player,
+    sourceMetadata: stat.sourceMetadata || null, evidenceReconciliation: stat.evidenceReconciliation || null,
+    ...Object.fromEntries(['kills', 'deaths', 'assists', 'acs', 'adr', 'hs', 'headshots', 'orbPoints', 'ultimateUses', 'kastSuccessful', 'kastCovered', 'fk', 'fd', 'plants', 'defuses', 'trades'].map(field => [field, stat[field] ?? null])),
+  }))
     .sort((left, right) => left.id.localeCompare(right.id, 'en'));
-  return hash({ match: sourceMatch, rounds, identities, resolutions: resolutions.map(item => ({ matchId: item.matchId, roundId: item.roundId, field: item.field, selectedSource: item.selectedSource, selectedValue: item.selectedValue, revision: item.revision })).sort((a, b) => `${a.roundId}:${a.field}`.localeCompare(`${b.roundId}:${b.field}`, 'en')) });
+  return hash({ match: sourceMatch, rounds, playerFacts, resolutions: resolutions.map(item => ({ matchId: item.matchId, roundId: item.roundId, field: item.field, selectedSource: item.selectedSource, selectedValue: item.selectedValue, revision: item.revision })).sort((a, b) => `${a.roundId}:${a.field}`.localeCompare(`${b.roundId}:${b.field}`, 'en')) });
 }
 
 function record(matchId: string, status: AggregateBuildStatus, source: string | null, unknownReason: AggregateBuildRecord['unknownReason']): AggregateBuildRecord {
@@ -127,7 +131,7 @@ export function recomputeAcceptedMatchAggregates(container: AggregateContainer, 
     };
   }
   const build = record(matchId, 'recomputed', digest, null);
-  build.intelligence = { schema: 'moetracker.match-intelligence/v1', fusion, economy: buildContextualWeaponOutcomes({ ...(container as any), rounds: resolvedRounds }, new Set([matchId])), spatial: buildSpatialReport(replayRecord), calculatedAtSourceHash: digest };
+  build.intelligence = { schema: 'moetracker.match-intelligence/v1', fusion, economy: buildContextualWeaponOutcomes({ ...(container as any), rounds: resolvedRounds }, new Set([matchId])), spatial: buildSpatialReport(replayRecord, container.settings?.mapCalibrations), calculatedAtSourceHash: digest };
   container.calibratedPlayerRatings = buildCalibratedPlayerRatings(container as any);
   return build;
 }

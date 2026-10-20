@@ -1,5 +1,5 @@
 import type { PlayerStats, Round, TrackerData } from '../src/types';
-import { confusableCaptureKey, normalizeCaptureName } from './scrimCaptureImport';
+import { identityOcrKey } from './identityResolver';
 
 const stablePlayerId = (value: unknown): string | null => {
   const id = typeof value === 'string' ? value.trim() : '';
@@ -12,8 +12,7 @@ const nameFromReference = (playerId: unknown, displayName: unknown) => {
   return supplied.toLocaleLowerCase('en').startsWith('name:') ? supplied.slice(5) : String(displayName || '').trim();
 };
 const nameKey = (value: unknown) => {
-  const normalized = normalizeCaptureName(String(value || ''));
-  return confusableCaptureKey(normalized) || normalized;
+  return identityOcrKey(value);
 };
 
 export interface CurrentAnalyticsIdentityPolicy {
