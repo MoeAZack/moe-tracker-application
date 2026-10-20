@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest';
-import { buildSpatialReport, buildCrossMatchHeatmaps } from '../lib/spatialIntelligence';
+import { buildSpatialReport, buildCrossMatchHeatmaps, buildRouteClusters, buildUtilitySpaceImpact } from '../lib/spatialIntelligence';
+import { MAP_CALIBRATION_SCHEMA, resolveVerifiedMapCalibration, transformMapCoordinate, validateMapCalibration } from '../lib/mapCalibration';
 import { buildEvidenceFusionReport, upsertEvidenceResolution } from '../lib/evidenceFusion';
 import { buildCalibratedPlayerRatings } from '../lib/calibratedPlayerRatings';
 import { buildContextualWeaponOutcomes } from '../lib/contextualEconomy';
@@ -9,12 +10,12 @@ import fs from 'fs';
 describe('integrated intelligence', () => {
   it('exposes a restart bridge for retained VOD jobs', () => {
     expect(fs.readFileSync('desktop/preload.cjs', 'utf8')).toContain("desktop:resume-vod-job");
-    const main = fs.readFileSync('desktop/main.cjs', 'utf8'); expect(main).toContain("handleTrusted('desktop:resume-vod-job'"); expect(main).toContain('Retained source reopened for a clean restart.');
+    const main = fs.readFileSync('desktop/main.cjs', 'utf8'); expect(main).toContain("handleTrusted('desktop:resume-vod-job'"); expect(main).toContain('Retained source reopened from its checkpoint.');
   });
   it('persists frame-level OCR checkpoints and does not mark failed imports completed', () => {
     const analyzer = fs.readFileSync('desktop/vod-timeline-analyzer.cjs', 'utf8'); const main = fs.readFileSync('desktop/main.cjs', 'utf8');
     expect(analyzer).toContain('moetracker.vod-checkpoint/v1'); expect(analyzer).toContain('processed: index + 1'); expect(main).toContain('checkpointFile');
-    expect(main).toContain("status: completed ? 'completed' : 'failed'"); expect(main).toContain("stage: completed ? 'integrated' : 'import-failed'");
+    expect(main).toContain("status: completed ? 'completed' : 'paused'"); expect(main).toContain("stage: completed ? 'integrated' : 'import-paused'");
   });
   it('fails spatial analysis closed without accepted coordinate evidence', () => {
     expect(buildSpatialReport({ status: 'accepted', draft: { evidence: { observations: [{ signal: 'position-zone', attributes: { zone: 'market' } }] } } })).toMatchObject({ available: false, points: [] });
@@ -41,12 +42,46 @@ describe('integrated intelligence', () => {
     expect(buildCrossMatchHeatmaps([record])).toMatchObject({ matchesWithCoordinates: 1, comparableMatches: 1, cohortAlignedMatches: 1 });
   });
 
+  it('activates official map space only for a provenance-verified calibration', () => {
+    const draft = { schema: MAP_CALIBRATION_SCHEMA, map: 'Ascent', status: 'draft', bounds: { minX: 100, minY: 200, width: 1000, height: 2000 }, orientation: { rotate: 90, flipX: false, flipY: false }, asset: { path: '/maps/Ascent.png', sha256: 'a'.repeat(64) }, provenance: { source: 'replay format documentation', verifiedBy: 'independent-fixture', verifiedAt: '2026-10-20T10:00:00.000Z' } } as const;
+    expect(validateMapCalibration(draft)).toContain('status'); expect(resolveVerifiedMapCalibration('Ascent', [draft]).calibration).toBeNull();
+    const verified = { ...draft, status: 'verified' as const }; expect(validateMapCalibration(verified)).toEqual([]); expect(transformMapCoordinate(100, 200, verified)).toEqual({ x: 1, y: 0 });
+    const record = { status: 'accepted', draft: { match: { map: 'Ascent' }, evidence: { observations: [{ signal: 'position-zone', roundNumber: 1, playerId: 'a', teamId: 'blue', timestampMs: 1000, attributes: { position: { x: 600, y: 1200 }, coordinateSpace: 'world' } }] } } };
+    expect(buildSpatialReport(record, [verified])).toMatchObject({ transform: { method: 'verified-map', officialComparison: true, assetPath: '/maps/Ascent.png' }, points: [{ x: .5, y: .5 }] });
+    expect(buildCrossMatchHeatmaps([record], [verified])).toMatchObject({ verifiedCalibratedMatches: 1, officialComparisonAvailable: true });
+  });
+
+  it('gates route clusters and utility-to-space rows behind verified map geometry', () => {
+    const calibration = { schema: MAP_CALIBRATION_SCHEMA, map: 'Ascent', status: 'verified', bounds: { minX: 0, minY: 0, width: 100, height: 100 }, orientation: { rotate: 0, flipX: false, flipY: false }, asset: { path: '/maps/Ascent.png', sha256: 'b'.repeat(64) }, provenance: { source: 'verified fixture', verifiedBy: 'test', verifiedAt: '2026-10-20T10:00:00.000Z' } } as const;
+    const record = { status: 'accepted', draft: { match: { map: 'Ascent' }, evidence: { observations: [
+      { signal: 'position-zone', roundNumber: 1, playerId: 'a', teamId: 'blue', timestampMs: 1000, attributes: { position: { x: 10, y: 10 } } }, { signal: 'position-zone', roundNumber: 1, playerId: 'a', teamId: 'blue', timestampMs: 9000, attributes: { position: { x: 50, y: 50 } } },
+      { signal: 'position-zone', roundNumber: 1, playerId: 'b', teamId: 'blue', timestampMs: 1000, attributes: { position: { x: 12, y: 10 } } }, { signal: 'position-zone', roundNumber: 1, playerId: 'b', teamId: 'blue', timestampMs: 6000, attributes: { position: { x: 40, y: 40 } } },
+      { signal: 'position-zone', roundNumber: 1, playerId: 'c', teamId: 'blue', timestampMs: 1000, attributes: { position: { x: 14, y: 10 } } }, { signal: 'position-zone', roundNumber: 1, playerId: 'c', teamId: 'blue', timestampMs: 7000, attributes: { position: { x: 45, y: 42 } } },
+      { signal: 'utility-cast', roundNumber: 1, playerId: 'a', teamId: 'blue', timestampMs: 4000, attributes: { position: { x: 35, y: 35 }, ability: 'smoke' } },
+    ] } } };
+    expect(buildRouteClusters([record])).toMatchObject({ available: false, verifiedMatches: 0 });
+    expect(buildRouteClusters([record], [calibration])).toMatchObject({ available: true, verifiedMatches: 1 });
+    expect(buildUtilitySpaceImpact([record], [calibration])).toMatchObject({ available: true, rows: [{ map: 'Ascent', utility: 'smoke', uses: 1, averageTeammatesNearby: 2 }] });
+  });
+
   it('reports source conflicts and keeps coach/replay priority deterministic', () => {
     const data: any = { rounds: [{ id: 'r1', matchId: 'm1', roundNo: 1, side: 'ATT', result: 'L', buy: 'Eco', screenshotEvidence: { reviewStatus: 'confirmed', result: 'W', players: [], events: [] }, reviewCockpit: { note: 'confirmed plan', updatedAt: '' } }] };
     const report = buildEvidenceFusionReport(data, 'm1'); expect(report.coverage).toBe(100); expect(report.conflicts).toBeGreaterThan(0); expect(report.rounds[0].facts.find(fact => fact.field === 'result')?.source).toBe('screenshot');
     data.evidenceFusionResolutions = []; upsertEvidenceResolution(data.evidenceFusionResolutions, { matchId: 'm1', roundId: 'r1', field: 'result', selectedSource: 'coach', selectedValue: 'L', reason: 'Coach checked the source frame.' }, 'coach', '2026-10-20T10:00:00.000Z');
     upsertEvidenceResolution(data.evidenceFusionResolutions, { matchId: 'm1', roundId: 'r1', field: 'result', selectedSource: 'screenshot', selectedValue: 'W', reason: 'Corrected after second review.' }, 'coach', '2026-10-20T10:01:00.000Z');
     const resolved = buildEvidenceFusionReport(data, 'm1'); expect(resolved.unresolvedConflicts).toBe(0); expect(resolved.rounds[0].facts.find(fact => fact.field === 'result')).toMatchObject({ source: 'screenshot', value: 'W', resolved: true }); expect(data.evidenceFusionResolutions[0].history).toHaveLength(2);
+  });
+
+  it('excludes draft screenshot facts and fuses player fields independently', () => {
+    const data: any = {
+      rounds: [{ id: 'r1', matchId: 'm1', roundNo: 1, result: 'L', screenshotEvidence: { reviewStatus: 'review-required', result: 'W', eventsComplete: true, events: [{ sequence: 1 }] } }],
+      playerStats: [{ id: 's1', matchId: 'm1', playerId: 'p1', player: 'One', kills: 20, sourceMetadata: { method: 'provider-import' }, evidenceReconciliation: { comparisons: [{ field: 'kills', screenshot: 19, replay: 20, agrees: false }] } }],
+    };
+    const report = buildEvidenceFusionReport(data, 'm1');
+    expect(report).toMatchObject({ schema: 'moetracker.evidence-fusion/v3', conflicts: 1, unresolvedConflicts: 1 });
+    expect(report.rounds[0].facts.find(fact => fact.field === 'result')).toMatchObject({ source: 'manual', value: 'L' });
+    expect(report.rounds[0].facts.some(fact => fact.field === 'events')).toBe(false);
+    expect(report.players[0].facts.find(fact => fact.field === 'kills')).toMatchObject({ source: 'replay', value: 20, conflict: true });
   });
 
   it('shrinks calibrated ratings toward 50 and preserves context on weapon outcomes', () => {

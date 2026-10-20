@@ -320,6 +320,7 @@ function requireWorkspace(db: any, options: BuildOptions) {
 }
 
 function sourceTypeForMethod(method: unknown): EvidenceSourceType {
+  if (method === 'vod-submission') return 'vod';
   return method === 'screenshot' || method === 'manual' || method === 'live-logger' || method === 'provider-import' ? method : 'unknown';
 }
 

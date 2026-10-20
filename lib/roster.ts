@@ -1,4 +1,5 @@
 import crypto from 'node:crypto';
+import { identityExactKey } from './identityResolver';
 
 type IdFactory = () => string;
 type Clock = () => string;
@@ -386,7 +387,7 @@ export function createRosterPlayer(db: any, displayName: string, idFactory = def
 }
 
 function normalizedPlayerName(value: unknown) {
-  return String(value || '').trim().toLocaleLowerCase('en');
+  return identityExactKey(value);
 }
 
 /**
@@ -480,6 +481,7 @@ export function deleteRosterPlayer(db: any, playerId: string) {
   const name = normalizedPlayerName(player.displayName);
   const sameName = (value: unknown) => normalizedPlayerName(value) === name;
   const removedSignalIds = new Set((db.coachingSignals || []).filter((item: any) => item.context?.playerId === playerId).map((item: any) => item.id));
+  const removedActionIds = new Set((db.coachingActions || []).filter((item: any) => removedSignalIds.has(item.sourceSignalId) || (item.ownerIds || []).includes(playerId)).map((item: any) => item.id));
   db.rosterPlayers = db.rosterPlayers.filter((item: any) => item.id !== playerId);
   db.coreMemberships = db.coreMemberships.filter((item: any) => item.playerId !== playerId);
   db.playerStats = (db.playerStats || []).filter((item: any) => item.playerId !== playerId && !(!item.playerId && sameName(item.displayNameSnapshot || item.player)));
@@ -489,6 +491,7 @@ export function deleteRosterPlayer(db: any, playerId: string) {
   db.allowedUsers = (db.allowedUsers || []).filter((item: any) => item.playerId !== playerId && !(item.role === 'player' && sameName(item.name)));
   db.coachingSignals = (db.coachingSignals || []).filter((item: any) => item.context?.playerId !== playerId);
   db.coachingActions = (db.coachingActions || []).filter((item: any) => !removedSignalIds.has(item.sourceSignalId) && !(item.ownerIds || []).includes(playerId));
+  db.goals = (db.goals || []).filter((item: any) => item.ownerPlayerId !== playerId && !removedActionIds.has(item.coachingActionId));
   db.identityCorrectionBatches = (db.identityCorrectionBatches || []).filter((item: any) => item.targetPlayerId !== playerId && item.sourceIdentity !== playerId);
   db.tryoutDecisionNotes = (db.tryoutDecisionNotes || []).filter((item: any) => item.playerId !== playerId);
   db.vodSubmissions = (db.vodSubmissions || []).filter((item: any) => item.playerId !== playerId);

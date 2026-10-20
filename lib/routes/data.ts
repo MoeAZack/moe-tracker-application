@@ -12,13 +12,15 @@ import { recomputeAcceptedMatchAggregates } from '../aggregateVersioning';
 import { attendancePolicy, attendanceStatus, attendanceSummary, attendanceWindow } from '../attendance';
 import { refreshCoachingWorkflow } from './coaching';
 import { purgeExpiredRosterPlayers } from '../roster';
+import { findPhysicalMatchCandidates } from '../physicalMatchIdentity';
+import { applyScheduleEdit, normalizeScheduleRow, removeScheduleRows, repeatedHourlyScheduleRows } from '../schedule';
 
 // Core data + match logging: full payload, reset, settings, generic upsert/remove,
 // and match/round/veto saves. Protected routes (registered after the auth middleware).
 export function registerDataRoutes(app: Express, options: { websiteSummaryOnly?: boolean } = {}) {
   const requireCoach = (req: any, res: any) => {
     if (req.user?.role === 'coach') return true;
-    res.status(403).json({ error: 'Only the coach can manage attendance.' });
+    res.status(403).json({ error: 'Only the coach can manage team operations.' });
     return false;
   };
   // GET tracker full payload
@@ -91,8 +93,10 @@ export function registerDataRoutes(app: Express, options: { websiteSummaryOnly?:
     try {
       const body = validate(schemas.upsertSchema, req.body, res); if (!body) return;
       const { sheet } = body;
+      if ((sheet === 'Schedule' || sheet === 'Goals') && !requireCoach(req, res)) return;
       let row: any = { ...body.row };
       const db = await readDB();
+      let previousLinkedReviewEventId: string | undefined;
       
       const key = {
         Schedule: 'schedule',
@@ -108,6 +112,7 @@ export function registerDataRoutes(app: Express, options: { websiteSummaryOnly?:
 
       if (sheet === 'Schedule') {
         const existing = row.id ? db.schedule.find((item: any) => item.id === row.id) : null;
+        previousLinkedReviewEventId = existing?.linkedReviewEventId;
         const activeIds = new Set((db.rosterPlayers || []).filter((player: any) => !player.retiredAt).map((player: any) => player.id));
         row.requiredPlayerIds = [...new Set((Array.isArray(row.requiredPlayerIds) ? row.requiredPlayerIds : []).filter((id: unknown) => typeof id === 'string' && activeIds.has(id)))];
         row.allDay = Boolean(row.allDay);
@@ -116,11 +121,23 @@ export function registerDataRoutes(app: Express, options: { websiteSummaryOnly?:
         row.attendanceEnabled = Boolean(!row.allDay && row.attendanceEnabled && row.startTime && row.requiredPlayerIds.length);
         row.source = existing?.source === 'pracc' ? 'pracc' : 'manual';
         row.attendanceCheckIns = Array.isArray(existing?.attendanceCheckIns) ? existing.attendanceCheckIns : [];
+        row.attendanceAudit = Array.isArray(existing?.attendanceAudit) ? existing.attendanceAudit : [];
+        row.linkedReviewEventId = typeof row.linkedReviewEventId === 'string' && row.linkedReviewEventId.trim() ? row.linkedReviewEventId.trim() : undefined;
+        if (row.linkedReviewEventId) {
+          const linked = db.schedule.find((item: any) => item.id === row.linkedReviewEventId); const pair = new Set([row.calendarKey, linked?.calendarKey]);
+          if (!linked || linked.id === row.id || pair.size !== 2 || !pair.has('team-talk') || !pair.has('debrief')) return res.status(400).json({ error: 'Team Talk may only link to a distinct Debrief event.' });
+        }
       }
 
       if (sheet === 'Goals') {
         row.matchId = typeof row.matchId === 'string' && row.matchId.trim() ? row.matchId.trim() : undefined;
         if (row.matchId && !(db.matches || []).some((match: any) => match.id === row.matchId)) return res.status(400).json({ error: 'Linked match was not found.' });
+        row.ownerPlayerId = typeof row.ownerPlayerId === 'string' && row.ownerPlayerId.trim() ? row.ownerPlayerId.trim() : undefined;
+        if (row.ownerPlayerId && !(db.rosterPlayers || []).some((player: any) => player.id === row.ownerPlayerId && !player.retiredAt)) return res.status(400).json({ error: 'Goal owner is not an active player.' });
+        row.roundId = typeof row.roundId === 'string' && row.roundId.trim() ? row.roundId.trim() : undefined;
+        if (row.roundId && !(db.rounds || []).some((round: any) => round.id === row.roundId && round.matchId === row.matchId)) return res.status(400).json({ error: 'Linked round does not belong to the selected match.' });
+        row.evidenceClipId = typeof row.evidenceClipId === 'string' && row.evidenceClipId.trim() ? row.evidenceClipId.trim() : undefined;
+        if (row.evidenceClipId && !(db.rounds || []).some((round: any) => round.id === row.roundId && round.reviewCockpit?.clips?.some((clip: any) => clip.id === row.evidenceClipId))) return res.status(400).json({ error: 'Linked evidence clip does not belong to the selected round.' });
       }
 
       if (!row.id) {
@@ -135,11 +152,59 @@ export function registerDataRoutes(app: Express, options: { websiteSummaryOnly?:
         }
       }
 
+      if (sheet === 'Schedule') {
+        if (previousLinkedReviewEventId && previousLinkedReviewEventId !== row.linkedReviewEventId) {
+          const previous = db.schedule.find((item: any) => item.id === previousLinkedReviewEventId); if (previous?.linkedReviewEventId === row.id) previous.linkedReviewEventId = undefined;
+        }
+        if (row.linkedReviewEventId) {
+          const linked = db.schedule.find((item: any) => item.id === row.linkedReviewEventId); if (linked) linked.linkedReviewEventId = row.id;
+        }
+      }
+
       await saveDB(db);
       res.json(row);
     } catch (err: any) {
       res.status(500).json({ error: err.message });
     }
+  });
+
+  // Atomic schedule mutations keep repeated blocks, provider-owned fields and
+  // attendance history coherent across month/day/detail views.
+  app.post('/api/schedule/mutate', async (req, res) => {
+    try {
+      if (!requireCoach(req, res)) return;
+      const body = validate(schemas.scheduleMutationSchema, req.body, res); if (!body) return;
+      const db = await readDB(); db.schedule ||= [];
+      if (body.action === 'delete') {
+        const result = removeScheduleRows(db.schedule, body.id, body.scope);
+        if (!result.removedIds.length) return res.status(404).json({ error: 'Schedule event was not found.' });
+        const removed = new Set(result.removedIds); db.schedule = result.rows;
+        for (const event of db.schedule) if (removed.has(event.linkedReviewEventId)) event.linkedReviewEventId = undefined;
+        await saveDB(db); return res.json({ removedIds: result.removedIds, scope: body.scope });
+      }
+      const existing = body.row?.id ? db.schedule.find((item: any) => item.id === body.row.id) : null;
+      if (body.row?.id && !existing) return res.status(404).json({ error: 'Schedule event was not found.' });
+      const context = {
+        activePlayerIds: new Set<string>((db.rosterPlayers || []).filter((player: any) => !player.retiredAt).map((player: any) => player.id)),
+        calendarKeys: new Set<string>((db.settings?.calendars || []).map((calendar: any) => calendar.key).filter(Boolean)),
+      };
+      const normalized = normalizeScheduleRow(body.row, existing, context);
+      if (normalized.linkedReviewEventId) {
+        const linked = db.schedule.find((item: any) => item.id === normalized.linkedReviewEventId); const pair = new Set([normalized.calendarKey, linked?.calendarKey]);
+        if (!linked || linked.id === normalized.id || pair.size !== 2 || !pair.has('team-talk') || !pair.has('debrief')) return res.status(400).json({ error: 'Team Talk may only link to a distinct Debrief event.' });
+      }
+      let saved: any[];
+      if (!existing) {
+        const seriesId = body.repeatCount > 1 ? uid() : '';
+        saved = repeatedHourlyScheduleRows(normalized, body.repeatCount, seriesId).map(item => ({ ...item, id: uid() }));
+        db.schedule.push(...saved);
+      } else {
+        const previousLink = existing.linkedReviewEventId; db.schedule = applyScheduleEdit(db.schedule, normalized, body.scope); saved = db.schedule.filter((item: any) => item.id === normalized.id || (body.scope === 'series' && normalized.repeatSeriesId && item.repeatSeriesId === normalized.repeatSeriesId));
+        if (previousLink && previousLink !== normalized.linkedReviewEventId) { const previous = db.schedule.find((item: any) => item.id === previousLink); if (previous?.linkedReviewEventId === normalized.id) previous.linkedReviewEventId = undefined; }
+      }
+      if (normalized.linkedReviewEventId) { const linked = db.schedule.find((item: any) => item.id === normalized.linkedReviewEventId); if (linked) linked.linkedReviewEventId = saved.find(item => item.id === normalized.id)?.id || saved[0]?.id; }
+      await saveDB(db); res.json({ rows: saved, scope: body.scope, created: !existing });
+    } catch (err: any) { res.status(err?.status || 500).json({ error: err.message }); }
   });
 
   app.post('/api/attendance/check-in', async (req, res) => {
@@ -160,6 +225,7 @@ export function registerDataRoutes(app: Express, options: { websiteSummaryOnly?:
       const status = attendanceStatus(schedule, user.playerId, now, policy) === 'late-window' ? 'late' : 'on-time';
       const checkIn = { id: uid(), playerId: user.playerId, checkedInAt: now.toISOString(), status };
       schedule.attendanceCheckIns.push(checkIn);
+      schedule.attendanceAudit ||= []; schedule.attendanceAudit.push({ id: uid(), playerId: user.playerId, action: 'player-check-in', fromStatus: 'automatic', toStatus: status, createdAt: now.toISOString(), createdBy: user.username || user.playerId });
       await saveDB(db);
       res.status(201).json({ checkIn, summary: attendanceSummary(db, user.playerId, now) });
     } catch (err: any) { res.status(err?.status || 500).json({ error: err.message }); }
@@ -186,12 +252,16 @@ export function registerDataRoutes(app: Express, options: { websiteSummaryOnly?:
       if (!schedule) return res.status(404).json({ error: 'Schedule event was not found.' });
       if (!schedule.requiredPlayerIds?.includes(body.playerId)) return res.status(409).json({ error: 'The player is not assigned to this event.' });
       schedule.attendanceCheckIns ||= [];
+      schedule.attendanceAudit ||= [];
       const existing = schedule.attendanceCheckIns.find((item: any) => item.playerId === body.playerId);
+      const beforeStatus = existing?.status || 'automatic';
+      const correctedAt = new Date().toISOString(); const correctedBy = (req as any).user.username || 'Coach';
       if (body.status === 'clear') schedule.attendanceCheckIns = schedule.attendanceCheckIns.filter((item: any) => item.playerId !== body.playerId);
       else {
-        const corrected = { id: existing?.id || uid(), playerId: body.playerId, checkedInAt: existing?.checkedInAt || new Date().toISOString(), status: body.status, correctionReason: body.reason, correctedAt: new Date().toISOString(), correctedBy: (req as any).user.username || 'Coach' };
+        const corrected = { id: existing?.id || uid(), playerId: body.playerId, checkedInAt: existing?.checkedInAt || correctedAt, status: body.status, correctionReason: body.reason, correctedAt, correctedBy };
         if (existing) Object.assign(existing, corrected); else schedule.attendanceCheckIns.push(corrected);
       }
+      schedule.attendanceAudit.push({ id: uid(), playerId: body.playerId, action: body.status === 'clear' ? 'coach-clear' : 'coach-correction', fromStatus: beforeStatus, toStatus: body.status === 'clear' ? 'automatic' : body.status, reason: body.reason, createdAt: correctedAt, createdBy: correctedBy });
       await saveDB(db); res.json({ scheduleId: schedule.id, summary: attendanceSummary(db, body.playerId) });
     } catch (err: any) { res.status(err?.status || 500).json({ error: err.message }); }
   });
@@ -212,6 +282,7 @@ export function registerDataRoutes(app: Express, options: { websiteSummaryOnly?:
     try {
       const body = validate(schemas.removeSchema, req.body, res); if (!body) return;
       const { sheet, id } = body;
+      if ((sheet === 'Schedule' || sheet === 'Goals') && !requireCoach(req, res)) return;
       const db = await readDB();
 
       const key = {
@@ -228,6 +299,9 @@ export function registerDataRoutes(app: Express, options: { websiteSummaryOnly?:
       }
 
       db[key] = db[key].filter((x: any) => x.id !== id);
+
+      if (sheet === 'Schedule') for (const item of db.schedule || []) if (item.linkedReviewEventId === id) item.linkedReviewEventId = undefined;
+      if (sheet === 'Goals') for (const action of db.coachingActions || []) if (action.goalId === id) action.goalId = undefined;
 
       // Cascading deletes
       if (sheet === 'Matches') {
@@ -253,6 +327,7 @@ export function registerDataRoutes(app: Express, options: { websiteSummaryOnly?:
       const { id } = req.body;
       const db = await readDB();
       db.schedule = db.schedule.filter((x: any) => x.id !== id);
+      for (const item of db.schedule || []) if (item.linkedReviewEventId === id) item.linkedReviewEventId = undefined;
       await saveDB(db);
       res.json({ success: true });
     } catch (err: any) {
@@ -353,6 +428,11 @@ export function registerDataRoutes(app: Express, options: { websiteSummaryOnly?:
 
       // All validation and metadata planning above is fail-closed. Mutate only now.
       const matchIndex = db.matches.findIndex((entry: any) => entry.id === match.id);
+      if (matchIndex < 0 && savedStats) {
+        const duplicate = findPhysicalMatchCandidates(db, match, savedStats)[0];
+        if (duplicate) return res.status(409).json({ error: 'This physical match already exists. Open the existing match instead of creating a duplicate.', existingMatchId: duplicate.id });
+      }
+
       if (matchIndex >= 0) db.matches[matchIndex] = match;
       else db.matches.push(match);
       if (savedStats) {

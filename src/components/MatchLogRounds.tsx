@@ -8,6 +8,7 @@ import { reconcileStatTotals } from '../../lib/entryEngine';
 import { partitionScreenshotRows } from '../../lib/screenshotRosterDraft';
 import { activeTryoutPhase, newWorkspaceMatchContext, resolvePhaseAlias } from '../utils/tryoutWorkspace';
 import { buildOpponentHistory } from '../../lib/opponentHistory';
+import { activeResourceNames } from '../../lib/resourceCatalog';
 import { 
   Swords, Plus, Edit2, Trash2, Video, FileText, BarChart3, HelpCircle, 
   Save, Trash, Shuffle, RefreshCw, Zap, Globe, AlertCircle, ShieldAlert, Check,
@@ -117,11 +118,11 @@ export default function MatchLogRounds({ data, theme, onSaveMatch, onRemove, onS
   const activeCoreIds = useMemo(() => new Set(
     (data.coreMemberships || []).filter(membership => !membership.endedAt).map(membership => membership.playerId),
   ), [data.coreMemberships]);
-  const maps = data.settings.maps || [];
+  const maps = activeResourceNames(data, 'map');
   const tryoutPhase = activeTryoutPhase(data);
   const participantIds = tryoutPhase ? new Set(tryoutPhase.candidatePlayerIds) : activeCoreIds;
   const defaultAppearance: AppearanceType = tryoutPhase ? 'tryout' : 'core';
-  const agents = data.settings.agents || [];
+  const agents = activeResourceNames(data, 'agent');
   const matchTypes = data.settings.matchTypes || [];
   const buyTypes = data.settings.buyTypes || ['Full', 'Half', 'Force', 'Bonus', 'Eco'];
   const winReasons = data.settings.winReasons || ['Elimination', 'Post-plant', 'Defuse', 'Retake', 'Time', 'Spike'];

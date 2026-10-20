@@ -58,4 +58,21 @@ describe('attendance HTTP permissions and idempotency', () => {
     const revoke = await fetch(`${origin}/api/attendance/green-credit/revoke`, { method: 'POST', headers: { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' }, body: JSON.stringify({ creditId: created.credit.id, reason: 'Coach adjustment' }) });
     expect(revoke.status).toBe(200); expect((await revoke.json()).summary).toMatchObject({ redDots: 0, greenDots: 0 });
   });
+
+  it('saves, edits and deletes repeated schedule blocks atomically while blocking player mutation', async () => {
+    const playerToken = await login(playerKey); const row = { id: '', date: '2026-10-20', startTime: '15:00', primary: 'Ascent map', calendarKey: 'practice', allDay: false, durationMinutes: 60, attendanceEnabled: true, requiredPlayerIds: [playerId], attendance: {} };
+    const denied = await fetch(`${origin}/api/schedule/mutate`, { method: 'POST', headers: { Authorization: `Bearer ${playerToken}`, 'Content-Type': 'application/json' }, body: JSON.stringify({ action: 'upsert', row, repeatCount: 3, scope: 'single' }) }); expect(denied.status).toBe(403);
+    for (const [pathName, body] of [['/api/upsert', { sheet: 'Schedule', row }], ['/api/remove', { sheet: 'Schedule', id: 'practice-now' }]] as const) { const legacy = await fetch(`${origin}${pathName}`, { method: 'POST', headers: { Authorization: `Bearer ${playerToken}`, 'Content-Type': 'application/json' }, body: JSON.stringify(body) }); expect(legacy.status).toBe(403); }
+    const coachToken = await login(adminKey); const createdResponse = await fetch(`${origin}/api/schedule/mutate`, { method: 'POST', headers: { Authorization: `Bearer ${coachToken}`, 'Content-Type': 'application/json' }, body: JSON.stringify({ action: 'upsert', row, repeatCount: 3, scope: 'single' }) });
+    expect(createdResponse.status).toBe(200); const created = await createdResponse.json(); expect(created.rows.map((item: any) => item.startTime)).toEqual(['15:00', '16:00', '17:00']); expect(new Set(created.rows.map((item: any) => item.repeatSeriesId)).size).toBe(1);
+    const editResponse = await fetch(`${origin}/api/schedule/mutate`, { method: 'POST', headers: { Authorization: `Bearer ${coachToken}`, 'Content-Type': 'application/json' }, body: JSON.stringify({ action: 'upsert', row: { ...created.rows[0], primary: 'Bind map' }, repeatCount: 1, scope: 'series' }) }); expect(editResponse.status).toBe(200); expect((await editResponse.json()).rows.map((item: any) => item.primary)).toEqual(['Bind map', 'Bind map', 'Bind map']);
+    const deleteResponse = await fetch(`${origin}/api/schedule/mutate`, { method: 'POST', headers: { Authorization: `Bearer ${coachToken}`, 'Content-Type': 'application/json' }, body: JSON.stringify({ action: 'delete', id: created.rows[0].id, scope: 'series' }) }); expect(deleteResponse.status).toBe(200); expect((await deleteResponse.json()).removedIds).toHaveLength(3);
+  });
+
+  it('retains an append-only audit of coach attendance corrections', async () => {
+    const token = await login(adminKey);
+    for (const [status, reason] of [['late', 'Arrived after grace'], ['on-time', 'Clock was wrong']] as const) { const response = await fetch(`${origin}/api/attendance/correct`, { method: 'POST', headers: { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' }, body: JSON.stringify({ scheduleId: 'practice-now', playerId, status, reason }) }); expect(response.status).toBe(200); }
+    const dataResponse = await fetch(`${origin}/api/data`, { headers: { Authorization: `Bearer ${token}` } }); const data = await dataResponse.json(); const event = data.schedule.find((item: any) => item.id === 'practice-now');
+    expect(event.attendanceCheckIns[0].status).toBe('on-time'); expect(event.attendanceAudit.map((item: any) => [item.fromStatus, item.toStatus])).toEqual([['automatic', 'late'], ['late', 'on-time']]);
+  });
 });

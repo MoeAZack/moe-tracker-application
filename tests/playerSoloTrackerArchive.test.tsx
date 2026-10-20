@@ -53,4 +53,10 @@ describe('player overview archive action', () => {
     for (const label of ['Connected player profile', 'Evidence-linked match history', 'Identity correction', 'Relink evidence', 'Reverse']) expect(source).toContain(label);
     expect(source).toContain('/api/roster/identity-corrections/revert');
   });
+
+  it('exposes a collapsed metric coverage ledger that separates zero from unknown', () => {
+    const source = fs.readFileSync('src/components/PlayerSoloTracker.tsx', 'utf8');
+    for (const label of ['Metric availability', 'known zero remains data', 'accepted rows', 'Denominator:']) expect(source).toContain(label);
+    expect(source).toContain('buildPlayerMetricCoverage(reconciledRows)');
+  });
 });

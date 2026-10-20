@@ -40,10 +40,10 @@ describe('PRACC calendar integration', () => {
   it('updates the same PRACC UID without duplicating it and preserves attendance state', () => {
     const [event] = parsePraccCalendar(calendar);
     const first = reconcilePraccSchedule([], [event], feedUrl).schedule[0];
-    const existing = { ...first, attendanceEnabled: true, requiredPlayerIds: ['player-1'], attendanceCheckIns: [{ id: 'check-1' }] };
+    const existing = { ...first, coachNotes: 'Focus pistol protocols', attendanceEnabled: true, requiredPlayerIds: ['player-1'], attendanceCheckIns: [{ id: 'check-1' }], attendanceAudit: [{ id: 'audit-1' }] };
     const changed = { ...event, title: 'Practice vs MT Asteria' };
     const second = reconcilePraccSchedule([existing], [changed], feedUrl);
     expect(second.schedule).toHaveLength(1);
-    expect(second.schedule[0]).toMatchObject({ id: first.id, primary: 'Practice vs MT Asteria', attendanceEnabled: true, requiredPlayerIds: ['player-1'], attendanceCheckIns: [{ id: 'check-1' }] });
+    expect(second.schedule[0]).toMatchObject({ id: first.id, primary: 'Practice vs MT Asteria', coachNotes: 'Focus pistol protocols', attendanceEnabled: true, requiredPlayerIds: ['player-1'], attendanceCheckIns: [{ id: 'check-1' }], attendanceAudit: [{ id: 'audit-1' }] });
   });
 });

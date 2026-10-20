@@ -128,10 +128,14 @@ export interface Settings {
   activeTryoutBatchId?: string | null;
   players: string[];
   maps: string[];
+  /** Independently verified replay-world to tactical-map transforms. Draft rows never activate spatial comparisons. */
+  mapCalibrations?: import('../lib/mapCalibration').MapCalibration[];
   agents: string[];
+  weapons?: string[];
   inactivePlayers?: string[];
   inactiveMaps?: string[];
   inactiveAgents?: string[];
+  inactiveWeapons?: string[];
   matchTypes: string[];
   attendanceStates: string[];
   goalStates: string[];
@@ -160,6 +164,8 @@ export interface Settings {
     maxActiveActionsPerPlayer?: number;
   };
   deletedCoachingSignalFingerprints?: string[];
+  /** Staged Moe Tracker 0.2 capabilities. Unknown flags are ignored and every flag defaults off. */
+  featureFlags?: Partial<import('../lib/featureFlags').Moe02FeatureFlags>;
 }
 
 export interface Schedule {
@@ -169,6 +175,8 @@ export interface Schedule {
   primary: string;
   secondary?: string;
   notes?: string;
+  /** Coach-owned notes remain stable when provider fields refresh. */
+  coachNotes?: string;
   attendance: Record<string, string>;
   startTime?: string;
   allDay?: boolean;
@@ -179,6 +187,7 @@ export interface Schedule {
   attendanceEnabled?: boolean;
   requiredPlayerIds?: string[];
   attendanceCheckIns?: AttendanceCheckIn[];
+  attendanceAudit?: AttendanceAuditEntry[];
   source?: 'manual' | 'pracc';
   sourceEventId?: string;
   sourceCalendarHash?: string;
@@ -188,6 +197,8 @@ export interface Schedule {
   linkedGoalIds?: string[];
   progressLinkedAt?: string;
   progressLinkedBy?: string;
+  /** Links a Team Talk to its Debrief (or vice versa) without merging their distinct event types. */
+  linkedReviewEventId?: string;
 }
 
 export interface AttendanceCheckIn {
@@ -219,7 +230,13 @@ export interface Goal {
   notes?: string;
   status: string;
   owner?: string;
+  ownerPlayerId?: string;
   matchId?: string;
+  roundId?: string;
+  evidenceClipId?: string;
+  sourceSignalId?: string;
+  coachingActionId?: string;
+  dueBlockId?: string;
 }
 
 export interface Match {
@@ -327,6 +344,7 @@ export interface CoachingAction {
   id: string;
   sourceSignalId: string;
   sourceFingerprint: string;
+  goalId?: string;
   evidence: CoachingSignal['evidence'];
   title: string;
   kind: 'player-feedback' | 'team-task' | 'vod-review' | 'strategy-board' | 'map-plan' | 'schedule-objective' | 'next-block-check';
@@ -639,6 +657,17 @@ export interface Round {
   };
 }
 
+export interface AttendanceAuditEntry {
+  id: string;
+  playerId: string;
+  action: 'player-check-in' | 'coach-correction' | 'coach-clear';
+  fromStatus?: AttendanceCheckIn['status'] | 'automatic';
+  toStatus?: AttendanceCheckIn['status'] | 'automatic';
+  reason?: string;
+  createdAt: string;
+  createdBy: string;
+}
+
 export interface Veto {
   id: string;
   matchId: string;
@@ -695,6 +724,7 @@ export interface TrackerData {
   analyticsBuilds?: Record<string, unknown>;
   evidenceFusionResolutions?: import('../lib/evidenceFusion').EvidenceFusionResolution[];
   calibratedPlayerRatings?: import('../lib/calibratedPlayerRatings').CalibratedPlayerRating[];
+  canonicalDataSpine?: import('../lib/canonicalDataSpine').CanonicalDataSpine;
   vetos: Veto[];
   strats: Strat[];
   stratRuns: StratRun[];

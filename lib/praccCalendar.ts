@@ -94,7 +94,7 @@ export function reconcilePraccSchedule(schedule: any[], events: PraccCalendarEve
   for (const event of events) {
     const index = rows.findIndex(row => row?.source === 'pracc' && row?.sourceEventId === event.uid && (!row.sourceCalendarHash || row.sourceCalendarHash === feedHash));
     if (event.cancelled) {
-      if (index >= 0 && !(rows[index].attendanceCheckIns || []).length && event.startsAt >= now) { rows.splice(index, 1); cancelled += 1; }
+      if (index >= 0 && !(rows[index].attendanceCheckIns || []).length && !(rows[index].attendanceAudit || []).length && !rows[index].practiceBlockId && event.startsAt >= now) { rows.splice(index, 1); cancelled += 1; }
       continue;
     }
     const start = cairoParts(event.startsAt); const endMs = event.endsAt?.getTime(); const durationMinutes = endMs && endMs > event.startsAt.getTime() ? Math.max(15, Math.min(720, Math.round((endMs - event.startsAt.getTime()) / 60_000))) : 60;

@@ -3,8 +3,9 @@ import { TrackerData, Schedule, Goal } from '../types';
 import { Calendar, ChevronLeft, ChevronRight, Plus, Edit2, Trash2, CalendarDays, ClipboardList, Clock, AlertCircle, CheckCircle2, ShieldCheck, MinusCircle } from 'lucide-react';
 import { apiFetch } from '../utils/api';
 import { attendancePolicy, attendanceStatus, attendanceSummary, attendanceWindow } from '../../lib/attendance';
-import { repeatedHourlyScheduleRows } from '../../lib/schedule';
 import { confidentMatchesForSession, practiceMatchSuggestions, practiceSessionProgress } from '../../lib/practiceSessionProgress';
+import { coachingGoalVerification } from '../../lib/coachingGoalLink';
+import { linkedReviewSessionOutcome } from '../../lib/linkedReviewSessions';
 
 interface ComponentProps {
   data: TrackerData;
@@ -27,6 +28,7 @@ export default function CalendarGoals({ data, theme, role, onUpsert, onRemove, o
   const [scheduleModalOpen, setScheduleModalOpen] = useState(false);
   const [editingSchedule, setEditingSchedule] = useState<Partial<Schedule> | null>(null);
   const [repeatHours, setRepeatHours] = useState(1);
+  const [applyToSeries, setApplyToSeries] = useState(false);
   const [calendarView, setCalendarView] = useState<'month' | 'day'>('month');
   const [now, setNow] = useState(() => new Date());
   const [attendanceBusy, setAttendanceBusy] = useState('');
@@ -46,6 +48,10 @@ export default function CalendarGoals({ data, theme, role, onUpsert, onRemove, o
   const calendars = data.settings.calendars || [];
   const scheduleList = data.schedule || [];
   const goalsList = data.goals || [];
+  const selectedGoalRounds = (data.rounds || []).filter(round => round.matchId === editingGoal?.matchId).sort((a, b) => a.roundNo - b.roundNo);
+  const selectedGoalRound = selectedGoalRounds.find(round => round.id === editingGoal?.roundId);
+  const selectedGoalClips = selectedGoalRound?.reviewCockpit?.clips || [];
+  const companionEvents = scheduleList.filter(item => item.id !== editingSchedule?.id && ((editingSchedule?.calendarKey === 'team-talk' && item.calendarKey === 'debrief') || (editingSchedule?.calendarKey === 'debrief' && item.calendarKey === 'team-talk')));
   const policy = useMemo(() => attendancePolicy(data.settings), [data.settings]);
   const attendanceSummaries = useMemo(() => rosterPlayers.map(player => ({ player, summary: attendanceSummary(data, player.id, now) })), [data, rosterPlayers, now]);
   const linkingMatchSuggestions = useMemo(() => linkingSchedule ? practiceMatchSuggestions(linkingSchedule, data.matches || []) : [], [linkingSchedule, data.matches]);
@@ -151,6 +157,7 @@ export default function CalendarGoals({ data, theme, role, onUpsert, onRemove, o
       attendance: {}
     });
     setRepeatHours(1);
+    setApplyToSeries(false);
     setScheduleModalOpen(true);
   };
 
@@ -158,6 +165,7 @@ export default function CalendarGoals({ data, theme, role, onUpsert, onRemove, o
     setAttendanceMessage('');
     setEditingSchedule({ ...sched });
     setRepeatHours(1);
+    setApplyToSeries(false);
     setScheduleModalOpen(true);
   };
 
@@ -173,24 +181,25 @@ export default function CalendarGoals({ data, theme, role, onUpsert, onRemove, o
     if (!editingSchedule.allDay && !editingSchedule.startTime) { setAttendanceMessage('Choose a Cairo start time for an hourly event.'); return; }
     if (editingSchedule.attendanceEnabled && !(editingSchedule.requiredPlayerIds?.length)) { setAttendanceMessage('Select at least one player for attendance.'); return; }
     if (data.settings.confirmOnSave && !window.confirm('Save this schedule item?')) return;
-    if (!editingSchedule.id && !editingSchedule.allDay && repeatHours > 1) {
-      const rows = repeatedHourlyScheduleRows(editingSchedule, repeatHours, globalThis.crypto?.randomUUID?.() || `repeat-${Date.now()}`);
-      for (const row of rows) await onUpsert('Schedule', row);
-    } else await onUpsert('Schedule', editingSchedule);
-    setScheduleModalOpen(false);
-    setEditingSchedule(null);
+    setAttendanceBusy('schedule-save'); setAttendanceMessage('');
+    try {
+      const response = await apiFetch('/api/schedule/mutate', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ action: 'upsert', row: editingSchedule, repeatCount: !editingSchedule.id && !editingSchedule.allDay ? repeatHours : 1, scope: editingSchedule.id && applyToSeries ? 'series' : 'single' }) });
+      const result = await response.json().catch(() => ({})); if (!response.ok) throw new Error(result.error || 'Schedule event could not be saved.');
+      await onRefresh(); setScheduleModalOpen(false); setEditingSchedule(null); setAttendanceMessage(result.rows?.length > 1 ? `${result.rows.length} hourly events saved together.` : 'Schedule event saved.');
+    } catch (error: any) { setAttendanceMessage(error.message || 'Schedule event could not be saved.'); }
+    finally { setAttendanceBusy(''); }
   };
 
   const duplicateNextHour = async (schedule: Schedule) => {
     if (!schedule.startTime) return;
     const hour = Number(schedule.startTime.slice(0, 2)); if (hour >= 23) { setAttendanceMessage('This is already the final hourly slot of the day.'); return; }
     const copy = { ...schedule, id: '', startTime: `${String(hour + 1).padStart(2, '0')}:${schedule.startTime.slice(3, 5)}`, attendanceCheckIns: [], source: 'manual' as const, sourceEventId: undefined, repeatSeriesId: schedule.repeatSeriesId || (globalThis.crypto?.randomUUID?.() || `repeat-${Date.now()}`), repeatIndex: (schedule.repeatIndex || 1) + 1, repeatCount: Math.max(schedule.repeatCount || 1, (schedule.repeatIndex || 1) + 1) };
-    await onUpsert('Schedule', copy); setAttendanceMessage(`${schedule.primary} duplicated to ${copy.startTime}.`);
+    const response = await apiFetch('/api/schedule/mutate', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ action: 'upsert', row: copy, repeatCount: 1, scope: 'single' }) }); const result = await response.json().catch(() => ({})); if (!response.ok) { setAttendanceMessage(result.error || 'Event could not be duplicated.'); return; } await onRefresh(); setAttendanceMessage(`${schedule.primary} duplicated to ${copy.startTime}.`);
   };
 
-  const handleDeleteSchedule = async (id: string) => {
-    if (data.settings.confirmOnDelete && !window.confirm('Delete this schedule? This action is irreversible.')) return;
-    await onRemove('Schedule', id);
+  const handleDeleteSchedule = async (id: string, scope: 'single' | 'series' = 'single') => {
+    if (data.settings.confirmOnDelete && !window.confirm(scope === 'series' ? 'Delete every event in this repeated series?' : 'Delete this schedule event?')) return;
+    const response = await apiFetch('/api/schedule/mutate', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ action: 'delete', id, scope }) }); const result = await response.json().catch(() => ({})); if (!response.ok) { setAttendanceMessage(result.error || 'Schedule event could not be deleted.'); return; } await onRefresh(); setAttendanceMessage(`${result.removedIds?.length || 1} schedule event${result.removedIds?.length === 1 ? '' : 's'} deleted.`);
   };
 
   const postAttendance = async (path: string, body: Record<string, unknown>, busyKey: string) => {
@@ -248,7 +257,8 @@ export default function CalendarGoals({ data, theme, role, onUpsert, onRemove, o
   };
 
   const handleOpenEditGoal = (g: Goal) => {
-    setEditingGoal({ ...g });
+    const legacyOwner = g.ownerPlayerId ? undefined : rosterPlayers.find(player => player.displayName === g.owner);
+    setEditingGoal({ ...g, ...(legacyOwner ? { ownerPlayerId: legacyOwner.id } : {}) });
     setGoalModalOpen(true);
   };
 
@@ -331,12 +341,16 @@ export default function CalendarGoals({ data, theme, role, onUpsert, onRemove, o
               </div>
               <div className="flex items-center gap-1.5">
                 <button
+                  type="button"
+                  aria-label="Previous month"
                   onClick={() => shiftMonth(-1)}
                   className={`p-1.5 rounded bg-white/5 hover:bg-white/10 border ${isLight ? 'border-slate-200' : 'border-white/10'} transition-colors`}
                 >
                   <ChevronLeft className="w-4 h-4" />
                 </button>
                 <button
+                  type="button"
+                  aria-label="Next month"
                   onClick={() => shiftMonth(1)}
                   className={`p-1.5 rounded bg-white/5 hover:bg-white/10 border ${isLight ? 'border-slate-200' : 'border-white/10'} transition-colors`}
                 >
@@ -423,7 +437,7 @@ export default function CalendarGoals({ data, theme, role, onUpsert, onRemove, o
               <h4 className="font-black text-xs uppercase text-gray-500 font-mono">Day Details: {selectedDateStr}</h4>
               {role === 'coach' && <button
                 onClick={() => handleOpenAddSchedule(selectedDateStr)}
-                className={`flex items-center gap-1.5 px-2.5 py-1 text-[10px] font-bold rounded ${theme.primaryBg} text-white cursor-pointer hover:opacity-90`}
+                className={`flex items-center gap-1.5 px-2.5 py-1 text-[10px] font-bold rounded ${theme.primaryBg} text-slate-950 cursor-pointer hover:opacity-90`}
               >
                 <Plus className="w-3.5 h-3.5" /> ADD EVENT
               </button>}
@@ -443,7 +457,7 @@ export default function CalendarGoals({ data, theme, role, onUpsert, onRemove, o
                           <Edit2 className="w-3.5 h-3.5" />
                         </button>
                         <button
-                          onClick={() => handleDeleteSchedule(sched.id)}
+                          onClick={() => void handleDeleteSchedule(sched.id)}
                           className="p-1 rounded hover:bg-white/10 text-gray-400 hover:text-rose-500"
                         >
                           <Trash2 className="w-3.5 h-3.5" />
@@ -466,15 +480,18 @@ export default function CalendarGoals({ data, theme, role, onUpsert, onRemove, o
                       {sched.notes && (
                         <p className="text-xs text-gray-400 bg-black/10 p-2.5 rounded font-mono leading-relaxed">{sched.notes}</p>
                       )}
+                      {sched.coachNotes && <p className="rounded bg-cyan-400/5 p-2.5 text-xs leading-relaxed text-cyan-100"><span className="mr-1 text-[9px] font-black uppercase text-cyan-300">Coach note</span>{sched.coachNotes}</p>}
 
-                      {role === 'coach' && !sched.allDay && sched.startTime && <button type="button" onClick={() => void duplicateNextHour(sched)} className="ui-button min-h-9 px-3 text-[9px]"><Plus className="h-3.5 w-3.5" /> Duplicate next hour</button>}
+                      {role === 'coach' && !sched.allDay && sched.startTime && <div className="flex flex-wrap gap-2"><button type="button" onClick={() => void duplicateNextHour(sched)} className="ui-button min-h-9 px-3 text-[9px]"><Plus className="h-3.5 w-3.5" /> Duplicate next hour</button>{sched.repeatSeriesId && <button type="button" onClick={() => void handleDeleteSchedule(sched.id, 'series')} className="ui-button min-h-9 px-3 text-[9px] text-rose-300"><Trash2 className="h-3.5 w-3.5" /> Delete series</button>}</div>}
 
-                      {(() => { const progress = practiceSessionProgress(data, sched.id); if (!progress) return null; return <div className="rounded-lg border border-violet-400/15 bg-violet-400/[0.04] p-3"><div className="flex flex-wrap items-center justify-between gap-2"><div><p className="text-[9px] font-black uppercase tracking-widest text-violet-300">Practice progress</p><p className="mt-1 text-xs text-slate-400">{progress.linked ? `${progress.matchIds.length} match${progress.matchIds.length === 1 ? '' : 'es'} · ${progress.goals.done}/${progress.goals.total} goals · ${progress.findings.accepted}/${progress.findings.total} findings accepted` : `${progress.suggestedMatchIds.length} same-day match${progress.suggestedMatchIds.length === 1 ? '' : 'es'} ready to review`}</p>{progress.linked && <p className="mt-1 text-[10px] text-slate-500">Attendance {progress.attendance.checkedIn}/{progress.attendance.assigned} · {progress.attendance.late} late · evidence {progress.summary.coverage.evidenceHealth}</p>}</div>{role === 'coach' && <button type="button" onClick={() => openProgressLink(sched)} className="ui-button min-h-9 px-3 text-[10px]">{progress.linked ? 'Edit linkage' : 'Link results'}</button>}</div></div>; })()}
+                        {(() => { const progress = practiceSessionProgress(data, sched.id); if (!progress) return null; return <div className="rounded-lg border border-violet-400/15 bg-violet-400/[0.04] p-3"><div className="flex flex-wrap items-center justify-between gap-2"><div><p className="text-[9px] font-black uppercase tracking-widest text-violet-300">Practice progress</p><p className="mt-1 text-xs text-slate-400">{progress.linked ? `${progress.matchIds.length} match${progress.matchIds.length === 1 ? '' : 'es'} · ${progress.goals.done}/${progress.goals.total} goals · ${progress.findings.accepted}/${progress.findings.total} findings accepted` : `${progress.suggestedMatchIds.length} same-day match${progress.suggestedMatchIds.length === 1 ? '' : 'es'} ready to review`}</p>{progress.linked && <p className="mt-1 text-[10px] text-slate-500">Attendance {progress.attendance.checkedIn}/{progress.attendance.assigned} · {progress.attendance.late} late · evidence {progress.summary.coverage.evidenceHealth}</p>}</div>{role === 'coach' && <button type="button" onClick={() => openProgressLink(sched)} className="ui-button min-h-9 px-3 text-[10px]">{progress.linked ? 'Edit linkage' : 'Link results'}</button>}</div></div>; })()}
+                        {(() => { const chain = linkedReviewSessionOutcome(data, sched.id); return chain && <div className="rounded-lg border border-amber-400/15 bg-amber-400/[0.04] p-3"><p className="text-[9px] font-black uppercase tracking-widest text-amber-300">Linked coaching pair</p><p className="mt-1 text-xs text-slate-300">{calendars.find(item => item.key === sched.calendarKey)?.name || sched.calendarKey} ↔ {calendars.find(item => item.key === chain.companion.calendarKey)?.name || chain.companion.calendarKey}</p><p className="mt-1 text-[10px] text-slate-500">{chain.completed}/{chain.goals} goals done · {chain.verified} verified · {chain.regressed} needs another block</p></div>; })()}
 
                       {sched.attendanceEnabled && sched.startTime && <div>
                         <p className="mb-2 text-[10px] font-black uppercase tracking-widest text-gray-500">Attendance</p>
                         <div className="space-y-1.5">{(sched.requiredPlayerIds || []).map(playerId => { const status = attendanceStatus(sched, playerId, now, policy); const isMe = data.authenticatedViewer?.playerId === playerId; const canCheckIn = role === 'player' && isMe && (status === 'open' || status === 'late-window'); return <div key={playerId} className="flex flex-wrap items-center justify-between gap-2 rounded-lg border border-white/5 bg-black/10 px-2.5 py-2"><span className="text-xs font-bold">{playerName(playerId)}</span><div className="flex items-center gap-2"><span className={`rounded-full border px-2 py-1 text-[9px] font-bold ${statusClass(status)}`}>{statusLabel(status)}</span>{canCheckIn && <button type="button" disabled={attendanceBusy === `checkin:${sched.id}`} onClick={() => void postAttendance('/api/attendance/check-in', { scheduleId: sched.id }, `checkin:${sched.id}`)} className="ui-button ui-button-primary min-h-9 px-3 text-[10px] disabled:opacity-50"><CheckCircle2 className="h-3.5 w-3.5" /> Check in</button>}{role === 'coach' && <select aria-label={`Correct attendance for ${playerName(playerId)}`} disabled={attendanceBusy === `correct:${sched.id}:${playerId}`} value="" onChange={event => { if (event.target.value) void correctAttendance(sched.id, playerId, event.target.value); }} className="min-h-9 rounded-lg border border-white/10 bg-black/30 px-2 text-[9px] text-gray-300"><option value="">Correct…</option><option value="on-time">On time</option><option value="late">Late</option><option value="excused">Excused</option><option value="clear">Clear record</option></select>}</div></div>; })}</div>
                         {(() => { const window = attendanceWindow(sched, policy); return <p className="mt-2 text-[9px] text-gray-500">On time through {new Intl.DateTimeFormat('en-GB', { timeZone: 'Africa/Cairo', hour: '2-digit', minute: '2-digit' }).format(window.graceEndsAt)} · check-in closes {new Intl.DateTimeFormat('en-GB', { timeZone: 'Africa/Cairo', hour: '2-digit', minute: '2-digit' }).format(window.closesAt)}</p>; })()}
+                        {role === 'coach' && (sched.attendanceAudit?.length || 0) > 0 && <details className="mt-2 rounded-lg border border-white/5 p-2"><summary className="cursor-pointer text-[9px] font-black uppercase text-slate-500">Attendance history · {sched.attendanceAudit?.length}</summary><div className="mt-2 space-y-1">{sched.attendanceAudit?.slice().reverse().map(entry => <p key={entry.id} className="text-[9px] text-slate-400">{playerName(entry.playerId)} · {entry.fromStatus || 'automatic'} → {entry.toStatus || 'automatic'} · {entry.createdBy}{entry.reason ? ` · ${entry.reason}` : ''}</p>)}</div></details>}
                       </div>}
                       {!sched.attendanceEnabled && Object.keys(sched.attendance || {}).length > 0 && <p className="text-[10px] text-gray-500">Legacy attendance labels preserved. Enable timed attendance when editing this event.</p>}
                     </div>
@@ -562,7 +579,8 @@ export default function CalendarGoals({ data, theme, role, onUpsert, onRemove, o
                     <div>
                       <h5 className="text-base font-black tracking-tight leading-snug">{g.goal}</h5>
                       {g.notes && <p className="text-xs text-gray-400 mt-1 font-mono leading-relaxed">{g.notes}</p>}
-                      {g.matchId && <p className="mt-2 text-[10px] font-semibold text-cyan-300">Linked match · {(() => { const match = data.matches.find(item => item.id === g.matchId); return match ? `${match.date} · ${match.map || 'Map unknown'} vs ${match.opponent || 'Unknown'}` : 'Match unavailable'; })()}</p>}
+                      {g.matchId && <p className="mt-2 text-[10px] font-semibold text-cyan-300">Linked evidence · {(() => { const match = data.matches.find(item => item.id === g.matchId); const round = (data.rounds || []).find(item => item.id === g.roundId); const clip = round?.reviewCockpit?.clips?.find(item => item.id === g.evidenceClipId); return match ? `${match.date} · ${match.map || 'Map unknown'} vs ${match.opponent || 'Unknown'}${round ? ` · R${round.roundNo}` : ''}${clip ? ` · ${clip.label}` : ''}` : 'Match unavailable'; })()}</p>}
+                      {(() => { const verification = coachingGoalVerification(g, data.coachingActions || []); return verification && <p className={`mt-1 text-[10px] font-semibold ${verification.outcome?.status === 'satisfied' ? 'text-emerald-300' : verification.outcome?.status === 'regressed' ? 'text-rose-300' : 'text-violet-300'}`}>Coaching loop · {verification.state}{verification.outcome ? ` · ${verification.outcome.status}` : ' · awaiting next comparable block'}</p>; })()}
                     </div>
                   </div>
 
@@ -636,9 +654,11 @@ export default function CalendarGoals({ data, theme, role, onUpsert, onRemove, o
               </button>
             </div>
 
+            {editingSchedule.source === 'pracc' && <p className="rounded-lg border border-cyan-400/20 bg-cyan-400/5 p-3 text-[10px] leading-relaxed text-cyan-100">PRACC owns the date, time, title and event details. They refresh automatically. Category, attendance and coach notes remain under your control.</p>}
+
             <div className="grid grid-cols-2 gap-2 rounded-xl border border-white/10 bg-black/10 p-1" role="group" aria-label="Event type">
-              <button type="button" aria-pressed={Boolean(editingSchedule.allDay)} onClick={() => setEditingSchedule({ ...editingSchedule, allDay: true, attendanceEnabled: false })} className={`min-h-12 rounded-lg px-3 text-xs font-bold ${editingSchedule.allDay ? 'bg-cyan-400/15 text-cyan-100' : 'text-gray-400 hover:text-white'}`}><CalendarDays className="mr-1.5 inline h-4 w-4" /> Full day · Main goal</button>
-              <button type="button" aria-pressed={!editingSchedule.allDay} onClick={() => setEditingSchedule({ ...editingSchedule, allDay: false, startTime: editingSchedule.startTime || '15:00' })} className={`min-h-12 rounded-lg px-3 text-xs font-bold ${!editingSchedule.allDay ? 'bg-cyan-400/15 text-cyan-100' : 'text-gray-400 hover:text-white'}`}><Clock className="mr-1.5 inline h-4 w-4" /> Hourly event</button>
+              <button type="button" disabled={editingSchedule.source === 'pracc'} aria-pressed={Boolean(editingSchedule.allDay)} onClick={() => setEditingSchedule({ ...editingSchedule, allDay: true, attendanceEnabled: false })} className={`min-h-12 rounded-lg px-3 text-xs font-bold disabled:opacity-50 ${editingSchedule.allDay ? 'bg-cyan-400/15 text-cyan-100' : 'text-gray-400 hover:text-white'}`}><CalendarDays className="mr-1.5 inline h-4 w-4" /> Full day · Main goal</button>
+              <button type="button" disabled={editingSchedule.source === 'pracc'} aria-pressed={!editingSchedule.allDay} onClick={() => setEditingSchedule({ ...editingSchedule, allDay: false, startTime: editingSchedule.startTime || '15:00' })} className={`min-h-12 rounded-lg px-3 text-xs font-bold disabled:opacity-50 ${!editingSchedule.allDay ? 'bg-cyan-400/15 text-cyan-100' : 'text-gray-400 hover:text-white'}`}><Clock className="mr-1.5 inline h-4 w-4" /> Hourly event</button>
             </div>
 
             <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
@@ -647,6 +667,7 @@ export default function CalendarGoals({ data, theme, role, onUpsert, onRemove, o
                 <input
                   type="date"
                   required
+                  disabled={editingSchedule.source === 'pracc'}
                   value={editingSchedule.date}
                   onChange={e => setEditingSchedule({ ...editingSchedule, date: e.target.value })}
                   className="w-full p-2.5 bg-black/20 rounded border border-white/10 text-xs font-mono"
@@ -657,7 +678,7 @@ export default function CalendarGoals({ data, theme, role, onUpsert, onRemove, o
                 <label className="text-[10px] uppercase font-black text-gray-400 font-mono">Type</label>
                 <select
                   value={editingSchedule.calendarKey}
-                  onChange={e => setEditingSchedule({ ...editingSchedule, calendarKey: e.target.value })}
+                  onChange={e => setEditingSchedule({ ...editingSchedule, calendarKey: e.target.value, linkedReviewEventId: undefined })}
                   className="w-full p-2.5 bg-black/20 rounded border border-white/10 text-xs text-white"
                 >
                   {calendars.map(c => <option key={c.key} value={c.key}>{c.name}</option>)}
@@ -668,7 +689,7 @@ export default function CalendarGoals({ data, theme, role, onUpsert, onRemove, o
             {!editingSchedule.allDay && <div className="grid grid-cols-1 gap-4 md:grid-cols-2">
               <div className="space-y-1">
                 <label className="text-[10px] uppercase font-black text-gray-400 font-mono">Start time · Cairo</label>
-                <input type="time" required value={editingSchedule.startTime || ''} onChange={event => setEditingSchedule({ ...editingSchedule, startTime: event.target.value })} className="w-full p-2.5 bg-black/20 rounded border border-white/10 text-xs font-mono" />
+                <input type="time" required disabled={editingSchedule.source === 'pracc'} value={editingSchedule.startTime || ''} onChange={event => setEditingSchedule({ ...editingSchedule, startTime: event.target.value })} className="w-full p-2.5 bg-black/20 rounded border border-white/10 text-xs font-mono disabled:opacity-50" />
               </div>
               <label className="flex min-h-11 items-center gap-3 self-end rounded-lg border border-cyan-400/20 bg-cyan-400/5 px-3 py-2 text-xs font-bold text-cyan-100">
                 <input type="checkbox" checked={Boolean(editingSchedule.attendanceEnabled)} onChange={event => setEditingSchedule({ ...editingSchedule, attendanceEnabled: event.target.checked })} />
@@ -691,6 +712,7 @@ export default function CalendarGoals({ data, theme, role, onUpsert, onRemove, o
               <input
                 type="text"
                 required
+                disabled={editingSchedule.source === 'pracc'}
                 placeholder={editingSchedule.allDay ? 'e.g. Clean communication and trading' : 'e.g. Ascent map, VOD review'}
                 value={editingSchedule.primary}
                 onChange={e => setEditingSchedule({ ...editingSchedule, primary: e.target.value })}
@@ -702,6 +724,7 @@ export default function CalendarGoals({ data, theme, role, onUpsert, onRemove, o
               <label className="text-[10px] uppercase font-black text-gray-400 font-mono">Secondary Goal / Notes (Sub-title)</label>
               <input
                 type="text"
+                disabled={editingSchedule.source === 'pracc'}
                 placeholder="e.g. A split details, pistol rounds only"
                 value={editingSchedule.secondary}
                 onChange={e => setEditingSchedule({ ...editingSchedule, secondary: e.target.value })}
@@ -710,15 +733,23 @@ export default function CalendarGoals({ data, theme, role, onUpsert, onRemove, o
             </div>
 
             <div className="space-y-1">
-              <label className="text-[10px] uppercase font-black text-gray-400 font-mono">Additional Details</label>
+              <label className="text-[10px] uppercase font-black text-gray-400 font-mono">{editingSchedule.source === 'pracc' ? 'Coach notes · preserved across PRACC sync' : 'Additional Details'}</label>
               <textarea
                 rows={3}
                 placeholder="Scrim links, specific notes, discord tags"
-                value={editingSchedule.notes}
-                onChange={e => setEditingSchedule({ ...editingSchedule, notes: e.target.value })}
+                value={editingSchedule.source === 'pracc' ? editingSchedule.coachNotes || '' : editingSchedule.notes || ''}
+                onChange={e => setEditingSchedule({ ...editingSchedule, [editingSchedule.source === 'pracc' ? 'coachNotes' : 'notes']: e.target.value })}
                 className="w-full p-2.5 bg-black/20 rounded border border-white/10 text-xs font-mono"
               />
             </div>
+
+            {(editingSchedule.calendarKey === 'team-talk' || editingSchedule.calendarKey === 'debrief') && <div className="space-y-1">
+              <label className="text-[10px] uppercase font-black text-gray-400 font-mono">Linked {editingSchedule.calendarKey === 'team-talk' ? 'debrief' : 'team talk'} (optional)</label>
+              <select value={editingSchedule.linkedReviewEventId || ''} onChange={event => setEditingSchedule({ ...editingSchedule, linkedReviewEventId: event.target.value || undefined })} className="ui-field w-full p-2.5 text-xs"><option value="">Keep this event independent</option>{companionEvents.map(item => <option key={item.id} value={item.id}>{item.date}{item.startTime ? ` · ${item.startTime}` : ''} · {item.primary}</option>)}</select>
+              <p className="text-[10px] text-gray-500">Team Talk and Debrief stay separate events, but can share the same coaching outcome chain.</p>
+            </div>}
+
+            {editingSchedule.id && editingSchedule.repeatSeriesId && <label className="flex min-h-11 items-center gap-3 rounded-lg border border-cyan-400/20 bg-cyan-400/5 px-3 py-2 text-xs font-bold text-cyan-100"><input type="checkbox" checked={applyToSeries} onChange={event => setApplyToSeries(event.target.checked)} />Apply title, details, category and attendance rules to every event in this series</label>}
 
             {editingSchedule.attendanceEnabled && <div className="space-y-2">
               <div className="flex items-center justify-between border-b border-white/5 pb-1"><label className="text-[10px] uppercase font-black text-gray-400 font-mono">Players required to attend</label><span className="text-[9px] text-gray-500">{editingSchedule.requiredPlayerIds?.length || 0} selected</span></div>
@@ -741,6 +772,7 @@ export default function CalendarGoals({ data, theme, role, onUpsert, onRemove, o
               </button>
               <button
                 type="submit"
+                disabled={attendanceBusy === 'schedule-save'}
                 className={`px-4 py-2 ${theme.primaryBg} text-xs font-bold rounded cursor-pointer text-white`}
               >
                 SAVE SCHEDULE
@@ -816,24 +848,29 @@ export default function CalendarGoals({ data, theme, role, onUpsert, onRemove, o
               <div className="space-y-1">
                 <label className="text-[10px] uppercase font-black text-gray-400 font-mono">Owner (Dropdown)</label>
                 <select
-                  value={editingGoal.owner}
-                  onChange={e => setEditingGoal({ ...editingGoal, owner: e.target.value })}
+                  value={editingGoal.ownerPlayerId || ''}
+                  onChange={e => { const player = rosterPlayers.find(item => item.id === e.target.value); setEditingGoal({ ...editingGoal, ownerPlayerId: player?.id, owner: player?.displayName || '' }); }}
                   className="w-full p-2.5 bg-black/20 rounded border border-white/10 text-xs text-white"
                 >
                   <option value="">TEAM Goal</option>
-                  {rosterPlayers.map(player => <option key={player.id} value={player.displayName}>{player.displayName}</option>)}
+                  {rosterPlayers.map(player => <option key={player.id} value={player.id}>{player.displayName}</option>)}
                 </select>
               </div>
             </div>
 
             <div className="space-y-1">
               <label className="text-[10px] uppercase font-black text-gray-400 font-mono">Linked match (optional)</label>
-              <select value={editingGoal.matchId || ''} onChange={e => setEditingGoal({ ...editingGoal, matchId: e.target.value || undefined })} className="w-full p-2.5 bg-black/20 rounded border border-white/10 text-xs text-white">
+              <select value={editingGoal.matchId || ''} onChange={e => setEditingGoal({ ...editingGoal, matchId: e.target.value || undefined, roundId: undefined, evidenceClipId: undefined })} className="w-full p-2.5 bg-black/20 rounded border border-white/10 text-xs text-white">
                 <option value="">No specific match</option>
                 {[...(data.matches || [])].sort((a, b) => Date.parse(b.date) - Date.parse(a.date)).map(match => <option key={match.id} value={match.id}>{match.date} · {match.map || 'Map unknown'} vs {match.opponent || 'Unknown'}</option>)}
               </select>
               <p className="text-[10px] text-gray-500">The goal remains visible in Goals and is also attached to this match’s review context.</p>
             </div>
+
+            {editingGoal.matchId && <div className="grid grid-cols-1 gap-4 md:grid-cols-2">
+              <div className="space-y-1"><label className="text-[10px] uppercase font-black text-gray-400 font-mono">Linked round (optional)</label><select value={editingGoal.roundId || ''} onChange={event => setEditingGoal({ ...editingGoal, roundId: event.target.value || undefined, evidenceClipId: undefined })} className="ui-field w-full p-2.5 text-xs"><option value="">Whole match</option>{selectedGoalRounds.map(round => <option key={round.id} value={round.id}>Round {round.roundNo} · {round.side || 'side unknown'} · {round.result || 'result unknown'}</option>)}</select></div>
+              <div className="space-y-1"><label className="text-[10px] uppercase font-black text-gray-400 font-mono">Evidence clip (optional)</label><select disabled={!editingGoal.roundId || !selectedGoalClips.length} value={editingGoal.evidenceClipId || ''} onChange={event => setEditingGoal({ ...editingGoal, evidenceClipId: event.target.value || undefined })} className="ui-field w-full p-2.5 text-xs disabled:opacity-50"><option value="">{editingGoal.roundId ? 'No specific clip' : 'Choose a round first'}</option>{selectedGoalClips.map(clip => <option key={clip.id} value={clip.id}>{clip.label}</option>)}</select></div>
+            </div>}
 
             <div className="pt-4 flex justify-end gap-2 border-t border-white/10">
               <button

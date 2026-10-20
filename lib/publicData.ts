@@ -1,4 +1,6 @@
 import { buildAcceptedMatchAggregatePlan, buildCanonicalAnalyticsExport, PLAYER_SCREENSHOT_BUILDER } from './aggregateVersioning';
+import { buildCanonicalDataSpine, validateCanonicalDataSpine } from './canonicalDataSpine';
+import { moe02FeatureEnabled } from './featureFlags';
 
 const PRIVATE_TOP_LEVEL_KEYS = new Set(['authKeys', 'allowedUsers', 'secretValues', '_storage', 'authenticatedViewer', 'tryoutDecisionNotes', 'identityCorrectionBatches']);
 const PRIVATE_SETTING_KEYS = new Set(['discordWebhook', 'gridApiKey', 'henrikApiKey', 'praccCalendarUrl', 'praccCalendarLastAttemptAt', 'praccCalendarLastSyncedAt', 'praccCalendarLastError', 'deletedCoachingSignalFingerprints']);
@@ -43,6 +45,11 @@ export function toPublicTrackerData(db: Record<string, any>, role: 'coach' | 'pl
       return exported;
     });
   }
+  if (role === 'coach' && moe02FeatureEnabled('canonicalDataSpine', db.settings?.featureFlags)) {
+    const spine = buildCanonicalDataSpine(db); const validation = validateCanonicalDataSpine(spine);
+    if (!validation.ok) throw Object.assign(new Error('Canonical data spine contains broken references.'), { status: 500, issues: validation.issues });
+    publicData.canonicalDataSpine = spine;
+  } else delete publicData.canonicalDataSpine;
   if (role === 'coach') publicData.tryoutDecisionNotes = structuredClone(db.tryoutDecisionNotes || []);
   if (role === 'coach') publicData.identityCorrectionBatches = structuredClone(db.identityCorrectionBatches || []);
   delete publicData.replayIntake;
@@ -60,6 +67,7 @@ export function toPublicTrackerData(db: Record<string, any>, role: 'coach' | 'pl
     publicData.vodReviews = [];
     publicData.vodSubmissions = (publicData.vodSubmissions || []).filter((submission: any) => authenticatedPlayerId && submission.submittedByPlayerId === authenticatedPlayerId);
     publicData.matches = (publicData.matches || []).map(({ notes: _notes, vod: _vod, corrections: _corrections, ...match }: any) => match);
+    publicData.schedule = (publicData.schedule || []).map(({ attendanceAudit: _attendanceAudit, ...event }: any) => event);
     publicData.playerStats = (publicData.playerStats || []).map(({ notes: _notes, corrections: _corrections, ...stat }: any) => stat);
     publicData.rounds = (publicData.rounds || []).map(({ notes: _notes, isThrow: _isThrow, thrownBy: _thrownBy, throwReason: _throwReason, iglPlayer: _iglPlayer, iglRole: _iglRole, midRoundIglChange: _midRoundIglChange, strategies: _strategies, corrections: _corrections, ...round }: any) => round);
     publicData.practiceBlocks = (publicData.practiceBlocks || []).map(({ createdBy: _createdBy, updatedBy: _updatedBy, ...block }: any) => block);
@@ -112,9 +120,9 @@ export function toWebsiteTrackerData(db: Record<string, any>, role: 'coach' | 'p
     coachingSignals: role === 'coach' ? structuredClone(safe.coachingSignals || []) : [],
     coachingActions: structuredClone(safe.coachingActions || []),
     dashboardViews: role === 'coach' ? structuredClone(safe.dashboardViews || []) : [],
-    schedule: (safe.schedule || []).map((item: any) => selectFields(item, ['id', 'date', 'kind', 'primary', 'secondary', 'notes', 'attendance', 'calendarKey', 'startTime', 'allDay', 'durationMinutes', 'repeatSeriesId', 'repeatIndex', 'repeatCount', 'attendanceEnabled', 'requiredPlayerIds', 'attendanceCheckIns', 'source', 'sourceEventId', 'practiceBlockId', 'linkedGoalIds', 'progressLinkedAt'])),
+    schedule: (safe.schedule || []).map((item: any) => selectFields(item, ['id', 'date', 'kind', 'primary', 'secondary', 'notes', 'coachNotes', 'attendance', 'calendarKey', 'startTime', 'allDay', 'durationMinutes', 'repeatSeriesId', 'repeatIndex', 'repeatCount', 'attendanceEnabled', 'requiredPlayerIds', 'attendanceCheckIns', 'source', 'sourceEventId', 'practiceBlockId', 'linkedGoalIds', 'progressLinkedAt', 'linkedReviewEventId'])),
     attendanceCredits: structuredClone(safe.attendanceCredits || []),
-    goals: (safe.goals || []).map((item: any) => selectFields(item, ['id', 'date', 'goal', 'notes', 'status', 'owner', 'matchId'])),
+    goals: (safe.goals || []).map((item: any) => selectFields(item, ['id', 'date', 'goal', 'notes', 'status', 'owner', 'ownerPlayerId', 'matchId', 'roundId', 'evidenceClipId', 'sourceSignalId', 'coachingActionId', 'dueBlockId'])),
     matches: (safe.matches || []).map((item: any) => ({
       ...selectFields(item, WEBSITE_MATCH_FIELDS),
       comparisonEvidence: { accepted: item.sourceMetadata?.method === 'screenshot' ? item.reviewConfirmation?.alliedSideConfirmed === true : !!item.sourceMetadata && item.sourceMetadata.method !== 'unknown' },

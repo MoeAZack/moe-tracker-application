@@ -33,7 +33,7 @@ describe('S0.6 aggregate migration', () => {
     const data = fixture();
     const result = recomputeAcceptedMatchAggregates(data, 'm1');
     expect(result).toMatchObject({ schema: AGGREGATE_MIGRATION_SCHEMA, status: 'recomputed' });
-    expect(result.intelligence).toMatchObject({ schema: 'moetracker.match-intelligence/v1', calculatedAtSourceHash: result.sourceHash, fusion: { calculationVersion: 'evidence-fusion/v2' }, spatial: { calculationVersion: 'spatial-intelligence/v3' } });
+    expect(result.intelligence).toMatchObject({ schema: 'moetracker.match-intelligence/v1', calculatedAtSourceHash: result.sourceHash, fusion: { calculationVersion: 'evidence-fusion/v3' }, spatial: { calculationVersion: 'spatial-intelligence/v4' } });
     expect(data.matches[0].roundAnalytics).toMatchObject({ coveredRounds: 2, calculationVersion: MAP_ROUND_BUILDER, sourceHash: result.sourceHash });
     expect(data.matches[0].roundAnalytics.coveredRounds).not.toBe(999);
     expect(data.playerStats[0].screenshotMetrics).toMatchObject({ coveredRounds: 1, sourceHash: result.sourceHash });
@@ -77,6 +77,10 @@ describe('S0.6 aggregate migration', () => {
     data.playerStats[0].playerId = 'p2';
     migrateAcceptedMatchAggregates(data);
     expect(data.analyticsBuilds.m1.sourceHash).not.toBe(correctedEvidenceHash);
+    const correctedIdentityHash = data.analyticsBuilds.m1.sourceHash;
+    data.playerStats[0].kills = 17;
+    migrateAcceptedMatchAggregates(data);
+    expect(data.analyticsBuilds.m1.sourceHash).not.toBe(correctedIdentityHash);
     expect(data.playerStats).toHaveLength(2);
   });
 
