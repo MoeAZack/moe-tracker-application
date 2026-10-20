@@ -62,12 +62,12 @@ Last reconciled: 20 October 2026, Africa/Cairo. This file is the permanent scope
 | --- | --- | --- | --- |
 | 8.1 | Advantage states (2v1, 3v1, 5v3, etc.) and conversion/loss | Automatically tested | `contextual-round-intelligence/v1` exposes only complete ordered-feed states and preserves unknown outcomes. |
 | 8.2 | Utility, orb and ultimate usage timelines | Automatically tested | One selected accepted feed prevents replay/VOD/screenshot double counting; unavailable values remain null. |
-| 8.3 | Trade distance, spacing, territory and execute/retake context | Automatically tested | Round context and five-second trade windows share the contextual ledger; coordinate metrics remain availability-gated in spatial v3. |
+| 8.3 | Trade distance, spacing, territory and execute/retake context | Automatically tested | Round context and five-second trade windows share the contextual ledger; coordinate metrics remain availability-gated in spatial v4. |
 | 8.4 | Throws are coach-confirmed judgments, never automatic facts | Released | Observed failures may be suggested, but tactical intent and “throw” labels remain coach decisions with audit history. |
-| 9.1 | Replay-backed 2D paths, kill markers and utility timelines | Automatically tested | Spatial pipeline v3. |
-| 9.2 | Cross-match death and utility heatmaps | Automatically tested | Cohort envelope used when official calibration is unavailable. |
-| 9.3 | Official map-bound calibration and orientation | Not started | Requires independently verified per-map assets/transforms. |
-| 9.4 | Route clustering and utility-to-space impact | Not started | Begins only after 9.3 and representative coverage. |
+| 9.1 | Replay-backed 2D paths, kill markers and utility timelines | Automatically tested | Spatial pipeline v4 preserves coordinate provenance. |
+| 9.2 | Cross-match death and utility heatmaps | Automatically tested | Verified, source-declared and cohort-envelope coverage are reported separately. |
+| 9.3 | Official map-bound calibration and orientation | Contract automatically tested | Fail-closed bounds/orientation/asset-checksum/provenance contract is implemented; production maps remain unverified until independent calibration evidence is registered. |
+| 9.4 | Route clustering and utility-to-space impact | Engine automatically tested | Calculations activate only in verified map space and remain unavailable for current uncalibrated production evidence. |
 | 9.5 | Compositions and playbook with map/agent thumbnails | Implemented | Visual/UI refinement and dynamic-catalog linkage remain. |
 | 10.1 | Monthly and hourly day calendar modes | Implemented | Physical responsive/accessibility pass remains. |
 | 10.2 | Full-day goals plus repeatable hourly practices/debriefs/team talks | Implemented | Recurrence and PRACC import exist; Stage 10 unifies edit rules. |

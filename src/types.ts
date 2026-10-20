@@ -128,6 +128,8 @@ export interface Settings {
   activeTryoutBatchId?: string | null;
   players: string[];
   maps: string[];
+  /** Independently verified replay-world to tactical-map transforms. Draft rows never activate spatial comparisons. */
+  mapCalibrations?: import('../lib/mapCalibration').MapCalibration[];
   agents: string[];
   weapons?: string[];
   inactivePlayers?: string[];

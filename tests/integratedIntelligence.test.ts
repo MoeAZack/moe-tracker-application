@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest';
-import { buildSpatialReport, buildCrossMatchHeatmaps } from '../lib/spatialIntelligence';
+import { buildSpatialReport, buildCrossMatchHeatmaps, buildRouteClusters, buildUtilitySpaceImpact } from '../lib/spatialIntelligence';
+import { MAP_CALIBRATION_SCHEMA, resolveVerifiedMapCalibration, transformMapCoordinate, validateMapCalibration } from '../lib/mapCalibration';
 import { buildEvidenceFusionReport, upsertEvidenceResolution } from '../lib/evidenceFusion';
 import { buildCalibratedPlayerRatings } from '../lib/calibratedPlayerRatings';
 import { buildContextualWeaponOutcomes } from '../lib/contextualEconomy';
@@ -39,6 +40,28 @@ describe('integrated intelligence', () => {
     ], rounds: [{ roundNumber: 1, events: [{ timestampMs: 1800, killerPlayerId: 'a', victimPlayerId: 'b', killerTeamId: 'blue', victimTeamId: 'red', killerPosition: { x: 1150, y: 2150 }, victimPosition: { x: 1300, y: 2300 } }] }] } } };
     const report = buildSpatialReport(record); expect(report).toMatchObject({ available: true, map: 'Ascent', transform: { method: 'replay-envelope' } }); expect(report.paths[0].points).toHaveLength(2); expect(report.killMarkers.map(item => item.kind).sort()).toEqual(['death', 'kill']);
     expect(buildCrossMatchHeatmaps([record])).toMatchObject({ matchesWithCoordinates: 1, comparableMatches: 1, cohortAlignedMatches: 1 });
+  });
+
+  it('activates official map space only for a provenance-verified calibration', () => {
+    const draft = { schema: MAP_CALIBRATION_SCHEMA, map: 'Ascent', status: 'draft', bounds: { minX: 100, minY: 200, width: 1000, height: 2000 }, orientation: { rotate: 90, flipX: false, flipY: false }, asset: { path: '/maps/Ascent.png', sha256: 'a'.repeat(64) }, provenance: { source: 'replay format documentation', verifiedBy: 'independent-fixture', verifiedAt: '2026-10-20T10:00:00.000Z' } } as const;
+    expect(validateMapCalibration(draft)).toContain('status'); expect(resolveVerifiedMapCalibration('Ascent', [draft]).calibration).toBeNull();
+    const verified = { ...draft, status: 'verified' as const }; expect(validateMapCalibration(verified)).toEqual([]); expect(transformMapCoordinate(100, 200, verified)).toEqual({ x: 1, y: 0 });
+    const record = { status: 'accepted', draft: { match: { map: 'Ascent' }, evidence: { observations: [{ signal: 'position-zone', roundNumber: 1, playerId: 'a', teamId: 'blue', timestampMs: 1000, attributes: { position: { x: 600, y: 1200 }, coordinateSpace: 'world' } }] } } };
+    expect(buildSpatialReport(record, [verified])).toMatchObject({ transform: { method: 'verified-map', officialComparison: true, assetPath: '/maps/Ascent.png' }, points: [{ x: .5, y: .5 }] });
+    expect(buildCrossMatchHeatmaps([record], [verified])).toMatchObject({ verifiedCalibratedMatches: 1, officialComparisonAvailable: true });
+  });
+
+  it('gates route clusters and utility-to-space rows behind verified map geometry', () => {
+    const calibration = { schema: MAP_CALIBRATION_SCHEMA, map: 'Ascent', status: 'verified', bounds: { minX: 0, minY: 0, width: 100, height: 100 }, orientation: { rotate: 0, flipX: false, flipY: false }, asset: { path: '/maps/Ascent.png', sha256: 'b'.repeat(64) }, provenance: { source: 'verified fixture', verifiedBy: 'test', verifiedAt: '2026-10-20T10:00:00.000Z' } } as const;
+    const record = { status: 'accepted', draft: { match: { map: 'Ascent' }, evidence: { observations: [
+      { signal: 'position-zone', roundNumber: 1, playerId: 'a', teamId: 'blue', timestampMs: 1000, attributes: { position: { x: 10, y: 10 } } }, { signal: 'position-zone', roundNumber: 1, playerId: 'a', teamId: 'blue', timestampMs: 9000, attributes: { position: { x: 50, y: 50 } } },
+      { signal: 'position-zone', roundNumber: 1, playerId: 'b', teamId: 'blue', timestampMs: 1000, attributes: { position: { x: 12, y: 10 } } }, { signal: 'position-zone', roundNumber: 1, playerId: 'b', teamId: 'blue', timestampMs: 6000, attributes: { position: { x: 40, y: 40 } } },
+      { signal: 'position-zone', roundNumber: 1, playerId: 'c', teamId: 'blue', timestampMs: 1000, attributes: { position: { x: 14, y: 10 } } }, { signal: 'position-zone', roundNumber: 1, playerId: 'c', teamId: 'blue', timestampMs: 7000, attributes: { position: { x: 45, y: 42 } } },
+      { signal: 'utility-cast', roundNumber: 1, playerId: 'a', teamId: 'blue', timestampMs: 4000, attributes: { position: { x: 35, y: 35 }, ability: 'smoke' } },
+    ] } } };
+    expect(buildRouteClusters([record])).toMatchObject({ available: false, verifiedMatches: 0 });
+    expect(buildRouteClusters([record], [calibration])).toMatchObject({ available: true, verifiedMatches: 1 });
+    expect(buildUtilitySpaceImpact([record], [calibration])).toMatchObject({ available: true, rows: [{ map: 'Ascent', utility: 'smoke', uses: 1, averageTeammatesNearby: 2 }] });
   });
 
   it('reports source conflicts and keeps coach/replay priority deterministic', () => {
