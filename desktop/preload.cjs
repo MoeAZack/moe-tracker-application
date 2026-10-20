@@ -11,6 +11,10 @@ contextBridge.exposeInMainWorld('moeDesktop', Object.freeze({
   chooseVodFile: () => ipcRenderer.invoke('desktop:choose-vod-file'),
   discoverVodGames: (input) => ipcRenderer.invoke('desktop:discover-vod-games', input),
   listVodJobs: () => ipcRenderer.invoke('desktop:list-vod-jobs'),
+  listIngestionJobs: () => ipcRenderer.invoke('desktop:list-ingestion-jobs'),
+  beginIngestionJob: (input) => ipcRenderer.invoke('desktop:begin-ingestion-job', input),
+  updateIngestionJob: (input) => ipcRenderer.invoke('desktop:update-ingestion-job', input),
+  cancelIngestionJob: (jobId) => ipcRenderer.invoke('desktop:cancel-ingestion-job', jobId),
   resumeVodJob: (jobId) => ipcRenderer.invoke('desktop:resume-vod-job', jobId),
   analyzeVod: (input) => ipcRenderer.invoke('desktop:analyze-vod', input),
   releaseVodAnalysis: (input) => ipcRenderer.invoke('desktop:release-vod-analysis', input),
@@ -21,6 +25,11 @@ contextBridge.exposeInMainWorld('moeDesktop', Object.freeze({
     const listener = (_event, payload) => callback(payload);
     ipcRenderer.on('desktop:vod-analysis-progress', listener);
     return () => ipcRenderer.removeListener('desktop:vod-analysis-progress', listener);
+  },
+  onIngestionProgress: (callback) => {
+    const listener = (_event, payload) => callback(payload);
+    ipcRenderer.on('desktop:ingestion-progress', listener);
+    return () => ipcRenderer.removeListener('desktop:ingestion-progress', listener);
   },
   deleteReplay: (replayPath) => ipcRenderer.invoke('desktop:delete-replay', replayPath),
   syncNow: () => ipcRenderer.invoke('desktop:sync-now'),

@@ -20,6 +20,7 @@ const { hasRecentRecoveryBackup } = require('./recovery-backup.cjs');
 const { isTrustedSenderUrl, sessionIsFresh } = require('./session-security.cjs');
 const { loginCredentials } = require('./session-credentials.cjs');
 const { analyzeVodTimeline, discoverVodGames, createReviewClips } = require('./vod-timeline-analyzer.cjs');
+const { createIngestionJob, updateIngestionJob: evolveIngestionJob, recoverInterruptedJobs, publicIngestionJob } = require('./ingestion-jobs.cjs');
 
 let mainWindow;
 let tray;
@@ -129,6 +130,7 @@ async function ensureRuntime() {
   await atomicJson(paths.config, persistedConfig(config));
   if (!await json(paths.syncState, null)) await atomicJson(paths.syncState, { schemaVersion: 1, outbox: [], inbox: [], completed: [] });
   runtime = { paths, config, port: await freePort(), session: null, coachSession: null };
+  await recoverIngestionJobsOnStartup();
   return runtime;
 }
 
@@ -577,20 +579,30 @@ handleTrusted('desktop:download-update', () => updateController?.download() || P
 handleTrusted('desktop:install-update', () => updateController?.install() || Promise.reject(new Error('Update service is not ready.')));
 handleTrusted('desktop:process-match', async event => {
   requireTrustedSender(event);
-  await configureCollector();
-  let first = await collectorJsonCommand(['scan']);
-  if (first.some(item => item.status === 'observing')) { await new Promise(resolve => setTimeout(resolve, 11_000)); first = await collectorJsonCommand(['scan']); }
-  if (first.some(item => item.status === 'observing' || item.status === 'locked')) return { state: 'waiting', message: 'VALORANT is still finishing the replay. Moe Tracker will keep watching it automatically.', items: first };
-  let processed;
-  try { processed = await collectorJsonCommand(['process-latest']); }
-  catch (error) {
-    if (/Local (binaryPath|pythonPath|normalizerPath) is not configured|build-info\.json|Local vrfkit runtime does not match/.test(String(error?.message || ''))) throw new Error('The verified replay parser is incomplete on this PC. Screenshot capture still works; install or repair the replay parser from Settings before processing replay files.');
-    throw error;
-  }
-  if (processed?.state === 'unsupported-patch') return { state: 'unsupported-patch', message: processed.message, items: first };
-  const imported = await importEvidenceFile(processed.evidencePath);
-  const skippedNote = processed.skippedUnsupported ? ` Skipped ${processed.skippedUnsupported} newer replay${processed.skippedUnsupported === 1 ? '' : 's'} from an unsupported VALORANT patch; use screenshot capture for those.` : '';
-  return { state: imported.automatic ? 'processed' : 'review-ready', message: `${imported.automatic ? 'Replay, player names, and available statistics were processed automatically. You can edit the saved match later.' : imported.idempotent ? 'This replay was already in the local review inbox.' : 'Replay parsed locally. It will finish automatically when the matching scoreboard is available.'}${skippedNote}`, items: first, processed, imported };
+  const jobId = crypto.randomUUID();
+  const progress = async (stage, percent, message, patch = {}) => { const payload = { jobId, source: 'replay', status: 'running', stage, percent, message }; if (!event.sender.isDestroyed()) event.sender.send('desktop:ingestion-progress', payload); return updateIngestionJob(jobId, { ...payload, checkpoint: { stage }, ...patch }); };
+  await progress('scan', 5, 'Checking for a completed replay…', { retainedSource: false });
+  try {
+    await configureCollector();
+    let first = await collectorJsonCommand(['scan']);
+    if (first.some(item => item.status === 'observing')) { await progress('waiting-for-file', 10, 'VALORANT is still finishing the replay…'); await new Promise(resolve => setTimeout(resolve, 11_000)); first = await collectorJsonCommand(['scan']); }
+    if (first.some(item => item.status === 'observing' || item.status === 'locked')) { await updateIngestionJob(jobId, { status: 'paused', stage: 'waiting-for-file', percent: 10, message: 'VALORANT is still finishing the replay. Moe Tracker will keep watching it automatically.', retainedSource: true, resumable: true, checkpoint: { stage: 'waiting-for-file' } }); return { jobId, state: 'waiting', message: 'VALORANT is still finishing the replay. Moe Tracker will keep watching it automatically.', items: first }; }
+    await progress('parse', 35, 'Parsing replay events locally…', { retainedSource: true });
+    let processed;
+    try { processed = await collectorJsonCommand(['process-latest']); }
+    catch (error) {
+      if (/Local (binaryPath|pythonPath|normalizerPath) is not configured|build-info\.json|Local vrfkit runtime does not match/.test(String(error?.message || ''))) throw new Error('The verified replay parser is incomplete on this PC. Screenshot capture still works; install or repair the replay parser from Settings before processing replay files.');
+      throw error;
+    }
+    if (processed?.state === 'unsupported-patch') { await updateIngestionJob(jobId, { status: 'failed', stage: 'unsupported-patch', percent: 40, message: processed.message, resumable: false }); return { jobId, state: 'unsupported-patch', message: processed.message, items: first }; }
+    await progress('integrate', 80, 'Linking parsed replay evidence to the review workspace…');
+    const imported = await importEvidenceFile(processed.evidencePath);
+    const skippedNote = processed.skippedUnsupported ? ` Skipped ${processed.skippedUnsupported} newer replay${processed.skippedUnsupported === 1 ? '' : 's'} from an unsupported VALORANT patch; use screenshot capture for those.` : '';
+    const message = `${imported.automatic ? 'Replay, player names, and available statistics were processed automatically. You can edit the saved match later.' : imported.idempotent ? 'This replay was already in the local review inbox.' : 'Replay parsed locally. It will finish automatically when the matching scoreboard is available.'}${skippedNote}`;
+    await updateIngestionJob(jobId, { status: 'completed', stage: 'integrated', percent: 100, message, resumable: false, checkpoint: { stage: 'integrated' } });
+    if (!event.sender.isDestroyed()) event.sender.send('desktop:ingestion-progress', { jobId, source: 'replay', status: 'completed', stage: 'integrated', percent: 100, message });
+    return { jobId, state: imported.automatic ? 'processed' : 'review-ready', message, items: first, processed, imported };
+  } catch (error) { await updateIngestionJob(jobId, { status: 'failed', stage: 'failed', message: String(error?.message || error), resumable: false }); throw error; }
 });
 handleTrusted('desktop:choose-vod-file', async () => {
   const result = await dialog.showOpenDialog(mainWindow, { properties: ['openFile'], title: 'Choose a VALORANT VOD', filters: [{ name: 'Video files', extensions: ['mp4', 'mkv', 'mov', 'webm', 'avi', 'm4v'] }] });
@@ -599,32 +611,46 @@ handleTrusted('desktop:choose-vod-file', async () => {
   return { canceled: false, path: selected, name: path.basename(selected) };
 });
 const activeVodAnalyses = new Map();
+const activeIngestionControllers = new Map();
 const discoveredVodSources = new Map();
-function vodJobFile() { return path.join(runtime.paths.local, 'Vod Analysis', 'jobs.json'); }
-async function readVodJobs() { try { const value = JSON.parse(await fsp.readFile(vodJobFile(), 'utf8')); return Array.isArray(value) ? value : []; } catch { return []; } }
-let vodJobMutation = Promise.resolve();
-function updateVodJob(id, patch) { const task = vodJobMutation.then(async () => { const file = vodJobFile(); await fsp.mkdir(path.dirname(file), { recursive: true }); const jobs = await readVodJobs(); const index = jobs.findIndex(item => item.id === id); const next = { ...(index >= 0 ? jobs[index] : { id, createdAt: new Date().toISOString() }), ...patch, updatedAt: new Date().toISOString() }; if (index >= 0) jobs[index] = next; else jobs.unshift(next); await fsp.writeFile(file, JSON.stringify(jobs.slice(0, 100), null, 2)); return next; }); vodJobMutation = task.catch(() => {}); return task; }
-handleTrusted('desktop:list-vod-jobs', async () => (await readVodJobs()).map(({ sourcePath: _private, ...job }) => job));
+function ingestionJobFile() { return path.join(runtime.paths.local, 'Ingestion', 'jobs.json'); }
+function legacyVodJobFile() { return path.join(runtime.paths.local, 'Vod Analysis', 'jobs.json'); }
+async function readIngestionJobs() { try { const value = JSON.parse(await fsp.readFile(ingestionJobFile(), 'utf8')); return Array.isArray(value) ? value : []; } catch { try { const legacy = JSON.parse(await fsp.readFile(legacyVodJobFile(), 'utf8')); return Array.isArray(legacy) ? legacy : []; } catch { return []; } } }
+let ingestionJobMutation = Promise.resolve();
+function updateIngestionJob(id, patch) { const task = ingestionJobMutation.then(async () => { const jobs = await readIngestionJobs(); const index = jobs.findIndex(item => item.id === id); const base = index >= 0 ? jobs[index] : createIngestionJob({ id, source: patch.source, kind: patch.kind, retainedSource: patch.retainedSource, expectedGames: patch.expectedGames }); const next = evolveIngestionJob(base, patch); if (index >= 0) jobs[index] = next; else jobs.unshift(next); await atomicJson(ingestionJobFile(), jobs.slice(0, 200)); return next; }); ingestionJobMutation = task.catch(() => {}); return task; }
+async function recoverIngestionJobsOnStartup() { const jobs = await readIngestionJobs(); if (!jobs.length) return; await atomicJson(ingestionJobFile(), recoverInterruptedJobs(jobs).slice(0, 200)); }
+const isVodJob = job => ['youtube', 'local-file', 'youtube-vod', 'local-vod'].includes(job.source);
+handleTrusted('desktop:list-ingestion-jobs', async () => (await readIngestionJobs()).map(publicIngestionJob));
+handleTrusted('desktop:list-vod-jobs', async () => (await readIngestionJobs()).filter(isVodJob).map(publicIngestionJob));
+handleTrusted('desktop:begin-ingestion-job', async (_event, input = {}) => {
+  const source = String(input.source || ''); if (!['screenshot'].includes(source)) throw new Error('Renderer-created jobs are limited to local screenshot ingestion.');
+  const id = crypto.randomUUID(); return publicIngestionJob(await updateIngestionJob(id, { source, kind: 'local-ocr', status: 'running', stage: 'read-source', percent: 0, message: 'Reading local screenshot…', retainedSource: false }));
+});
+handleTrusted('desktop:update-ingestion-job', async (_event, input = {}) => {
+  const id = String(input.id || ''); const existing = (await readIngestionJobs()).find(job => job.id === id); if (!existing || existing.source !== 'screenshot') throw new Error('Unknown screenshot ingestion job.');
+  const status = ['running', 'ready', 'completed', 'failed', 'cancelled'].includes(input.status) ? input.status : existing.status;
+  return publicIngestionJob(await updateIngestionJob(id, { status, stage: String(input.stage || existing.stage).slice(0, 80), percent: input.percent === null ? null : Number(input.percent), message: String(input.message || '').slice(0, 500), checkpoint: { stage: String(input.stage || existing.stage).slice(0, 80) } }));
+});
 handleTrusted('desktop:resume-vod-job', async (_event, jobId) => {
-  const job = (await readVodJobs()).find(item => item.id === String(jobId || ''));
+  const job = (await readIngestionJobs()).find(item => item.id === String(jobId || ''));
   if (!job || !job.resumable || !job.sourcePath) throw new Error('This VOD job has no retained source to restart from.');
-  const sourcePath = path.resolve(job.sourcePath); const stat = await fsp.stat(sourcePath).catch(() => null); if (!stat?.isFile()) { await updateVodJob(job.id, { resumable: false, retainedSource: false, message: 'The retained video is no longer available.' }); throw new Error('The retained video is no longer available on this PC.'); }
-  approvedVodPaths.add(sourcePath); await updateVodJob(job.id, { status: 'ready', stage: 'restart-ready', percent: 0, message: 'Retained source reopened for a clean restart.' });
+  const sourcePath = path.resolve(job.sourcePath); const stat = await fsp.stat(sourcePath).catch(() => null); if (!stat?.isFile()) { await updateIngestionJob(job.id, { status: 'failed', resumable: false, retainedSource: false, message: 'The retained video is no longer available.' }); throw new Error('The retained video is no longer available on this PC.'); }
+  approvedVodPaths.add(sourcePath); await updateIngestionJob(job.id, { status: 'ready', stage: 'restart-ready', percent: 0, message: 'Retained source reopened from its checkpoint.' });
   return { path: sourcePath, name: path.basename(sourcePath), expectedGames: Number(job.expectedGames) || 1, vodUrl: String(job.vodUrl || '') };
 });
 handleTrusted('desktop:discover-vod-games', async (event, input = {}) => {
   const localPath = input.localPath ? path.resolve(String(input.localPath)) : null;
   if (localPath && !approvedVodPaths.has(localPath)) throw new Error('Choose the local VOD through Moe Tracker before analyzing it.');
-  const jobId = crypto.randomUUID(); await updateVodJob(jobId, { kind: 'discover-and-import', status: 'working', stage: 'preparing', percent: 0, source: localPath ? 'local-file' : 'youtube', vodUrl: String(input.vodUrl || '').trim(), expectedGames: input.expectedGames, mapNames: Array.isArray(input.mapNames) ? input.mapNames.slice(0, 50) : [], resumable: false });
-  const progress = payload => { if (!event.sender.isDestroyed()) event.sender.send('desktop:vod-analysis-progress', { ...payload, jobId }); void updateVodJob(jobId, { status: 'working', stage: payload.stage, percent: payload.percent, message: payload.message }).catch(() => {}); };
+  const jobId = crypto.randomUUID(); await updateIngestionJob(jobId, { kind: 'discover-and-import', status: 'running', stage: 'preparing', percent: 0, source: localPath ? 'local-vod' : 'youtube-vod', sourcePath: localPath || undefined, vodUrl: String(input.vodUrl || '').trim(), expectedGames: input.expectedGames, mapNames: Array.isArray(input.mapNames) ? input.mapNames.slice(0, 50) : [], retainedSource: Boolean(localPath), resumable: false, checkpoint: localPath ? { stage: 'source-ready' } : null });
+  const progress = payload => { const update = { ...payload, jobId, source: localPath ? 'local-vod' : 'youtube-vod', status: 'running' }; if (!event.sender.isDestroyed()) { event.sender.send('desktop:vod-analysis-progress', update); event.sender.send('desktop:ingestion-progress', update); } void updateIngestionJob(jobId, { status: 'running', stage: payload.stage, percent: payload.percent, message: payload.message, checkpoint: { stage: payload.stage, percent: payload.percent } }).catch(() => {}); };
   const jobKey = event.sender.id; if (activeVodAnalyses.has(jobKey)) throw new Error('A VOD analysis is already running in this window.');
-  const controller = new AbortController(); activeVodAnalyses.set(jobKey, controller);
+  const controller = new AbortController(); activeVodAnalyses.set(jobKey, controller); activeIngestionControllers.set(jobId, controller);
   try {
     const result = await discoverVodGames({ vodUrl: String(input.vodUrl || '').trim(), localPath, expectedGames: input.expectedGames, mapNames: Array.isArray(input.mapNames) ? input.mapNames.slice(0, 50).map(item => String(item || '').slice(0, 100)) : [] }, { progress, signal: controller.signal, workRoot: path.join(runtime.paths.local, 'Vod Analysis') });
     discoveredVodSources.set(result.cacheId, { directory: result.directory, file: result.file, downloaded: result.downloaded, videoId: result.videoId, durationMs: result.durationMs, sourceSha256: result.sourceSha256, owner: event.sender.id, createdAt: Date.now(), jobId });
-    await updateVodJob(jobId, { status: 'ready', stage: 'detected', percent: 100, cacheId: result.cacheId, videoId: result.videoId, sourcePath: result.file, resumable: true, expectedGames: input.expectedGames, detectedGames: result.games?.length || 0 });
+    await updateIngestionJob(jobId, { status: 'ready', stage: 'detected', percent: 100, cacheId: result.cacheId, videoId: result.videoId, sourcePath: result.file, retainedSource: true, resumable: true, checkpoint: { stage: 'detected', cacheId: result.cacheId }, expectedGames: input.expectedGames, detectedGames: result.games?.length || 0 });
     const { directory: _directory, file: _file, downloaded: _downloaded, sourceSha256: _sourceSha256, ...publicResult } = result; return { ...publicResult, jobId };
-  } catch (error) { await updateVodJob(jobId, { status: 'failed', stage: 'failed', message: String(error?.message || error) }); throw error; } finally { activeVodAnalyses.delete(jobKey); }
+  } catch (error) { await updateIngestionJob(jobId, { status: controller.signal.aborted ? 'cancelled' : 'failed', stage: 'failed', message: String(error?.message || error) }); throw error; } finally { activeVodAnalyses.delete(jobKey); activeIngestionControllers.delete(jobId); }
 });
 handleTrusted('desktop:analyze-vod', async (event, input = {}) => {
   const players = Array.isArray(input.players) ? input.players.slice(0, 10).map(item => ({ name: String(item?.name || '').trim().slice(0, 100), team: item?.team === 'theirs' ? 'theirs' : 'ours', expectedKills: Number.isInteger(item?.expectedKills) && item.expectedKills >= 0 ? item.expectedKills : null, expectedDeaths: Number.isInteger(item?.expectedDeaths) && item.expectedDeaths >= 0 ? item.expectedDeaths : null })).filter(item => item.name) : [];
@@ -633,21 +659,26 @@ handleTrusted('desktop:analyze-vod', async (event, input = {}) => {
   if (input.cacheId && (!cached || cached.owner !== event.sender.id)) throw new Error('The detected VOD session expired. Detect the games again.');
   const localPath = cached?.file || (input.localPath ? path.resolve(String(input.localPath)) : null);
   if (localPath && !approvedVodPaths.has(localPath)) throw new Error('Choose the local VOD through Moe Tracker before analyzing it.');
-  const progress = payload => { if (!event.sender.isDestroyed()) event.sender.send('desktop:vod-analysis-progress', { ...payload, jobId: cached?.jobId || null }); if (cached?.jobId) void updateVodJob(cached.jobId, { status: 'working', stage: payload.stage, percent: payload.percent, message: payload.message }).catch(() => {}); };
+  const progress = payload => { const update = { ...payload, jobId: cached?.jobId || null, source: cached?.downloaded ? 'youtube-vod' : 'local-vod', status: 'running' }; if (!event.sender.isDestroyed()) { event.sender.send('desktop:vod-analysis-progress', update); event.sender.send('desktop:ingestion-progress', update); } if (cached?.jobId) void updateIngestionJob(cached.jobId, { status: 'running', stage: payload.stage, percent: payload.percent, message: payload.message, checkpoint: { stage: payload.stage, percent: payload.percent, startMs: Number(input.startMs) || 0, endMs: Number(input.endMs) || null } }).catch(() => {}); };
   const jobKey = event.sender.id; if (activeVodAnalyses.has(jobKey)) throw new Error('A VOD analysis is already running in this window.');
-  const controller = new AbortController(); activeVodAnalyses.set(jobKey, controller);
+  const controller = new AbortController(); activeVodAnalyses.set(jobKey, controller); if (cached?.jobId) activeIngestionControllers.set(cached.jobId, controller);
   try {
     const checkpointFile = cached ? path.join(cached.directory, `checkpoint-${Math.max(0, Number(input.startMs) || 0)}-${Math.max(0, Number(input.endMs) || 0)}.json`) : null;
     const result = await analyzeVodTimeline({ vodUrl: String(input.vodUrl || '').trim(), localPath, players, povPlayerName: String(input.povPlayerName || '').trim() || null, observerMode: input.observerMode === true, startMs: Number(input.startMs) || 0, endMs: Number(input.endMs) || null, sourceKind: cached?.downloaded ? 'youtube' : undefined, videoId: cached?.videoId || null, sourceSha256: cached?.sourceSha256 || null }, { progress, signal: controller.signal, workRoot: path.join(runtime.paths.local, 'Vod Analysis'), checkpointFile });
-    if (cached?.jobId) await updateVodJob(cached.jobId, { status: 'ready', stage: 'analyzed', percent: 100 }); return result;
-  } catch (error) { if (cached?.jobId) await updateVodJob(cached.jobId, { status: 'failed', stage: 'analysis-failed', message: String(error?.message || error) }); throw error; } finally { activeVodAnalyses.delete(jobKey); if (localPath && !cached) approvedVodPaths.delete(localPath); }
+    if (cached?.jobId) await updateIngestionJob(cached.jobId, { status: 'ready', stage: 'analyzed', percent: 100, checkpoint: { stage: 'analyzed', startMs: Number(input.startMs) || 0, endMs: Number(input.endMs) || null } }); return result;
+  } catch (error) { if (cached?.jobId) await updateIngestionJob(cached.jobId, { status: controller.signal.aborted ? 'cancelled' : 'failed', stage: 'analysis-failed', message: String(error?.message || error) }); throw error; } finally { activeVodAnalyses.delete(jobKey); if (cached?.jobId) activeIngestionControllers.delete(cached.jobId); if (localPath && !cached) approvedVodPaths.delete(localPath); }
 });
 handleTrusted('desktop:release-vod-analysis', async (event, input) => {
   const cacheId = typeof input === 'string' ? input : input?.cacheId; const completed = typeof input === 'string' ? true : input?.completed === true;
   const cached = discoveredVodSources.get(String(cacheId || '')); if (!cached || cached.owner !== event.sender.id) return { released: false };
-  discoveredVodSources.delete(String(cacheId)); if (!cached.downloaded) approvedVodPaths.delete(cached.file); if (!cached.downloaded) await fsp.rm(cached.directory, { recursive: true, force: true }).catch(() => {}); const retainedSource = fs.existsSync(cached.file); if (cached.jobId) await updateVodJob(cached.jobId, { status: completed ? 'completed' : 'failed', stage: completed ? 'integrated' : 'import-failed', percent: completed ? 100 : null, retainedSource, resumable: retainedSource, ...(!completed ? { message: 'Import stopped before all detected games were integrated. Restart from the retained source.' } : {}) }); return { released: true, retainedSource };
+  discoveredVodSources.delete(String(cacheId)); if (!cached.downloaded) approvedVodPaths.delete(cached.file); const retainedSource = fs.existsSync(cached.file); if (cached.jobId) await updateIngestionJob(cached.jobId, { status: completed ? 'completed' : 'paused', stage: completed ? 'integrated' : 'import-paused', percent: completed ? 100 : null, retainedSource, resumable: retainedSource, checkpoint: completed ? { stage: 'integrated' } : { stage: 'import-paused', cacheId }, ...(!completed ? { message: 'Import stopped before every detected game was integrated. Resume from the retained source.' } : {}) }); return { released: true, retainedSource };
 });
 handleTrusted('desktop:cancel-vod-analysis', event => { const controller = activeVodAnalyses.get(event.sender.id); if (!controller) return { cancelled: false }; controller.abort(new Error('VOD analysis was cancelled.')); return { cancelled: true }; });
+handleTrusted('desktop:cancel-ingestion-job', async (_event, jobId) => {
+  const id = String(jobId || ''); const job = (await readIngestionJobs()).find(item => item.id === id); if (!job || ['completed', 'failed', 'cancelled'].includes(job.status)) return { cancelled: false };
+  activeIngestionControllers.get(id)?.abort(new Error('Ingestion was cancelled.'));
+  await updateIngestionJob(id, { status: 'cancelled', stage: 'cancelled', message: 'Cancelled safely. Retained source evidence was not deleted.', resumable: false }); return { cancelled: true };
+});
 handleTrusted('desktop:create-review-clips', async (event, input = {}) => {
   const localPath = input.localPath ? path.resolve(String(input.localPath)) : null;
   if (localPath && !approvedVodPaths.has(localPath)) throw new Error('Choose the local VOD through Moe Tracker before creating clips.');

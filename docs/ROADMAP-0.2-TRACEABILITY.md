@@ -29,9 +29,9 @@ Last reconciled: 20 October 2026, Africa/Cairo. This file is the permanent scope
 | 2.1 | Dynamic map catalog across pool, stats, compositions and calculator | Automatically tested | Shared runtime catalog drives selectors, zero-evidence rows, map analysis, calculator, compositions, economy and VOD discovery. |
 | 2.2 | Dynamic agent catalog across stats and compositions | Automatically tested | Case-insensitive runtime catalog propagates new agents and removes disabled agents from current metrics without deleting history. |
 | 2.3 | Dynamic weapon catalog including new weapons and clear artwork | Automatically tested | Warden is catalogued and classified as a full-buy weapon; all media uses deterministic local art with a labelled fallback. |
-| 3.1 | One resumable ingestion job for screenshot, replay, YouTube and local VOD | Automatically tested | Durable VOD/replay jobs exist; Stage 3 unifies progress and cancellation semantics. |
-| 3.2 | Multi-map coach/player VOD discovery with per-game matching | Automatically tested | Discovery and explicit expected-game count exist; broaden real VOD corpus. |
-| 3.3 | Incremental OCR/cache invalidation instead of full reprocessing | Automatically tested | Frame checkpoints resume; changed-frame decoder checkpointing remains open. |
+| 3.1 | One resumable ingestion job for screenshot, replay, YouTube and local VOD | Automatically tested | One persisted state machine, history, progress event and fail-closed restart/cancellation contract now covers all four sources. |
+| 3.2 | Multi-map coach/player VOD discovery with per-game matching | Real-data validated | Disposable 2h49m coach fixture separated the expected three games; two map names resolved and one remained explicitly unknown. |
+| 3.3 | Incremental OCR/cache invalidation instead of full reprocessing | Automatically tested | Frame checkpoints resume VOD work; bounded screenshot results reuse unchanged image/roster/selection/version keys. |
 | 3.4 | Replay parser owned fork, patch compatibility and OCR fallback | Real-data validated | Moe vrfkit fork and fallback path work; representative every-patch corpus remains. |
 | 4.1 | Field-level replay/screenshot/VOD/manual evidence fusion | Automatically tested | Persisted conflict ledger and coach resolution revision history. |
 | 4.2 | Accepted evidence replaces anonymous IDs in every review surface | Implemented | Identity overlays exist; Stage 4 adds a no-anonymous-after-resolution invariant. |

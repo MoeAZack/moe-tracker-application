@@ -38,6 +38,10 @@ declare global {
       chooseVodFile(): Promise<{ canceled: boolean; path?: string; name?: string }>;
       discoverVodGames(input: { vodUrl?: string; localPath?: string; expectedGames?: number; mapNames?: string[] }): Promise<{ cacheId: string; uploadDate: string | null; uploader: string | null; vodUrl: string | null; videoId: string | null; durationMs: number; width: number; height: number; games: Array<{ timestampMs: number; score: number; agentSelectScore: number; mediaType: string; base64: string }>; boundaries: Array<{ timestampMs: number; score: number; agentSelectScore: number; map: string | null; mediaType: string; base64: string }> }>;
       listVodJobs(): Promise<Array<{ id: string; status: string; stage: string; percent: number | null; message?: string; source: string; resumable: boolean; retainedSource?: boolean; expectedGames?: number; createdAt: string; updatedAt: string }>>;
+      listIngestionJobs(): Promise<Array<{ id: string; status: string; stage: string; percent: number | null; message?: string; source: 'screenshot' | 'replay' | 'youtube-vod' | 'local-vod'; resumable: boolean; retainedSource?: boolean; expectedGames?: number; createdAt: string; updatedAt: string }>>;
+      beginIngestionJob(input: { source: 'screenshot' }): Promise<{ id: string; status: string; stage: string; percent: number | null }>;
+      updateIngestionJob(input: { id: string; status: 'running' | 'ready' | 'completed' | 'failed' | 'cancelled'; stage: string; percent: number | null; message: string }): Promise<any>;
+      cancelIngestionJob(jobId: string): Promise<{ cancelled: boolean }>;
       resumeVodJob(jobId: string): Promise<{ path: string; name: string; expectedGames: number; vodUrl: string }>;
       analyzeVod(input: { vodUrl?: string; localPath?: string; cacheId?: string; startMs?: number; endMs?: number | null; povPlayerName?: string | null; observerMode?: boolean; players: Array<{ name: string; team: 'ours' | 'theirs'; expectedKills?: number | null; expectedDeaths?: number | null }> }): Promise<any>;
       releaseVodAnalysis(input: string | { cacheId: string; completed: boolean }): Promise<{ released: boolean; retainedSource?: boolean }>;
@@ -45,6 +49,7 @@ declare global {
       createReviewClips(input: { vodUrl?: string; localPath?: string; moments: Array<{ timestampMs: number; startMs?: number; endMs?: number; label: string }> }): Promise<Array<{ id: string; fileName: string; path: string; label: string; startMs: number; endMs: number }>>;
       openReviewClip(fileName: string): Promise<{ opened: boolean }>;
       onVodAnalysisProgress(callback: (progress: { stage: string; percent: number | null; message: string }) => void): () => void;
+      onIngestionProgress(callback: (progress: { jobId: string; source: string; status: string; stage: string; percent: number | null; message: string }) => void): () => void;
       deleteReplay(replayPath: string): Promise<{ deleted: boolean; message: string }>;
       syncNow(): Promise<{ state: string; message: string }>;
       pairDevice(input: { server: string; code: string }): Promise<{ paired: boolean; server: string; device: any }>;
