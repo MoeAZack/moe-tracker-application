@@ -15,6 +15,7 @@ function stableId(parts: unknown[]) {
 }
 
 function accepted(match: Match) {
+  if (match.duplicateReview?.status === 'quarantined') return false;
   if (match.sourceMetadata?.method === 'screenshot') return match.reviewConfirmation?.alliedSideConfirmed === true;
   return match.comparisonEvidence?.accepted === true || (!!match.sourceMetadata && match.sourceMetadata.method !== 'unknown');
 }

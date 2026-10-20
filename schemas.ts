@@ -140,7 +140,11 @@ export const saveMatchSchema = z.object({
     }).strict().optional(),
   }),
   statsUpdate: matchStatsUpdateSchema.optional(),
+  /** Optional round log saved in the same write as the match, so a rejected
+   * round set can never leave a match with stats and no rounds. */
+  rounds: z.array(looseObject).optional(),
 }).strict();
+export const matchDuplicateReviewSchema = z.object({ matchId: nonEmpty, decision: z.enum(['keep-both', 'discard-this']) }).strict();
 export const saveRoundsSchema = z.object({ matchId: nonEmpty, rows: z.array(looseObject).optional() });
 export const saveVetoSchema = z.object({ matchId: nonEmpty, meta: looseObject, actions: z.array(looseObject).optional() });
 

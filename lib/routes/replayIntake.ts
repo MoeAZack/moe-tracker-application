@@ -6,6 +6,7 @@ import path from 'path';
 import { pipeline } from 'stream/promises';
 import { Transform } from 'stream';
 import { readDB, saveDB, DB_PATH } from '../store';
+import { refreshDuplicateQuarantine } from '../matchIntegrity';
 import { publishVerifiedReplayTemp, reserveReplayUpload, sha256ReplayFile } from '../replayIntakeSafety';
 import { buildReplayOpeningReviewDraft } from '../replayOpeningEngine';
 import { loadVrfkitPipelineConfig, runVrfkitReplayPipeline, VRFKIT_PIN } from '../vrfkitReplayPipeline';
@@ -347,6 +348,7 @@ function acceptReviewIntoEngines(db: any, store: ReplayStore, job: ReplayParserJ
   });
   const replacedRoundNumbers = new Set(acceptedRounds.map((item: any) => item.roundNo));
   db.rounds = [...(db.rounds || []).filter((item: any) => item.matchId !== review.matchId || !replacedRoundNumbers.has(item.roundNo)), ...acceptedRounds];
+  refreshDuplicateQuarantine(db, acceptedAt);
   db.engineAdapters ||= { schemaVersion: 1, idempotency: {}, replay: {}, ratings: { configs: {}, records: {}, formulaVersions: {}, baselineVersions: {} }, ranked: { providers: {}, accounts: {}, consents: {}, states: {} } };
   db.engineAdapters.replay ||= {}; db.engineAdapters.ratings ||= { configs: {}, records: {}, formulaVersions: {}, baselineVersions: {} }; db.engineAdapters.ratings.records ||= {}; db.engineAdapters.ratings.configs ||= {};
   const priorReplay = db.engineAdapters.replay[review.matchId];

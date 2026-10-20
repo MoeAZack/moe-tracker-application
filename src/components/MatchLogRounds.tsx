@@ -8,6 +8,7 @@ import { reconcileStatTotals } from '../../lib/entryEngine';
 import { partitionScreenshotRows } from '../../lib/screenshotRosterDraft';
 import { activeTryoutPhase, newWorkspaceMatchContext, resolvePhaseAlias } from '../utils/tryoutWorkspace';
 import { buildOpponentHistory } from '../../lib/opponentHistory';
+import DuplicateReviewPanel from './DuplicateReviewPanel';
 import { activeResourceNames } from '../../lib/resourceCatalog';
 import { 
   Swords, Plus, Edit2, Trash2, Video, FileText, BarChart3, HelpCircle, 
@@ -28,6 +29,7 @@ interface ComponentProps {
   reviewMatchId?: string | null;
   reviewRoundNo?: number | null;
   onReviewContextChange?: (matchId: string, roundNo?: number | null) => void;
+  onDuplicateReview?: (matchId: string, decision: 'keep-both' | 'discard-this') => Promise<void>;
 }
 
 const roundFlag = (value: unknown): true | false | null => {
@@ -36,7 +38,7 @@ const roundFlag = (value: unknown): true | false | null => {
   return null;
 };
 
-export default function MatchLogRounds({ data, theme, onSaveMatch, onRemove, onSaveRounds, onSaveVeto, onRefreshDatabase, manualReplayDraft, onManualReplayDraftConsumed, reviewMatchId, reviewRoundNo, onReviewContextChange }: ComponentProps) {
+export default function MatchLogRounds({ data, theme, onSaveMatch, onRemove, onSaveRounds, onSaveVeto, onRefreshDatabase, manualReplayDraft, onManualReplayDraftConsumed, reviewMatchId, reviewRoundNo, onReviewContextChange, onDuplicateReview }: ComponentProps) {
   const isLight = data.settings.theme === 'daylight';
   
   // --- SUB TAB CONTROL ---
@@ -478,6 +480,10 @@ export default function MatchLogRounds({ data, theme, onSaveMatch, onRemove, onS
         <div className="lg:col-span-3 space-y-6">
           {selectedMatch ? (
             <div className={`p-5 rounded-2xl border ${isLight ? 'bg-white border-slate-200 text-slate-800 shadow-sm' : 'bg-white/5 border-white/10'} space-y-5`}>
+              {(() => {
+                const current = (data.matches || []).find(item => item.id === selectedMatch.id);
+                return current ? <DuplicateReviewPanel data={data} match={current} isLight={isLight} onDecide={onDuplicateReview && (async (matchId, decision) => { await onDuplicateReview(matchId, decision); if (decision === 'discard-this') setSelectedMatch(null); })} onOpenMatch={(matchId) => { const target = (data.matches || []).find(item => item.id === matchId); if (target) { setSelectedMatch(target); onReviewContextChange?.(target.id, null); } }} /> : null;
+              })()}
               {/* Selected Match Card Header */}
               <div className="flex flex-col sm:flex-row justify-between sm:items-center gap-4 border-b border-white/5 pb-4">
                 <div>
