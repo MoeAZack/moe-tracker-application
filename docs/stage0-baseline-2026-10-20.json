@@ -1,0 +1,58 @@
+{
+  "schema": "moetracker.stage0-baseline/v1",
+  "generatedAt": "2026-10-20T09:28:31.412Z",
+  "source": "installed-desktop-workspace",
+  "sourceBytes": 3213093,
+  "sourceFileSha256": "eba3b6089f68e61b6f64422296558883f3f6692b11e9d96911295c2e5c47ac10",
+  "migrationPreview": {
+    "from": 11,
+    "to": 12,
+    "writeApplied": false
+  },
+  "baseline": {
+    "storageSchemaVersion": 12,
+    "counts": {
+      "matches": 8,
+      "playerStats": 40,
+      "rounds": 180,
+      "schedule": 3,
+      "goals": 0,
+      "rosterPlayers": 6,
+      "coreMemberships": 0,
+      "tryoutBatches": 0,
+      "vodSubmissions": 0,
+      "coachingSignals": 2,
+      "coachingActions": 0,
+      "calibratedPlayerRatings": 15
+    },
+    "matchTotals": {
+      "wins": 6,
+      "losses": 2,
+      "attackWins": 58,
+      "attackLosses": 31,
+      "defenseWins": 45,
+      "defenseLosses": 46
+    },
+    "archivedRosterPlayers": 1,
+    "stateFingerprint": "e510c747341dc510f1729a0755835f26ab7192fef290a558c2b7694c3764e3e7"
+  },
+  "integrity": {
+    "ok": true,
+    "errors": 0,
+    "warnings": 0,
+    "issues": []
+  },
+  "featureFlags": {
+    "canonicalDataSpine": false,
+    "dynamicResourceCatalog": false,
+    "unifiedIngestion": false,
+    "evidenceFusionV2": false,
+    "unifiedReviewWorkspace": false,
+    "metricsExplorer": false,
+    "developmentLoopV2": false,
+    "contextualRoundIntelligence": false,
+    "spatialPlaybookV2": false,
+    "teamOperationsV2": false,
+    "releaseCandidate02": false
+  }
+}

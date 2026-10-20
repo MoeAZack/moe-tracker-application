@@ -1,7 +1,7 @@
 {
   "name": "moe-tracker-application",
   "private": true,
-  "version": "0.1.77",
+  "version": "0.1.78",
   "description": "Offline-first desktop replay analysis and team statistics for VALORANT practice",
   "author": "MoeAZack",
   "main": "desktop/main.cjs",
@@ -31,6 +31,9 @@
     "desktop:dev": "npm run build && electron .",
     "desktop:pack": "npm run build && electron-builder --dir",
     "desktop:installer": "npm run build && electron-builder --win nsis",
+    "stage0:audit": "tsx scripts/stage0-baseline.mts",
+    "stage0:inventory": "tsx scripts/stage0-inventory.mts",
+    "stage0:recovery": "pwsh -NoProfile -File scripts/stage0-recovery-bootstrap.ps1",
     "check": "npm run lint && npm test && npm run build"
   },
   "dependencies": {
