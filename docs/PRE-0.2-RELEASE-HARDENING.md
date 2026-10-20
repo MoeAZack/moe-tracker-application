@@ -83,9 +83,11 @@ Re-audit gate result (20 Oct 2026): #84 head `a4d8bb7` passed 138 test files /
 Move large replay/VOD/analytics evidence out of the active aggregate payload, add
 retention and capacity telemetry, and prove a 100-match season plus archive/restore.
 
-Status: RE-AUDIT FIXES IN REVIEW (20 Oct 2026, Africa/Cairo). The re-audit
-reopened six H1 items; all six are fixed on the H1 re-audit PR and wait on
-exact-head CI and owner verification.
+Status: PASSED (20 Oct 2026, Africa/Cairo) after the re-audit fixes in #85.
+The owner verified e1f0c11 against the installed database (round trip, a
+124 KB active index, crafted-reference rejection, externalized
+`roundAnalytics`, remote GC and D1 batching, restore over a lost artifact,
+and index-only backup restore) and both CI jobs passed on that head.
 
 Contract:
 

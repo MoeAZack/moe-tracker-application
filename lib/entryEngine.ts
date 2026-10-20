@@ -144,10 +144,13 @@ export function matchExtractedRosterName(
   extractedName: string,
   rosterPlayers: Array<{ id?: string; displayName: string; aliases?: string[] }>,
 ) {
-  const resolution = buildIdentityResolver({ rosterPlayers }).resolve({ observedName: extractedName, includeArchived: false });
-  const candidates = rosterPlayers.filter(player => player.id && resolution.candidatePlayerIds.includes(player.id));
+  // The resolver indexes by player id; roster entries that have none (name-only
+  // rosters, offline backtests) still match by name through a positional key.
+  const keyed = rosterPlayers.map((player, index) => ({ player, key: player.id || `roster-index:${index}` }));
+  const resolution = buildIdentityResolver({ rosterPlayers: keyed.map(item => ({ ...item.player, id: item.key })) }).resolve({ observedName: extractedName, includeArchived: false });
+  const candidates = keyed.filter(item => resolution.candidatePlayerIds.includes(item.key)).map(item => item.player);
   const status = resolution.status === 'unresolved' ? 'unmatched' : resolution.status;
-  const match = status === 'matched' ? candidates.find(candidate => candidate.id === resolution.playerId) : undefined;
+  const match = status === 'matched' ? candidates[0] : undefined;
   return {
     matchedPlayerId: match?.id || null,
     matchedPlayerName: match?.displayName || null,
