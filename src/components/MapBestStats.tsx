@@ -8,6 +8,7 @@ import MapRoundIntelligencePanel from './MapRoundIntelligencePanel';
 import { buildMapRoundIntelligence } from '../../lib/mapRoundAnalytics';
 import { percentageTextClass } from '../utils/percentageColor';
 import { reconcileObservedPlayerRows } from '../../lib/uiIntegration';
+import { activeResourceNames, buildResourceCatalog, canonicalResourceName } from '../../lib/resourceCatalog';
 
 interface ComponentProps {
   data: TrackerData;
@@ -28,7 +29,7 @@ export default function MapBestStats({ data, evidenceData = data, theme, onUpser
       const key = display.toLowerCase();
       if (key && !names.has(key)) names.set(key, display);
     };
-    [...(evidenceData.settings.maps || []), ...(evidenceData.settings.inactiveMaps || [])].forEach(add);
+    buildResourceCatalog(evidenceData, 'map').forEach(entry => add(entry.name));
     (evidenceData.matches || []).forEach(match => add(match.map));
     (evidenceData.strats || []).forEach(strat => add(strat.map));
     return [...names.values()];
@@ -48,7 +49,7 @@ export default function MapBestStats({ data, evidenceData = data, theme, onUpser
 
   const matches = data.matches || [];
   const playerStats = data.playerStats || [];
-  const maps = data.settings.maps || [];
+  const maps = useMemo(() => activeResourceNames(data, 'map'), [data]);
   const stratsList = evidenceData.strats || [];
   const stratRunsList = evidenceData.stratRuns || [];
   const roundIntelligenceByMap = useMemo(() => new Map(buildMapRoundIntelligence(matches, data.rounds || []).map(row => [row.map, row])), [matches, data.rounds]);
@@ -82,7 +83,7 @@ export default function MapBestStats({ data, evidenceData = data, theme, onUpser
 
     maps.forEach(mapName => {
       // 1. Get all matches for this map
-      const mapMatches = matches.filter(m => m.map === mapName);
+      const mapMatches = matches.filter(m => canonicalResourceName(data, 'map', m.map) === mapName);
       
       // 2. Sort them chronologically (oldest first, newest last)
       mapMatches.sort((a, b) => new Date(a.date).getTime() - new Date(b.date).getTime());
@@ -151,7 +152,7 @@ export default function MapBestStats({ data, evidenceData = data, theme, onUpser
     });
 
     return table;
-  }, [maps, matches, playerStats, data.rounds, data.settings.stats]);
+  }, [data, maps, matches, playerStats]);
 
   // --- BEST MAP CALCULATOR WEIGHTED ---
   const calculatedBestMaps = useMemo(() => {
@@ -189,7 +190,7 @@ export default function MapBestStats({ data, evidenceData = data, theme, onUpser
       // Equal-weight current-player form prevents one high-volume fragger from
       // hiding a weak roster fit. Each player's reconciled map K/D contributes
       // once to the map score, alongside the existing team result factors.
-      const mapMatchIds = new Set(matches.filter(match => match.map === mapName).map(match => match.id));
+      const mapMatchIds = new Set(matches.filter(match => canonicalResourceName(data, 'map', match.map) === mapName).map(match => match.id));
       const rowsByPlayer = new Map<string, typeof playerStats>();
       for (const row of playerStats.filter(row => mapMatchIds.has(row.matchId))) {
         const key = row.playerId || `name:${String(row.displayNameSnapshot || row.player || '').trim().toLocaleLowerCase()}`;
@@ -307,7 +308,7 @@ export default function MapBestStats({ data, evidenceData = data, theme, onUpser
       if (isAThrow || hasReason || hasPlayer) {
         const match = allMatches.find(m => m.id === r.matchId);
         if (match) {
-          const mapName = match.map;
+          const mapName = canonicalResourceName(data, 'map', match.map) || match.map;
           if (!mapThrows[mapName]) {
             mapThrows[mapName] = { totalThrows: 0, evidenceLosses: 0, reasons: {}, players: {} };
           }
@@ -351,7 +352,8 @@ export default function MapBestStats({ data, evidenceData = data, theme, onUpser
           : lostPostPistol ? 'Failed post-pistol conversion'
             : lostAdvantageLabel(r) || (ours === 'full' ? 'Full-buy loss' : null);
         if (reason) {
-          const mapRow = mapThrows[match.map] || (mapThrows[match.map] = { totalThrows: 0, evidenceLosses: 0, reasons: {}, players: {} });
+          const canonicalMap = canonicalResourceName(data, 'map', match.map) || match.map;
+          const mapRow = mapThrows[canonicalMap] || (mapThrows[canonicalMap] = { totalThrows: 0, evidenceLosses: 0, reasons: {}, players: {} });
           mapRow.evidenceLosses += 1;
           mapRow.reasons[reason] = (mapRow.reasons[reason] || 0) + 1;
           reasonFrequency[reason] = (reasonFrequency[reason] || 0) + 1;
@@ -360,7 +362,7 @@ export default function MapBestStats({ data, evidenceData = data, theme, onUpser
     });
 
     return { mapThrows, playerIssues, reasonFrequency };
-  }, [data.rounds, data.matches, maps, data.rosterPlayers]);
+  }, [data, maps]);
 
   const topMapThrow = useMemo(() => {
     let topMap = 'None';

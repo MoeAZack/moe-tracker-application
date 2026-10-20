@@ -129,9 +129,11 @@ export interface Settings {
   players: string[];
   maps: string[];
   agents: string[];
+  weapons?: string[];
   inactivePlayers?: string[];
   inactiveMaps?: string[];
   inactiveAgents?: string[];
+  inactiveWeapons?: string[];
   matchTypes: string[];
   attendanceStates: string[];
   goalStates: string[];

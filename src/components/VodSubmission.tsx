@@ -4,6 +4,7 @@ import type { ScreenshotReviewDraft, TrackerData, VodSubmission as VodSubmission
 import { extractScoreboardLocally } from '../utils/localScoreboard';
 import { apiFetch } from '../utils/api';
 import { cairoDateKeyAt } from '../../lib/uiIntegration';
+import { activeResourceNames } from '../../lib/resourceCatalog';
 
 type Props = { data: TrackerData; role: string | null; onRefresh: () => Promise<void> | void };
 type VodProgress = { owner: 'batch' | 'personal'; step: number; stepPercent: number | null; message: string; status: 'working' | 'ready' | 'done' | 'error' };
@@ -89,7 +90,7 @@ export default function VodSubmission({ data, role, onRefresh }: Props) {
     let cacheId = ''; let completed = false;
     try {
       const requestedGames = Math.max(1, Math.min(12, sourceOverride?.expectedGames || Number.parseInt(expectedGames, 10) || 1));
-      const discovery = await window.moeDesktop.discoverVodGames({ ...(chosenUrl ? { vodUrl: chosenUrl } : {}), expectedGames: requestedGames, mapNames: data.settings.maps || [], ...(chosenLocal ? { localPath: chosenLocal.path } : {}) }); cacheId = discovery.cacheId; const normalizedVodUrl = discovery.vodUrl || chosenUrl; const selectedPovName = activeRoster.find(player => player.id === vodPovPlayerId)?.displayName || null;
+      const discovery = await window.moeDesktop.discoverVodGames({ ...(chosenUrl ? { vodUrl: chosenUrl } : {}), expectedGames: requestedGames, mapNames: activeResourceNames(data, 'map'), ...(chosenLocal ? { localPath: chosenLocal.path } : {}) }); cacheId = discovery.cacheId; const normalizedVodUrl = discovery.vodUrl || chosenUrl; const selectedPovName = activeRoster.find(player => player.id === vodPovPlayerId)?.displayName || null;
       setTimelineProgress({ owner: 'batch', step: 2, stepPercent: 0, message: 'Reading detected scoreboard candidates…', status: 'working' });
       const detected: Array<{ timestampMs: number; draft: ScreenshotReviewDraft; imageSha256: string; selected: number[] }> = [];
       const signatures = new Set<string>();

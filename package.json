@@ -34,6 +34,7 @@
     "stage0:audit": "tsx scripts/stage0-baseline.mts",
     "stage0:inventory": "tsx scripts/stage0-inventory.mts",
     "stage0:recovery": "pwsh -NoProfile -File scripts/stage0-recovery-bootstrap.ps1",
+    "stage2:audit": "tsx scripts/stage2-catalog-audit.mts",
     "check": "npm run lint && npm test && npm run build"
   },
   "dependencies": {

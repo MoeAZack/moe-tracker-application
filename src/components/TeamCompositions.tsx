@@ -4,6 +4,7 @@ import { Award, Layers, Users } from 'lucide-react';
 import { percentageTextClass } from '../utils/percentageColor';
 import { matchOutcome } from '../../lib/analyticsEvidence';
 import { AgentPortrait, MapThumbnail } from './ValorantMedia';
+import { activeResourceNames, canonicalResourceName } from '../../lib/resourceCatalog';
 
 interface ComponentProps {
   data: TrackerData;
@@ -19,8 +20,8 @@ export default function TeamCompositions({ data, theme }: ComponentProps) {
   const isLight = data.settings.theme === 'daylight';
   const matches = data.matches || [];
   const playerStats = data.playerStats || [];
-  const maps = data.settings.maps || [];
-  const agentsList = data.settings.agents || [];
+  const maps = useMemo(() => activeResourceNames(data, 'map'), [data]);
+  const agentsList = useMemo(() => activeResourceNames(data, 'agent'), [data]);
   const activeAgentKeys = useMemo(() => new Set(agentsList.map(agent => agent.toLocaleLowerCase('en'))), [agentsList]);
 
   // --- MAP COMPOSITIONS ANALYTICS ---
@@ -33,7 +34,8 @@ export default function TeamCompositions({ data, theme }: ComponentProps) {
     });
 
     matches.forEach((m) => {
-      if (!comps[m.map]) return;
+      const mapName = canonicalResourceName(data, 'map', m.map);
+      if (!mapName || !comps[mapName]) return;
       const outcome = compositionMatchOutcome(m);
       if (!outcome) return;
 
@@ -42,20 +44,20 @@ export default function TeamCompositions({ data, theme }: ComponentProps) {
       if (mStats.length === 0) return;
 
       // Collect the agents and sort them alphabetically
-      const agents = mStats.map(s => s.agent).filter(agent => agent && activeAgentKeys.has(agent.toLocaleLowerCase('en'))).sort();
+      const agents = mStats.map(s => canonicalResourceName(data, 'agent', s.agent)).filter((agent): agent is string => Boolean(agent && activeAgentKeys.has(agent.toLocaleLowerCase('en')))).sort();
       if (agents.length === 0) return;
 
       const compKey = agents.join(', ');
-      if (!comps[m.map][compKey]) {
-        comps[m.map][compKey] = { wins: 0, losses: 0, agents };
+      if (!comps[mapName][compKey]) {
+        comps[mapName][compKey] = { wins: 0, losses: 0, agents };
       }
 
-      if (outcome === 'win') comps[m.map][compKey].wins++;
-      else comps[m.map][compKey].losses++;
+      if (outcome === 'win') comps[mapName][compKey].wins++;
+      else comps[mapName][compKey].losses++;
     });
 
     return comps;
-  }, [maps, matches, playerStats, activeAgentKeys]);
+  }, [data, maps, matches, playerStats, activeAgentKeys]);
 
   // --- AGENT PICK RATES & PERFORMANCE ---
   const agentPerformance = useMemo(() => {
@@ -66,11 +68,12 @@ export default function TeamCompositions({ data, theme }: ComponentProps) {
     });
 
     playerStats.forEach((ps) => {
-      if (!ps.agent || !stats[ps.agent]) return;
+      const agentName = canonicalResourceName(data, 'agent', ps.agent);
+      if (!agentName || !stats[agentName]) return;
       const match = matches.find(m => m.id === ps.matchId);
       if (!match) return;
 
-      const s = stats[ps.agent];
+      const s = stats[agentName];
       s.played++;
       const outcome = compositionMatchOutcome(match);
       if (outcome === 'win') s.wins++;
@@ -94,7 +97,7 @@ export default function TeamCompositions({ data, theme }: ComponentProps) {
         };
       })
       .sort((a, b) => b.played - a.played);
-  }, [agentsList, playerStats, matches]);
+  }, [data, agentsList, playerStats, matches]);
 
   return (
     <div className="space-y-6">

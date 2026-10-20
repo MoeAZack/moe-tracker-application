@@ -6,6 +6,7 @@ import { activeTryoutPhase, newWorkspaceMatchContext } from '../utils/tryoutWork
 import { prepareLiveFinalStat, reconcileStatTotals } from '../../lib/entryEngine';
 import { percentageTextClass } from '../utils/percentageColor';
 import { buildOpponentHistory } from '../../lib/opponentHistory';
+import { activeResourceNames } from '../../lib/resourceCatalog';
 import { 
   Zap, Swords, Compass, Users, Activity, Play, Plus, Trash2, 
   CheckCircle2, AlertTriangle, Shield, Award, Sparkles, Trophy, 
@@ -55,7 +56,7 @@ export default function LiveLogger({ data, theme, onSaveMatch, onSaveRounds, onR
   const isLight = data.settings.theme === 'daylight';
   
   // Available settings
-  const mapsList = data.settings.maps || [];
+  const mapsList = activeResourceNames(data, 'map');
   const playersList = (data.rosterPlayers || []).filter(player => !player.retiredAt).map(player => player.displayName);
   const matchTypes = data.settings.matchTypes || ['Scrim', 'Official', 'Tournament', 'Practice'];
   const buyTypes = data.settings.buyTypes || ['Full', 'Half', 'Eco', 'Force', 'Bonus'];

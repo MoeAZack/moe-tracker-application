@@ -38,6 +38,8 @@ export const settingsSchema = z.object({
   inactiveMaps: z.array(z.string().min(1).max(100)).max(100).optional(),
   agents: z.array(z.string().min(1).max(100)).max(100).optional(),
   inactiveAgents: z.array(z.string().min(1).max(100)).max(100).optional(),
+  weapons: z.array(z.string().min(1).max(100)).max(100).optional(),
+  inactiveWeapons: z.array(z.string().min(1).max(100)).max(100).optional(),
   matchTypes: z.array(z.string().max(100)).max(50).optional(),
   attendanceStates: z.array(z.string().max(100)).max(50).optional(),
   goalStates: z.array(z.string().max(100)).max(50).optional(),

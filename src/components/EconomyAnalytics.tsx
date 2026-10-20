@@ -8,6 +8,7 @@ import { buildMapRoundIntelligence } from '../../lib/mapRoundAnalytics';
 import { percentageBarClass, percentageTextClass } from '../utils/percentageColor';
 import { canonicalValorantWeapon } from '../../lib/valorantCatalog';
 import { MapThumbnail, WeaponThumbnail } from './ValorantMedia';
+import { activeResourceNames } from '../../lib/resourceCatalog';
 import { summarizeRoundAdvantages } from '../../lib/roundAdvantage';
 import { buildContextualWeaponOutcomes } from '../../lib/contextualEconomy';
 
@@ -210,7 +211,8 @@ export default function EconomyAnalytics({ data, theme, focusedMatchId, focusedR
     return excludeArchivedScreenshotPlayers(combined, data.rosterPlayers || []);
   }, [rounds, data.playerStats, data.rosterPlayers, focusedMatchId]);
   const weaponOutcomeGroups = useMemo(() => buildWeaponRoundOutcomesByEconomy(rounds), [rounds]);
-  const weaponMapGroups = useMemo(() => buildWeaponRoundOutcomesByMap(matches, rounds, data.settings.maps || []), [matches, rounds, data.settings.maps]);
+  const activeMaps = useMemo(() => activeResourceNames(data, 'map'), [data]);
+  const weaponMapGroups = useMemo(() => buildWeaponRoundOutcomesByMap(matches, rounds, activeMaps), [matches, rounds, activeMaps]);
   const contextualWeapons = useMemo(() => buildContextualWeaponOutcomes(reviewData, focusedMatchId ? new Set([focusedMatchId]) : undefined), [reviewData, focusedMatchId]);
   const advantageRows = useMemo(() => summarizeRoundAdvantages(rounds), [rounds]);
 
