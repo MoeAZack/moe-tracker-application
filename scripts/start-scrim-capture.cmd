@@ -8,15 +8,17 @@ if not exist "%SCRIPT%" (
 )
 
 set "ROUNDS=%~1"
-if "%ROUNDS%"=="" set /p ROUNDS=How many numbered rounds appear in TIMELINE? [22]: 
-if "%ROUNDS%"=="" set "ROUNDS=22"
+if "%ROUNDS%"=="" set /p ROUNDS=How many numbered rounds appear in TIMELINE? Leave blank to detect automatically: 
+if "%ROUNDS%"=="" set "ROUNDS=0"
 set "TEMPLATE=without-performance"
 set "PROFILE=%~3"
 if "%PROFILE%"=="" set "PROFILE=fullscreen-windowed"
 set "DISPLAY=%~4"
 if "%DISPLAY%"=="" set "DISPLAY=primary"
 
-if /I "%~2"=="elevated" goto run_capture
+rem Capture runs with ordinary rights. Elevation is requested only when asked
+rem for ("elevate"), for players who run VALORANT itself as administrator.
+if /I not "%~2"=="elevate" goto run_capture
 
 powershell.exe -NoProfile -ExecutionPolicy Bypass -Command "Start-Process -FilePath '%~f0' -Verb RunAs -ArgumentList '%ROUNDS%','elevated','%PROFILE%','%DISPLAY%'"
 if errorlevel 1 (

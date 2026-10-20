@@ -23,4 +23,17 @@ describe('Windows scrim capture visibility', () => {
     expect(script).toContain("reason = 'timeline-did-not-scroll'");
     expect(script).toContain("if ($RoundCount -gt 0 -and $detectedRoundCount -ne $RoundCount)");
   });
+
+  // Windows-only launch path; these checks pin the launch commands because
+  // cmd.exe and UAC cannot run on the Linux test runner.
+  it('starts capture with ordinary rights unless the coach opted into elevation', () => {
+    const main = fs.readFileSync(path.resolve('desktop/main.cjs'), 'utf8');
+    const launcher = fs.readFileSync(path.resolve('scripts/start-scrim-capture.cmd'), 'utf8');
+    const ordinary = /: "(\$process = Start-Process[^"]*)";/.exec(main)?.[1] || '';
+    expect(ordinary).toContain("'standard'"); expect(ordinary).not.toContain('RunAs');
+    expect(main).toContain("elevated: false, ...(config.capturePreferences || {})");
+    expect(launcher).toContain('if /I not "%~2"=="elevate" goto run_capture');
+    expect(launcher).toContain('if "%ROUNDS%"=="" set "ROUNDS=0"');
+  });
 });
+

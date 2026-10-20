@@ -120,13 +120,13 @@ async function ensureRuntime() {
       cloudUrl: 'https://moetracker-site.pages.dev',
       extraReplayFolders: [],
       capturePaused: false,
-      capturePreferences: { profile: 'fullscreen-windowed', display: 'primary', notification: 'open-review', offlineQueue: true },
+      capturePreferences: { profile: 'fullscreen-windowed', display: 'primary', notification: 'open-review', offlineQueue: true, elevated: false },
       createdAt: new Date().toISOString(),
     };
   }
   protectConfigSecrets(config);
   config.capturePaused = config.capturePaused === true;
-  config.capturePreferences = { profile: 'fullscreen-windowed', display: 'primary', notification: 'open-review', offlineQueue: true, ...(config.capturePreferences || {}) };
+  config.capturePreferences = { profile: 'fullscreen-windowed', display: 'primary', notification: 'open-review', offlineQueue: true, elevated: false, ...(config.capturePreferences || {}) };
   if (!config.deviceId) {
     config.deviceId = `desktop-${crypto.randomUUID()}`;
   }
@@ -723,7 +723,7 @@ handleTrusted('desktop:set-capture-preferences', async (_event, input = {}) => {
   const profile = ['fullscreen', 'fullscreen-windowed', 'windowed'].includes(input.profile) ? input.profile : runtime.config.capturePreferences.profile;
   const display = /^(primary|display:\d{1,2})$/.test(String(input.display || '')) ? String(input.display) : runtime.config.capturePreferences.display;
   const notification = ['open-review', 'notify-only', 'silent'].includes(input.notification) ? input.notification : runtime.config.capturePreferences.notification;
-  runtime.config.capturePreferences = { profile, display, notification, offlineQueue: input.offlineQueue !== false }; await saveRuntimeConfig(); return runtime.config.capturePreferences;
+  runtime.config.capturePreferences = { profile, display, notification, offlineQueue: input.offlineQueue !== false, elevated: input.elevated === true }; await saveRuntimeConfig(); return runtime.config.capturePreferences;
 });
 handleTrusted('desktop:disconnect-device', async () => { delete runtime.config.cloudPairing; delete runtime.config.identity; runtime.config.mode = 'offline-first'; runtime.config.role = 'coach'; runtime.session = null; runtime.coachSession = null; await saveRuntimeConfig(); return { disconnected: true }; });
 handleTrusted('desktop:list-scoreboards', async () => (await allPendingScoreboards()).map(({ file: _privatePath, capture: privateCapture, ...record }) => ({ ...record, capture: privateCapture ? { captureId: privateCapture.captureId, template: privateCapture.template, requestedRounds: privateCapture.requestedRounds } : null })));
@@ -762,7 +762,12 @@ handleTrusted('desktop:start-scrim-capture', async (_event, input = {}) => {
   const launcher = path.join(applicationRoot(), 'scripts', 'start-scrim-capture.cmd');
   if (!path.isAbsolute(launcher) || !fs.existsSync(launcher)) throw new Error('The built-in capture helper is missing. Reinstall Moe Tracker.');
   captureActivity = { state: 'capturing', startedAt: Date.now() };
-  const command = "$process = Start-Process -FilePath $env:MOE_CAPTURE_LAUNCHER -Verb RunAs -ArgumentList @($env:MOE_CAPTURE_ROUNDS, 'elevated', $env:MOE_CAPTURE_PROFILE, $env:MOE_CAPTURE_DISPLAY) -PassThru; if (-not $process) { exit 1 }";
+  // Ordinary rights by default: a UAC prompt on every capture is only needed
+  // when VALORANT itself runs as administrator, which the coach opts into.
+  const elevated = runtime.config.capturePreferences.elevated === true;
+  const command = elevated
+    ? "$process = Start-Process -FilePath $env:MOE_CAPTURE_LAUNCHER -Verb RunAs -ArgumentList @($env:MOE_CAPTURE_ROUNDS, 'elevated', $env:MOE_CAPTURE_PROFILE, $env:MOE_CAPTURE_DISPLAY) -PassThru; if (-not $process) { exit 1 }"
+    : "$process = Start-Process -FilePath $env:MOE_CAPTURE_LAUNCHER -ArgumentList @($env:MOE_CAPTURE_ROUNDS, 'standard', $env:MOE_CAPTURE_PROFILE, $env:MOE_CAPTURE_DISPLAY) -PassThru; if (-not $process) { exit 1 }";
   await new Promise((resolve, reject) => {
     const child = spawn('powershell.exe', ['-NoProfile', '-NonInteractive', '-ExecutionPolicy', 'Bypass', '-Command', command], {
       windowsHide: true,
@@ -774,7 +779,7 @@ handleTrusted('desktop:start-scrim-capture', async (_event, input = {}) => {
     child.on('error', error => { captureActivity = null; reject(error); });
     child.on('exit', code => { if (code === 0) resolve(); else { captureActivity = null; reject(new Error(stderr.trim() || 'Windows did not start the capture helper.')); } });
   });
-  return { started: true, message: `Capture started${roundCount ? ` for ${roundCount} rounds` : ' with automatic round detection'}. Approve Windows elevation, then return to VALORANT before the countdown ends.` };
+  return { started: true, message: `Capture started${roundCount ? ` for ${roundCount} rounds` : ' with automatic round detection'}. ${elevated ? 'Approve Windows elevation, then return' : 'Return'} to VALORANT before the countdown ends.` };
 });
 handleTrusted('desktop:delete-replay', async (event, replayPath) => {
   requireTrustedSender(event);
