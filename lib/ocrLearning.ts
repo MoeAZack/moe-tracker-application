@@ -1,7 +1,7 @@
 import { normalizeRosterName } from './entryEngine';
 import { normalizeCaptureName } from './scrimCaptureImport';
 
-export const OCR_LEARNING_VERSION = 'ocr-learning-v1';
+export const OCR_LEARNING_VERSION = 'ocr-learning-v2';
 
 export type OcrLearningField = 'map' | 'opponent' | 'name' | 'agent' | 'kills' | 'deaths' | 'assists' | 'fk' | 'fd' | 'plants' | 'defuses' | 'trades';
 
@@ -47,7 +47,7 @@ export interface LearnedPlayerAlias {
 
 export interface LocalCorrectionModel {
   version: typeof OCR_LEARNING_VERSION;
-  rules: Array<{ field: OcrLearningField; predicted: string | number; corrected: string | number; confirmations: number; sourceModel: string; layout: string; resolution: string }>;
+  rules: Array<{ field: OcrLearningField; predicted: string | number; corrected: string | number; confirmations: number; sourceModel: string; layout: string; resolution: string; sourceRegion: string }>;
 }
 
 const comparable = (value: unknown) => value === undefined || value === '' ? null : value === null ? null : typeof value === 'number' ? value : String(value).trim();
@@ -98,17 +98,17 @@ export function correctionSamplesFromAcceptedEdit(input: {
 
 export function learnedAliasesFromCorrections(samples: readonly OcrCorrectionSample[], roster: readonly { id: string; displayName: string }[]): LearnedPlayerAlias[] {
   const names = new Map(roster.map(player => [player.id, player.displayName]));
-  const groups = new Map<string, LearnedPlayerAlias>();
+  const groups = new Map<string, LearnedPlayerAlias & { evidence: Set<string> }>();
   for (const sample of samples) {
     if (sample.field !== 'name' || !sample.playerId || typeof sample.predicted !== 'string') continue;
     const canonicalName = names.get(sample.playerId) || (typeof sample.corrected === 'string' ? sample.corrected : '');
     const observed = sample.predicted.trim(); const normalized = normalizeRosterName(observed);
     if (!canonicalName || !normalized || normalized === normalizeRosterName(canonicalName)) continue;
-    const key = `${sample.playerId}:${normalized}`; const current = groups.get(key);
-    groups.set(key, current ? { ...current, confirmations: current.confirmations + 1, lastConfirmedAt: sample.recordedAt > current.lastConfirmedAt ? sample.recordedAt : current.lastConfirmedAt }
-      : { key, observed, playerId: sample.playerId, canonicalName, confirmations: 1, lastConfirmedAt: sample.recordedAt });
+    const key = `${sample.playerId}:${normalized}`; const evidenceId = sample.captureId || sample.matchId || sample.id; const current = groups.get(key);
+    if (current) { current.evidence.add(evidenceId); current.confirmations = current.evidence.size; if (sample.recordedAt > current.lastConfirmedAt) current.lastConfirmedAt = sample.recordedAt; }
+    else groups.set(key, { key, observed, playerId: sample.playerId, canonicalName, confirmations: 1, lastConfirmedAt: sample.recordedAt, evidence: new Set([evidenceId]) });
   }
-  return [...groups.values()].sort((a, b) => b.confirmations - a.confirmations || b.lastConfirmedAt.localeCompare(a.lastConfirmedAt));
+  return [...groups.values()].filter(item => item.confirmations >= 2).map(({ evidence: _evidence, ...item }) => item).sort((a, b) => b.confirmations - a.confirmations || b.lastConfirmedAt.localeCompare(a.lastConfirmedAt));
 }
 
 export function rosterWithLearnedAliases(roster: readonly { id?: string; displayName: string; aliases?: string[] }[], aliases: readonly LearnedPlayerAlias[]) {
@@ -135,30 +135,32 @@ export function ocrHealthSummary(outcomes: readonly OcrSessionOutcome[], correct
 
 /** Small, explainable local model; a rule activates only after three identical coach corrections. */
 export function buildLocalCorrectionModel(samples: readonly OcrCorrectionSample[]): LocalCorrectionModel {
-  const groups = new Map<string, Map<string, { value: string | number; count: number }>>();
+  const groups = new Map<string, Map<string, { value: string | number; evidence: Set<string> }>>();
   for (const sample of samples) {
     if (sample.field === 'name' || sample.predicted === null || sample.corrected === null || same(sample.predicted, sample.corrected)) continue;
-    const source = [sample.modelVersion, sample.layout || 'unknown', sample.resolution || 'unknown', sample.field, String(sample.predicted).toLocaleLowerCase('en')].join('\0'); const target = JSON.stringify(sample.corrected);
+    const source = [sample.modelVersion, sample.layout || 'unknown', sample.resolution || 'unknown', sample.sourceRegion || sample.field, sample.field, String(sample.predicted).toLocaleLowerCase('en')].join('\0'); const target = JSON.stringify(sample.corrected);
     const choices = groups.get(source) || new Map(); const current = choices.get(target);
-    choices.set(target, { value: sample.corrected, count: (current?.count || 0) + 1 }); groups.set(source, choices);
+    const evidenceId = sample.captureId || sample.matchId || sample.id;
+    if (current) current.evidence.add(evidenceId); else choices.set(target, { value: sample.corrected, evidence: new Set([evidenceId]) }); groups.set(source, choices);
   }
   const rules: LocalCorrectionModel['rules'] = [];
   for (const [source, choices] of groups) {
-    const ranked = [...choices.values()].sort((a, b) => b.count - a.count); const winner = ranked[0];
+    const ranked = [...choices.values()].map(item => ({ ...item, count: item.evidence.size })).sort((a, b) => b.count - a.count); const winner = ranked[0];
     if (!winner || winner.count < 3 || (ranked[1] && ranked[1].count === winner.count)) continue;
-    const [sourceModel, layout, resolution, fieldRaw, predicted] = source.split('\0'); const field = fieldRaw as OcrLearningField;
+    const [sourceModel, layout, resolution, sourceRegion, fieldRaw, predicted] = source.split('\0'); const field = fieldRaw as OcrLearningField;
     const numeric = ['kills','deaths','assists','fk','fd','plants','defuses','trades'].includes(field);
-    rules.push({ field, predicted: numeric ? Number(predicted) : predicted, corrected: winner.value, confirmations: winner.count, sourceModel, layout, resolution });
+    rules.push({ field, predicted: numeric ? Number(predicted) : predicted, corrected: winner.value, confirmations: winner.count, sourceModel, layout, resolution, sourceRegion });
   }
   return { version: OCR_LEARNING_VERSION, rules };
 }
 
-export function applyLocalCorrection(model: LocalCorrectionModel | undefined, field: OcrLearningField, value: unknown, context?: { sourceModel?: string; layout?: string; resolution?: string }) {
+export function applyLocalCorrection(model: LocalCorrectionModel | undefined, field: OcrLearningField, value: unknown, context?: { sourceModel?: string; layout?: string; resolution?: string; sourceRegion?: string }) {
   if (value === null || value === undefined || !model) return value;
   const candidates = model.rules.filter(rule => rule.field === field && same(rule.predicted, value)
     && (!context?.sourceModel || rule.sourceModel === context.sourceModel)
     && (!context?.layout || rule.layout === context.layout)
-    && (!context?.resolution || rule.resolution === context.resolution));
+    && (!context?.resolution || rule.resolution === context.resolution)
+    && (!context?.sourceRegion || rule.sourceRegion === context.sourceRegion));
   return candidates.length === 1 ? candidates[0].corrected : value;
 }
 
