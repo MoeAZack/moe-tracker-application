@@ -29,6 +29,17 @@ describe('private OCR learning', () => {
     expect(applyLocalCorrection(model, 'agent', '0men', { sourceModel: 'different-model' })).toBe('0men');
   });
 
+  it('learns from captures accepted through the review path', () => {
+    const reviewMatch = (index: number) => ({ id: `m${index}`, source: 'scrim-import', sourceMetadata: { method: 'screenshot', model: 'tesseract-local+review' }, screenshotEvidence: { captureId: `cap-${index}`, diagnostics: { layout: 'standard', resolution: '1920x1080' } } });
+    const samples = [0, 1, 2].flatMap(index => correctionSamplesFromAcceptedEdit({
+      beforeMatch: reviewMatch(index), beforeStats: [{ playerId: 'p1', player: 'Alpha', agent: '0men' }],
+      nextMatch: reviewMatch(index), nextStats: [{ playerId: 'p1', player: 'Alpha', agent: 'Omen' }], recordedAt: `2026-10-18T10:00:0${index}.000Z`,
+    }));
+    expect(samples.every(sample => sample.modelVersion === 'tesseract-local')).toBe(true);
+    const model = buildLocalCorrectionModel(samples);
+    expect(applyLocalCorrection(model, 'agent', '0men', { sourceModel: 'tesseract-local', layout: 'standard', resolution: '1920x1080', sourceRegion: 'player.0.agent' })).toBe('Omen');
+  });
+
   it('does not learn from repeated edits to one capture or apply a rule to another row', () => {
     const base = { captureId: 'same', matchId: 'm1', playerId: 'p1', field: 'kills' as const, predicted: 1, corrected: 7, modelVersion: 'x', recordedAt: '2026-10-18T10:00:00.000Z', sourceRegion: 'player.0.kills' };
     expect(buildLocalCorrectionModel([0, 1, 2].map(index => ({ ...base, id: String(index) }))).rules).toEqual([]);

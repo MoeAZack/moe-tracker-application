@@ -8,11 +8,13 @@ const normalize = (value: unknown) => String(value ?? '').trim().toLocaleLowerCa
  * version bump or a changed roster/selection invalidates the affected entry. */
 export function localScoreboardCacheKey(input: {
   imageSha256: string;
-  rosterPlayers: Array<{ id?: string; displayName: string }>;
+  rosterPlayers: Array<{ id?: string; displayName: string; aliases?: string[] }>;
   selection?: unknown;
   extractorVersion?: string;
 }) {
-  const roster = input.rosterPlayers.map(player => `${player.id || ''}:${normalize(player.displayName)}`).sort();
+  // Learned aliases change roster matching, so they are part of the identity
+  // projection: learning a new alias re-runs extraction instead of reusing it.
+  const roster = input.rosterPlayers.map(player => `${player.id || ''}:${normalize(player.displayName)}:${(player.aliases || []).map(normalize).sort().join('|')}`).sort();
   return JSON.stringify([input.extractorVersion || LOCAL_SCOREBOARD_CACHE_VERSION, input.imageSha256, roster, input.selection || null]);
 }
 
