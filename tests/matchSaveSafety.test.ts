@@ -282,6 +282,42 @@ describe('explicit match statistics save contract', () => {
     expect(JSON.parse(await fs.readFile(dbPath, 'utf8')).playerStats).toHaveLength(5);
   });
 
+  it('blocks an exact immutable source from creating a second match', async () => {
+    const seeded: any = fixture();
+    seeded.matches[0].sourceMetadata = { method: 'manual', provider: 'coach-import', externalId: 'source-1', capturedAt: '2026-10-20T10:00:00.000Z' };
+    await fs.writeFile(dbPath, JSON.stringify(seeded));
+    const response = await save(await login(adminKey), { match: { opponent: 'Duplicate', sourceMetadata: { method: 'manual', provider: 'coach-import', externalId: 'source-1', capturedAt: '2026-10-20T11:00:00.000Z' } } });
+    expect(response.status).toBe(409); expect(await response.json()).toMatchObject({ existingMatchId: 'match-1' });
+    expect(JSON.parse(await fs.readFile(dbPath, 'utf8')).matches).toHaveLength(1);
+  });
+
+  it('preserves round ids and linked coach resolutions across repeated round saves', async () => {
+    const seeded: any = fixture();
+    seeded.rounds = [{ id: 'stable-round-1', matchId: 'match-1', roundNo: 1, side: 'Attack', result: 'W' }];
+    seeded.evidenceFusionResolutions = [{ id: 'resolution-1', matchId: 'match-1', roundId: 'stable-round-1', field: 'result', selectedSource: 'coach', selectedValue: 'W', reason: 'Verified', revision: 1, updatedAt: '2026-10-20T10:00:00Z', updatedBy: 'Coach', history: [] }];
+    seeded.goals = [{ id: 'goal-1', date: '2026-10-20', goal: 'Keep', status: 'Open', matchId: 'match-1', roundId: 'stable-round-1' }];
+    await fs.writeFile(dbPath, JSON.stringify(seeded));
+    const token = await login(adminKey);
+    const response = await fetch(`${origin}/api/save-rounds`, { method: 'POST', headers: { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' }, body: JSON.stringify({ matchId: 'match-1', rows: [{ roundNo: 1, side: 'Attack', result: 'L' }, { roundNo: 2, side: 'Attack', result: 'W' }] }) });
+    const result = await response.json(); expect(response.status, JSON.stringify(result)).toBe(200);
+    expect(result.rows[0]).toMatchObject({ id: 'stable-round-1', roundNo: 1, result: 'L' }); expect(result.rows[1].id).toBeTruthy();
+    const stored = JSON.parse(await fs.readFile(dbPath, 'utf8')); expect(stored.evidenceFusionResolutions[0].roundId).toBe('stable-round-1'); expect(stored.goals[0].roundId).toBe('stable-round-1');
+  });
+
+  it('allows only coaches to delete a match and removes its complete evidence graph', async () => {
+    const seeded: any = fixture();
+    seeded.rounds = [{ id: 'round-1', matchId: 'match-1', roundNo: 1 }]; seeded.vetos = [{ id: 'veto-1', matchId: 'match-1' }]; seeded.analyticsBuilds = { 'match-1': { status: 'ready', sourceHash: 'a'.repeat(64) } };
+    seeded.vodSubmissions = [{ id: 'vod-1', linkedMatchId: 'match-1' }]; seeded.vodReviews = [{ id: 'review-1', matchId: 'match-1', notes: [{ text: 'Coach note' }] }];
+    seeded.evidenceFusionResolutions = [{ id: 'resolution-1', matchId: 'match-1', roundId: 'round-1' }]; seeded.engineAdapters = { replay: { 'match-1': { matchId: 'match-1' } } };
+    seeded.goals = [{ id: 'goal-1', date: '2026-10-20', goal: 'Keep note', status: 'Open', matchId: 'match-1', roundId: 'round-1' }];
+    await fs.writeFile(dbPath, JSON.stringify(seeded));
+    const remove = (token: string) => fetch(`${origin}/api/remove`, { method: 'POST', headers: { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' }, body: JSON.stringify({ sheet: 'Matches', id: 'match-1' }) });
+    expect((await remove(await login(playerKey))).status).toBe(403);
+    const response = await remove(await login(adminKey)); expect(response.status).toBe(200); expect(await response.json()).toMatchObject({ success: true, matchPurge: { matchId: 'match-1' } });
+    const stored = JSON.parse(await fs.readFile(dbPath, 'utf8')); expect(stored.matches).toEqual([]); expect(stored.playerStats).toEqual([]); expect(stored.rounds).toEqual([]); expect(stored.vodSubmissions).toEqual([]); expect(stored.analyticsBuilds).toEqual({}); expect(stored.engineAdapters.replay).toEqual({});
+    expect(stored.goals[0]).toMatchObject({ id: 'goal-1', goal: 'Keep note' }); expect(stored.goals[0]).not.toHaveProperty('matchId'); expect(stored.vodReviews[0]).not.toHaveProperty('matchId');
+  });
+
   it('materializes first deaths from complete opening evidence without requiring every later kill', async () => {
     const seeded: any = fixture();
     seeded.playerStats = [{ id: 'stat-alpha', matchId: 'match-1', playerId: 'player-alpha', player: 'Alpha', kills: 10, deaths: 10, fd: null }];
