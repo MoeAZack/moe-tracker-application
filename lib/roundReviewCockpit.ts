@@ -1,4 +1,5 @@
 import type { Match, PlayerStats, Round, TrackerData, VodReview } from '../src/types';
+import { buildContextualRoundIntelligence, type ContextualRoundIntelligence } from './contextualRoundIntelligence';
 
 export type ReviewMomentKind = 'round-start' | 'opening-duel' | 'advantage-gained' | 'advantage-lost' | 'failed-trade' | 'plant' | 'defuse' | 'ultimate-use' | 'orb-capture' | 'coach-note';
 export type ReviewClassificationType = 'advantage-collapse' | 'failed-trade-spacing' | 'economy-mismatch' | 'post-plant-loss' | 'first-death-review' | 'utility-unused-review';
@@ -36,6 +37,7 @@ export interface RoundReviewCard {
   suggestions: RoundReviewSuggestion[];
   sources: Array<'replay' | 'screenshot' | 'vod' | 'coach'>;
   evidenceCoverage: 'complete' | 'partial' | 'limited';
+  intelligence: ContextualRoundIntelligence;
 }
 
 export interface RecurringReviewPattern {
@@ -49,7 +51,7 @@ export interface RecurringReviewPattern {
 const text = (value: unknown) => String(value ?? '').trim();
 const numberOrNull = (value: unknown) => Number.isFinite(Number(value)) ? Number(value) : null;
 const eventTime = (event: any, fallback = 0) => numberOrNull(event?.timestampMs) ?? (numberOrNull(event?.occurredAtSeconds) !== null ? Number(event.occurredAtSeconds) * 1000 : fallback);
-const eventKind = (event: any) => text(event?.kind || event?.type).toLocaleLowerCase('en');
+const eventKind = (event: any) => text(event?.kind || event?.type || event?.signal).toLocaleLowerCase('en');
 const isWin = (round: Round) => ['w', 'win', 'won'].includes(text(round.result).toLocaleLowerCase('en'));
 const isLoss = (round: Round) => ['l', 'loss', 'lost'].includes(text(round.result).toLocaleLowerCase('en'));
 const display = (value: unknown) => text(value) || null;
@@ -131,13 +133,12 @@ export function buildRoundReviewCards(data: TrackerData, matchId?: string | null
     const match = matches.get(round.matchId); if (!match) return null;
     const review = reviews.find(item => item.matchId === round.matchId) || null;
     const moments = buildMoments(round, review);
-    const replay = (round as any).replayEvidence || null;
+    const intelligence = buildContextualRoundIntelligence(round);
     const objectives = [...(round.screenshotEvidence?.objectives || []), ...vodEvents(round).filter(event => ['plant', 'defuse'].includes(eventKind(event)))];
     const sources: RoundReviewCard['sources'] = [];
-    if (replay) sources.push('replay'); if (round.screenshotEvidence) sources.push('screenshot'); if (round.vodEvidence) sources.push('vod'); if (review?.notes?.some(note => note.roundNo === round.roundNo)) sources.push('coach');
-    const utilityEvents = vodEvents(round);
+    if (round.replayEvidence) sources.push('replay'); if (round.screenshotEvidence) sources.push('screenshot'); if (round.vodEvidence) sources.push('vod'); if (review?.notes?.some(note => note.roundNo === round.roundNo)) sources.push('coach');
     const completeness = sources.length >= 2 && (round.advantageEvidence?.status === 'complete' || round.screenshotEvidence?.eventsComplete) ? 'complete' : sources.length ? 'partial' : 'limited';
-    return { id: round.id, match, round, review, economy: { ours: display(round.buy), theirs: display(round.enemyBuy) }, opening: { firstKillBy: display(round.firstKillBy), firstDeathBy: display(round.firstDeathBy) }, trades: { opportunities: numberOrNull(replay?.tradeOpportunities), successful: numberOrNull(replay?.successfulTrades) }, objective: { plant: round.plant === 'TRUE' || objectives.some(event => eventKind(event) === 'plant') ? true : round.plant === 'FALSE' ? false : null, defuse: objectives.some(event => eventKind(event) === 'defuse') ? true : null, site: display(round.site) }, utility: { ultimateUses: utilityEvents.some(event => eventKind(event) === 'ultimate-use') ? utilityEvents.filter(event => eventKind(event) === 'ultimate-use').length : null, orbCaptures: utilityEvents.some(event => eventKind(event) === 'orb-capture') ? utilityEvents.filter(event => eventKind(event) === 'orb-capture').length : null }, moments, suggestions: buildSuggestions(round, moments), sources, evidenceCoverage: completeness };
+    return { id: round.id, match, round, review, economy: { ours: display(round.buy), theirs: display(round.enemyBuy) }, opening: { firstKillBy: display(round.firstKillBy), firstDeathBy: display(round.firstDeathBy) }, trades: { opportunities: intelligence.trades.opportunities, successful: intelligence.trades.successful }, objective: { plant: round.plant === 'TRUE' || objectives.some(event => eventKind(event) === 'plant') ? true : round.plant === 'FALSE' ? false : null, defuse: objectives.some(event => eventKind(event) === 'defuse') ? true : null, site: display(round.site) }, utility: { ultimateUses: intelligence.utility.ultimateUses, orbCaptures: intelligence.utility.orbCaptures }, moments, suggestions: buildSuggestions(round, moments), sources, evidenceCoverage: completeness, intelligence };
   }).filter((card): card is RoundReviewCard => Boolean(card)).sort((left, right) => left.match.date.localeCompare(right.match.date) || left.round.roundNo - right.round.roundNo);
 }
 

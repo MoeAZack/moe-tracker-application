@@ -34,6 +34,7 @@ describe('round review cockpit', () => {
     const cards = buildRoundReviewCards(data(), 'm1');
     expect(cards).toHaveLength(2);
     expect(cards[0]).toMatchObject({ economy: { ours: 'Full', theirs: 'Eco' }, trades: { opportunities: 2, successful: 0 }, objective: { plant: true, site: 'A' }, utility: { orbCaptures: 1 }, evidenceCoverage: 'complete' });
+    expect(cards[0].intelligence).toMatchObject({ calculationVersion: 'contextual-round-intelligence/v1', advantage: { status: 'complete' }, utility: { status: 'complete' } });
     expect(cards[0].moments.map(moment => moment.kind)).toEqual(expect.arrayContaining(['opening-duel', 'advantage-gained', 'advantage-lost', 'failed-trade', 'plant', 'orb-capture', 'coach-note']));
   });
 
