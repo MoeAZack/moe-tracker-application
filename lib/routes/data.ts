@@ -14,6 +14,8 @@ import { refreshCoachingWorkflow } from './coaching';
 import { purgeExpiredRosterPlayers } from '../roster';
 import { findPhysicalMatchCandidates } from '../physicalMatchIdentity';
 import { applyScheduleEdit, normalizeScheduleRow, removeScheduleRows, repeatedHourlyScheduleRows } from '../schedule';
+import { findExactRoundEvidenceDuplicate, findExactSourceDuplicate, purgeMatchGraph, purgeRemovedRoundReferences, stableRoundReplacement } from '../matchIntegrity';
+import { buildCalibratedPlayerRatings } from '../calibratedPlayerRatings';
 
 // Core data + match logging: full payload, reset, settings, generic upsert/remove,
 // and match/round/veto saves. Protected routes (registered after the auth middleware).
@@ -282,7 +284,7 @@ export function registerDataRoutes(app: Express, options: { websiteSummaryOnly?:
     try {
       const body = validate(schemas.removeSchema, req.body, res); if (!body) return;
       const { sheet, id } = body;
-      if ((sheet === 'Schedule' || sheet === 'Goals') && !requireCoach(req, res)) return;
+      if ((sheet === 'Schedule' || sheet === 'Goals' || sheet === 'Matches') && !requireCoach(req, res)) return;
       const db = await readDB();
 
       const key = {
@@ -298,26 +300,27 @@ export function registerDataRoutes(app: Express, options: { websiteSummaryOnly?:
         return res.status(400).json({ error: `Invalid sheet: ${sheet}` });
       }
 
-      db[key] = db[key].filter((x: any) => x.id !== id);
+      let matchPurge = null;
+      if (sheet === 'Matches') {
+        if (!(db.matches || []).some((match: any) => match.id === id)) return res.status(404).json({ error: 'Match was not found.' });
+        matchPurge = purgeMatchGraph(db, id);
+      } else db[key] = db[key].filter((x: any) => x.id !== id);
 
       if (sheet === 'Schedule') for (const item of db.schedule || []) if (item.linkedReviewEventId === id) item.linkedReviewEventId = undefined;
       if (sheet === 'Goals') for (const action of db.coachingActions || []) if (action.goalId === id) action.goalId = undefined;
 
-      // Cascading deletes
-      if (sheet === 'Matches') {
-        db.playerStats = db.playerStats.filter((p: any) => p.matchId !== id);
-        db.rounds = db.rounds.filter((r: any) => r.matchId !== id);
-        db.vetos = db.vetos.filter((v: any) => v.matchId !== id);
-        db.stratRuns = db.stratRuns.filter((sr: any) => sr.matchId !== id);
-      }
       if (sheet === 'Strats') {
         db.stratRuns = db.stratRuns.filter((sr: any) => sr.stratId !== id);
       }
 
+      if (sheet === 'Matches') {
+        db.calibratedPlayerRatings = buildCalibratedPlayerRatings(db);
+        refreshCoachingWorkflow(db, (req as any).user?.username || 'Unknown coach');
+      }
       await saveDB(db);
-      res.json({ success: true });
+      res.json({ success: true, ...(matchPurge ? { matchPurge } : {}) });
     } catch (err: any) {
-      res.status(500).json({ error: err.message });
+      res.status(err.status || 500).json({ error: err.message });
     }
   });
 
@@ -428,9 +431,13 @@ export function registerDataRoutes(app: Express, options: { websiteSummaryOnly?:
 
       // All validation and metadata planning above is fail-closed. Mutate only now.
       const matchIndex = db.matches.findIndex((entry: any) => entry.id === match.id);
-      if (matchIndex < 0 && savedStats) {
-        const duplicate = findPhysicalMatchCandidates(db, match, savedStats)[0];
-        if (duplicate) return res.status(409).json({ error: 'This physical match already exists. Open the existing match instead of creating a duplicate.', existingMatchId: duplicate.id });
+      if (matchIndex < 0) {
+        const sourceDuplicate = findExactSourceDuplicate(db, match);
+        if (sourceDuplicate) return res.status(409).json({ error: 'This exact source evidence is already attached to another match.', existingMatchId: sourceDuplicate.existingMatchId, sourceToken: sourceDuplicate.sourceToken });
+        if (savedStats) {
+          const duplicate = findPhysicalMatchCandidates(db, match, savedStats)[0];
+          if (duplicate) return res.status(409).json({ error: 'This physical match already exists. Open the existing match instead of creating a duplicate.', existingMatchId: duplicate.id });
+        }
       }
 
       if (matchIndex >= 0) db.matches[matchIndex] = match;
@@ -468,13 +475,14 @@ export function registerDataRoutes(app: Express, options: { websiteSummaryOnly?:
       const body = validate(schemas.saveRoundsSchema, req.body, res); if (!body) return;
       const { matchId, rows } = body as any;
       const db = await readDB();
-
+      if (!(db.matches || []).some((item: any) => item.id === matchId)) return res.status(404).json({ error: 'Match was not found.' });
+      const existing = (db.rounds || []).filter((round: any) => round.matchId === matchId);
+      const replacement = stableRoundReplacement(existing, rows || [], uid).map((round: any) => ({ ...round, matchId }));
+      const duplicate = findExactRoundEvidenceDuplicate(db, matchId, replacement);
+      if (duplicate) return res.status(409).json({ error: 'These exact confirmed round screenshots are already attached to another match.', existingMatchId: duplicate.existingMatchId, evidenceFingerprint: duplicate.fingerprint });
+      purgeRemovedRoundReferences(db, matchId, new Set(replacement.map((round: any) => round.id)));
       db.rounds = db.rounds.filter((r: any) => r.matchId !== matchId);
-      (rows || []).forEach((r: any) => {
-        r.id = uid();
-        r.matchId = matchId;
-        db.rounds.push(r);
-      });
+      db.rounds.push(...replacement);
 
       materializeRoundOpeningsFromScreenshotEvidence(db, { matchId });
       materializeRoundPlantsFromScreenshotEvidence(db, { matchId });
@@ -492,7 +500,7 @@ export function registerDataRoutes(app: Express, options: { websiteSummaryOnly?:
       const matchStats = db.playerStats.filter((item: any) => item.matchId === matchId);
       const summarizedStats = matchStats.filter((item: any) => item.screenshotMetrics);
       res.json({
-        matchId, rows: rows || [], count: (rows || []).length,
+        matchId, rows: replacement, count: replacement.length,
         // The analytics upload intentionally contains only rows with derived
         // screenshot metrics. Return the complete scoreboard separately so a
         // partial OCR identity match can never shrink the visible/saved lineup.
@@ -502,7 +510,7 @@ export function registerDataRoutes(app: Express, options: { websiteSummaryOnly?:
           : null,
       });
     } catch (err: any) {
-      res.status(500).json({ error: err.message });
+      res.status(err.status || 500).json({ error: err.message });
     }
   });
 

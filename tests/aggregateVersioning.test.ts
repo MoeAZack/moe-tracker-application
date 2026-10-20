@@ -9,7 +9,7 @@ import {
 } from '../lib/aggregateVersioning';
 import { buildMapRoundIntelligence } from '../lib/mapRoundAnalytics';
 import { buildShareableBackupPayload, toPublicTrackerData, toWebsiteTrackerData } from '../lib/publicData';
-import { ensureStorageSchema } from '../lib/storageSchema';
+import { ensureStorageSchema, STORAGE_SCHEMA_VERSION } from '../lib/storageSchema';
 import { selectDashboardPersonalRows } from '../src/components/Dashboard';
 import { buildEconomySpecialConversions } from '../src/components/EconomyAnalytics';
 import { compositionMatchOutcome } from '../src/components/TeamCompositions';
@@ -166,7 +166,7 @@ describe('S0.6 aggregate migration', () => {
     const data = fixture();
     data._storage = { schemaVersion: 2, migratedAt: '2026-10-01T00:00:00.000Z', migrationLedger: [] };
     ensureStorageSchema(data, '2026-10-15T10:00:00.000Z');
-    expect(data._storage).toMatchObject({ schemaVersion: 12, migrationLedger: [{ from: 2, to: 12, at: '2026-10-15T10:00:00.000Z' }] });
+    expect(data._storage).toMatchObject({ schemaVersion: STORAGE_SCHEMA_VERSION, migrationLedger: [{ from: 2, to: STORAGE_SCHEMA_VERSION, at: '2026-10-15T10:00:00.000Z' }] });
     expect(data.analyticsBuilds.m1).toMatchObject({ status: 'recomputed', builders: [MAP_ROUND_BUILDER, 'player-screenshot-metrics/v2'] });
     expect(data.calibratedPlayerRatings).toEqual(expect.any(Array));
     ensureStorageSchema(data, '2026-10-15T11:00:00.000Z');
