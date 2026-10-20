@@ -349,6 +349,8 @@ export function registerDataRoutes(app: Express, options: { websiteSummaryOnly?:
       if (sheet === 'Matches') {
         if (!(db.matches || []).some((match: any) => match.id === id)) return res.status(404).json({ error: 'Match was not found.' });
         matchPurge = purgeMatchGraph(db, id);
+        // Deleting an original releases its quarantined copy in the same write.
+        refreshDuplicateQuarantine(db);
       } else db[key] = db[key].filter((x: any) => x.id !== id);
 
       if (sheet === 'Schedule') for (const item of db.schedule || []) if (item.linkedReviewEventId === id) item.linkedReviewEventId = undefined;

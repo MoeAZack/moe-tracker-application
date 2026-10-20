@@ -1,6 +1,7 @@
 import { buildAcceptedMatchAggregatePlan, buildCanonicalAnalyticsExport, PLAYER_SCREENSHOT_BUILDER } from './aggregateVersioning';
 import { buildCanonicalDataSpine, validateCanonicalDataSpine } from './canonicalDataSpine';
 import { moe02FeatureEnabled } from './featureFlags';
+import { isDuplicateQuarantined } from './matchIntegrity';
 
 const PRIVATE_TOP_LEVEL_KEYS = new Set(['authKeys', 'allowedUsers', 'secretValues', '_storage', 'authenticatedViewer', 'tryoutDecisionNotes', 'identityCorrectionBatches']);
 const PRIVATE_SETTING_KEYS = new Set(['discordWebhook', 'gridApiKey', 'henrikApiKey', 'praccCalendarUrl', 'praccCalendarLastAttemptAt', 'praccCalendarLastSyncedAt', 'praccCalendarLastError', 'deletedCoachingSignalFingerprints']);
@@ -103,6 +104,8 @@ function selectFields(record: any, fields: readonly string[]) {
 /** Minimal authenticated website projection. Detailed evidence remains desktop-only. */
 export function toWebsiteTrackerData(db: Record<string, any>, role: 'coach' | 'player' = 'coach', authenticatedPlayerId?: string | null) {
   const safe = toPublicTrackerData(db, role, authenticatedPlayerId);
+  // A suspected re-capture waits on a coach decision; the website counts each game once.
+  const quarantinedMatchIds = new Set((safe.matches || []).filter(isDuplicateQuarantined).map((match: any) => match.id));
   const settings = { ...(safe.settings || {}) };
   delete settings.riotIds;
   delete settings.vlr;
@@ -123,11 +126,11 @@ export function toWebsiteTrackerData(db: Record<string, any>, role: 'coach' | 'p
     schedule: (safe.schedule || []).map((item: any) => selectFields(item, ['id', 'date', 'kind', 'primary', 'secondary', 'notes', 'coachNotes', 'attendance', 'calendarKey', 'startTime', 'allDay', 'durationMinutes', 'repeatSeriesId', 'repeatIndex', 'repeatCount', 'attendanceEnabled', 'requiredPlayerIds', 'attendanceCheckIns', 'source', 'sourceEventId', 'practiceBlockId', 'linkedGoalIds', 'progressLinkedAt', 'linkedReviewEventId'])),
     attendanceCredits: structuredClone(safe.attendanceCredits || []),
     goals: (safe.goals || []).map((item: any) => selectFields(item, ['id', 'date', 'goal', 'notes', 'status', 'owner', 'ownerPlayerId', 'matchId', 'roundId', 'evidenceClipId', 'sourceSignalId', 'coachingActionId', 'dueBlockId'])),
-    matches: (safe.matches || []).map((item: any) => ({
+    matches: (safe.matches || []).filter((item: any) => !quarantinedMatchIds.has(item.id)).map((item: any) => ({
       ...selectFields(item, WEBSITE_MATCH_FIELDS),
       comparisonEvidence: { accepted: item.sourceMetadata?.method === 'screenshot' ? item.reviewConfirmation?.alliedSideConfirmed === true : !!item.sourceMetadata && item.sourceMetadata.method !== 'unknown' },
     })),
-    playerStats: (safe.playerStats || []).map((item: any) => ({
+    playerStats: (safe.playerStats || []).filter((item: any) => !quarantinedMatchIds.has(item.matchId)).map((item: any) => ({
       ...selectFields(item, WEBSITE_STAT_FIELDS),
       comparisonEvidence: { openingAccepted: !!item.sourceMetadata && item.sourceMetadata.method !== 'unknown' },
     })),

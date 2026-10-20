@@ -33,6 +33,12 @@ function round(roundNo: number, capture: 'first' | 'second') {
   };
 }
 
+/** Two scoreboard rows with unread cells, the shape of a real capture where OCR missed K/D/A. */
+export function withUnreadScoreboardRows<T extends ReturnType<typeof recaptureMatch>>(match: T): T {
+  const rows = match.screenshotEvidence.scoreboardPlayers.map((row, index) => index === 3 ? { ...row, kills: null, assists: null } : index === 7 ? { ...row, deaths: null } : row);
+  return { ...match, screenshotEvidence: { ...match.screenshotEvidence, scoreboardPlayers: rows } } as T;
+}
+
 export function recaptureMatch(id: string, capture: 'first' | 'second') {
   return {
     id, date: capture === 'first' ? '2026-01-15' : '2026-01-18', type: 'Scrim', opponent: 'Synthetic Opponent',

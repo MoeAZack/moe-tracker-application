@@ -72,4 +72,22 @@ describe('Storage v2 local store', () => {
     const reread = await fresh.readDB(); await fresh.saveDB(reread);
     expect((await fresh.readDB()).rounds[0].screenshotEvidence.pixels).toHaveLength(20_000);
   });
+  it('flags same-game pairs on a schema-14 database whose round evidence is externalized', async () => {
+    const dir = await fs.mkdtemp(path.join(os.tmpdir(), 'moe-storage-v2-schema14-')); dirs.push(dir);
+    const dbPath = path.join(dir, 'db.json'); const evidenceDir = path.join(dir, 'evidence');
+    vi.stubEnv('DB_PATH', dbPath); vi.stubEnv('EVIDENCE_ARTIFACT_DIR', evidenceDir); vi.stubEnv('USE_FIRESTORE', 'false');
+    const { recaptureMatch, recaptureRounds } = await import('./fixtures/sameGameRecapture');
+    const { readDB, saveDB } = await import('../lib/store'); const db = await readDB();
+    db.matches = [recaptureMatch('a', 'first'), recaptureMatch('b', 'second')];
+    db.rounds = [...recaptureRounds('a', 'first'), ...recaptureRounds('b', 'second')];
+    await saveDB(db);
+    // Rewind the stored index to schema 14 without the flag, as an upgrade would find it.
+    const stored = JSON.parse(await fs.readFile(dbPath, 'utf8'));
+    expect(stored.rounds[0].screenshotEvidence).toMatchObject({ __moeEvidenceArtifact: 1 });
+    stored._storage.schemaVersion = 14; for (const match of stored.matches) delete match.duplicateReview;
+    await fs.writeFile(dbPath, JSON.stringify(stored));
+    const upgraded = await readDB();
+    expect(upgraded.matches.map((match: any) => match.duplicateReview?.status || null)).toEqual([null, 'quarantined']);
+    expect(upgraded.rounds).toHaveLength(48);
+  });
 });

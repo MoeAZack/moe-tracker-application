@@ -5,7 +5,7 @@ import { gzipSync, gunzipSync } from 'node:zlib';
 import { createSeed } from './seed';
 import { assertSeasonArchivesStorageSize } from './roster';
 import { ensureWorkspaceIdentity } from './evidenceReference';
-import { decodeFirestoreDocuments, encodeFirestoreDocuments, ensureStorageSchema, planFirestoreWriteBatches, planRevisionActivation, STORAGE_SCHEMA_VERSION, validateTrackerState } from './storageSchema';
+import { decodeFirestoreDocuments, encodeFirestoreDocuments, ensureStorageSchema, migrateHydratedEvidence, planFirestoreWriteBatches, planRevisionActivation, STORAGE_SCHEMA_VERSION, validateTrackerState } from './storageSchema';
 import { evidenceArtifactReferences, externalizeEvidenceArtifacts, hydrateEvidenceArtifacts, type EvidenceArtifact } from './evidenceArtifacts';
 
 // Runtime state never defaults to the repository's historical/demo db.json.
@@ -87,6 +87,8 @@ function attachVersion<T extends Record<string, any>>(data: T, version: string |
   Object.defineProperty(data, VERSION, { value: version, enumerable: false, configurable: true });
   return data;
 }
+
+const storedSchemaVersion = (state: any) => Number(state?._storage?.schemaVersion || 1);
 
 function hashText(text: string) { return crypto.createHash('sha256').update(text).digest('hex'); }
 
@@ -280,6 +282,7 @@ async function readDBFirestore() {
   const docs = snapshot.docs.map(doc => ({ id: doc.id, payload: doc.data() }));
   const state = decodeFirestoreDocuments(docs);
   await hydrateEvidenceArtifacts(state, loadFirestoreArtifact);
+  migrateHydratedEvidence(state, storedSchemaVersion(state));
   const seed = createSeed();
   for (const key of Object.keys(seed)) if (state[key] === undefined) state[key] = (seed as any)[key];
   return attachVersion(state, Number(metadata.version));
@@ -296,7 +299,7 @@ export async function readDB() {
     const version = await writeJsonFile(seed, undefined, true);
     return attachVersion(seed, version);
   }
-  const data = JSON.parse(storedText); ensureStorageSchema(data); await hydrateEvidenceArtifacts(data, loadLocalArtifact); validateTrackerState(data, { jsonFile: true });
+  const data = JSON.parse(storedText); const declared = storedSchemaVersion(data); ensureStorageSchema(data); await hydrateEvidenceArtifacts(data, loadLocalArtifact); migrateHydratedEvidence(data, declared); validateTrackerState(data, { jsonFile: true });
   return attachVersion(data, hashText(storedText));
 }
 
@@ -375,7 +378,7 @@ async function readDBD1() {
   if (rows.length !== Number(meta.chunk_count)) throw new Error('Active D1 revision is incomplete.');
   const serialized = rows.map((row: any) => row.payload).join('');
   if (hashText(serialized) !== meta.sha256) throw new Error('Active D1 revision failed integrity validation.');
-  const state = JSON.parse(serialized); ensureStorageSchema(state); await hydrateEvidenceArtifacts(state, loadD1Artifact); validateTrackerState(state);
+  const state = JSON.parse(serialized); const declared = storedSchemaVersion(state); ensureStorageSchema(state); await hydrateEvidenceArtifacts(state, loadD1Artifact); migrateHydratedEvidence(state, declared); validateTrackerState(state);
   return attachVersion(state, Number(meta.version));
 }
 

@@ -114,6 +114,16 @@ export function ensureStorageSchema(input: any, now = new Date().toISOString()) 
   return input;
 }
 
+/**
+ * Migrations that read round evidence must run on hydrated state: a stored
+ * index carries artifact stubs, so ensureStorageSchema alone cannot see it.
+ * `declared` is the schema version the stored payload had before ensureStorageSchema.
+ */
+export function migrateHydratedEvidence(input: any, declared: number, now = new Date().toISOString()) {
+  if (declared < 15) refreshDuplicateQuarantine(input, now);
+  return input;
+}
+
 export function validateTrackerState(input: any, options: { jsonFile?: boolean } = {}) {
   ensureStorageSchema(input);
   if ('settings' in input && (!input.settings || typeof input.settings !== 'object' || Array.isArray(input.settings))) throw storageError('settings must be an object.', 400);

@@ -126,4 +126,22 @@ describe('H0 integrity over HTTP', () => {
     const db = await stored(coach);
     expect(db.matches.map((row: any) => row.id)).toEqual(['a']); expect(db.rounds.every((row: any) => row.matchId === 'a')).toBe(true);
   });
+  it('releases the quarantined copy in the same write that deletes the original', async () => {
+    await reset(db => { db.matches.push(recaptureMatch('b', 'second')); db.rounds.push(...recaptureRounds('b', 'second')); db.playerStats.push(...recaptureStats('b')); });
+    const coach = await login(adminKey);
+    expect((await stored(coach)).matches.find((row: any) => row.id === 'b').duplicateReview.status).toBe('quarantined');
+    const removed = await post(coach, '/api/remove', { sheet: 'Matches', id: 'a' });
+    expect(removed.status).toBe(200);
+    const persisted = JSON.parse(await fs.readFile(dbPath, 'utf8'));
+    expect(persisted.matches.map((row: any) => row.id)).toEqual(['b']); expect(persisted.matches[0]).not.toHaveProperty('duplicateReview');
+  });
+
+  it('keeps a quarantined copy out of the website summary', async () => {
+    await reset(db => { db.matches.push(recaptureMatch('b', 'second')); db.rounds.push(...recaptureRounds('b', 'second')); db.playerStats.push(...recaptureStats('b')); });
+    const response = await fetch(`${origin}/api/website-summary`, { headers: { Authorization: `Bearer ${await login(adminKey)}` } });
+    expect(response.status).toBe(200);
+    const summary = await response.json();
+    expect(summary.matches.map((row: any) => row.id)).toEqual(['a']);
+    expect(new Set(summary.playerStats.map((row: any) => row.matchId))).toEqual(new Set(['a']));
+  });
 });

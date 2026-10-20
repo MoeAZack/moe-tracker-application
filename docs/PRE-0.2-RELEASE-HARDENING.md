@@ -17,13 +17,18 @@ Contract:
 - An exact immutable source or exact rich confirmed-round payload cannot be accepted twice.
 - Scores, dates, maps, K/D/A totals, or short W/L sequences are never sufficient duplicate proof.
 - Schema 13 repairs only unambiguous orphan-owned rows and records what it removed.
-- A same-game re-capture (identical 10-row scoreboard plus, per round, result,
-  win condition and ordered killer -> victim list, over at least five rounds
-  with kill feeds) is quarantined, not rejected: it is kept, excluded from
-  analytics and ratings, and shown beside the saved game until a coach keeps
-  both or discards the copy. Map label, date, capture folder, economy,
-  loadouts and OCR confidence are not part of that fingerprint. Schema 15
-  flags existing pairs; nothing is deleted automatically.
+- A same-game re-capture (per round, identical result, win condition and
+  ordered killer -> victim list, over at least ten rounds with fully
+  identified kill lists) is quarantined, not rejected: it is kept, excluded
+  from analytics, ratings and the website, and shown beside the saved game
+  until a coach keeps both or discards the copy. The 10-row scoreboard is
+  optional: unread cells never let a copy through, but two complete
+  scoreboards that disagree keep the games apart. Map label, date, capture
+  folder, economy, loadouts and OCR confidence are not part of the
+  fingerprint. A further copy quarantines only itself; a coach's keep
+  decision stands. Deleting the original releases its copy in the same
+  write. Schema 15 flags existing pairs after evidence hydration; nothing is
+  deleted automatically.
 - A match, its scoreboard and its rounds can be saved in one write; a rejected
   round set saves nothing.
 - First-death totals are fill-only. Coach-entered and scoreboard FD values are
