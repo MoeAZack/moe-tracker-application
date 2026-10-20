@@ -51,9 +51,9 @@ Last reconciled: 20 October 2026, Africa/Cairo. This file is the permanent scope
 | 6.5 | KAST, FK/FD, trades, multi-kills, plants, defuses, orbs, ults and HS | Automatically tested | Each metric reports complete/partial/unavailable coverage; known zero is preserved and KAST/multi-kill denominators are explicit. |
 | 6.6 | Calibrated descriptive player ratings with uncertainty and drift | Automatically tested | Median/MAD, shrinkage, intervals, trends and context splits integrated. |
 | 6.7 | Predictive player ratings | Not started | Requires out-of-sample calibration and drift backtests before any predictive label. |
-| 7.1 | Finding → goal/action → owner → next-block verification | Automatically tested | Coaching workflow and matched cohorts exist. |
-| 7.2 | Goals linked to a match, round, player and evidence clip | Implemented | Match links exist; Stage 7 closes round/player/clip linkage. |
-| 7.3 | Debrief and team-talk workflows remain distinct but linkable | Implemented | Both activity types exist; Stage 7 adds shared outcome tracking. |
+| 7.1 | Finding → goal/action → owner → next-block verification | Automatically tested | Converting an accepted finding atomically creates an owned action and linked goal; the goal surfaces the comparable next-block outcome. |
+| 7.2 | Goals linked to a match, round, player and evidence clip | Automatically tested | Manual and generated goals validate canonical match/round/clip/owner links and fail closed on mismatches. |
+| 7.3 | Debrief and team-talk workflows remain distinct but linkable | Automatically tested | Separate event types can be paired symmetrically and show one shared goal/verification outcome chain. |
 | 7.4 | Causal intervention claims with role-adjusted controls | Not started | Matched cohorts are descriptive; significance and larger controls required. |
 
 ## Stages 8–10 — round, spatial and team operations intelligence

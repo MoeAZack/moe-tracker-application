@@ -19,6 +19,11 @@ describe('Stage 0 feature boundaries', () => {
 });
 
 describe('Stage 0 integrity gate', () => {
+  it('detects orphaned coaching goals and one-way Team Talk links', () => {
+    const state: any = { matches: [], playerStats: [], rounds: [], goals: [], rosterPlayers: [], coreMemberships: [], tryoutBatches: [], vodSubmissions: [], coachingSignals: [], calibratedPlayerRatings: [], coachingActions: [{ id: 'a1', goalId: 'missing' }], schedule: [{ id: 'talk', linkedReviewEventId: 'debrief' }, { id: 'debrief' }] };
+    const result = auditStage0Integrity(state);
+    expect(result.issues.map(issue => issue.code)).toEqual(expect.arrayContaining(['ORPHAN_COACHING_GOAL', 'BROKEN_REVIEW_EVENT_LINK']));
+  });
   it('preserves a clean baseline without counting archived evidence as current', () => {
     const data = state();
     expect(auditStage0Integrity(data)).toMatchObject({ ok: true, errors: 0 });

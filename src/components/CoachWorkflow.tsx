@@ -42,12 +42,14 @@ export default function CoachWorkflow({
   onOpenMatch,
   onFocusMatch,
   preferredMatchId,
+  onRefresh,
 }: {
   data: TrackerData;
   role: string | null;
   onOpenMatch: (matchId: string) => void;
   onFocusMatch?: (matchId: string) => void;
   preferredMatchId?: string | null;
+  onRefresh?: () => Promise<void>;
 }) {
   const [workflow, setWorkflow] = useState<WorkflowPayload | null>(null);
   const [busy, setBusy] = useState("");
@@ -236,6 +238,7 @@ export default function CoachWorkflow({
           ? "Review item recovered."
           : `Review item moved to ${status.replaceAll("-", " ")}.`,
       );
+      await onRefresh?.();
       return true;
     } catch (error: any) {
       setNotice(error.message);
@@ -335,6 +338,7 @@ export default function CoachWorkflow({
             }
           : current,
       );
+      await onRefresh?.();
     } catch (error: any) {
       setNotice(error.message);
     } finally {

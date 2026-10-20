@@ -717,7 +717,7 @@ export default function App() {
             )}
             {activeTab === 'aitactical' && analyticsData && (
               <div className="space-y-8">
-                <CoachWorkflow data={analyticsData} role={role} preferredMatchId={reviewMatchId} onFocusMatch={(matchId) => { setReviewMatchId(matchId); setReviewRoundNo(null); }} onOpenMatch={(matchId) => { setReviewMatchId(matchId); setActiveTab('vod'); }} />
+                <CoachWorkflow data={analyticsData} role={role} preferredMatchId={reviewMatchId} onRefresh={fetchDatabase} onFocusMatch={(matchId) => { setReviewMatchId(matchId); setReviewRoundNo(null); }} onOpenMatch={(matchId) => { setReviewMatchId(matchId); setActiveTab('vod'); }} />
                 <AITacticalHub data={coachReviewData || analyticsData} theme={theme} onUpsert={handleUpsert} onRemove={handleRemove} />
               </div>
             )}

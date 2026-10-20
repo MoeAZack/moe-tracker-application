@@ -5,6 +5,8 @@ import { apiFetch } from '../utils/api';
 import { attendancePolicy, attendanceStatus, attendanceSummary, attendanceWindow } from '../../lib/attendance';
 import { repeatedHourlyScheduleRows } from '../../lib/schedule';
 import { confidentMatchesForSession, practiceMatchSuggestions, practiceSessionProgress } from '../../lib/practiceSessionProgress';
+import { coachingGoalVerification } from '../../lib/coachingGoalLink';
+import { linkedReviewSessionOutcome } from '../../lib/linkedReviewSessions';
 
 interface ComponentProps {
   data: TrackerData;
@@ -46,6 +48,10 @@ export default function CalendarGoals({ data, theme, role, onUpsert, onRemove, o
   const calendars = data.settings.calendars || [];
   const scheduleList = data.schedule || [];
   const goalsList = data.goals || [];
+  const selectedGoalRounds = (data.rounds || []).filter(round => round.matchId === editingGoal?.matchId).sort((a, b) => a.roundNo - b.roundNo);
+  const selectedGoalRound = selectedGoalRounds.find(round => round.id === editingGoal?.roundId);
+  const selectedGoalClips = selectedGoalRound?.reviewCockpit?.clips || [];
+  const companionEvents = scheduleList.filter(item => item.id !== editingSchedule?.id && ((editingSchedule?.calendarKey === 'team-talk' && item.calendarKey === 'debrief') || (editingSchedule?.calendarKey === 'debrief' && item.calendarKey === 'team-talk')));
   const policy = useMemo(() => attendancePolicy(data.settings), [data.settings]);
   const attendanceSummaries = useMemo(() => rosterPlayers.map(player => ({ player, summary: attendanceSummary(data, player.id, now) })), [data, rosterPlayers, now]);
   const linkingMatchSuggestions = useMemo(() => linkingSchedule ? practiceMatchSuggestions(linkingSchedule, data.matches || []) : [], [linkingSchedule, data.matches]);
@@ -248,7 +254,8 @@ export default function CalendarGoals({ data, theme, role, onUpsert, onRemove, o
   };
 
   const handleOpenEditGoal = (g: Goal) => {
-    setEditingGoal({ ...g });
+    const legacyOwner = g.ownerPlayerId ? undefined : rosterPlayers.find(player => player.displayName === g.owner);
+    setEditingGoal({ ...g, ...(legacyOwner ? { ownerPlayerId: legacyOwner.id } : {}) });
     setGoalModalOpen(true);
   };
 
@@ -469,7 +476,8 @@ export default function CalendarGoals({ data, theme, role, onUpsert, onRemove, o
 
                       {role === 'coach' && !sched.allDay && sched.startTime && <button type="button" onClick={() => void duplicateNextHour(sched)} className="ui-button min-h-9 px-3 text-[9px]"><Plus className="h-3.5 w-3.5" /> Duplicate next hour</button>}
 
-                      {(() => { const progress = practiceSessionProgress(data, sched.id); if (!progress) return null; return <div className="rounded-lg border border-violet-400/15 bg-violet-400/[0.04] p-3"><div className="flex flex-wrap items-center justify-between gap-2"><div><p className="text-[9px] font-black uppercase tracking-widest text-violet-300">Practice progress</p><p className="mt-1 text-xs text-slate-400">{progress.linked ? `${progress.matchIds.length} match${progress.matchIds.length === 1 ? '' : 'es'} · ${progress.goals.done}/${progress.goals.total} goals · ${progress.findings.accepted}/${progress.findings.total} findings accepted` : `${progress.suggestedMatchIds.length} same-day match${progress.suggestedMatchIds.length === 1 ? '' : 'es'} ready to review`}</p>{progress.linked && <p className="mt-1 text-[10px] text-slate-500">Attendance {progress.attendance.checkedIn}/{progress.attendance.assigned} · {progress.attendance.late} late · evidence {progress.summary.coverage.evidenceHealth}</p>}</div>{role === 'coach' && <button type="button" onClick={() => openProgressLink(sched)} className="ui-button min-h-9 px-3 text-[10px]">{progress.linked ? 'Edit linkage' : 'Link results'}</button>}</div></div>; })()}
+                        {(() => { const progress = practiceSessionProgress(data, sched.id); if (!progress) return null; return <div className="rounded-lg border border-violet-400/15 bg-violet-400/[0.04] p-3"><div className="flex flex-wrap items-center justify-between gap-2"><div><p className="text-[9px] font-black uppercase tracking-widest text-violet-300">Practice progress</p><p className="mt-1 text-xs text-slate-400">{progress.linked ? `${progress.matchIds.length} match${progress.matchIds.length === 1 ? '' : 'es'} · ${progress.goals.done}/${progress.goals.total} goals · ${progress.findings.accepted}/${progress.findings.total} findings accepted` : `${progress.suggestedMatchIds.length} same-day match${progress.suggestedMatchIds.length === 1 ? '' : 'es'} ready to review`}</p>{progress.linked && <p className="mt-1 text-[10px] text-slate-500">Attendance {progress.attendance.checkedIn}/{progress.attendance.assigned} · {progress.attendance.late} late · evidence {progress.summary.coverage.evidenceHealth}</p>}</div>{role === 'coach' && <button type="button" onClick={() => openProgressLink(sched)} className="ui-button min-h-9 px-3 text-[10px]">{progress.linked ? 'Edit linkage' : 'Link results'}</button>}</div></div>; })()}
+                        {(() => { const chain = linkedReviewSessionOutcome(data, sched.id); return chain && <div className="rounded-lg border border-amber-400/15 bg-amber-400/[0.04] p-3"><p className="text-[9px] font-black uppercase tracking-widest text-amber-300">Linked coaching pair</p><p className="mt-1 text-xs text-slate-300">{calendars.find(item => item.key === sched.calendarKey)?.name || sched.calendarKey} ↔ {calendars.find(item => item.key === chain.companion.calendarKey)?.name || chain.companion.calendarKey}</p><p className="mt-1 text-[10px] text-slate-500">{chain.completed}/{chain.goals} goals done · {chain.verified} verified · {chain.regressed} needs another block</p></div>; })()}
 
                       {sched.attendanceEnabled && sched.startTime && <div>
                         <p className="mb-2 text-[10px] font-black uppercase tracking-widest text-gray-500">Attendance</p>
@@ -562,7 +570,8 @@ export default function CalendarGoals({ data, theme, role, onUpsert, onRemove, o
                     <div>
                       <h5 className="text-base font-black tracking-tight leading-snug">{g.goal}</h5>
                       {g.notes && <p className="text-xs text-gray-400 mt-1 font-mono leading-relaxed">{g.notes}</p>}
-                      {g.matchId && <p className="mt-2 text-[10px] font-semibold text-cyan-300">Linked match · {(() => { const match = data.matches.find(item => item.id === g.matchId); return match ? `${match.date} · ${match.map || 'Map unknown'} vs ${match.opponent || 'Unknown'}` : 'Match unavailable'; })()}</p>}
+                      {g.matchId && <p className="mt-2 text-[10px] font-semibold text-cyan-300">Linked evidence · {(() => { const match = data.matches.find(item => item.id === g.matchId); const round = (data.rounds || []).find(item => item.id === g.roundId); const clip = round?.reviewCockpit?.clips?.find(item => item.id === g.evidenceClipId); return match ? `${match.date} · ${match.map || 'Map unknown'} vs ${match.opponent || 'Unknown'}${round ? ` · R${round.roundNo}` : ''}${clip ? ` · ${clip.label}` : ''}` : 'Match unavailable'; })()}</p>}
+                      {(() => { const verification = coachingGoalVerification(g, data.coachingActions || []); return verification && <p className={`mt-1 text-[10px] font-semibold ${verification.outcome?.status === 'satisfied' ? 'text-emerald-300' : verification.outcome?.status === 'regressed' ? 'text-rose-300' : 'text-violet-300'}`}>Coaching loop · {verification.state}{verification.outcome ? ` · ${verification.outcome.status}` : ' · awaiting next comparable block'}</p>; })()}
                     </div>
                   </div>
 
@@ -657,7 +666,7 @@ export default function CalendarGoals({ data, theme, role, onUpsert, onRemove, o
                 <label className="text-[10px] uppercase font-black text-gray-400 font-mono">Type</label>
                 <select
                   value={editingSchedule.calendarKey}
-                  onChange={e => setEditingSchedule({ ...editingSchedule, calendarKey: e.target.value })}
+                  onChange={e => setEditingSchedule({ ...editingSchedule, calendarKey: e.target.value, linkedReviewEventId: undefined })}
                   className="w-full p-2.5 bg-black/20 rounded border border-white/10 text-xs text-white"
                 >
                   {calendars.map(c => <option key={c.key} value={c.key}>{c.name}</option>)}
@@ -719,6 +728,12 @@ export default function CalendarGoals({ data, theme, role, onUpsert, onRemove, o
                 className="w-full p-2.5 bg-black/20 rounded border border-white/10 text-xs font-mono"
               />
             </div>
+
+            {(editingSchedule.calendarKey === 'team-talk' || editingSchedule.calendarKey === 'debrief') && <div className="space-y-1">
+              <label className="text-[10px] uppercase font-black text-gray-400 font-mono">Linked {editingSchedule.calendarKey === 'team-talk' ? 'debrief' : 'team talk'} (optional)</label>
+              <select value={editingSchedule.linkedReviewEventId || ''} onChange={event => setEditingSchedule({ ...editingSchedule, linkedReviewEventId: event.target.value || undefined })} className="ui-field w-full p-2.5 text-xs"><option value="">Keep this event independent</option>{companionEvents.map(item => <option key={item.id} value={item.id}>{item.date}{item.startTime ? ` · ${item.startTime}` : ''} · {item.primary}</option>)}</select>
+              <p className="text-[10px] text-gray-500">Team Talk and Debrief stay separate events, but can share the same coaching outcome chain.</p>
+            </div>}
 
             {editingSchedule.attendanceEnabled && <div className="space-y-2">
               <div className="flex items-center justify-between border-b border-white/5 pb-1"><label className="text-[10px] uppercase font-black text-gray-400 font-mono">Players required to attend</label><span className="text-[9px] text-gray-500">{editingSchedule.requiredPlayerIds?.length || 0} selected</span></div>
@@ -816,24 +831,29 @@ export default function CalendarGoals({ data, theme, role, onUpsert, onRemove, o
               <div className="space-y-1">
                 <label className="text-[10px] uppercase font-black text-gray-400 font-mono">Owner (Dropdown)</label>
                 <select
-                  value={editingGoal.owner}
-                  onChange={e => setEditingGoal({ ...editingGoal, owner: e.target.value })}
+                  value={editingGoal.ownerPlayerId || ''}
+                  onChange={e => { const player = rosterPlayers.find(item => item.id === e.target.value); setEditingGoal({ ...editingGoal, ownerPlayerId: player?.id, owner: player?.displayName || '' }); }}
                   className="w-full p-2.5 bg-black/20 rounded border border-white/10 text-xs text-white"
                 >
                   <option value="">TEAM Goal</option>
-                  {rosterPlayers.map(player => <option key={player.id} value={player.displayName}>{player.displayName}</option>)}
+                  {rosterPlayers.map(player => <option key={player.id} value={player.id}>{player.displayName}</option>)}
                 </select>
               </div>
             </div>
 
             <div className="space-y-1">
               <label className="text-[10px] uppercase font-black text-gray-400 font-mono">Linked match (optional)</label>
-              <select value={editingGoal.matchId || ''} onChange={e => setEditingGoal({ ...editingGoal, matchId: e.target.value || undefined })} className="w-full p-2.5 bg-black/20 rounded border border-white/10 text-xs text-white">
+              <select value={editingGoal.matchId || ''} onChange={e => setEditingGoal({ ...editingGoal, matchId: e.target.value || undefined, roundId: undefined, evidenceClipId: undefined })} className="w-full p-2.5 bg-black/20 rounded border border-white/10 text-xs text-white">
                 <option value="">No specific match</option>
                 {[...(data.matches || [])].sort((a, b) => Date.parse(b.date) - Date.parse(a.date)).map(match => <option key={match.id} value={match.id}>{match.date} · {match.map || 'Map unknown'} vs {match.opponent || 'Unknown'}</option>)}
               </select>
               <p className="text-[10px] text-gray-500">The goal remains visible in Goals and is also attached to this match’s review context.</p>
             </div>
+
+            {editingGoal.matchId && <div className="grid grid-cols-1 gap-4 md:grid-cols-2">
+              <div className="space-y-1"><label className="text-[10px] uppercase font-black text-gray-400 font-mono">Linked round (optional)</label><select value={editingGoal.roundId || ''} onChange={event => setEditingGoal({ ...editingGoal, roundId: event.target.value || undefined, evidenceClipId: undefined })} className="ui-field w-full p-2.5 text-xs"><option value="">Whole match</option>{selectedGoalRounds.map(round => <option key={round.id} value={round.id}>Round {round.roundNo} · {round.side || 'side unknown'} · {round.result || 'result unknown'}</option>)}</select></div>
+              <div className="space-y-1"><label className="text-[10px] uppercase font-black text-gray-400 font-mono">Evidence clip (optional)</label><select disabled={!editingGoal.roundId || !selectedGoalClips.length} value={editingGoal.evidenceClipId || ''} onChange={event => setEditingGoal({ ...editingGoal, evidenceClipId: event.target.value || undefined })} className="ui-field w-full p-2.5 text-xs disabled:opacity-50"><option value="">{editingGoal.roundId ? 'No specific clip' : 'Choose a round first'}</option>{selectedGoalClips.map(clip => <option key={clip.id} value={clip.id}>{clip.label}</option>)}</select></div>
+            </div>}
 
             <div className="pt-4 flex justify-end gap-2 border-t border-white/10">
               <button

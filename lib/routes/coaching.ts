@@ -4,6 +4,7 @@ import { buildAllPracticeBlockSummaries, coachingContextMatches, createCoachingA
 import { readDB, saveDB } from '../store';
 import { buildEvidenceFusionReport, upsertEvidenceResolution, type EvidenceSource } from '../evidenceFusion';
 import { recomputeAcceptedMatchAggregates } from '../aggregateVersioning';
+import { buildCoachingGoal } from '../coachingGoalLink';
 
 const actor = (req: Request) => String((req as any).user?.actorId || (req as any).user?.username || 'coach').slice(0, 120);
 function requireCoach(req: Request, res: Response) { if ((req as any).user?.role === 'coach') return true; res.status(403).json({ error: 'Coach access is required.' }); return false; }
@@ -94,7 +95,8 @@ export function registerCoachingRoutes(app: Express) {
       const overloaded = ownerIds.find((id: string) => (db.coachingActions || []).filter((action: CoachingAction) => action.ownerIds.includes(id) && !['resolved', 'cancelled'].includes(action.state)).length >= max);
       if (overloaded) return res.status(409).json({ error: `This player already has ${max} active coaching actions.` });
       const action = createCoachingAction({ signal: source, title: text(req.body?.title, 160), kind: req.body?.kind || 'team-task', ownerIds, dueBlockId: text(req.body?.dueBlockId, 120) || undefined, dueDate: text(req.body?.dueDate, 20) || undefined, priority: ['high', 'normal', 'low'].includes(req.body?.priority) ? req.body.priority : 'normal', visibility: ['private', 'staff', 'team'].includes(req.body?.visibility) ? req.body.visibility : 'staff' }, actor(req));
-      db.coachingActions ||= []; db.coachingActions.push(action); const index = db.coachingSignals.findIndex((item: CoachingSignal) => item.id === source.id); db.coachingSignals[index] = transitionSignal(source, 'converted-to-action', actor(req)); await saveDB(db); res.status(201).json({ action, signal: db.coachingSignals[index] });
+      const goal = buildCoachingGoal({ signal: source, action, matches: db.matches || [], rounds: db.rounds || [], rosterPlayers: db.rosterPlayers || [] }); action.goalId = goal.id;
+      db.coachingActions ||= []; db.coachingActions.push(action); db.goals ||= []; db.goals.push(goal); const index = db.coachingSignals.findIndex((item: CoachingSignal) => item.id === source.id); db.coachingSignals[index] = transitionSignal(source, 'converted-to-action', actor(req)); await saveDB(db); res.status(201).json({ action, goal, signal: db.coachingSignals[index] });
     } catch (error: any) { res.status(error.status || 500).json({ error: error.message }); }
   });
 
