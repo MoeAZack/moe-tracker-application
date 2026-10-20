@@ -417,7 +417,7 @@ export default function CoachWorkflow({
     <section className="space-y-4" aria-labelledby="coach-workflow-title">
       <header className="flex flex-wrap items-end justify-between gap-3">
         <div>
-          <p className="aurora-eyebrow">S1–S5 coaching loop</p>
+          <p className="aurora-eyebrow">Evidence to action</p>
           <h2 id="coach-workflow-title" className="mt-1 text-xl font-semibold">
             Practice review workspace
           </h2>

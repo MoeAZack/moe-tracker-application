@@ -24,6 +24,9 @@ describe('coaching workflow HTTP contract', () => {
     expect(first.status).toBe(200); expect(await first.json()).toMatchObject({ reviewCockpit: { note: 'Hold the crossfire before re-peeking.', classifications: [{ type: 'first-death-review', status: 'confirmed', player: 'caelia' }] } });
     const second = await request(coach, '/api/vod/round-review', { matchId: 'm1', roundNo: 1, clips: [{ id: 'clip-1', fileName: 'round-1.mp4', label: 'R1 advantage lost', startMs: 12000, endMs: 28000 }] });
     expect(second.status).toBe(200); expect((await second.json()).reviewCockpit.clips).toEqual([expect.objectContaining({ id: 'clip-1', fileName: 'round-1.mp4' })]);
+    const corrected = await request(coach, '/api/vod/round-review', { matchId: 'm1', roundNo: 1, factCorrection: { field: 'result', value: 'W', reason: 'Verified against the linked VOD.' } });
+    expect(corrected.status).toBe(200); expect(await corrected.json()).toMatchObject({ result: 'W', reviewCockpit: { factCorrections: [{ field: 'result', previousValue: 'L', value: 'W', reason: 'Verified against the linked VOD.' }] } });
+    expect((await request(coach, '/api/vod/round-review', { matchId: 'm1', roundNo: 1, factCorrection: { field: 'result', value: 'maybe', reason: 'Invalid correction attempt.' } })).status).toBe(400);
     const player = await login(playerKey); expect((await request(player, '/api/vod/round-review', { matchId: 'm1', roundNo: 1, note: 'overwrite' })).status).toBe(403);
   });
   it('lets only a coach link a PRACC session to match and goal progress', async () => {

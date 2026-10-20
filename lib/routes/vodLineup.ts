@@ -94,6 +94,7 @@ export function registerVodLineupRoutes(app: Express) {
   // the same note, classifications and locally generated clip references.
   app.post('/api/vod/round-review', async (req, res) => {
     try {
+      if ((req as any).user?.role !== 'coach') return res.status(403).json({ error: 'Coach access is required.' });
       const body = validate(schemas.vodRoundReviewSchema, req.body, res); if (!body) return;
       const db = await readDB();
       const round = (db.rounds || []).find((item: any) => item.matchId === body.matchId && item.roundNo === body.roundNo);
@@ -108,6 +109,21 @@ export function registerVodLineupRoutes(app: Express) {
         if (index >= 0) round.reviewCockpit.classifications[index] = decision; else round.reviewCockpit.classifications.push(decision);
         round.reviewCockpit.classificationHistory ||= [];
         round.reviewCockpit.classificationHistory.push({ ...body.classification, at: now, by });
+      }
+      if (body.factCorrection) {
+        const { field, reason } = body.factCorrection;
+        let value = body.factCorrection.value.trim();
+        if (field === 'result') value = value.toUpperCase();
+        if (field === 'side') value = value.toLocaleLowerCase('en') === 'att' ? 'Att' : value.toLocaleLowerCase('en') === 'def' ? 'Def' : value;
+        if (field === 'plant') value = value.toUpperCase();
+        if ((field === 'side' || field === 'result') && !value) return res.status(400).json({ error: `${field === 'side' ? 'Side' : 'Result'} cannot be empty.` });
+        if (field === 'result' && !['W', 'L'].includes(value)) return res.status(400).json({ error: 'Result must be W or L.' });
+        if (field === 'side' && !['Att', 'Def'].includes(value)) return res.status(400).json({ error: 'Side must be Att or Def.' });
+        if (field === 'plant' && value && !['TRUE', 'FALSE'].includes(value)) return res.status(400).json({ error: 'Spike planted must be TRUE, FALSE, or blank.' });
+        const previousValue = round[field] === undefined || round[field] === null || String(round[field]).trim() === '' ? null : String(round[field]);
+        if (value) round[field] = value; else delete round[field];
+        round.reviewCockpit.factCorrections ||= [];
+        round.reviewCockpit.factCorrections.push({ field, previousValue, value: value || null, reason, at: now, by });
       }
       if (body.clips?.length) {
         round.reviewCockpit.clips ||= [];

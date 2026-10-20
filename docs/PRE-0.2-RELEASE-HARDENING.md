@@ -141,6 +141,39 @@ Acceptance evidence:
 Repair role-specific surfaces, evidence correction, navigation, plain-language
 labels, and coherent coach/player review workflows.
 
+Status: READY locally. Exact-head CI is the final merge gate.
+
+Contract:
+
+- Every workspace has a stable human-readable URL. Match and round context are
+  carried in the link so Review, Replay, VOD, and Economy reopen together.
+- A role cannot remain on a surface it cannot use. Player accounts do not see
+  the coach roster workspace, and Player Stats is restricted to the identity
+  bound to the authenticated player session.
+- Coaches can correct an exact saved round field from the linked review surface.
+  Every correction requires a reason, preserves the previous value, records the
+  coach and time, recomputes coaching workflow state, and cannot be written by a
+  player account.
+- Replay evidence is summarized as actionable validation, coverage, and player
+  counts. Raw internal JSON is not presented as the normal coaching interface.
+- Blocking browser alerts are surfaced as dismissible in-app notifications;
+  destructive confirmations remain explicit.
+- Coach-facing labels describe actions and limitations in plain language while
+  preserving the underlying evidence and audit terminology in stored records.
+
+Acceptance evidence:
+
+- Behavior coverage proves URL round-tripping, invalid-route fallback,
+  identity-bound player profiles, coach-only audited fact correction, invalid
+  correction rejection, readable evidence presentation, and role navigation.
+- Full exact-head test, lint, production build, release UI, accessibility, and
+  capture gates must pass before H4 is merged.
+
+Gate result (20 Oct 2026): 133 test files / 869 tests passed, type checking and
+lint passed, the production build passed, release UI passed at 100%, 125%, 150%,
+and 200% zoom plus forced colors with zero blocking findings, all six automated
+accessibility surfaces passed, and the 24- and 28-round capture layouts passed.
+
 ## H5 — Release candidate
 
 Pin and verify bundled runtimes, exercise desktop IPC journeys, produce a signed

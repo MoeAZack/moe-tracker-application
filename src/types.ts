@@ -654,6 +654,14 @@ export interface Round {
       at: string;
       by: string;
     }>;
+    factCorrections?: Array<{
+      field: 'side' | 'result' | 'buy' | 'enemyBuy' | 'winBy' | 'plant' | 'site' | 'firstKillBy' | 'firstDeathBy';
+      previousValue: string | null;
+      value: string | null;
+      reason: string;
+      at: string;
+      by: string;
+    }>;
     clips?: Array<{ id: string; fileName: string; label: string; startMs: number; endMs: number; createdAt: string }>;
     updatedAt: string;
   };
