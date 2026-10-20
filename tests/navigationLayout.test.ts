@@ -38,10 +38,11 @@ describe('workspace navigation layout', () => {
     expect(players).toContain('aria-expanded={open}');
   });
 
-  it('adds equal-weight player map form to the best-map calculator', () => {
+  it('keeps player map form descriptive and out of the experimental composite', () => {
     const maps = fs.readFileSync('src/components/MapBestStats.tsx', 'utf8');
-    expect(maps).toContain('playerPerformanceWeight = 15');
-    expect(maps).toContain('Player form');
     expect(maps).toContain('equal-weight player form');
+    expect(maps).not.toContain('playerPerformanceWeight = 15');
+    expect(maps).toContain('Experimental best-map score');
   });
 });
+

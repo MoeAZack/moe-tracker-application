@@ -106,6 +106,36 @@ Acceptance evidence:
 One authority per metric, explicit unknown values, numerator/denominator/coverage,
 enforced sample gates, and experimental isolation for unvalidated composite scores.
 
+Status: READY locally. Exact-head CI is the final merge gate.
+
+Contract:
+
+- Coach-facing rates use one shared publication gate and preserve numerator,
+  denominator, coverage, confidence, and the reason a value is withheld.
+- Missing match rows never become zero and partial rows never produce complete
+  K/D/A, opening, objective, side, split, or win-rate totals.
+- Screenshot KAST requires complete survival, event, and assist coverage; a
+  successful subset cannot silently replace failed rounds in the denominator.
+- Advantage totals count one round once even when it passed through several
+  exact advantages; the exact-state breakdown remains available separately.
+- The configured minimum sample setting gates coaching signals and map/player
+  publications instead of serving as a visual warning only.
+- Bandit remains a pistol for economy classification.
+- Best-map and player composite scores are disabled by default, explicitly
+  experimental when enabled, omit unknown or undersampled inputs, and publish
+  no fabricated neutral values, uncertainty bands, or trends.
+- The experimental player score requires a complete ten-player cohort with ten
+  matches per player; otherwise it remains visibly unrated.
+
+Acceptance evidence:
+
+- Behavior coverage proves incomplete aggregate rows stay unknown, screenshot
+  KAST fails closed, multi-state advantages do not triple count, sample gates
+  publish only at threshold, and experimental scores reject insufficient data.
+- Full local gate (20 Oct 2026): 132 test files / 864 tests, production build,
+  six accessibility surfaces with no blocking violations, and both 24- and
+  28-round capture layouts passed.
+
 ## H4 — Product coherence
 
 Repair role-specific surfaces, evidence correction, navigation, plain-language

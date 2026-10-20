@@ -43,7 +43,7 @@ const PISTOLS = ['classic', 'ghost', 'sheriff', 'frenzy', 'shorty', 'bandit'];
 export function classifyTeamEquipment(players: ReadonlyArray<{ team?: string; equippedWeapon?: string | null }>, team: 'ours' | 'theirs'): EconomyClass {
   const weapons = players.filter(player => player.team === team).map(player => String(player.equippedWeapon || '').toLocaleLowerCase().replace(/[^a-z]/g, ''));
   if (weapons.length < 3) return 'unknown';
-  const full = weapons.filter(weapon => FULL_WEAPONS.some(name => weapon.includes(name)) || weapon.includes('bandit')).length;
+  const full = weapons.filter(weapon => FULL_WEAPONS.some(name => weapon.includes(name))).length;
   const low = weapons.filter(weapon => LOW_WEAPONS.some(name => weapon.includes(name))).length;
   const pistols = weapons.filter(weapon => PISTOLS.some(name => weapon.includes(name))).length;
   if (full >= 3) return 'full';
@@ -225,16 +225,13 @@ export function buildPlayerScreenshotMetrics(rounds: readonly Round[]) {
       const assistsKnown = roundAssists !== null;
       const survivalKnown = typeof observation.survived === 'boolean';
       const eventCoverage = !!playerId && eventsComplete;
-      if (survivalKnown && eventCoverage) {
+      if (survivalKnown && eventCoverage && assistsKnown) {
         const traded = events.some(event => event.victimPlayerId === observation.playerId && typeof event.tradedWithinSeconds === 'number' && event.tradedWithinSeconds <= 5);
         const successWithoutAssist = (roundKills || 0) > 0 || observation.survived || traded;
-        // A kill, survival, or traded death proves KAST success even when the
-        // cumulative scoreboard cannot yield an exact assist delta. A failed
-        // round is covered only when assists are also known to be zero.
-        if (successWithoutAssist || assistsKnown) {
-          metric.kast!.covered += 1;
-          if (successWithoutAssist || roundAssists! > 0) metric.kast!.successful += 1;
-        }
+        // Coverage must not depend on success: counting proven K/S/T rounds
+        // while dropping failures with unreadable assists biases KAST upward.
+        metric.kast!.covered += 1;
+        if (successWithoutAssist || roundAssists! > 0) metric.kast!.successful += 1;
       }
     }
   }

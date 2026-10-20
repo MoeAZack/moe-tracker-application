@@ -107,6 +107,18 @@ describe('observed roster dashboard', () => {
     expect(row).toMatchObject({ matches: 1, kills: 10, deaths: 5, assists: 2, plants: null, defuses: null, multikills: { two: null, three: null, four: null, ace: null }, evidence: { duplicateRowsReconciled: 1 } });
   });
 
+  it('keeps aggregate totals unknown when even one accepted match row is incomplete', () => {
+    const [row] = aggregateObservedPlayerDashboard({
+      rosterPlayers: [], coreMemberships: [], tryoutBatches: [], rounds: [],
+      matches: [{ id: 'm1', date: '2026-10-18', ourScore: 13, theirScore: 8 }, { id: 'm2', date: '2026-10-19' }],
+      playerStats: [
+        { id: 'a', matchId: 'm1', player: 'Alpha', kills: 20, deaths: 10, assists: 5, fk: 3, fd: 1, plants: 1 },
+        { id: 'b', matchId: 'm2', player: 'Alpha', kills: null, deaths: null, assists: null, fk: null, fd: null, plants: null },
+      ],
+    } as any);
+    expect(row).toMatchObject({ kills: null, deaths: null, assists: null, kd: null, firstKills: null, firstDeaths: null, plants: null, winRate: null });
+  });
+
   it('reconciles screenshot metrics per match instead of dropping stored history when live rounds exist', () => {
     const stored = { schemaVersion: 1, coveredRounds: 2, wins: 1, losses: 1, firstKills: 1, firstDeaths: 0, trades: 0, multikills: { two: 1, three: 0, four: 0, ace: 0 }, lowBudgetWins: 0, highBudgetLosses: 0, antiEcoLosses: 0, kast: { successful: 1, covered: 2 }, weapons: [] };
     const [row] = aggregateObservedPlayerDashboard({

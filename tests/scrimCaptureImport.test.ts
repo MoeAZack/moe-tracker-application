@@ -29,7 +29,7 @@ describe('scrim capture team inference', () => {
     expect(canonicalScoreboardName('PY0D Sephia', scoreboard)).toBe('PYO Sephia');
   });
   it('classifies economy from the five equipped weapons when tiny credit text is uncertain', () => {
-    expect(classifyTeamEquipment(['Vandal', 'Phantom', 'Bandit', 'Ghost', 'Sheriff'].map(equippedWeapon => ({ team: 'ours', equippedWeapon })), 'ours')).toBe('full');
+    expect(classifyTeamEquipment(['Vandal', 'Phantom', 'Bandit', 'Ghost', 'Sheriff'].map(equippedWeapon => ({ team: 'ours', equippedWeapon })), 'ours')).toBe('low');
     expect(classifyTeamEquipment(['Classic', 'Ghost', 'Sheriff', 'Ghost', 'Classic'].map(equippedWeapon => ({ team: 'ours', equippedWeapon })), 'ours')).toBe('eco');
   });
 
@@ -37,3 +37,4 @@ describe('scrim capture team inference', () => {
     expect(classifyTeamEquipment(['Warden', 'Warden', 'Vandal', 'Ghost', 'Sheriff'].map(equippedWeapon => ({ team: 'ours', equippedWeapon })), 'ours')).toBe('full');
   });
 });
+

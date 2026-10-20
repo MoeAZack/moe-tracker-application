@@ -19,6 +19,8 @@ export interface StatsConfig {
   halfLifeDays?: number;
   lowSample: number;
   rollingWindow?: number;
+  /** Unvalidated composite ratings stay hidden unless a coach explicitly opts in. */
+  experimentalCompositeScores?: boolean;
 }
 
 export interface RosterPlayer {
