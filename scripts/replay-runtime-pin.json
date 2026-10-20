@@ -7,6 +7,16 @@
   "commit": "4bacfdc2b766caec02d830cc65f8c4e2ea9dc14c",
   "windowsX64ZipSha256": "1708748fdb87adea30c91c0f53f0272c3ae54eba771ea7222904e71d89f9c543",
   "windowsX64ExeSha256": "ea20f413ebe909ef45e49a6d2890f3d341aede69f22b42be8ea6acc357fc41a3",
+  "python": {
+    "version": "3.12.10",
+    "windowsX64EmbedZipSha256": "4acbed6dd1c744b0376e3b1cf57ce906f9dc9e95e68824584c8099a63025a3c3",
+    "windowsX64ExeSha256": "4d6f5f81a4bca11191c4c7c6b43632694d0a4ce74e068619d8fdc161d469859a"
+  },
+  "pyarrow": {
+    "version": "18.1.0",
+    "windowsCp312X64Wheel": "pyarrow-18.1.0-cp312-cp312-win_amd64.whl",
+    "windowsCp312X64WheelSha256": "0ad4892617e1a6c7a551cfc827e072a633eaff758fa09f21c4ee548c30bcaf99"
+  },
   "supportedPatches": {
     "min": "11.06",
     "max": "13.08"

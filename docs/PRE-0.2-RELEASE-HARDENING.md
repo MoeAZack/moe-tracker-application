@@ -179,3 +179,39 @@ accessibility surfaces passed, and the 24- and 28-round capture layouts passed.
 Pin and verify bundled runtimes, exercise desktop IPC journeys, produce a signed
 Windows candidate, and pass clean install, upgrade, rollback, updater, and release
 acceptance on the exact candidate head.
+
+Status: READY as a local 0.2 release candidate. Public distribution remains
+blocked by the external Windows certificate and independent-PC gates below.
+
+Contract:
+
+- The application version is 0.2.0. Electron, Electron Builder, Sharp, FFmpeg,
+  FFprobe, yt-dlp, VRFKit, embedded Python, and PyArrow are exact-version pinned.
+  Every shipped Windows executable or archive with an owned pin is SHA-256
+  verified before packaging. Python and PyArrow can no longer enter the bundle
+  through a version-only download.
+- Every renderer IPC command is registered exactly once through the trusted
+  local-origin wrapper. A packaged fresh-profile journey proves local service,
+  session, encrypted credential, settings, ingestion, scoreboard, and recovery
+  calls against the actual Electron bridge.
+- The 0.1.78 installation upgrades to 0.2.0 without changing the retained
+  8-match, 180-round, 40-player-stat workspace. A full binary uninstall followed
+  by a clean 0.2.0 install also starts and passes the packaged IPC journey.
+- The update controller installs only a completed download. The exact 0.1.78 and
+  0.2.0 installers pass last-known-good promotion and two-failed-start rollback.
+- Candidate metadata verifies installer/blockmap presence, update-manifest
+  SHA-512, SHA-256 evidence, Git head cleanliness, and Authenticode state.
+- The tag release workflow requires a valid Windows signing certificate, checks
+  the installed signature, runs the packaged IPC journey, and publishes only
+  after all checks pass. Missing certificate secrets fail closed.
+
+Acceptance evidence:
+
+- Runtime pins and the bundled runtime manifest pass exact hash verification.
+- Desktop IPC/update/recovery behavior passes both focused automated tests and
+  the packaged fresh-profile/installed-profile journeys.
+- 135 test files / 874 tests, type checking, lint, dependency audit, production
+  build, release UI, accessibility, and capture gates must pass on the final head.
+- The local installer remains `NotSigned` because no public code-signing
+  certificate is configured locally or in the GitHub release environment. It is
+  a local test candidate only; the workflow will not publish it as trusted.

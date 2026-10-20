@@ -1,5 +1,9 @@
 # Stage 11 — release candidate and external gates
 
+> Historical 0.1.78 acceptance record. The current 0.2.0 H5 candidate and its
+> remaining public-signing gates are recorded in `RELEASE_ACCEPTANCE.md` and
+> `PRE-0.2-RELEASE-HARDENING.md`.
+
 Accepted on 20 October 2026, 14:40 Cairo (`Africa/Cairo`).
 
 Stage 11 produces a locally installable Moe Tracker 0.1.78 candidate and closes the gates that can be proven on this PC. It does not mislabel an unsigned build as a public release and does not simulate Riot approval, licensed telemetry, another physical PC, or a human assistive-technology review.

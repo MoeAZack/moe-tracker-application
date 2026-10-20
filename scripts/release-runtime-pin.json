@@ -1,0 +1,16 @@
+{
+  "schemaVersion": 1,
+  "appVersion": "0.2.0",
+  "electron": "41.10.7",
+  "electronBuilder": "26.15.3",
+  "sharp": "0.35.5",
+  "ffmpegStatic": "5.3.0",
+  "ffprobeStatic": "3.1.0",
+  "youtubeDlExec": "3.1.17",
+  "windowsX64": {
+    "ffmpegSha256": "04e1307997530f9cf2fe35cba2ca7e8875ca91da02f89d6c7243df819c94ad00",
+    "ffprobeSha256": "4303ec85855340689b1f8aa5d9c1dc06ef3e3090682de3034edc3fca2b0798d5",
+    "ytDlpSha256": "66674953fe251b89f4d08c5f0e35e0728679bd67ab3d7d05c0562af101dd3e7a",
+    "sharpSha256": "971048779f9c8598df14641dfc03c625885c93f473a788e65ca2deb50d0b083e"
+  }
+}

@@ -15,7 +15,7 @@ jobs:
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v4
         with:
-          node-version: 24
+          node-version: 24.18.0
           cache: npm
       - run: npm ci
       - run: npm run check
@@ -25,7 +25,9 @@ jobs:
           python-version: '3.12'
       - name: Bundle pinned replay parser runtime
         shell: pwsh
-        run: .\scripts\stage-replay-runtime.ps1
+        run: |
+          .\scripts\stage-replay-runtime.ps1
+          npm run verify:runtime:bundled
       - name: Require public signing certificate
         shell: pwsh
         env:
@@ -49,6 +51,7 @@ jobs:
           if (-not $installer) { throw 'Installer was not created.' }
           $signature = Get-AuthenticodeSignature $installer.FullName
           if ($signature.Status -ne 'Valid') { throw "Installer signature is $($signature.Status), expected Valid." }
+          npm run verify:candidate:signed
       - name: Verify clean Windows installation
         shell: pwsh
         run: |
@@ -60,6 +63,7 @@ jobs:
           if (-not $executable) { throw 'Installed application executable was not found.' }
           $installedSignature = Get-AuthenticodeSignature $executable.FullName
           if ($installedSignature.Status -ne 'Valid') { throw "Installed application signature is $($installedSignature.Status), expected Valid." }
+          node scripts/desktop-ipc-smoke.mjs $executable.FullName
       - name: Publish verified release assets
         shell: pwsh
         env:
