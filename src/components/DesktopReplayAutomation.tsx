@@ -18,12 +18,11 @@ const imageFromCapture = async (capture: CaptureImage) => {
   const image = new Image(); image.src = `data:${capture.mediaType};base64,${capture.base64}`; await image.decode(); return image;
 };
 
-export default function DesktopReplayAutomation({ data, role, onProcessed, onSaveMatch, onSaveRounds }: {
+export default function DesktopReplayAutomation({ data, role, onProcessed, onSaveMatch }: {
   data: TrackerData;
   role: string | null;
   onProcessed: () => void | Promise<void>;
-  onSaveMatch: (match: any, statsUpdate: MatchStatsUpdate) => Promise<any>;
-  onSaveRounds: (matchId: string, rows: any[]) => Promise<void>;
+  onSaveMatch: (match: any, statsUpdate: MatchStatsUpdate, rounds?: any[]) => Promise<any>;
 }) {
   const busy = useRef(false);
   const attempted = useRef(new Map<string, number>());
@@ -96,10 +95,10 @@ export default function DesktopReplayAutomation({ data, role, onProcessed, onSav
               modelVersion: OCR_LEARNING_VERSION,
             });
             if (automatic.payload) {
-              const savedResult = await onSaveMatch(automatic.payload.match, { operation: 'replace', stats: automatic.payload.stats });
+              // One server write: a rejected round set leaves no half-saved match behind.
+              const savedResult = await onSaveMatch(automatic.payload.match, { operation: 'replace', stats: automatic.payload.stats }, automatic.payload.roundRows);
               const saved = savedResult?.match || savedResult;
               if (!saved?.id) throw new Error('The automatic capture was extracted but the match did not return a saved identity.');
-              await onSaveRounds(saved.id, automatic.payload.roundRows);
               await window.moeDesktop!.completeScoreboard(pending.id);
               attempted.current.delete(pending.id);
               await onProcessed();
@@ -135,6 +134,6 @@ export default function DesktopReplayAutomation({ data, role, onProcessed, onSav
     const initial = window.setTimeout(() => void processNext(), 1_000);
     const interval = window.setInterval(() => void processNext(), 5_000);
     return () => { active = false; window.clearTimeout(initial); window.clearInterval(interval); };
-  }, [data, role, onProcessed, onSaveMatch, onSaveRounds]);
+  }, [data, role, onProcessed, onSaveMatch]);
   return null;
 }

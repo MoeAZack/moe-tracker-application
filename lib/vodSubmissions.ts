@@ -2,6 +2,7 @@ import type { Match, PlayerStats, VodSubmission, VodSubmissionPlayer, VodTimelin
 import evidenceModule from '../desktop/vod-timeline-evidence.cjs';
 import { deriveRoundAdvantage } from './roundAdvantage';
 import { findPhysicalMatchCandidates } from './physicalMatchIdentity';
+import { refreshDuplicateQuarantine } from './matchIntegrity';
 
 const { fuseVodEvidence } = evidenceModule as { fuseVodEvidence: (items: VodTimelineEvidence[]) => VodTimelineEvidence | null };
 
@@ -182,5 +183,6 @@ export function integrateVodSubmission(db: any, input: SubmissionInput, actorNam
       } else db.rounds.push({ id: `vod:${match!.id}:round:${observedRound.roundNumber}`, matchId: match!.id, roundNo: observedRound.roundNumber, side: '', result: automaticResult, winBy: '', advantageEvidence, vodEvidence, sourceMetadata: { method: 'vod-submission', capturedAt: now, provider: 'local-ocr', externalId: ids.submissionId } });
     }
   }
+  refreshDuplicateQuarantine(db, now);
   return duplicate || submission;
 }

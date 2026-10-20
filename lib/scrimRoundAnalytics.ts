@@ -259,6 +259,13 @@ export function materializeScreenshotMetricsFromRoundEvidence(data: { rounds?: R
  * Fill scoreboard FD totals when every played round has a securely resolved
  * opening event. Legacy captures predate openingEventComplete; source row zero
  * is their conservative proof that no earlier kill row was skipped.
+ *
+ * Fill-only: a value is written when FD is unknown, or refreshed when this
+ * materializer wrote it earlier (`fdDerivedFrom`). Coach-entered and
+ * scoreboard values are never replaced. A player whose identity is absent
+ * from the round evidence stays unknown rather than receiving zero, and a
+ * derived value whose evidence is no longer complete returns to unknown.
+ * `overwrite` is retained only for explicit repair tooling.
  */
 export function materializeFirstDeathsFromRoundEvidence(
   data: { matches?: any[]; rounds?: any[]; playerStats?: any[] },
@@ -268,15 +275,22 @@ export function materializeFirstDeathsFromRoundEvidence(
   const matches = Array.isArray(data.matches) ? data.matches : [];
   const allRounds = Array.isArray(data.rounds) ? data.rounds : [];
   const stats = Array.isArray(data.playerStats) ? data.playerStats : [];
+  const owned = (stat: any) => options.overwrite || stat.fd === null || stat.fd === undefined || stat.fdDerivedFrom === 'round-evidence';
   for (const match of matches) {
     if (options.matchId && match.id !== options.matchId) continue;
+    const matchStats = stats.filter(stat => stat.matchId === match.id);
     const rounds = allRounds.filter(round => round.matchId === match.id).sort((a, b) => Number(a.roundNo) - Number(b.roundNo));
     const expectedRounds = Number.isInteger(match.ourScore) && Number.isInteger(match.theirScore) ? Number(match.ourScore) + Number(match.theirScore) : null;
-    if (!rounds.length || (expectedRounds !== null && rounds.length !== expectedRounds)) continue;
     const firstDeaths = new Map<string, number>();
-    let complete = true;
-    for (const round of rounds) {
+    const observed = new Set<string>();
+    let complete = rounds.length > 0 && (expectedRounds === null || rounds.length === expectedRounds);
+    for (const round of complete ? rounds : []) {
       const evidence = round.screenshotEvidence;
+      for (const player of evidence?.players || []) if (player?.team === 'ours') observed.add(screenshotPlayerIdentity(player.playerId, player.displayName));
+      for (const event of evidence?.events || []) {
+        if (event?.killerTeam === 'ours' && event.killerPlayerId) observed.add(screenshotPlayerIdentity(event.killerPlayerId, ''));
+        if (event?.victimTeam === 'ours' && event.victimPlayerId) observed.add(screenshotPlayerIdentity(event.victimPlayerId, ''));
+      }
       const first = [...(evidence?.events || [])].sort((a: any, b: any) => Number(a.sequence) - Number(b.sequence))[0];
       const legacyOpening = evidence?.openingEventComplete === undefined
         && (evidence?.eventsComplete === true || first?.sourceRow === 0);
@@ -284,13 +298,22 @@ export function materializeFirstDeathsFromRoundEvidence(
         || first?.sequence !== 1 || !first.killerPlayerId || !first.victimPlayerId || !first.killerTeam || !first.victimTeam) {
         complete = false; break;
       }
-      if (first.victimTeam === 'ours') firstDeaths.set(first.victimPlayerId, (firstDeaths.get(first.victimPlayerId) || 0) + 1);
+      if (first.victimTeam === 'ours') {
+        const victim = screenshotPlayerIdentity(first.victimPlayerId, '');
+        firstDeaths.set(victim, (firstDeaths.get(victim) || 0) + 1);
+      }
     }
-    if (!complete) continue;
-    for (const stat of stats) {
-      if (stat.matchId !== match.id || (!options.overwrite && stat.fd !== null && stat.fd !== undefined)) continue;
+    for (const stat of matchStats) {
+      if (!owned(stat)) continue;
       const identity = screenshotPlayerIdentity(stat.playerId, stat.displayNameSnapshot || stat.player || '');
-      stat.fd = firstDeaths.get(identity) || 0;
+      if (!complete || !observed.has(identity)) {
+        // Never convert missing evidence to zero; only retract our own derived value.
+        if (stat.fdDerivedFrom === 'round-evidence') { stat.fd = null; delete stat.fdDerivedFrom; changed += 1; }
+        continue;
+      }
+      const value = firstDeaths.get(identity) || 0;
+      if (stat.fd === value && stat.fdDerivedFrom === 'round-evidence') continue;
+      stat.fd = value; stat.fdDerivedFrom = 'round-evidence';
       changed += 1;
     }
   }

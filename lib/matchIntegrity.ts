@@ -1,4 +1,6 @@
 import crypto from 'crypto';
+import { normalizeCaptureName } from './scrimCaptureImport';
+import type { MatchDuplicateReview } from '../src/types';
 
 type MutableTracker = Record<string, any>;
 
@@ -130,7 +132,7 @@ function canonical(value: any): any {
 export function exactMatchSourceTokens(match: any) {
   const tokens = new Set<string>(); const metadata = match?.sourceMetadata || {};
   if (text(metadata.externalId)) tokens.add(`external:${text(metadata.provider || metadata.method || 'source').toLocaleLowerCase('en')}:${text(metadata.externalId)}`);
-  for (const [kind, value] of [['screenshot', match?.screenshotEvidence?.imageSha256], ['replay', match?.comparisonEvidence?.replaySha256], ['evidence', match?.evidenceReference?.sha256]] as const) {
+  for (const [kind, value] of [['screenshot', match?.screenshotEvidence?.imageSha256], ['capture', match?.screenshotEvidence?.captureId], ['replay', match?.comparisonEvidence?.replaySha256], ['evidence', match?.evidenceReference?.sha256]] as const) {
     if (text(value)) tokens.add(`${kind}:${text(value).toLocaleLowerCase('en')}`);
   }
   return [...tokens].sort();
@@ -153,9 +155,11 @@ export function exactRoundEvidenceFingerprint(rows: readonly any[]): string | nu
   if (ordered.length < 5 || ordered.some(row => row?.screenshotEvidence?.reviewStatus !== 'confirmed')) return null;
   const rich = ordered.filter(row => (row.screenshotEvidence?.players || []).length >= 5 || (row.screenshotEvidence?.events || []).length > 0);
   if (rich.length < Math.min(5, ordered.length)) return null;
+  // Opening and plant columns are excluded: the server materializes them from
+  // this same evidence after save, so including them let an identical
+  // re-submission escape the guard once the stored copy had been backfilled.
   const payload = ordered.map(row => canonical({
     roundNo: row.roundNo, side: row.side, result: row.result, winBy: row.winBy, buy: row.buy, enemyBuy: row.enemyBuy,
-    plant: row.plant, site: row.site, firstKillBy: row.firstKillBy, firstDeathBy: row.firstDeathBy,
     screenshotEvidence: row.screenshotEvidence,
   }));
   return crypto.createHash('sha256').update(JSON.stringify(payload)).digest('hex');
@@ -179,6 +183,81 @@ export function auditExactRoundEvidenceDuplicates(db: MutableTracker) {
   }
   return [...groups].filter(([, matchIds]) => matchIds.length > 1).map(([fingerprint, matchIds]) => ({ fingerprint, matchIds }));
 }
+
+const finiteCount = (value: unknown) => typeof value === 'number' && Number.isInteger(value) && value >= 0 ? value : null;
+const resultCode = (value: unknown) => { const result = text(value).toUpperCase(); return result === 'W' || result === 'L' ? result : null; };
+const observedName = (value: unknown) => { const raw = text(value); return normalizeCaptureName(raw.toLocaleLowerCase('en').startsWith('name:') ? raw.slice(5) : raw); };
+
+/**
+ * Same-game fingerprint over facts that two captures of one finished game must
+ * agree on and OCR noise does not touch: the full 10-row scoreboard and, per
+ * round, the result, win condition and ordered killer -> victim list. Map
+ * label, date, capture folder, economy, loadouts and OCR confidence are
+ * deliberately excluded because a re-capture changes them. Anything short of
+ * ten complete scoreboard rows and five rounds with kill feeds stays null, so
+ * scores, K/D/A totals or W/L sequences alone can never match.
+ */
+export function stableMatchEvidenceFingerprint(match: any, rounds: readonly any[]): string | null {
+  const board = Array.isArray(match?.screenshotEvidence?.scoreboardPlayers) ? match.screenshotEvidence.scoreboardPlayers : [];
+  if (board.length !== 10) return null;
+  const scoreboard = board.map((row: any) => {
+    const name = observedName(row?.name ?? row?.extractedName); const kills = finiteCount(row?.kills); const deaths = finiteCount(row?.deaths); const assists = finiteCount(row?.assists);
+    if (!name || kills === null || deaths === null || assists === null) return null;
+    return [row?.allied === true ? 'ours' : row?.allied === false ? 'theirs' : null, name, kills, deaths, assists, finiteCount(row?.fk), finiteCount(row?.plants), finiteCount(row?.defuses)];
+  });
+  if (scoreboard.some((row: unknown) => row === null) || new Set(scoreboard.map((row: any) => row[1])).size !== 10) return null;
+  const ordered = [...rounds].sort((left, right) => Number(left?.roundNo || 0) - Number(right?.roundNo || 0));
+  if (ordered.length < 5 || ordered.some(row => !Number.isInteger(Number(row?.roundNo)) || !resultCode(row?.result))) return null;
+  let roundsWithKills = 0;
+  const roundFacts = ordered.map(row => {
+    const evidence = row?.screenshotEvidence;
+    const names = new Map<string, string>((evidence?.players || []).map((player: any) => [text(player?.playerId), observedName(player?.displayName)]));
+    const who = (id: unknown) => names.get(text(id)) || observedName(id) || null;
+    const kills = [...(evidence?.events || [])]
+      .sort((left: any, right: any) => Number(left?.sequence) - Number(right?.sequence))
+      .map((event: any) => [who(event?.killerPlayerId), who(event?.victimPlayerId)]);
+    if (kills.length && kills.every(([killer, victim]) => killer && victim)) roundsWithKills += 1;
+    return [Number(row.roundNo), resultCode(row.result), text(row.winBy).toLocaleLowerCase('en') || null, kills];
+  });
+  if (roundsWithKills < 5) return null;
+  const payload = { schema: 'moetracker.same-game/v1', scoreboard: scoreboard.sort((left: any, right: any) => String(left[1]).localeCompare(String(right[1]))), rounds: roundFacts };
+  return crypto.createHash('sha256').update(JSON.stringify(payload)).digest('hex');
+}
+
+/**
+ * Re-evaluate same-game duplicates across the workspace. The first stored
+ * match of a group stays accepted; every later one is quarantined (excluded
+ * from analytics, never deleted) until a coach keeps or discards it. A coach's
+ * keep decision holds while the fingerprint and candidates are unchanged.
+ */
+export function refreshDuplicateQuarantine(db: MutableTracker, now = new Date().toISOString()) {
+  const groups = new Map<string, string[]>();
+  for (const match of db.matches || []) {
+    const fingerprint = stableMatchEvidenceFingerprint(match, (db.rounds || []).filter((round: any) => round.matchId === match.id));
+    if (fingerprint) groups.set(fingerprint, [...(groups.get(fingerprint) || []), match.id]);
+    else if (match.duplicateReview) delete match.duplicateReview;
+  }
+  const quarantined: string[] = [];
+  const byId = new Map((db.matches || []).map((match: any) => [match.id, match]));
+  for (const [fingerprint, matchIds] of groups) {
+    matchIds.forEach((matchId, index) => {
+      const match: any = byId.get(matchId); const prior: MatchDuplicateReview | undefined = match.duplicateReview;
+      if (matchIds.length < 2 || index === 0) {
+        // The original never carries a review, unless a coach already kept this group distinct.
+        if (prior && !(prior.status === 'kept-distinct' && prior.fingerprint === fingerprint && matchIds.length > 1)) delete match.duplicateReview;
+        return;
+      }
+      const candidateMatchIds = matchIds.filter(id => id !== matchId);
+      const sameCandidates = prior?.fingerprint === fingerprint && prior.candidateMatchIds.length === candidateMatchIds.length && prior.candidateMatchIds.every(id => candidateMatchIds.includes(id));
+      if (prior?.status === 'kept-distinct' && sameCandidates) return;
+      match.duplicateReview = { schema: 'moetracker.duplicate-review/v1', status: 'quarantined', fingerprint, candidateMatchIds, detectedAt: sameCandidates ? prior!.detectedAt : now } satisfies MatchDuplicateReview;
+      quarantined.push(matchId);
+    });
+  }
+  return quarantined;
+}
+
+export const isDuplicateQuarantined = (match: any) => match?.duplicateReview?.status === 'quarantined';
 
 /** Preserve round identity by explicit id first and round number second. */
 export function stableRoundReplacement(existing: readonly any[], submitted: readonly any[], uid: () => string) {

@@ -90,16 +90,40 @@ function attachVersion<T extends Record<string, any>>(data: T, version: string |
 
 function hashText(text: string) { return crypto.createHash('sha256').update(text).digest('hex'); }
 
+async function syncDirectory(dir: string) {
+  // Directory fsync makes the rename itself durable. Windows cannot open a
+  // directory handle for sync, so there the file-level fsync is the guarantee.
+  if (process.platform === 'win32') return;
+  const handle = await fs.open(dir, 'r');
+  try { await handle.sync(); } finally { await handle.close(); }
+}
+
+const verifiedLocalArtifacts = new Set<string>();
+async function localArtifactIsIntact(target: string, sha256: string) {
+  if (verifiedLocalArtifacts.has(target)) return true;
+  try { const intact = hashText(gunzipSync(await fs.readFile(target)).toString('utf8')) === sha256; if (intact) verifiedLocalArtifacts.add(target); return intact; }
+  catch (error: any) { if (error?.code === 'ENOENT') return null; return false; }
+}
+
+/** Artifacts are durable on disk before the index that references them is activated. */
 async function storeLocalArtifacts(artifacts: EvidenceArtifact[]) {
   if (!artifacts.length) return;
   await fs.mkdir(EVIDENCE_ARTIFACT_DIR, { recursive: true });
+  let wrote = false;
   for (const item of artifacts) {
     const target = path.join(EVIDENCE_ARTIFACT_DIR, `${item.sha256}.json.gz`);
-    try { await fs.access(target); continue; } catch (error: any) { if (error?.code !== 'ENOENT') throw error; }
+    // An existing file is reused only when it still decodes to its own hash; a
+    // file truncated by an earlier power loss is rewritten instead of trusted.
+    const intact = await localArtifactIsIntact(target, item.sha256);
+    if (intact) continue;
     const temp = `${target}.${process.pid}.${crypto.randomBytes(6).toString('hex')}.tmp`;
-    await fs.writeFile(temp, gzipSync(Buffer.from(item.json, 'utf8')), { flag: 'wx', mode: 0o600 });
+    const handle = await fs.open(temp, 'wx', 0o600);
+    try { await handle.writeFile(gzipSync(Buffer.from(item.json, 'utf8'))); await handle.sync(); } finally { await handle.close(); }
+    if (intact === false) await fs.unlink(target).catch(() => {});
     try { await fs.rename(temp, target); } catch (error: any) { if (error?.code !== 'EEXIST') throw error; await fs.unlink(temp).catch(() => {}); }
+    verifiedLocalArtifacts.add(target); wrote = true;
   }
+  if (wrote) await syncDirectory(EVIDENCE_ARTIFACT_DIR);
 }
 
 async function loadLocalArtifact(sha256: string) {
@@ -108,14 +132,27 @@ async function loadLocalArtifact(sha256: string) {
   catch (error: any) { throw new Error(`Evidence artifact ${sha256} could not be loaded: ${error?.message || error}`); }
 }
 
-async function pruneLocalArtifacts(active: ReadonlySet<string>) {
+const ORPHAN_LEDGER = '.orphaned-since.json';
+
+/** Retention counts from when an artifact stopped being referenced, not from
+ * when it was written, so a long-lived artifact released today keeps the full
+ * recovery window. */
+async function pruneLocalArtifacts(active: ReadonlySet<string>, now = Date.now()) {
   const days = Math.max(1, Math.min(365, Number(process.env.EVIDENCE_ARTIFACT_RETENTION_DAYS || 30)));
-  const cutoff = Date.now() - days * 24 * 60 * 60 * 1000;
+  const cutoff = now - days * 24 * 60 * 60 * 1000;
+  const ledgerPath = path.join(EVIDENCE_ARTIFACT_DIR, ORPHAN_LEDGER);
+  let ledger: Record<string, number> = {};
+  try { const parsed = JSON.parse(await fs.readFile(ledgerPath, 'utf8')); if (parsed && typeof parsed === 'object' && !Array.isArray(parsed)) ledger = parsed; } catch { /* first run or unreadable: start a fresh window */ }
+  const next: Record<string, number> = {};
   for (const entry of await fs.readdir(EVIDENCE_ARTIFACT_DIR, { withFileTypes: true }).catch(() => [])) {
     const match = /^([a-f0-9]{64})\.json\.gz$/.exec(entry.name); if (!entry.isFile() || !match || active.has(match[1])) continue;
-    const target = path.join(EVIDENCE_ARTIFACT_DIR, entry.name); const stat = await fs.stat(target).catch(() => null);
-    if (stat && stat.mtimeMs < cutoff) await fs.unlink(target).catch(() => {});
+    const since = Number.isFinite(ledger[match[1]]) ? ledger[match[1]] : now;
+    if (since < cutoff) { const target = path.join(EVIDENCE_ARTIFACT_DIR, entry.name); verifiedLocalArtifacts.delete(target); await fs.unlink(target).catch(() => {}); }
+    else next[match[1]] = since;
   }
+  const temp = `${ledgerPath}.${process.pid}.${crypto.randomBytes(6).toString('hex')}.tmp`;
+  await fs.writeFile(temp, JSON.stringify(next), { encoding: 'utf8', mode: 0o600 });
+  await fs.rename(temp, ledgerPath);
 }
 
 async function writeJsonFile(data: any, expected: string | undefined, allowCreate: boolean) {
@@ -135,6 +172,7 @@ async function writeJsonFile(data: any, expected: string | undefined, allowCreat
   const handle = await fs.open(tempPath, 'wx', 0o600);
   try { await handle.writeFile(serialized, 'utf8'); await handle.sync(); } finally { await handle.close(); }
   await fs.rename(tempPath, DB_PATH);
+  await syncDirectory(path.dirname(DB_PATH)).catch(() => {});
   await pruneLocalArtifacts(evidenceArtifactReferences(planned.state)).catch(() => {});
   return hashText(serialized);
 }

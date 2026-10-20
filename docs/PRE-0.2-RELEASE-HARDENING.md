@@ -5,7 +5,7 @@ acceptance gate. A later stage may not weaken an earlier invariant.
 
 ## H0 — Referential integrity
 
-Status: READY locally. Exact-head CI is the final merge gate.
+Status: RE-OPENED by the 20 Oct re-audit; fixes in review.
 
 Contract:
 
@@ -17,6 +17,24 @@ Contract:
 - An exact immutable source or exact rich confirmed-round payload cannot be accepted twice.
 - Scores, dates, maps, K/D/A totals, or short W/L sequences are never sufficient duplicate proof.
 - Schema 13 repairs only unambiguous orphan-owned rows and records what it removed.
+- A same-game re-capture (identical 10-row scoreboard plus, per round, result,
+  win condition and ordered killer -> victim list, over at least five rounds
+  with kill feeds) is quarantined, not rejected: it is kept, excluded from
+  analytics and ratings, and shown beside the saved game until a coach keeps
+  both or discards the copy. Map label, date, capture folder, economy,
+  loadouts and OCR confidence are not part of that fingerprint. Schema 15
+  flags existing pairs; nothing is deleted automatically.
+- A match, its scoreboard and its rounds can be saved in one write; a rejected
+  round set saves nothing.
+- First-death totals are fill-only. Coach-entered and scoreboard FD values are
+  never replaced, a player absent from the round evidence stays unknown, and a
+  derived value returns to unknown when its evidence stops being complete.
+
+Re-audit (20 Oct 2026, Africa/Cairo): the external re-audit found the original
+duplicate guard missed an OCR-variant re-capture, the post-recompute FD
+overwrite survived, and save-match/save-rounds could half-commit. Those three
+are addressed on `fix/h0-integrity-reaudit-7keknm`; H0 stays open until that
+branch is reviewed and merged with exact-head CI green.
 
 Acceptance evidence:
 
