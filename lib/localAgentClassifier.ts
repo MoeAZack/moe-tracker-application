@@ -17,6 +17,20 @@ export function agentPortraitDistance(actual: Uint8ClampedArray, expected: Uint8
   return raw / (left.values.length * 3) * .35 + normalized / left.values.length * 2_500;
 }
 
+/**
+ * Plain per-channel mean squared error. The final scoreboard portraits are
+ * rendered over a sampled row tint, so the raw colour difference separates
+ * look-alike portraits (Sova/Chamber, Cypher/Gekko) better than the
+ * luminance-normalized distance; the labelled corpus regressed from 141 to
+ * 130 of 150 agents when the scoreboard switched away from it.
+ */
+export function rawPortraitDistance(actual: Uint8ClampedArray, expected: Uint8ClampedArray) {
+  if (actual.length !== expected.length || actual.length < 4 || actual.length % 4 !== 0) return Number.POSITIVE_INFINITY;
+  let error = 0;
+  for (let index = 0; index < actual.length; index += 4) error += (actual[index] - expected[index]) ** 2 + (actual[index + 1] - expected[index + 1]) ** 2 + (actual[index + 2] - expected[index + 2]) ** 2;
+  return error / (actual.length / 4 * 3);
+}
+
 export function chooseAgentMatch(scores: readonly AgentTemplateScore[]): string | null {
   const ranked = [...scores].filter(item => Number.isFinite(item.score)).sort((a, b) => a.score - b.score);
   if (ranked.length < 2 || ranked[0].score > 9_500) return null;
@@ -77,12 +91,13 @@ export async function scoreValorantScoreboardAgents(image: CanvasImageSource & {
   const matches: AgentTemplateScore[][] = [];
   for (let row = 0; row < 10; row += 1) {
     // Portrait column: custom table starts at x=387, competitive at x=348.
+    // The tint is sampled from the same shifted row as the crop.
     const left = Math.round((layout === 'competitive' ? 359 : 398) * sx), top = Math.round((321 + rowOffset + row * 48) * sy), cropWidth = Math.round(40 * sx), cropHeight = Math.round(48 * sy);
     const crop = document.createElement('canvas'); crop.width = crop.height = 32;
     const cropContext = crop.getContext('2d', { willReadFrequently: true }); if (!cropContext) throw new Error('Agent portrait matching is unavailable.');
     cropContext.drawImage(source, left, top, cropWidth, cropHeight, 0, 0, 32, 32);
     const actual = cropContext.getImageData(0, 0, 32, 32).data;
-    const background = sourceContext.getImageData(Math.round(500 * sx), Math.round((340 + row * 48) * sy), 1, 1).data;
+    const background = sourceContext.getImageData(Math.round(500 * sx), Math.round((340 + rowOffset + row * 48) * sy), 1, 1).data;
     const scores: AgentTemplateScore[] = [];
     for (const template of templates) {
       const canvas = document.createElement('canvas'); canvas.width = canvas.height = 32;
@@ -90,14 +105,24 @@ export async function scoreValorantScoreboardAgents(image: CanvasImageSource & {
       context.fillStyle = `rgb(${background[0]},${background[1]},${background[2]})`; context.fillRect(0, 0, 32, 32);
       context.drawImage(template.image, 0, 0, 32, 32);
       const expected = context.getImageData(0, 0, 32, 32).data;
-      scores.push({ name: template.name, score: agentPortraitDistance(actual, expected) });
+      scores.push({ name: template.name, score: rawPortraitDistance(actual, expected) });
     }
     matches.push(scores.sort((a, b) => a.score - b.score));
   }
   return matches;
 }
 
+/**
+ * Prefer the calibrated portrait grid. The separator-based row offset is a
+ * text-row measurement and a few pixels of it pushes the 48px portrait crop
+ * off its cell, so it is only a fallback for rows the fixed grid cannot match.
+ */
+export function chooseScoreboardAgents(fixed: readonly AgentTemplateScore[][], shifted: readonly AgentTemplateScore[][] | null) {
+  return fixed.map((scores, row) => chooseAgentMatch(scores) ?? (shifted?.[row] ? chooseAgentMatch(shifted[row]) : null));
+}
+
 /** Match the ten fixed post-match portrait cells against the bundled agent art. */
 export async function classifyValorantScoreboardAgents(image: CanvasImageSource & { naturalWidth?: number; naturalHeight?: number }, layout: 'custom' | 'competitive' = 'custom', rowOffset = 0) {
-  return (await scoreValorantScoreboardAgents(image, layout, rowOffset)).map(chooseAgentMatch);
+  const fixed = await scoreValorantScoreboardAgents(image, layout, 0);
+  return chooseScoreboardAgents(fixed, rowOffset ? await scoreValorantScoreboardAgents(image, layout, rowOffset) : null);
 }

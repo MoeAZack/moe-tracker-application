@@ -782,10 +782,22 @@ export async function createBrowserLocalTesseractAdapter(): Promise<LocalOcrAdap
           enlargedContext.fillStyle = '#fff'; enlargedContext.fillRect(0, 0, enlarged.width, enlarged.height); enlargedContext.imageSmoothingEnabled = true; enlargedContext.imageSmoothingQuality = 'high'; enlargedContext.drawImage(crop, padding, padding, grayscale.width * scale, grayscale.height * scale);
           await worker.setParameters({ tessedit_pageseg_mode: tesseract.PSM.SINGLE_WORD, tessedit_char_whitelist: '0123456789' });
           const retry = await worker.recognize(enlarged);
-          const selected = chooseRecognitionConsensus([
+          const candidates = [
             { text, confidence },
             { text: retry.data.text || '', confidence: Number.isFinite(retry.data.confidence) ? retry.data.confidence : null },
-          ], /^\d{1,5}$/);
+          ];
+          // The team-colour mask drops a dimmed final score (0.1.15 read it
+          // with the plain threshold), so the score cells also vote with it.
+          if (region.id === 'score.left' || region.id === 'score.right') {
+            const plain = preprocessRegionPixels(sourcePixels, region.rectangle);
+            const plainCrop = document.createElement('canvas'); plainCrop.width = plain.width; plainCrop.height = plain.height;
+            const plainContext = plainCrop.getContext('2d'); if (!plainContext) throw new Error('Canvas preprocessing is unavailable.');
+            plainContext.putImageData(new ImageData(plain.data, plain.width, plain.height), 0, 0);
+            enlargedContext.fillStyle = '#fff'; enlargedContext.fillRect(0, 0, enlarged.width, enlarged.height); enlargedContext.imageSmoothingEnabled = false; enlargedContext.drawImage(plainCrop, padding, padding, plain.width * scale, plain.height * scale);
+            const plainResult = await worker.recognize(enlarged);
+            candidates.push({ text: plainResult.data.text || '', confidence: Number.isFinite(plainResult.data.confidence) ? plainResult.data.confidence : null });
+          }
+          const selected = chooseRecognitionConsensus(candidates, /^\d{1,5}$/);
           text = selected.text; confidence = selected.confidence;
         }
         results.push({ regionId: region.id, text, confidence });
