@@ -4,6 +4,10 @@ import { buildMapRoundIntelligence, MAP_ROUND_CALCULATION_VERSION, type MapRound
 import { buildPlayerScreenshotMetrics, PLAYER_SCREENSHOT_CALCULATION_VERSION, screenshotPlayerIdentity } from './scrimRoundAnalytics';
 import { derivedMetricFromPercentage, derivedMetricFromRatio, normalizeDerivedMetric, type DerivedMetricV1 } from './derivedMetric';
 import { evidenceReferenceForMatch, workspaceIdentity } from './evidenceReference';
+import { buildEvidenceFusionReport, type EvidenceFusionReport, type EvidenceFusionResolution } from './evidenceFusion';
+import { buildContextualWeaponOutcomes, type ContextualWeaponRow } from './contextualEconomy';
+import { buildSpatialReport, type SpatialReport } from './spatialIntelligence';
+import { buildCalibratedPlayerRatings, type CalibratedPlayerRating } from './calibratedPlayerRatings';
 
 export const AGGREGATE_MIGRATION_SCHEMA = 'moetracker.aggregate-migration/v1' as const;
 export const MAP_ROUND_BUILDER = MAP_ROUND_CALCULATION_VERSION;
@@ -20,6 +24,7 @@ export interface AggregateBuildRecord {
   sourceHash: string | null;
   builders: readonly [typeof MAP_ROUND_BUILDER, typeof PLAYER_SCREENSHOT_BUILDER];
   unknownReason: 'missing-round-evidence' | 'unaccepted-evidence' | 'contradictory-match-identity' | null;
+  intelligence?: { schema: 'moetracker.match-intelligence/v1'; fusion: EvidenceFusionReport; economy: ContextualWeaponRow[]; spatial: SpatialReport; calculatedAtSourceHash: string };
 }
 
 type AggregateContainer = {
@@ -28,6 +33,9 @@ type AggregateContainer = {
   rounds?: Round[];
   engineAdapters?: any;
   analyticsBuilds?: Record<string, AggregateBuildRecord>;
+  evidenceFusionResolutions?: EvidenceFusionResolution[];
+  calibratedPlayerRatings?: CalibratedPlayerRating[];
+  rosterPlayers?: any[];
 };
 
 const canonical = (value: unknown): string => {
@@ -116,7 +124,11 @@ export function recomputeAcceptedMatchAggregates(container: AggregateContainer, 
       unknownReasons: screenshotUnknownReasons(values),
     };
   }
-  return record(matchId, 'recomputed', digest, null);
+  const build = record(matchId, 'recomputed', digest, null);
+  const replayRecord = container.engineAdapters?.replay?.[matchId];
+  build.intelligence = { schema: 'moetracker.match-intelligence/v1', fusion: buildEvidenceFusionReport(container as any, matchId, replayRecord), economy: buildContextualWeaponOutcomes(container as any, new Set([matchId])), spatial: buildSpatialReport(replayRecord), calculatedAtSourceHash: digest };
+  container.calibratedPlayerRatings = buildCalibratedPlayerRatings(container as any);
+  return build;
 }
 
 /** Pure adapter used by previews/tests before an in-place migration is applied. */

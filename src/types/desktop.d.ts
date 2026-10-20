@@ -37,7 +37,8 @@ declare global {
       processMatch(): Promise<{ state: string; message: string; items?: any[] }>;
       chooseVodFile(): Promise<{ canceled: boolean; path?: string; name?: string }>;
       discoverVodGames(input: { vodUrl?: string; localPath?: string; expectedGames?: number; mapNames?: string[] }): Promise<{ cacheId: string; uploadDate: string | null; uploader: string | null; vodUrl: string | null; videoId: string | null; durationMs: number; width: number; height: number; games: Array<{ timestampMs: number; score: number; agentSelectScore: number; mediaType: string; base64: string }>; boundaries: Array<{ timestampMs: number; score: number; agentSelectScore: number; map: string | null; mediaType: string; base64: string }> }>;
-      listVodJobs(): Promise<Array<{ id: string; status: string; stage: string; percent: number | null; message?: string; source: string; resumable: boolean; retainedSource?: boolean; createdAt: string; updatedAt: string }>>;
+      listVodJobs(): Promise<Array<{ id: string; status: string; stage: string; percent: number | null; message?: string; source: string; resumable: boolean; retainedSource?: boolean; expectedGames?: number; createdAt: string; updatedAt: string }>>;
+      resumeVodJob(jobId: string): Promise<{ path: string; name: string; expectedGames: number; vodUrl: string }>;
       analyzeVod(input: { vodUrl?: string; localPath?: string; cacheId?: string; startMs?: number; endMs?: number | null; povPlayerName?: string | null; observerMode?: boolean; players: Array<{ name: string; team: 'ours' | 'theirs'; expectedKills?: number | null; expectedDeaths?: number | null }> }): Promise<any>;
       releaseVodAnalysis(cacheId: string): Promise<{ released: boolean }>;
       cancelVodAnalysis(): Promise<{ cancelled: boolean }>;

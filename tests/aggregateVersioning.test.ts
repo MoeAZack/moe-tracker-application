@@ -33,6 +33,7 @@ describe('S0.6 aggregate migration', () => {
     const data = fixture();
     const result = recomputeAcceptedMatchAggregates(data, 'm1');
     expect(result).toMatchObject({ schema: AGGREGATE_MIGRATION_SCHEMA, status: 'recomputed' });
+    expect(result.intelligence).toMatchObject({ schema: 'moetracker.match-intelligence/v1', calculatedAtSourceHash: result.sourceHash, fusion: { calculationVersion: 'evidence-fusion/v2' }, spatial: { calculationVersion: 'spatial-intelligence/v2' } });
     expect(data.matches[0].roundAnalytics).toMatchObject({ coveredRounds: 2, calculationVersion: MAP_ROUND_BUILDER, sourceHash: result.sourceHash });
     expect(data.matches[0].roundAnalytics.coveredRounds).not.toBe(999);
     expect(data.playerStats[0].screenshotMetrics).toMatchObject({ coveredRounds: 1, sourceHash: result.sourceHash });
@@ -150,8 +151,9 @@ describe('S0.6 aggregate migration', () => {
     const data = fixture();
     data._storage = { schemaVersion: 2, migratedAt: '2026-10-01T00:00:00.000Z', migrationLedger: [] };
     ensureStorageSchema(data, '2026-10-15T10:00:00.000Z');
-    expect(data._storage).toMatchObject({ schemaVersion: 11, migrationLedger: [{ from: 2, to: 11, at: '2026-10-15T10:00:00.000Z' }] });
+    expect(data._storage).toMatchObject({ schemaVersion: 12, migrationLedger: [{ from: 2, to: 12, at: '2026-10-15T10:00:00.000Z' }] });
     expect(data.analyticsBuilds.m1).toMatchObject({ status: 'recomputed', builders: [MAP_ROUND_BUILDER, 'player-screenshot-metrics/v2'] });
+    expect(data.calibratedPlayerRatings).toEqual(expect.any(Array));
     ensureStorageSchema(data, '2026-10-15T11:00:00.000Z');
     expect(data._storage.migrationLedger).toHaveLength(1);
   });

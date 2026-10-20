@@ -64,6 +64,7 @@ export function toPublicTrackerData(db: Record<string, any>, role: 'coach' | 'pl
     publicData.rounds = (publicData.rounds || []).map(({ notes: _notes, isThrow: _isThrow, thrownBy: _thrownBy, throwReason: _throwReason, iglPlayer: _iglPlayer, iglRole: _iglRole, midRoundIglChange: _midRoundIglChange, strategies: _strategies, corrections: _corrections, ...round }: any) => round);
     publicData.practiceBlocks = (publicData.practiceBlocks || []).map(({ createdBy: _createdBy, updatedBy: _updatedBy, ...block }: any) => block);
     publicData.coachingSignals = [];
+    publicData.evidenceFusionResolutions = [];
     publicData.dashboardViews = [];
     publicData.coachingActions = (publicData.coachingActions || []).filter((action: any) => action.visibility === 'team' && (!authenticatedPlayerId || !action.ownerIds?.length || action.ownerIds.includes(authenticatedPlayerId)));
   }

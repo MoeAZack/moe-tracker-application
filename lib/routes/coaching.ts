@@ -2,6 +2,8 @@ import type { Express, Request, Response } from 'express';
 import type { CoachingAction, CoachingSignal } from '../../src/types';
 import { buildAllPracticeBlockSummaries, coachingContextMatches, createCoachingAction, evaluateAction, generateReviewSignalDrafts, generateRoundReviewSignalDrafts, migrateLegacyActionChecks, normalizeDashboardView, reconcileReviewSignals, transitionSignal } from '../coachingWorkflow';
 import { readDB, saveDB } from '../store';
+import { buildEvidenceFusionReport, upsertEvidenceResolution, type EvidenceSource } from '../evidenceFusion';
+import { recomputeAcceptedMatchAggregates } from '../aggregateVersioning';
 
 const actor = (req: Request) => String((req as any).user?.actorId || (req as any).user?.username || 'coach').slice(0, 120);
 function requireCoach(req: Request, res: Response) { if ((req as any).user?.role === 'coach') return true; res.status(403).json({ error: 'Coach access is required.' }); return false; }
@@ -21,6 +23,18 @@ export function refreshCoachingWorkflow(db: any, who = 'system', now = new Date(
 }
 
 export function registerCoachingRoutes(app: Express) {
+  app.post('/api/coaching/evidence-resolution', async (req, res) => {
+    if (!requireCoach(req, res)) return;
+    try {
+      const matchId = text(req.body?.matchId, 160); const roundId = text(req.body?.roundId, 160); const field = text(req.body?.field, 80); const reason = text(req.body?.reason, 500); const selectedSource = req.body?.selectedSource as EvidenceSource;
+      if (!matchId || !roundId || !field || !reason || !['coach', 'replay', 'screenshot', 'vod', 'manual'].includes(selectedSource)) return res.status(400).json({ error: 'Match, round, field, evidence source, and a reason are required.' });
+      const db = await readDB(); const round = (db.rounds || []).find((item: any) => item.id === roundId && item.matchId === matchId); if (!round) return res.status(404).json({ error: 'Round evidence was not found.' });
+      const current = buildEvidenceFusionReport(db, matchId, db.engineAdapters?.replay?.[matchId]); const fact = current.rounds.find(item => item.roundId === roundId)?.facts.find(item => item.field === field); const allowed = fact?.candidates.some(item => item.source === selectedSource && JSON.stringify(item.value) === JSON.stringify(req.body?.selectedValue)); if (!allowed) return res.status(409).json({ error: 'That evidence candidate is no longer current. Reload the match before resolving it.' });
+      db.evidenceFusionResolutions ||= []; const resolution = upsertEvidenceResolution(db.evidenceFusionResolutions, { matchId, roundId, field, selectedSource, selectedValue: structuredClone(req.body?.selectedValue), reason }, actor(req));
+      db.analyticsBuilds ||= {}; db.analyticsBuilds[matchId] = recomputeAcceptedMatchAggregates(db, matchId); refreshCoachingWorkflow(db, actor(req)); await saveDB(db); res.json({ resolution, build: db.analyticsBuilds[matchId] });
+    } catch (error: any) { res.status(error.status || 500).json({ error: error.message }); }
+  });
+
   app.get('/api/coaching', async (req, res) => {
     try {
       const db = await readDB(); const summaries = buildAllPracticeBlockSummaries(db);

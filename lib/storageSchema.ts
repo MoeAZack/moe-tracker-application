@@ -5,7 +5,7 @@ import { materializeFirstDeathsFromRoundEvidence, materializeRoundOpeningsFromSc
 import { ensureScheduleCalendars } from './schedule';
 import { buildAllPracticeBlockSummaries, migrateLegacyActionChecks } from './coachingWorkflow';
 
-export const STORAGE_SCHEMA_VERSION = 11;
+export const STORAGE_SCHEMA_VERSION = 12;
 export const MAX_ENTITY_BYTES = 840 * 1024;
 export const MAX_DOCUMENT_BYTES = 900 * 1024;
 export const MAX_JSON_DATABASE_BYTES = 64 * 1024 * 1024;
@@ -24,6 +24,7 @@ const CORE_ARRAYS = [
   'vodSubmissions',
   'attendanceCredits',
   'coachingSignals', 'coachingActions', 'dashboardViews',
+  'evidenceFusionResolutions', 'calibratedPlayerRatings',
 ] as const;
 
 export type StorageMetadata = {
@@ -96,6 +97,8 @@ export function ensureStorageSchema(input: any, now = new Date().toISOString()) 
     input.coachingActions = migrateLegacyActionChecks(input.coachingActions, input.coachingSignals, 'storage-migration', now, buildAllPracticeBlockSummaries(input, now));
     if (!Array.isArray(input.vodSubmissions)) input.vodSubmissions = [];
     if (!Array.isArray(input.dashboardViews)) input.dashboardViews = [];
+    if (!Array.isArray(input.evidenceFusionResolutions)) input.evidenceFusionResolutions = [];
+    if (!Array.isArray(input.calibratedPlayerRatings)) input.calibratedPlayerRatings = [];
     ledger.push({ from: declared, to: STORAGE_SCHEMA_VERSION, at: now });
   }
   input._storage = { schemaVersion: STORAGE_SCHEMA_VERSION, migratedAt: declared < STORAGE_SCHEMA_VERSION ? now : String(input._storage?.migratedAt || now), migrationLedger: ledger } satisfies StorageMetadata;
