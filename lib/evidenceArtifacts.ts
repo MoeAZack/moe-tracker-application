@@ -14,6 +14,31 @@ export type EvidenceArtifact = { sha256: string; bytes: number; json: string };
 
 const isRef = (value: any): value is EvidenceArtifactRef => value?.__moeEvidenceArtifact === 1
   && typeof value?.sha256 === 'string' && Number.isSafeInteger(value?.bytes);
+const looksLikeRef = (value: any) => !!value && typeof value === 'object' && !Array.isArray(value) && Object.prototype.hasOwnProperty.call(value, '__moeEvidenceArtifact');
+const SHA256 = /^[a-f0-9]{64}$/;
+
+/** Bulky per-record fields that live in artifacts instead of the active index. */
+const RECORD_EVIDENCE_FIELDS: ReadonlyArray<readonly [collection: string, fields: readonly string[]]> = [
+  ['rounds', ['screenshotEvidence', 'replayEvidence', 'vodEvidence', 'advantageEvidence']],
+  ['matches', ['roundAnalytics']],
+  ['playerStats', ['screenshotMetrics']],
+  ['vodSubmissions', ['timelineEvidence']],
+];
+
+/**
+ * Write-time guard: a state handed to the store is fully hydrated, so any
+ * artifact-reference shape inside it came from request input. Accepting one
+ * would let a client point the index at another workspace's evidence or at a
+ * missing artifact that makes every later read fail closed.
+ */
+export function assertNoArtifactReferences(input: any) {
+  const visit = (value: any, location: string) => {
+    if (looksLikeRef(value)) throw Object.assign(new Error(`Evidence artifact references cannot be submitted (${location}).`), { status: 400 });
+    if (Array.isArray(value)) { value.forEach((item, index) => visit(item, `${location}[${index}]`)); return; }
+    if (value && typeof value === 'object') for (const [key, child] of Object.entries(value)) visit(child, `${location}.${key}`);
+  };
+  visit(input, '$');
+}
 
 function clone<T>(value: T): T { return structuredClone(value); }
 
@@ -37,9 +62,13 @@ function externalizeContainer(container: any, artifacts: Map<string, EvidenceArt
   for (const job of Object.values(container.replayIntake?.parserJobs || {}) as any[]) {
     if (job && typeof job === 'object' && job.result !== undefined) job.result = artifact(job.result, artifacts);
   }
-  for (const round of container.rounds || []) {
-    for (const key of ['screenshotEvidence', 'replayEvidence', 'vodEvidence', 'advantageEvidence']) {
-      if (round?.[key] !== undefined) round[key] = artifact(round[key], artifacts);
+  for (const screenshot of Object.values(container.replayIntake?.screenshots || {}) as any[]) {
+    if (screenshot && typeof screenshot === 'object' && screenshot.draft !== undefined) screenshot.draft = artifact(screenshot.draft, artifacts);
+  }
+  for (const [collection, fields] of RECORD_EVIDENCE_FIELDS) {
+    if (!Array.isArray(container[collection])) continue;
+    for (const record of container[collection]) for (const key of fields) {
+      if (record?.[key] !== undefined) record[key] = artifact(record[key], artifacts);
     }
   }
 }
@@ -60,6 +89,7 @@ function externalizeArchive(archive: any, artifacts: Map<string, EvidenceArtifac
  * content-addressed evidence payloads. The caller commits artifacts first and
  * activates the index last, so interrupted writes cannot create broken refs. */
 export function externalizeEvidenceArtifacts(input: any) {
+  assertNoArtifactReferences(input);
   const state = clone(input); const artifacts = new Map<string, EvidenceArtifact>();
   externalizeContainer(state, artifacts);
   for (const archive of state.seasonArchives || []) externalizeArchive(archive, artifacts);
@@ -85,7 +115,8 @@ export function evidenceStorageFootprint(input: any) {
 }
 
 async function hydrateValue(value: any, load: (sha256: string) => Promise<string>) {
-  if (!isRef(value)) return value;
+  if (!looksLikeRef(value)) return value;
+  if (!isRef(value) || !SHA256.test(value.sha256) || value.bytes < 0) throw new Error('Evidence artifact reference is malformed.');
   const json = await load(value.sha256);
   if (crypto.createHash('sha256').update(json).digest('hex') !== value.sha256) throw new Error(`Evidence artifact ${value.sha256} failed integrity validation.`);
   if (Buffer.byteLength(json, 'utf8') !== value.bytes) throw new Error(`Evidence artifact ${value.sha256} has the wrong length.`);
@@ -97,7 +128,11 @@ async function hydrateContainer(container: any, load: (sha256: string) => Promis
   for (const build of Object.values(container.analyticsBuilds || {}) as any[]) if (build && typeof build === 'object') build.intelligence = await hydrateValue(build.intelligence, load);
   for (const replay of Object.values(container.engineAdapters?.replay || {}) as any[]) if (replay && typeof replay === 'object') replay.draft = await hydrateValue(replay.draft, load);
   for (const job of Object.values(container.replayIntake?.parserJobs || {}) as any[]) if (job && typeof job === 'object') job.result = await hydrateValue(job.result, load);
-  for (const round of container.rounds || []) for (const key of ['screenshotEvidence', 'replayEvidence', 'vodEvidence', 'advantageEvidence']) if (round?.[key] !== undefined) round[key] = await hydrateValue(round[key], load);
+  for (const screenshot of Object.values(container.replayIntake?.screenshots || {}) as any[]) if (screenshot && typeof screenshot === 'object') screenshot.draft = await hydrateValue(screenshot.draft, load);
+  for (const [collection, fields] of RECORD_EVIDENCE_FIELDS) {
+    if (!Array.isArray(container[collection])) continue;
+    for (const record of container[collection]) for (const key of fields) if (record?.[key] !== undefined) record[key] = await hydrateValue(record[key], load);
+  }
 }
 
 async function hydrateArchive(archive: any, load: (sha256: string) => Promise<string>) {
@@ -120,4 +155,31 @@ export function evidenceArtifactReferences(input: any) {
     if (value && typeof value === 'object') Object.values(value).forEach(visit);
   };
   visit(input); return refs;
+}
+
+export interface ArtifactCollectionPlan {
+  /** Artifacts unreferenced for longer than the retention window. */
+  remove: string[];
+  /** Orphan ledger to persist: sha256 -> first time seen unreferenced (ms). */
+  orphanedSince: Record<string, number>;
+}
+
+/**
+ * Shared garbage-collection rule for every store. Retention counts from when
+ * an artifact stopped being referenced, so recovery keeps the full window no
+ * matter how old the artifact itself is.
+ */
+export function planArtifactCollection(stored: Iterable<string>, referenced: ReadonlySet<string>, ledger: Record<string, number>, now: number, retentionMs: number): ArtifactCollectionPlan {
+  const remove: string[] = []; const orphanedSince: Record<string, number> = {};
+  for (const sha256 of stored) {
+    if (referenced.has(sha256)) continue;
+    const since = Number.isFinite(ledger[sha256]) ? ledger[sha256] : now;
+    if (now - since > retentionMs) remove.push(sha256); else orphanedSince[sha256] = since;
+  }
+  return { remove, orphanedSince };
+}
+
+export function artifactRetentionMs() {
+  const days = Math.max(1, Math.min(365, Number(process.env.EVIDENCE_ARTIFACT_RETENTION_DAYS || 30)));
+  return days * 24 * 60 * 60 * 1000;
 }

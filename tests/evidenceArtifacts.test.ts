@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { evidenceArtifactReferences, evidenceStorageFootprint, externalizeEvidenceArtifacts, hydrateEvidenceArtifacts } from '../lib/evidenceArtifacts';
+import { evidenceArtifactReferences, evidenceStorageFootprint, externalizeEvidenceArtifacts, hydrateEvidenceArtifacts, planArtifactCollection } from '../lib/evidenceArtifacts';
 import { archiveAndResetSeason, restoreSeasonArchive } from '../lib/roster';
 import { createSeed } from '../lib/seed';
 
@@ -52,5 +52,44 @@ describe('Storage v2 evidence artifacts', () => {
   it('fails closed when an artifact is missing or corrupted', async () => {
     const planned = externalizeEvidenceArtifacts(season());
     await expect(hydrateEvidenceArtifacts(planned.state, async () => '{"wrong":true}')).rejects.toThrow(/integrity validation/);
+  });
+  it('moves the remaining bulky fields out of the index and restores them losslessly', async () => {
+    const bulky = (label: string) => ({ label, samples: 'x'.repeat(4000) });
+    const source: any = {
+      ...season(0),
+      matches: [{ id: 'm1', roundAnalytics: bulky('round-analytics') }],
+      playerStats: [{ id: 's1', matchId: 'm1', screenshotMetrics: bulky('metrics') }],
+      vodSubmissions: [{ id: 'v1', timelineEvidence: bulky('timeline') }],
+      replayIntake: { parserJobs: {}, screenshots: { shot: { id: 'shot', draft: bulky('draft') } } },
+    };
+    const planned = externalizeEvidenceArtifacts(source);
+    expect(planned.state.matches[0].roundAnalytics.__moeEvidenceArtifact).toBe(1);
+    expect(planned.state.playerStats[0].screenshotMetrics.__moeEvidenceArtifact).toBe(1);
+    expect(planned.state.vodSubmissions[0].timelineEvidence.__moeEvidenceArtifact).toBe(1);
+    expect(planned.state.replayIntake.screenshots.shot.draft.__moeEvidenceArtifact).toBe(1);
+    expect(JSON.stringify(planned.state)).not.toContain('x'.repeat(100));
+    const payloads = new Map(planned.artifacts.map(item => [item.sha256, item.json]));
+    await hydrateEvidenceArtifacts(planned.state, async sha => payloads.get(sha)!);
+    expect(planned.state.matches).toEqual(source.matches); expect(planned.state.playerStats).toEqual(source.playerStats);
+    expect(planned.state.vodSubmissions).toEqual(source.vodSubmissions); expect(planned.state.replayIntake).toEqual(source.replayIntake);
+  });
+
+  it('refuses artifact references submitted inside a state to write', () => {
+    const crafted: any = season(); crafted.rounds[0].screenshotEvidence = { __moeEvidenceArtifact: 1, sha256: 'f'.repeat(64), bytes: 10 };
+    expect(() => externalizeEvidenceArtifacts(crafted)).toThrow(/cannot be submitted/);
+    const nested: any = season(); nested.matches[0].notes = { inner: { __moeEvidenceArtifact: 'anything' } };
+    expect(() => externalizeEvidenceArtifacts(nested)).toThrow(/cannot be submitted/);
+  });
+
+  it('rejects malformed stored references instead of loading them', async () => {
+    const state: any = { rounds: [{ id: 'r1', screenshotEvidence: { __moeEvidenceArtifact: 1, sha256: '../../etc/passwd', bytes: 1 } }] };
+    await expect(hydrateEvidenceArtifacts(state, async () => '{}')).rejects.toThrow(/malformed/);
+  });
+
+  it('plans collection from orphan time and keeps referenced artifacts', () => {
+    const now = 10 * 86_400_000; const day = 86_400_000;
+    const plan = planArtifactCollection(['live', 'fresh', 'old', 'new'], new Set(['live']), { fresh: now - day / 2, old: now - 3 * day }, now, day);
+    expect(plan.remove).toEqual(['old']);
+    expect(plan.orphanedSince).toEqual({ fresh: now - day / 2, new: now });
   });
 });
