@@ -112,6 +112,22 @@ class PositionIndex:
         x, y, z = best[1]
         return {"x": round(x, 1), "y": round(y, 1), "z": round(z, 1)}
 
+    def sampled(self, guids, interval_ms=1000):
+        """Return a bounded, deterministic path across reconnect pawns."""
+        buckets = {}
+        for guid in guids or []:
+            times, points = self.samples.get(guid, ([], []))
+            for time_ms, point in zip(times, points):
+                bucket = int(time_ms // interval_ms)
+                current = buckets.get(bucket)
+                if current is None or time_ms > current[0]:
+                    buckets[bucket] = (time_ms, point)
+        output = []
+        for time_ms, point in sorted(buckets.values()):
+            x, y, z = point
+            output.append((time_ms, {"x": round(x, 1), "y": round(y, 1), "z": round(z, 1)}))
+        return output
+
 
 def sha256(path: Path) -> str:
     digest = hashlib.sha256()
@@ -590,10 +606,31 @@ def build(args):
             if victim:
                 event["victimPosition"] = victim
     for observation in observations:
-        if observation.get("signal") in ("plant", "defuse") and isinstance(observation.get("occurredAtMs"), int):
+        if observation.get("signal") in ("plant", "defuse", "orb-capture", "ultimate-use") and isinstance(observation.get("occurredAtMs"), int):
             where = positions.at(player_pawns.get(observation.get("playerId")), observation["occurredAtMs"])
             if where:
-                observation["position"] = where
+                observation["attributes"]["position"] = where
+                observation["attributes"]["coordinateSpace"] = "world"
+
+    # Continuous paths are explicitly sampled from movement.parquet. One sample
+    # per player per two seconds keeps the accepted evidence bounded while preserving
+    # rotations, spacing and trade-distance context.
+    for player_id in sorted(valid_players):
+        for time_ms, where in positions.sampled(player_pawns.get(player_id), 2000):
+            round_number = round_by_time(time_ms)
+            if round_number is None:
+                continue
+            observations.append({
+                "observationId": hashlib.sha256(f"position:{time_ms}:{player_id}".encode()).hexdigest()[:24],
+                "roundNumber": round_number, "signal": "position-zone", "grade": "event-log",
+                "explicitlyPresent": True, "confidence": 1.0, "occurredAtMs": time_ms,
+                "playerId": player_id, "teamId": player_team[player_id],
+                "attributes": {"position": where, "coordinateSpace": "world", "sampleIntervalMs": 2000,
+                               "sourceField": "movement.parquet"},
+            })
+
+    capabilities.append({"signal": "position-zone", "support": "partial" if positions.samples else "unsupported",
+                         "grade": "event-log", "details": "two-second bounded samples from movement.parquet"})
 
     players = []
     unavailable = set()

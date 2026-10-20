@@ -13,7 +13,7 @@ contextBridge.exposeInMainWorld('moeDesktop', Object.freeze({
   listVodJobs: () => ipcRenderer.invoke('desktop:list-vod-jobs'),
   resumeVodJob: (jobId) => ipcRenderer.invoke('desktop:resume-vod-job', jobId),
   analyzeVod: (input) => ipcRenderer.invoke('desktop:analyze-vod', input),
-  releaseVodAnalysis: (cacheId) => ipcRenderer.invoke('desktop:release-vod-analysis', cacheId),
+  releaseVodAnalysis: (input) => ipcRenderer.invoke('desktop:release-vod-analysis', input),
   cancelVodAnalysis: () => ipcRenderer.invoke('desktop:cancel-vod-analysis'),
   createReviewClips: (input) => ipcRenderer.invoke('desktop:create-review-clips', input),
   openReviewClip: (fileName) => ipcRenderer.invoke('desktop:open-review-clip', fileName),

@@ -1,24 +1,24 @@
 # Delivery roadmap
 
-Last reconciled: 20 October 2026, Africa/Cairo. P0–P4 and coordinate-gated S8 are implemented as persisted services; the release remains unsigned until the external Windows signing gate is completed.
+Last reconciled: 20 October 2026, Africa/Cairo. This status is tied to executable tests and the audit matrix in `AUDIT-COVERAGE-2026-10-20.md`; the release remains unsigned until the external Windows signing gate is completed.
 
 ## Integrated coaching intelligence — P0 to P4
 
 - [x] **P0 Canonical coaching decisions** — round-cockpit confirmations and dismissals feed the central Review Inbox; immutable classification history is retained.
 - [x] **P1 Evidence fusion and conflict center** — coach, accepted replay, confirmed screenshot, VOD, and manual facts use one persisted field ledger. Conflicts have coach-selectable resolutions with immutable revision history and automatically rebuild affected analytics.
-- [x] **P2 Resilient VOD automation** — durable desktop job history, stage progress, retained downloaded sources, multi-game discovery, local-file ingestion, and one-click restart from a retained source without another YouTube download. Frame-level OCR continuation remains P6.
-- [x] **P3 Player development and debriefs** — recurring evidence becomes player strengths/weaknesses, linked interventions, baseline/later outcomes, and match debrief actions; tactical judgments still require coach confirmation.
+- [x] **P2 Resilient VOD automation** — durable desktop job history, retained sources, multi-game discovery, local-file ingestion, atomic per-frame OCR checkpoints, and restart without repeating completed OCR frames. Failed imports remain failed and resumable rather than being marked complete.
+- [x] **P3 Player development and debriefs** — recurring evidence becomes strengths/weaknesses, linked interventions, match debrief actions, and before/after cohorts matched by player, map, agent, and role. Tactical judgments still require coach confirmation.
 - [x] **P4 Contextual economy intelligence** — weapon outcomes retain our buy class, enemy buy class, map, side, site, player, and agent with visible sample confidence.
-- [x] **Replay spatial intelligence** — accepted-coordinate-only 2D map overlays, paths, kill markers, utility timelines, territory, same-team spacing, trade-distance, and per-map cross-match death/utility heatmaps. It deliberately stays unavailable for coordinate-free evidence.
-- [x] **Calibrated player ratings v2** — persisted team-cohort normalization with small-sample reliability shrinkage, uncertainty range, trend, and map/agent/role splits; explicitly descriptive and unvalidated, never presented as a predictive or universal rank.
+- [x] **Replay spatial intelligence v3** — the owned replay normalizer now emits bounded two-second movement paths plus positioned eliminations/objectives. Accepted evidence drives 2D paths, kill markers, utility timelines, territory, spacing, trade-distance, and cross-match death/utility heatmaps. Official map artwork is shown only with declared map bounds; otherwise a clearly labeled relative/cohort envelope is used.
+- [x] **Context-calibrated player ratings v3** — persisted robust median/MAD peer calibration with capped components, small-sample shrinkage, uncertainty, trend, and map/agent/role splits. It is explicitly descriptive and not yet outcome-predictive.
 
 ### Next evidence-driven queue
 
-- [ ] P5 Map calibration assets: verified transform/bounds per supported map so world coordinates overlay official tactical-map geometry.
-- [ ] P6 Frame-level VOD checkpoints and restart-safe continuation inside OCR/timeline analysis, not only at durable pipeline stages.
-- [ ] P7 Longitudinal development: matched before/after intervention cohorts and role-adjusted causal baselines. Descriptive intervention outcomes and rating uncertainty are already available.
+- [ ] P5 Official map calibration assets: independently verified world bounds/orientation per supported map so replay coordinates can overlay official tactical-map geometry rather than the relative cohort envelope.
+- [ ] P6 VOD candidate-extraction checkpoints: OCR frames now resume; changed-frame extraction still restarts because its streaming decoder state is not safely serializable.
+- [ ] P7 Causal development validation: matched before/after cohorts now exist; add larger role-adjusted controls and significance reporting before attributing improvement to an intervention.
 - [ ] P8 Spatial sequence models: execute/retake route clustering and utility-to-space impact, gated by representative coordinate coverage.
-- [ ] P9 Rating validation: out-of-sample outcome calibration, role/agent baselines, drift monitoring, and versioned backtests before any predictive label.
+- [ ] P9 Predictive rating validation: out-of-sample outcome calibration, drift monitoring, and versioned backtests before any predictive label.
 
 ## Now — functional desktop foundation
 

@@ -66,12 +66,12 @@ function sourceRows(container: AggregateContainer, match: Match) {
     .sort((left, right) => left.roundNo - right.roundNo || left.id.localeCompare(right.id, 'en'));
 }
 
-function sourceHash(match: Match, rounds: readonly Round[], stats: readonly PlayerStats[]) {
+function sourceHash(match: Match, rounds: readonly Round[], stats: readonly PlayerStats[], resolutions: readonly EvidenceFusionResolution[] = []) {
   const { roundAnalytics: _derived, ...sourceMatch } = match;
   const identities = stats.map(stat => ({ id: stat.id, playerId: stat.playerId || null,
     displayNameSnapshot: stat.displayNameSnapshot ?? null, player: stat.player }))
     .sort((left, right) => left.id.localeCompare(right.id, 'en'));
-  return hash({ match: sourceMatch, rounds, identities });
+  return hash({ match: sourceMatch, rounds, identities, resolutions: resolutions.map(item => ({ matchId: item.matchId, roundId: item.roundId, field: item.field, selectedSource: item.selectedSource, selectedValue: item.selectedValue, revision: item.revision })).sort((a, b) => `${a.roundId}:${a.field}`.localeCompare(`${b.roundId}:${b.field}`, 'en')) });
 }
 
 function record(matchId: string, status: AggregateBuildStatus, source: string | null, unknownReason: AggregateBuildRecord['unknownReason']): AggregateBuildRecord {
@@ -91,10 +91,12 @@ export function recomputeAcceptedMatchAggregates(container: AggregateContainer, 
   const rounds = sourceRows(container, match);
   if (!rounds.length) return record(matchId, 'source-unavailable', null, 'missing-round-evidence');
 
-  const stats = (container.playerStats || []).filter(row => row.matchId === matchId);
-  const digest = sourceHash(match, rounds, stats);
+  const stats = (container.playerStats || []).filter(row => row.matchId === matchId); const resolutions = (container.evidenceFusionResolutions || []).filter(item => item.matchId === matchId);
+  const digest = sourceHash(match, rounds, stats, resolutions); const replayRecord = container.engineAdapters?.replay?.[matchId]; const fusion = buildEvidenceFusionReport(container as any, matchId, replayRecord);
+  const resolvedRounds = structuredClone(rounds); const mutableFields = new Set(['result', 'side', 'buy', 'enemyBuy', 'plant', 'site', 'firstKillBy', 'firstDeathBy']);
+  for (const fusedRound of fusion.rounds) { const target = resolvedRounds.find(round => round.id === fusedRound.roundId) as any; if (!target) continue; for (const fact of fusedRound.facts) if (fact.resolved && mutableFields.has(fact.field)) target[fact.field] = structuredClone(fact.value); }
   const cleanMatch = { ...match, roundAnalytics: undefined };
-  const roundAnalytics = buildMapRoundIntelligence([cleanMatch], rounds)[0];
+  const roundAnalytics = buildMapRoundIntelligence([cleanMatch], resolvedRounds)[0];
   if (roundAnalytics) {
     match.roundAnalytics = {
       ...roundAnalytics,
@@ -104,7 +106,7 @@ export function recomputeAcceptedMatchAggregates(container: AggregateContainer, 
     };
   }
 
-  const built = new Map(buildPlayerScreenshotMetrics(rounds)
+  const built = new Map(buildPlayerScreenshotMetrics(resolvedRounds)
     .filter(metric => !metric.identity.startsWith('unlinked:'))
     .map(metric => [metric.identity, metric]));
   for (const stat of stats) {
@@ -125,8 +127,7 @@ export function recomputeAcceptedMatchAggregates(container: AggregateContainer, 
     };
   }
   const build = record(matchId, 'recomputed', digest, null);
-  const replayRecord = container.engineAdapters?.replay?.[matchId];
-  build.intelligence = { schema: 'moetracker.match-intelligence/v1', fusion: buildEvidenceFusionReport(container as any, matchId, replayRecord), economy: buildContextualWeaponOutcomes(container as any, new Set([matchId])), spatial: buildSpatialReport(replayRecord), calculatedAtSourceHash: digest };
+  build.intelligence = { schema: 'moetracker.match-intelligence/v1', fusion, economy: buildContextualWeaponOutcomes({ ...(container as any), rounds: resolvedRounds }, new Set([matchId])), spatial: buildSpatialReport(replayRecord), calculatedAtSourceHash: digest };
   container.calibratedPlayerRatings = buildCalibratedPlayerRatings(container as any);
   return build;
 }

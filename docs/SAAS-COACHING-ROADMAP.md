@@ -1,6 +1,6 @@
 # MoeTracker coaching SaaS roadmap
 
-Status: active delivery; S0–S6 and the evidence-gated S8 implementation are complete. P0–P4 coaching integration is complete in the current release candidate. Physical/signing acceptance and coordinate-coverage validation remain open.
+Status: active delivery. P0–P4 and replay spatial v3 are implemented and tested in the current release candidate. Official per-map transforms, predictive rating validation, broader real-replay coordinate coverage, physical-PC acceptance, and signing remain open; see `AUDIT-COVERAGE-2026-10-20.md` for the exact evidence boundary.
 Roadmap owner: MoeTracker product owner  
 Last updated: 20 October 2026, Africa/Cairo
 

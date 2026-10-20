@@ -33,7 +33,7 @@ describe('S0.6 aggregate migration', () => {
     const data = fixture();
     const result = recomputeAcceptedMatchAggregates(data, 'm1');
     expect(result).toMatchObject({ schema: AGGREGATE_MIGRATION_SCHEMA, status: 'recomputed' });
-    expect(result.intelligence).toMatchObject({ schema: 'moetracker.match-intelligence/v1', calculatedAtSourceHash: result.sourceHash, fusion: { calculationVersion: 'evidence-fusion/v2' }, spatial: { calculationVersion: 'spatial-intelligence/v2' } });
+    expect(result.intelligence).toMatchObject({ schema: 'moetracker.match-intelligence/v1', calculatedAtSourceHash: result.sourceHash, fusion: { calculationVersion: 'evidence-fusion/v2' }, spatial: { calculationVersion: 'spatial-intelligence/v3' } });
     expect(data.matches[0].roundAnalytics).toMatchObject({ coveredRounds: 2, calculationVersion: MAP_ROUND_BUILDER, sourceHash: result.sourceHash });
     expect(data.matches[0].roundAnalytics.coveredRounds).not.toBe(999);
     expect(data.playerStats[0].screenshotMetrics).toMatchObject({ coveredRounds: 1, sourceHash: result.sourceHash });
@@ -78,6 +78,17 @@ describe('S0.6 aggregate migration', () => {
     migrateAcceptedMatchAggregates(data);
     expect(data.analyticsBuilds.m1.sourceHash).not.toBe(correctedEvidenceHash);
     expect(data.playerStats).toHaveLength(2);
+  });
+
+  it('applies a persisted evidence resolution to downstream map and economy analytics', () => {
+    const data = fixture();
+    const before = recomputeAcceptedMatchAggregates(data, 'm1');
+    expect(data.matches[0].roundAnalytics.fullBuyLosses).toMatchObject({ lost: 1, total: 1 });
+    data.evidenceFusionResolutions = [{ id: 'fusion:m1:r2:result', matchId: 'm1', roundId: 'r2', field: 'result', selectedSource: 'coach', selectedValue: 'W', reason: 'Coach verified the round result.', revision: 1, updatedAt: '2026-10-20T10:00:00.000Z', updatedBy: 'coach', history: [] }];
+    const after = recomputeAcceptedMatchAggregates(data, 'm1');
+    expect(after.sourceHash).not.toBe(before.sourceHash);
+    expect(data.matches[0].roundAnalytics.fullBuyLosses).toMatchObject({ lost: 0, total: 1 });
+    expect(after.intelligence?.fusion.rounds.find(round => round.roundId === 'r2')?.facts.find(fact => fact.field === 'result')).toMatchObject({ resolved: true, value: 'W' });
   });
 
   it('excludes screenshot drafts and records machine-readable missing/contradictory reasons', () => {

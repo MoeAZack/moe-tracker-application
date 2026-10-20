@@ -86,7 +86,7 @@ export default function VodSubmission({ data, role, onRefresh }: Props) {
     const chosenLocal = sourceOverride ? { path: sourceOverride.path, name: sourceOverride.name } : localVod; const chosenUrl = sourceOverride?.vodUrl ?? vodUrl.trim();
     if (!window.moeDesktop || (!chosenUrl && !chosenLocal) || role !== 'coach' || (vodPerspective === 'player' && !vodPovPlayerId)) return;
     progressContext.current = { owner: 'batch', gameIndex: 0, totalGames: 1 }; setBusy('discover'); setBatchResult([]); setMessage(chosenLocal ? 'Reading the retained local video and finding every game…' : 'Downloading once, then finding every completed match scoreboard…'); setTimelineProgress({ owner: 'batch', step: 0, stepPercent: chosenLocal ? 100 : 0, message: chosenLocal ? 'Local video ready · download skipped.' : 'Preparing the VOD…', status: 'working' });
-    let cacheId = '';
+    let cacheId = ''; let completed = false;
     try {
       const requestedGames = Math.max(1, Math.min(12, sourceOverride?.expectedGames || Number.parseInt(expectedGames, 10) || 1));
       const discovery = await window.moeDesktop.discoverVodGames({ ...(chosenUrl ? { vodUrl: chosenUrl } : {}), expectedGames: requestedGames, mapNames: data.settings.maps || [], ...(chosenLocal ? { localPath: chosenLocal.path } : {}) }); cacheId = discovery.cacheId; const normalizedVodUrl = discovery.vodUrl || chosenUrl; const selectedPovName = activeRoster.find(player => player.id === vodPovPlayerId)?.displayName || null;
@@ -121,7 +121,7 @@ export default function VodSubmission({ data, role, onRefresh }: Props) {
           const payload = await response.json(); if (!response.ok) throw new Error(payload.error || `Game ${index + 1} could not be integrated.`);
           imported.push({ map: mapName, score: linked && typeof linked.ourScore === 'number' ? `${linked.ourScore}–${linked.theirScore}` : 'Score pending', status: payload.submission.linkMode === 'new-match' ? 'Timeline imported · scoreboard pending' : 'Linked and timeline imported' });
         }
-        setBatchResult(imported); setMessage(`${imported.length} game${imported.length === 1 ? '' : 's'} separated and integrated. This VOD did not show complete post-match scoreboards, so unavailable totals remain pending instead of being guessed.`); setTimelineProgress({ owner: 'batch', step: 4, stepPercent: 100, message: `${imported.length} games saved successfully.`, status: 'done' }); setVodUrl(''); setLocalVod(null); await Promise.all([load(), Promise.resolve(onRefresh())]); return;
+        setBatchResult(imported); setMessage(`${imported.length} game${imported.length === 1 ? '' : 's'} separated and integrated. This VOD did not show complete post-match scoreboards, so unavailable totals remain pending instead of being guessed.`); setTimelineProgress({ owner: 'batch', step: 4, stepPercent: 100, message: `${imported.length} games saved successfully.`, status: 'done' }); setVodUrl(''); setLocalVod(null); await Promise.all([load(), Promise.resolve(onRefresh())]); completed = true; return;
       }
       const imported: Array<{ map: string; score: string; status: string }> = [];
       for (let index = 0; index < detected.length; index += 1) {
@@ -137,9 +137,9 @@ export default function VodSubmission({ data, role, onRefresh }: Props) {
         const payload = await response.json(); if (!response.ok) throw new Error(payload.error || `Game ${index + 1} could not be integrated.`);
         imported.push({ map: game.draft.match.map, score: `${game.draft.match.ourScore}–${game.draft.match.theirScore}`, status: payload.submission.linkMode === 'new-match' ? 'New match created' : 'Linked to existing match' });
       }
-      setBatchResult(imported); setMessage(`${imported.length} game${imported.length === 1 ? '' : 's'} detected, analyzed, and integrated automatically.`); setTimelineProgress({ owner: 'batch', step: 4, stepPercent: 100, message: `${imported.length} games saved successfully.`, status: 'done' }); setVodUrl(''); setLocalVod(null); await Promise.all([load(), Promise.resolve(onRefresh())]);
+      setBatchResult(imported); setMessage(`${imported.length} game${imported.length === 1 ? '' : 's'} detected, analyzed, and integrated automatically.`); setTimelineProgress({ owner: 'batch', step: 4, stepPercent: 100, message: `${imported.length} games saved successfully.`, status: 'done' }); setVodUrl(''); setLocalVod(null); await Promise.all([load(), Promise.resolve(onRefresh())]); completed = true;
     } catch (error: any) { const reason = error.message || 'The multi-game VOD could not be integrated.'; setMessage(reason); setTimelineProgress(current => ({ owner: 'batch', step: current?.step ?? 0, stepPercent: current?.stepPercent ?? null, message: reason, status: 'error' })); }
-    finally { if (cacheId) await window.moeDesktop.releaseVodAnalysis(cacheId).catch(() => null); setBusy(''); }
+    finally { if (cacheId) await window.moeDesktop.releaseVodAnalysis({ cacheId, completed }).catch(() => null); setBusy(''); }
   };
   const submit = async () => {
     if (!draft || selectedRows.length !== 5 || (!vodUrl.trim() && !localVod)) return;
