@@ -1,8 +1,8 @@
 # MoeTracker coaching SaaS roadmap
 
-Status: active delivery; S0, S1, S2, S3, S4, S5, and the S6 implementation are complete. S6 physical/signing acceptance gates remain open.
+Status: active delivery; S0–S6 and the evidence-gated S8 implementation are complete. P0–P4 coaching integration is complete in the current release candidate. Physical/signing acceptance and coordinate-coverage validation remain open.
 Roadmap owner: MoeTracker product owner  
-Last updated: 14 October 2026, Africa/Cairo
+Last updated: 20 October 2026, Africa/Cairo
 
 ## Autonomous start command
 
@@ -59,7 +59,7 @@ data source is required.
 | S5 | Configurable coach dashboard | S1, S2, S4 | Next |
 | S6 | Tray-first capture sidekick | Existing capture pipeline | Next |
 | S7 | Team notifications and Discord | S2, S3, stable sync | Later |
-| S8 | Replay-backed spatial intelligence | Reliable current-patch parser | Research |
+| S8 | Replay-backed spatial intelligence | Accepted replay coordinates | Implemented; coverage expansion next |
 | S9 | Licensed public opponent intelligence | Stable private SaaS | Deferred |
 
 S1 through S3 form the first complete SaaS coaching loop and must be finished

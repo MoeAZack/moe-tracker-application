@@ -1,6 +1,6 @@
 import type { Express, Request, Response } from 'express';
 import type { CoachingAction, CoachingSignal } from '../../src/types';
-import { buildAllPracticeBlockSummaries, coachingContextMatches, createCoachingAction, evaluateAction, generateReviewSignalDrafts, migrateLegacyActionChecks, normalizeDashboardView, reconcileReviewSignals, transitionSignal } from '../coachingWorkflow';
+import { buildAllPracticeBlockSummaries, coachingContextMatches, createCoachingAction, evaluateAction, generateReviewSignalDrafts, generateRoundReviewSignalDrafts, migrateLegacyActionChecks, normalizeDashboardView, reconcileReviewSignals, transitionSignal } from '../coachingWorkflow';
 import { readDB, saveDB } from '../store';
 
 const actor = (req: Request) => String((req as any).user?.actorId || (req as any).user?.username || 'coach').slice(0, 120);
@@ -10,7 +10,7 @@ function text(value: unknown, max = 160) { return typeof value === 'string' ? va
 export function refreshCoachingWorkflow(db: any, who = 'system', now = new Date().toISOString()) {
   const summaries = buildAllPracticeBlockSummaries(db, now);
   const deletedFingerprints = new Set<string>(db.settings?.deletedCoachingSignalFingerprints || []);
-  const drafts = summaries.flatMap(summary => generateReviewSignalDrafts(summary, db.settings?.coachingThresholds)).filter(draft => !deletedFingerprints.has(draft.fingerprint));
+  const drafts = [...summaries.flatMap(summary => generateReviewSignalDrafts(summary, db.settings?.coachingThresholds)), ...generateRoundReviewSignalDrafts(db, summaries, now)].filter(draft => !deletedFingerprints.has(draft.fingerprint));
   db.coachingSignals = reconcileReviewSignals(db.coachingSignals || [], drafts, who);
   for (const signal of db.coachingSignals as CoachingSignal[]) {
     const related = (db.coachingActions || []).find((action: CoachingAction) => !['resolved', 'cancelled'].includes(action.state) && action.check?.signalType === signal.type && coachingContextMatches(action.check.context, signal.context) && action.sourceSignalId !== signal.id && Date.parse(action.createdAt) < Date.parse(signal.createdAt));
@@ -50,7 +50,7 @@ export function registerCoachingRoutes(app: Express) {
   app.post('/api/coaching/signals/:id/correct', async (req, res) => {
     if (!requireCoach(req, res)) return;
     try {
-      const validTypes: CoachingSignal['type'][] = ['pistol-conversion', 'full-buy-loss', 'anti-eco-loss', 'low-buy-win', 'first-death-collapse', 'repeated-player-first-death', 'advantage-collapse', 'map-underperformance', 'evidence-health'];
+      const validTypes: CoachingSignal['type'][] = ['pistol-conversion', 'full-buy-loss', 'anti-eco-loss', 'low-buy-win', 'first-death-collapse', 'repeated-player-first-death', 'advantage-collapse', 'map-underperformance', 'evidence-health', 'failed-trade-spacing', 'economy-mismatch', 'post-plant-loss', 'first-death-review', 'utility-unused-review'];
       const reason = text(req.body?.reason, 500); const correctedType = req.body?.type as CoachingSignal['type']; if (!reason || !validTypes.includes(correctedType)) return res.status(400).json({ error: 'A valid classification and correction reason are required.' });
       const db = await readDB(); const index = (db.coachingSignals || []).findIndex((item: CoachingSignal) => item.id === req.params.id); if (index < 0) return res.status(404).json({ error: 'Review signal not found.' });
       const current: CoachingSignal = db.coachingSignals[index]; const correctedContext = { ...current.context, ...(req.body?.context && typeof req.body.context === 'object' ? req.body.context : {}) }; const now = new Date().toISOString();

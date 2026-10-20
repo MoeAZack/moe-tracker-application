@@ -1,6 +1,7 @@
 import type { CoachingAction, CoachingSignal, DashboardView, Match, PlayerStats, PracticeBlock, Round, TrackerData } from '../src/types';
 import { resolvePracticeBlocks } from './practiceBlocks';
 import { summarizeRoundAdvantages } from './roundAdvantage';
+import { buildRoundReviewCards } from './roundReviewCockpit';
 
 export const COACHING_WORKFLOW_VERSION = 'moetracker.coaching-workflow/v1' as const;
 export const DASHBOARD_LAYOUT_VERSION = 1 as const;
@@ -113,6 +114,23 @@ export function generateReviewSignalDrafts(summary: PracticeBlockSummary, thresh
   return drafts.sort((a, b) => ({ critical: 0, warning: 1, info: 2 }[a.severity] - { critical: 0, warning: 1, info: 2 }[b.severity] || a.fingerprint.localeCompare(b.fingerprint)));
 }
 
+/** Promote accepted round-review decisions into the same durable inbox as block analytics. */
+export function generateRoundReviewSignalDrafts(data: WorkflowData, summaries: readonly PracticeBlockSummary[], now = new Date().toISOString()): SignalDraft[] {
+  const drafts: SignalDraft[] = [];
+  for (const card of buildRoundReviewCards(data as TrackerData)) {
+    const block = summaries.find(item => item.matchIds.includes(card.match.id));
+    if (!block) continue;
+    for (const suggestion of card.suggestions) {
+      const decision = card.round.reviewCockpit?.classifications?.find(item => item.type === suggestion.type && String(item.player || '') === String(suggestion.player || ''));
+      if (decision?.status === 'dismissed' || (suggestion.requiresCoachConfirmation && decision?.status !== 'confirmed')) continue;
+      const context: CoachingSignal['context'] = { map: card.match.map, side: card.round.side, economy: card.round.buy, player: suggestion.player || undefined };
+      const fingerprint = stableId(['round-review', card.match.id, card.round.id, suggestion.type, suggestion.player || 'team']);
+      drafts.push({ schema: COACHING_WORKFLOW_VERSION, generatorVersion: 1, fingerprint, blockId: block.blockId, matchIds: [card.match.id], type: suggestion.type, severity: suggestion.type === 'advantage-collapse' || suggestion.type === 'post-plant-loss' ? 'critical' : 'warning', title: `${suggestion.label} · round ${card.round.roundNo}`, explanation: suggestion.reason, metric: { value: 1, samples: 1, unit: 'round' }, context, evidence: { matchIds: [card.match.id], roundIds: [card.round.id], sourceTypes: card.sources, confidence: suggestion.confidence === 'review' ? 'medium' : suggestion.confidence }, createdAt: now, updatedAt: now });
+    }
+  }
+  return drafts;
+}
+
 export function reconcileReviewSignals(existing: readonly CoachingSignal[], drafts: readonly SignalDraft[], actor = 'system') {
   const byFingerprint = new Map(existing.map(item => [item.fingerprint, item])); const now = new Date().toISOString();
   const next = drafts.map(draft => { const prior = byFingerprint.get(draft.fingerprint); if (prior) { const correction = prior.classificationCorrections?.at(-1); return { ...prior, ...draft, id: prior.id, type: correction?.corrected.type || draft.type, context: correction?.corrected.context || draft.context, status: prior.status, audit: prior.audit, updatedAt: now }; } return { ...draft, id: stableId(['signal', draft.fingerprint]), status: 'new' as const, audit: [{ at: now, by: actor, from: null, to: 'new' as const }] }; });
@@ -140,6 +158,11 @@ const METRIC_POLICIES: Record<CoachingSignal['type'], { direction: 'increase' | 
   'advantage-collapse': { direction: 'decrease', relativeTarget: .8, minimumSamples: 2, minimumDelta: 1 },
   'map-underperformance': { direction: 'increase', relativeTarget: 1.2, minimumSamples: 2, minimumDelta: 10 },
   'evidence-health': { direction: 'increase', relativeTarget: 1.2, minimumSamples: 2, minimumDelta: 10 },
+  'failed-trade-spacing': { direction: 'decrease', relativeTarget: .8, minimumSamples: 1, minimumDelta: 1 },
+  'economy-mismatch': { direction: 'decrease', relativeTarget: .8, minimumSamples: 1, minimumDelta: 1 },
+  'post-plant-loss': { direction: 'decrease', relativeTarget: .8, minimumSamples: 1, minimumDelta: 1 },
+  'first-death-review': { direction: 'decrease', relativeTarget: .8, minimumSamples: 1, minimumDelta: 1 },
+  'utility-unused-review': { direction: 'decrease', relativeTarget: .8, minimumSamples: 1, minimumDelta: 1 },
 };
 
 export const COACHING_CHECK_POLICY_VERSION = 3 as const;

@@ -15,7 +15,7 @@ let log = ''; server.stdout.on('data', value => { log += value; }); server.stder
 const results = [];
 async function audit(page, name) {
   const result = await new AxeBuilder({ page }).withTags(['wcag2a', 'wcag2aa', 'wcag21aa', 'wcag22aa']).analyze();
-  results.push({ name, violations: result.violations.map(item => ({ id: item.id, impact: item.impact, help: item.help, nodes: item.nodes.length })) });
+  results.push({ name, violations: result.violations.map(item => ({ id: item.id, impact: item.impact, help: item.help, nodes: item.nodes.length, targets: item.nodes.slice(0, 5).map(node => ({ target: node.target, html: node.html, summary: node.failureSummary })) })) });
 }
 try {
   let ready = false; const deadline = Date.now() + 20_000; while (Date.now() < deadline) { try { if ((await fetch(`${origin}/api/health`)).ok) { ready = true; break; } } catch {} await new Promise(resolve => setTimeout(resolve, 100)); }
