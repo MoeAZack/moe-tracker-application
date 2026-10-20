@@ -95,17 +95,43 @@ describe('Storage v2 local store', () => {
     const dbPath = path.join(dir, 'db.json'); const evidenceDir = path.join(dir, 'evidence');
     vi.stubEnv('DB_PATH', dbPath); vi.stubEnv('EVIDENCE_ARTIFACT_DIR', evidenceDir); vi.stubEnv('PRIVATE_BACKUP_DIR', path.join(dir, 'backups')); vi.stubEnv('USE_FIRESTORE', 'false');
     const { readDB, saveDB } = await import('../lib/store'); const { createPrivateBackup, restorePrivateBackup } = await import('../lib/privateBackup');
-    let db = await readDB();
+    const db = await readDB();
     db.matches = [{ id: 'm1' }]; db.rounds = [{ id: 'r1', matchId: 'm1', roundNo: 1, screenshotEvidence: { pixels: 'good'.repeat(5_000) } }]; await saveDB(db);
     const backup = await createPrivateBackup({ reason: 'manual-test' });
-    db = await readDB(); db.rounds[0].screenshotEvidence = { pixels: 'later'.repeat(5_000) }; await saveDB(db);
-    // Lose the current round artifact: reads now fail closed.
-    const current = JSON.parse(await fs.readFile(dbPath, 'utf8')).rounds[0].screenshotEvidence.sha256;
-    await fs.unlink(path.join(evidenceDir, `${current}.json.gz`));
+    // Lose the very artifact the backup contains, outside the store: reads fail closed.
+    const lost = JSON.parse(await fs.readFile(dbPath, 'utf8')).rounds[0].screenshotEvidence.sha256;
+    await fs.unlink(path.join(evidenceDir, `${lost}.json.gz`));
     await expect(readDB()).rejects.toThrow(/Evidence artifact/);
     const result = await restorePrivateBackup(backup.directory);
     expect(result).toMatchObject({ restored: true, preRestoreScope: 'index-only' });
+    // The restore rewrote the lost artifact instead of trusting a stale cache entry.
+    await expect(fs.stat(path.join(evidenceDir, `${lost}.json.gz`))).resolves.toBeTruthy();
     expect((await readDB()).rounds[0].screenshotEvidence.pixels).toBe('good'.repeat(5_000));
+  });
+
+  it('restores an index-only backup from the vault and refuses it when an artifact is gone', async () => {
+    const dir = await fs.mkdtemp(path.join(os.tmpdir(), 'moe-storage-v2-index-only-')); dirs.push(dir);
+    const dbPath = path.join(dir, 'db.json'); const evidenceDir = path.join(dir, 'evidence'); const backupDir = path.join(dir, 'backups');
+    vi.stubEnv('DB_PATH', dbPath); vi.stubEnv('EVIDENCE_ARTIFACT_DIR', evidenceDir); vi.stubEnv('PRIVATE_BACKUP_DIR', backupDir); vi.stubEnv('USE_FIRESTORE', 'false');
+    const { readDB, saveDB } = await import('../lib/store'); const { createPrivateBackup, restorePrivateBackup } = await import('../lib/privateBackup');
+    let db = await readDB();
+    db.matches = [{ id: 'm1', roundAnalytics: { heat: 'a'.repeat(20_000) } }]; db.rounds = [{ id: 'r1', matchId: 'm1', roundNo: 1, screenshotEvidence: { pixels: 'good'.repeat(5_000) } }]; await saveDB(db);
+    const full = await createPrivateBackup({ reason: 'manual-test' });
+    const lost = JSON.parse(await fs.readFile(dbPath, 'utf8')).rounds[0].screenshotEvidence.sha256;
+    await fs.unlink(path.join(evidenceDir, `${lost}.json.gz`));
+    const restored = await restorePrivateBackup(full.directory);
+    const indexOnly = path.join(backupDir, restored.preRestoreBackupId!);
+    // The vault now holds every artifact again, so the index-only backup restores.
+    db = await readDB(); db.matches[0].roundAnalytics = { heat: 'b'.repeat(20_000) }; await saveDB(db);
+    await expect(restorePrivateBackup(indexOnly, { dryRun: true })).resolves.toMatchObject({ readyForRestore: true, evidenceStatus: { complete: true, missing: [] } });
+    await restorePrivateBackup(indexOnly);
+    db = await readDB();
+    expect(db.matches[0].roundAnalytics.heat).toBe('a'.repeat(20_000));
+    expect(db.rounds[0].screenshotEvidence.pixels).toBe('good'.repeat(5_000));
+    // With the artifact gone again, dry-run reports it and restore fails closed naming it.
+    await fs.unlink(path.join(evidenceDir, `${lost}.json.gz`));
+    await expect(restorePrivateBackup(indexOnly, { dryRun: true })).resolves.toMatchObject({ readyForRestore: false, evidenceStatus: { complete: false, missing: [lost] } });
+    await expect(restorePrivateBackup(indexOnly)).rejects.toMatchObject({ status: 409, message: expect.stringContaining(lost) });
   });
 
   it('lets offline audits read hydrated evidence instead of artifact stubs', async () => {

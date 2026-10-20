@@ -115,7 +115,11 @@ Contract:
 - Local writes fsync the index and artifacts before activation.
 - Private backup restore works when the current database has missing
   artifacts: the pre-restore safety backup falls back to the stored index
-  (`preRestoreScope: 'index-only'`) instead of refusing the restore.
+  (`preRestoreScope: 'index-only'`) instead of refusing the restore, and the
+  restore rewrites any artifact deleted outside the store. An index-only
+  backup restores by hydrating against the evidence vault; dry-run reports
+  `evidenceStatus`, and restore fails closed with 409 naming any artifact the
+  vault no longer holds.
 - Offline audit scripts (`stage0-baseline`, `stage0-inventory`,
   `stage2-catalog-audit`) read through `readOfflineSnapshot`, which hydrates
   from the evidence vault and runs the post-hydration migrations read-only.
@@ -141,8 +145,8 @@ Acceptance evidence:
   newly externalized fields, and offline snapshot hydration.
 
 Known limits: GC is throttled per process rather than coordinated across
-instances; an index-only pre-restore backup cannot itself be restored while its
-artifacts remain missing; Firestore revisions committed before this change are
+instances; an index-only backup is only as restorable as the vault it points
+at; Firestore revisions committed before this change are
 not in the committed ledger and are left in place.
 
 ## H2 — Ingestion reliability

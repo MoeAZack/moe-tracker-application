@@ -109,9 +109,11 @@ async function syncDirectory(dir: string) {
 
 const verifiedLocalArtifacts = new Set<string>();
 async function localArtifactIsIntact(target: string, sha256: string) {
-  if (verifiedLocalArtifacts.has(target)) return true;
-  try { const intact = hashText(gunzipSync(await fs.readFile(target)).toString('utf8')) === sha256; if (intact) verifiedLocalArtifacts.add(target); return intact; }
-  catch (error: any) { if (error?.code === 'ENOENT') return null; return false; }
+  try {
+    // The cache only skips re-hashing; a file deleted outside this process
+    // must still be rewritten, so existence is always checked.
+    if (verifiedLocalArtifacts.has(target)) { await fs.stat(target); return true; } const intact = hashText(gunzipSync(await fs.readFile(target)).toString('utf8')) === sha256; if (intact) verifiedLocalArtifacts.add(target); return intact; }
+  catch (error: any) { verifiedLocalArtifacts.delete(target); if (error?.code === 'ENOENT') return null; return false; }
 }
 
 /** Artifacts are durable on disk before the index that references them is activated. */
@@ -339,6 +341,23 @@ export async function readDB() { return readStoredState(true); }
  * so a restore can still snapshot and replace a damaged workspace.
  */
 export async function readDBIndex() { return readStoredState(false); }
+
+function activeArtifactLoader() { return d1 ? loadD1Artifact : USE_FIRESTORE ? loadFirestoreArtifact : loadLocalArtifact; }
+
+/** Artifact refs in `state` that the active evidence vault cannot serve intact. */
+export async function missingEvidenceArtifacts(state: any) {
+  const load = activeArtifactLoader(); const missing: string[] = [];
+  for (const sha256 of evidenceArtifactReferences(state)) {
+    try { if (hashText(await load(sha256)) !== sha256) missing.push(sha256); } catch { missing.push(sha256); }
+  }
+  return missing.sort();
+}
+
+/** Resolves an index-only state (for example an index-only backup) against the
+ * active evidence vault, failing closed with the first unavailable artifact. */
+export async function hydrateFromEvidenceVault(state: any) {
+  return hydrateEvidenceArtifacts(state, activeArtifactLoader());
+}
 
 async function readStoredState(hydrate: boolean) {
   if (d1) return readDBD1(hydrate);
