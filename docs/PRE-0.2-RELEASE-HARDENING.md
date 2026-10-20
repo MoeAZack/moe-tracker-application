@@ -156,7 +156,12 @@ not in the committed ledger and are left in place.
 Fix and prove YouTube/local VOD handoff, cleanup, normalized frame selection,
 controlled OCR learning, capture behavior, spatial coordinates, and the real corpus.
 
-Status: READY locally. Exact-head CI is the final merge gate.
+Status: RE-AUDIT FIXES IN REVIEW (20 Oct 2026, Africa/Cairo). The re-audit
+found 2 of 12 items fixed. The code-only items below are fixed on the H2
+re-audit PR; the measured corpus regressions (competitive agent detection
+141 to 130 of 150, one session's score 9-13 read as 1-13, three blank assist
+cells now wrong) are still being reproduced on the owner's private corpus,
+so H2 does not pass yet.
 
 Contract:
 
@@ -173,6 +178,24 @@ Contract:
 - Automatic capture may collect a small overtime tail, but printed round numbers
   reconcile duplicate tiles before acceptance. Explicit round-count captures
   still require the exact requested count.
+- Capture runs with ordinary Windows rights; elevation is requested only when
+  the coach marks VALORANT as running as administrator. The standalone
+  launcher defaults to automatic round detection.
+- A resumed VOD job continues its original job, work directory and checkpoints,
+  and a resumed download is still deleted once integrated. A failed resume
+  never deletes the retained source.
+- Discovery replies name candidate frames instead of inlining every 1080p PNG;
+  the renderer reads them one at a time.
+- Without a linked scoreboard, kill-feed rows with one of our players count as
+  eliminations against an unresolved opponent (never a roster identity).
+  Timeline reconciliation is complete only when every player row was checked.
+- OCR learning accepts captures saved through the review path, and cached
+  extractions are invalidated when a learned alias changes the roster.
+- Name-only roster entries match screenshot names again.
+- PRACC feeds resolve TZIDs through their VTIMEZONE and X-WR-TIMEZONE data,
+  keep all-day dates unshifted, time out after 15 s, and concurrent syncs share
+  one run that writes once to a fresh read.
+- Two rifles beside pistols classify as a half buy; the Bandit is a pistol.
 - Normalized map coordinates remain bounded to 0..1. Raw VALORANT world-space
   coordinates may be negative and are calibrated before spatial analysis.
 
