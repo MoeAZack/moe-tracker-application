@@ -1,6 +1,7 @@
 import crypto from 'crypto';
 import { currentAnalyticsIdentityPolicy, projectCurrentPlayerAnalytics } from './activePlayerAnalytics';
 import { STORAGE_SCHEMA_VERSION } from './storageSchema';
+import { buildCanonicalDataSpine, validateCanonicalDataSpine } from './canonicalDataSpine';
 
 export type Stage0IssueSeverity = 'error' | 'warning';
 export type Stage0Issue = { code: string; severity: Stage0IssueSeverity; message: string; references: string[] };
@@ -77,6 +78,14 @@ export function auditStage0Integrity(state: any): { ok: boolean; errors: number;
   }
 
   unknownZeroIssues({ analyticsBuilds: state?.analyticsBuilds || {}, calibratedPlayerRatings: state?.calibratedPlayerRatings || [] }, '$', issues);
+  if (state?.workspace?.id) {
+    try {
+      const spine = validateCanonicalDataSpine(buildCanonicalDataSpine(state));
+      for (const issue of spine.issues) issues.push({ code: 'CANONICAL_SPINE_REFERENCE', severity: 'error', message: `Canonical data spine failed ${issue.code}.`, references: [issue.reference] });
+    } catch (error: any) {
+      issues.push({ code: 'CANONICAL_SPINE_BUILD', severity: 'error', message: error?.message || 'Canonical data spine could not be built.', references: [] });
+    }
+  }
   const errors = issues.filter(issue => issue.severity === 'error').length;
   return { ok: errors === 0, errors, warnings: issues.length - errors, issues };
 }
