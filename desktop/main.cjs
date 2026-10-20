@@ -605,10 +605,17 @@ async function readVodJobs() { try { const value = JSON.parse(await fsp.readFile
 let vodJobMutation = Promise.resolve();
 function updateVodJob(id, patch) { const task = vodJobMutation.then(async () => { const file = vodJobFile(); await fsp.mkdir(path.dirname(file), { recursive: true }); const jobs = await readVodJobs(); const index = jobs.findIndex(item => item.id === id); const next = { ...(index >= 0 ? jobs[index] : { id, createdAt: new Date().toISOString() }), ...patch, updatedAt: new Date().toISOString() }; if (index >= 0) jobs[index] = next; else jobs.unshift(next); await fsp.writeFile(file, JSON.stringify(jobs.slice(0, 100), null, 2)); return next; }); vodJobMutation = task.catch(() => {}); return task; }
 handleTrusted('desktop:list-vod-jobs', async () => (await readVodJobs()).map(({ sourcePath: _private, ...job }) => job));
+handleTrusted('desktop:resume-vod-job', async (_event, jobId) => {
+  const job = (await readVodJobs()).find(item => item.id === String(jobId || ''));
+  if (!job || !job.resumable || !job.sourcePath) throw new Error('This VOD job has no retained source to restart from.');
+  const sourcePath = path.resolve(job.sourcePath); const stat = await fsp.stat(sourcePath).catch(() => null); if (!stat?.isFile()) { await updateVodJob(job.id, { resumable: false, retainedSource: false, message: 'The retained video is no longer available.' }); throw new Error('The retained video is no longer available on this PC.'); }
+  approvedVodPaths.add(sourcePath); await updateVodJob(job.id, { status: 'ready', stage: 'restart-ready', percent: 0, message: 'Retained source reopened for a clean restart.' });
+  return { path: sourcePath, name: path.basename(sourcePath), expectedGames: Number(job.expectedGames) || 1, vodUrl: String(job.vodUrl || '') };
+});
 handleTrusted('desktop:discover-vod-games', async (event, input = {}) => {
   const localPath = input.localPath ? path.resolve(String(input.localPath)) : null;
   if (localPath && !approvedVodPaths.has(localPath)) throw new Error('Choose the local VOD through Moe Tracker before analyzing it.');
-  const jobId = crypto.randomUUID(); await updateVodJob(jobId, { kind: 'discover-and-import', status: 'working', stage: 'preparing', percent: 0, source: localPath ? 'local-file' : 'youtube', resumable: false });
+  const jobId = crypto.randomUUID(); await updateVodJob(jobId, { kind: 'discover-and-import', status: 'working', stage: 'preparing', percent: 0, source: localPath ? 'local-file' : 'youtube', vodUrl: String(input.vodUrl || '').trim(), expectedGames: input.expectedGames, mapNames: Array.isArray(input.mapNames) ? input.mapNames.slice(0, 50) : [], resumable: false });
   const progress = payload => { if (!event.sender.isDestroyed()) event.sender.send('desktop:vod-analysis-progress', { ...payload, jobId }); void updateVodJob(jobId, { status: 'working', stage: payload.stage, percent: payload.percent, message: payload.message }).catch(() => {}); };
   const jobKey = event.sender.id; if (activeVodAnalyses.has(jobKey)) throw new Error('A VOD analysis is already running in this window.');
   const controller = new AbortController(); activeVodAnalyses.set(jobKey, controller);
@@ -636,7 +643,7 @@ handleTrusted('desktop:analyze-vod', async (event, input = {}) => {
 });
 handleTrusted('desktop:release-vod-analysis', async (event, cacheId) => {
   const cached = discoveredVodSources.get(String(cacheId || '')); if (!cached || cached.owner !== event.sender.id) return { released: false };
-  discoveredVodSources.delete(String(cacheId)); if (!cached.downloaded) approvedVodPaths.delete(cached.file); if (!cached.downloaded) await fsp.rm(cached.directory, { recursive: true, force: true }).catch(() => {}); if (cached.jobId) await updateVodJob(cached.jobId, { status: 'completed', stage: 'integrated', percent: 100, retainedSource: cached.downloaded === true, resumable: cached.downloaded === true }); return { released: true, retainedSource: cached.downloaded === true };
+  discoveredVodSources.delete(String(cacheId)); if (!cached.downloaded) approvedVodPaths.delete(cached.file); if (!cached.downloaded) await fsp.rm(cached.directory, { recursive: true, force: true }).catch(() => {}); const retainedSource = fs.existsSync(cached.file); if (cached.jobId) await updateVodJob(cached.jobId, { status: 'completed', stage: 'integrated', percent: 100, retainedSource, resumable: retainedSource }); return { released: true, retainedSource };
 });
 handleTrusted('desktop:cancel-vod-analysis', event => { const controller = activeVodAnalyses.get(event.sender.id); if (!controller) return { cancelled: false }; controller.abort(new Error('VOD analysis was cancelled.')); return { cancelled: true }; });
 handleTrusted('desktop:create-review-clips', async (event, input = {}) => {

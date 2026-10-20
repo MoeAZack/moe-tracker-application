@@ -264,6 +264,14 @@ body {
   background: #68e5d6;
 }
 
+.ui-button-primary:disabled {
+  color: #dbeafe;
+  border-color: rgba(148, 163, 184, 0.38);
+  background: #334155;
+  opacity: 1 !important;
+  cursor: not-allowed;
+}
+
 .ui-field {
   border-radius: var(--ui-radius-sm);
   border: 1px solid var(--ui-line-strong);

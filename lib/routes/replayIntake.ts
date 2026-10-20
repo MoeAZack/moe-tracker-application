@@ -22,6 +22,8 @@ import { historicalPlayerLabel, mergeAcceptedPlayerStat, preserveIdentitySnapsho
 import { replayScreenshotReconciliation } from '../ocrLearning';
 import { confusableCaptureKey, normalizeCaptureName } from '../scrimCaptureImport';
 import { deriveRoundAdvantage } from '../roundAdvantage';
+import { recomputeAcceptedMatchAggregates } from '../aggregateVersioning';
+import { refreshCoachingWorkflow } from './coaching';
 
 const REPLAY_TYPE = 'application/vnd.valorant.replay';
 const MAX_REPLAY_BYTES = Number(process.env.REPLAY_MAX_BYTES || 2 * 1024 * 1024 * 1024);
@@ -477,6 +479,7 @@ function autoFinalizeDesktopReplay(db: any, store: ReplayStore, sha256: string, 
   review.status = 'accepted'; review.revision = 2; review.updatedAt = accepted.acceptedAt; review.acceptedAt = accepted.acceptedAt; review.acceptedBy = user.actorId; review.ratingDraftKeys = accepted.ratingDraftKeys;
   blob.reviewStatus = 'accepted'; blob.matchId = match.id; screenshot.autoProcessedAt = accepted.acceptedAt; screenshot.automaticMatchId = match.id;
   screenshot.reason = 'Automatically processed from a unique exact ten-player K/D/A match. You can edit the saved match later.';
+  db.analyticsBuilds ||= {}; db.analyticsBuilds[match.id] = recomputeAcceptedMatchAggregates(db, match.id); refreshCoachingWorkflow(db, user.actorId, accepted.acceptedAt);
   return { matchId: match.id, acceptedAt: accepted.acceptedAt };
 }
 
@@ -494,6 +497,7 @@ function refreshAcceptedReplay(db: any, store: ReplayStore, sha256: string, targ
   const accepted = acceptReviewIntoEngines(db, store, job, review, user, requestId, requestHash);
   review.revision = Number(review.revision || 1) + 1; review.updatedAt = accepted.acceptedAt; review.acceptedAt = accepted.acceptedAt; review.acceptedBy = user.actorId; review.ratingDraftKeys = accepted.ratingDraftKeys;
   blob.reviewStatus = 'accepted'; blob.matchId = targetMatchId;
+  db.analyticsBuilds ||= {}; db.analyticsBuilds[targetMatchId] = recomputeAcceptedMatchAggregates(db, targetMatchId); refreshCoachingWorkflow(db, user.actorId, accepted.acceptedAt);
   return { matchId: targetMatchId, acceptedAt: accepted.acceptedAt, refreshedAt: now };
 }
 
@@ -1328,7 +1332,10 @@ export async function registerReplayDeviceRoutes(app: Express) {
       review.screenshotLinks = Object.values(store.screenshots).filter(item => item.status === 'linked' && item.replaySha256 === sha256).map(item => ({ id: item.id, imageSha256: item.imageSha256, replaySha256: sha256 }));
       const accepted = acceptReviewIntoEngines(db, store, job, review, user, requestId, requestHash);
       review.status = 'accepted'; review.revision += 1; review.requestId = requestId; review.requestHash = requestHash; review.updatedAt = accepted.acceptedAt; review.acceptedAt = accepted.acceptedAt; review.acceptedBy = user.actorId; review.ratingDraftKeys = accepted.ratingDraftKeys;
-      blob.reviewStatus = 'accepted'; blob.matchId = review.matchId; await saveDB(db); res.json(replayReviewPublic(review));
+      blob.reviewStatus = 'accepted'; blob.matchId = review.matchId;
+      db.analyticsBuilds ||= {}; db.analyticsBuilds[review.matchId] = recomputeAcceptedMatchAggregates(db, review.matchId);
+      refreshCoachingWorkflow(db, user.actorId, accepted.acceptedAt);
+      await saveDB(db); res.json(replayReviewPublic(review));
     } catch (error: any) { res.status(error?.status || 400).json({ error: error?.message || 'Replay evidence could not be accepted.' }); }
   });
 

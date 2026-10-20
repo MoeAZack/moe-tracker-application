@@ -88,9 +88,10 @@ export const SEASON_COLLECTION_POLICY = {
     'rosterPlayers', 'coreMemberships', 'tryoutBatches', 'schedule', 'goals',
     'matches', 'playerStats', 'soloq', 'rounds', 'vetos', 'stratRuns', 'vodReviews', 'vodSubmissions',
     'practiceBlocks', 'tryoutDecisionNotes', 'identityCorrectionBatches',
-    'attendanceCredits',
+    'attendanceCredits', 'coachingSignals', 'coachingActions',
+    'evidenceFusionResolutions', 'calibratedPlayerRatings',
   ],
-  retain: ['seasonArchives', 'lineups', 'authKeys', 'allowedUsers', 'engineAdapters'],
+  retain: ['seasonArchives', 'lineups', 'authKeys', 'allowedUsers', 'engineAdapters', 'dashboardViews'],
   retainAndSnapshotReferences: ['strats'],
 } as const;
 
@@ -165,6 +166,7 @@ export function archiveAndResetSeason(
       legacyInactivePlayers: clone(db.settings.inactivePlayers || []),
     };
     for (const key of SEASON_ARRAY_KEYS) archive[key] = clone(Array.isArray(db[key]) ? db[key] : []);
+    archive.analyticsBuilds = clone(db.analyticsBuilds || {});
     const referencedStratIds = new Set(archive.stratRuns.map((run: any) => run.stratId).filter(Boolean));
     const strats = Array.isArray(db.strats) ? db.strats : [];
     const knownStratIds = new Set(strats.map((strat: any) => strat.id));
@@ -181,6 +183,7 @@ export function archiveAndResetSeason(
     db.seasonArchives = nextArchives;
 
     for (const key of SEASON_ARRAY_KEYS) db[key] = [];
+    db.analyticsBuilds = {};
     db.settings.season = newSeasonName.trim();
     db.settings.players = [];
     db.settings.inactivePlayers = [];

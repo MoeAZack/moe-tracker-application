@@ -693,6 +693,8 @@ export interface TrackerData {
   soloq: SoloQ[];
   rounds: Round[];
   analyticsBuilds?: Record<string, unknown>;
+  evidenceFusionResolutions?: import('../lib/evidenceFusion').EvidenceFusionResolution[];
+  calibratedPlayerRatings?: import('../lib/calibratedPlayerRatings').CalibratedPlayerRating[];
   vetos: Veto[];
   strats: Strat[];
   stratRuns: StratRun[];
