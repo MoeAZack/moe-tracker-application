@@ -93,9 +93,10 @@ describe('analytics scope UI and routing', () => {
   it('routes analytics through the projection and evidence through workspace data', () => {
     const app = fs.readFileSync('src/App.tsx', 'utf8');
     expect(app).toContain('projectAnalyticsMapScope(analyticsBaseData, analyticsMapScope)');
-    for (const component of ['Dashboard', 'EconomyAnalytics', 'AITacticalHub', 'MapBestStats', 'WebsiteMapSummary', 'TeamCompositions', 'PlayerSoloTracker']) {
+    for (const component of ['Dashboard', 'EconomyAnalytics', 'MapBestStats', 'WebsiteMapSummary', 'TeamCompositions', 'PlayerSoloTracker']) {
       expect(app).toMatch(new RegExp(`<${component}[^>]*data=\\{analyticsData\\}`));
     }
+    expect(app).toMatch(/<AITacticalHub[^>]*data=\{coachReviewData \|\| analyticsData\}/);
     for (const component of ['MatchLogRounds', 'ReplayWorkspace', 'VodReview', 'LineupLibrary', 'WebsiteMatchLog']) {
       expect(app).toMatch(new RegExp(`<${component}[^>]*data=\\{workspaceData(?: \\|\\| data)?\\}`));
     }

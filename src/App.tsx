@@ -13,6 +13,7 @@ import { reportDesktopDiagnostic } from './utils/desktopDiagnostics';
 import DesktopReplayAutomation from './components/DesktopReplayAutomation';
 import ReviewContextBar from './components/ReviewContextBar';
 import { projectCurrentPlayerAnalytics } from '../lib/activePlayerAnalytics';
+import { projectReviewContext } from '../lib/reviewContext';
 
 // Heavy route views are code-split so the initial bundle only loads the shell + login.
 const Dashboard = lazy(() => import('./components/Dashboard'));
@@ -212,6 +213,7 @@ export default function App() {
   }, [data, historicalTryoutId]);
   const analyticsProjection = useMemo(() => analyticsBaseData ? projectAnalyticsMapScope(analyticsBaseData, analyticsMapScope) : null, [analyticsBaseData, analyticsMapScope]);
   const analyticsData = analyticsProjection?.data || null;
+  const coachReviewData = useMemo(() => analyticsData ? projectReviewContext(analyticsData, reviewMatchId, reviewRoundNo) : null, [analyticsData, reviewMatchId, reviewRoundNo]);
 
   // --- MUTATION HELPERS ---
   // Client-side mirror of the server's sheet -> collection map.
@@ -715,8 +717,8 @@ export default function App() {
             )}
             {activeTab === 'aitactical' && analyticsData && (
               <div className="space-y-8">
-                <CoachWorkflow data={analyticsData} role={role} preferredMatchId={reviewMatchId} onOpenMatch={(matchId) => { setReviewMatchId(matchId); setActiveTab('vod'); }} />
-                <AITacticalHub data={analyticsData} theme={theme} onUpsert={handleUpsert} onRemove={handleRemove} />
+                <CoachWorkflow data={analyticsData} role={role} preferredMatchId={reviewMatchId} onFocusMatch={(matchId) => { setReviewMatchId(matchId); setReviewRoundNo(null); }} onOpenMatch={(matchId) => { setReviewMatchId(matchId); setActiveTab('vod'); }} />
+                <AITacticalHub data={coachReviewData || analyticsData} theme={theme} onUpsert={handleUpsert} onRemove={handleRemove} />
               </div>
             )}
             {activeTab === 'maps' && analyticsData && desktopMode && (
