@@ -6,7 +6,7 @@ import { createSeed } from './seed';
 import { assertSeasonArchivesStorageSize } from './roster';
 import { ensureWorkspaceIdentity } from './evidenceReference';
 import { decodeFirestoreDocuments, encodeFirestoreDocuments, ensureStorageSchema, migrateHydratedEvidence, planFirestoreWriteBatches, planRevisionActivation, STORAGE_SCHEMA_VERSION, validateTrackerState } from './storageSchema';
-import { evidenceArtifactReferences, externalizeEvidenceArtifacts, hydrateEvidenceArtifacts, type EvidenceArtifact } from './evidenceArtifacts';
+import { artifactRetentionMs, evidenceArtifactReferences, externalizeEvidenceArtifacts, hydrateEvidenceArtifacts, planArtifactCollection, type EvidenceArtifact } from './evidenceArtifacts';
 
 // Runtime state never defaults to the repository's historical/demo db.json.
 // Existing deployments keep their explicit DB_PATH; a fresh local install gets
@@ -28,6 +28,13 @@ const LEGACY_COLLECTION = 'tracker';
 const META_COLLECTION = 'tracker_v2';
 const REVISION_COLLECTION = 'tracker_v2_revisions';
 const ARTIFACT_COLLECTION = 'tracker_v2_evidence';
+const COMMITTED_COLLECTION = 'tracker_v2_committed';
+/** Inactive revisions kept for rollback on Firestore and D1 (the active one is always kept). */
+const RETAINED_INACTIVE_REVISIONS = 3;
+/** Remote artifact collection reads every retained revision, so it runs at most this often per process. */
+const remoteGcIntervalMs = () => Math.max(0, Number(process.env.EVIDENCE_GC_INTERVAL_MS ?? 10 * 60 * 1000));
+let lastRemoteGcAt = -Infinity;
+const remoteGcDue = (now = Date.now()) => { if (now - lastRemoteGcAt < remoteGcIntervalMs()) return false; lastRemoteGcAt = now; return true; };
 const VERSION = Symbol('tracker-version');
 let d1: any = null;
 const LOGIN_THROTTLE_MAX_FAILS = 5;
@@ -102,9 +109,11 @@ async function syncDirectory(dir: string) {
 
 const verifiedLocalArtifacts = new Set<string>();
 async function localArtifactIsIntact(target: string, sha256: string) {
-  if (verifiedLocalArtifacts.has(target)) return true;
-  try { const intact = hashText(gunzipSync(await fs.readFile(target)).toString('utf8')) === sha256; if (intact) verifiedLocalArtifacts.add(target); return intact; }
-  catch (error: any) { if (error?.code === 'ENOENT') return null; return false; }
+  try {
+    // The cache only skips re-hashing; a file deleted outside this process
+    // must still be rewritten, so existence is always checked.
+    if (verifiedLocalArtifacts.has(target)) { await fs.stat(target); return true; } const intact = hashText(gunzipSync(await fs.readFile(target)).toString('utf8')) === sha256; if (intact) verifiedLocalArtifacts.add(target); return intact; }
+  catch (error: any) { verifiedLocalArtifacts.delete(target); if (error?.code === 'ENOENT') return null; return false; }
 }
 
 /** Artifacts are durable on disk before the index that references them is activated. */
@@ -140,20 +149,15 @@ const ORPHAN_LEDGER = '.orphaned-since.json';
  * when it was written, so a long-lived artifact released today keeps the full
  * recovery window. */
 async function pruneLocalArtifacts(active: ReadonlySet<string>, now = Date.now()) {
-  const days = Math.max(1, Math.min(365, Number(process.env.EVIDENCE_ARTIFACT_RETENTION_DAYS || 30)));
-  const cutoff = now - days * 24 * 60 * 60 * 1000;
   const ledgerPath = path.join(EVIDENCE_ARTIFACT_DIR, ORPHAN_LEDGER);
   let ledger: Record<string, number> = {};
   try { const parsed = JSON.parse(await fs.readFile(ledgerPath, 'utf8')); if (parsed && typeof parsed === 'object' && !Array.isArray(parsed)) ledger = parsed; } catch { /* first run or unreadable: start a fresh window */ }
-  const next: Record<string, number> = {};
-  for (const entry of await fs.readdir(EVIDENCE_ARTIFACT_DIR, { withFileTypes: true }).catch(() => [])) {
-    const match = /^([a-f0-9]{64})\.json\.gz$/.exec(entry.name); if (!entry.isFile() || !match || active.has(match[1])) continue;
-    const since = Number.isFinite(ledger[match[1]]) ? ledger[match[1]] : now;
-    if (since < cutoff) { const target = path.join(EVIDENCE_ARTIFACT_DIR, entry.name); verifiedLocalArtifacts.delete(target); await fs.unlink(target).catch(() => {}); }
-    else next[match[1]] = since;
-  }
+  const stored = (await fs.readdir(EVIDENCE_ARTIFACT_DIR, { withFileTypes: true }).catch(() => []))
+    .map(entry => entry.isFile() ? /^([a-f0-9]{64})\.json\.gz$/.exec(entry.name)?.[1] : undefined).filter((sha): sha is string => !!sha);
+  const plan = planArtifactCollection(stored, active, ledger, now, artifactRetentionMs());
+  for (const sha256 of plan.remove) { const target = path.join(EVIDENCE_ARTIFACT_DIR, `${sha256}.json.gz`); verifiedLocalArtifacts.delete(target); await fs.unlink(target).catch(() => {}); }
   const temp = `${ledgerPath}.${process.pid}.${crypto.randomBytes(6).toString('hex')}.tmp`;
-  await fs.writeFile(temp, JSON.stringify(next), { encoding: 'utf8', mode: 0o600 });
+  await fs.writeFile(temp, JSON.stringify(plan.orphanedSince), { encoding: 'utf8', mode: 0o600 });
   await fs.rename(temp, ledgerPath);
 }
 
@@ -186,7 +190,8 @@ async function stageFirestoreRevision(data: any, revisionId: string) {
     const compressed = gzipSync(Buffer.from(item.json, 'utf8')).toString('base64');
     const chunks = compressed.match(/[\s\S]{1,600000}/g) || [''];
     const metaRef = firestore!.collection(ARTIFACT_COLLECTION).doc(item.sha256);
-    if ((await metaRef.get()).exists) continue;
+    // Reuse restarts the retention clock so a concurrent collection cannot remove it.
+    if ((await metaRef.get()).exists) { await metaRef.set({ orphanedAt: null }, { merge: true }); continue; }
     const batch = firestore!.batch();
     batch.create(metaRef, { sha256: item.sha256, bytes: item.bytes, chunks: chunks.length, encoding: 'gzip-base64' });
     chunks.forEach((payload, ordinal) => batch.create(firestore!.collection(ARTIFACT_COLLECTION).doc(`${item.sha256}_${ordinal}`), { sha256: item.sha256, ordinal, payload }));
@@ -232,15 +237,56 @@ async function activateFirestoreRevision(data: any, expected: number | undefined
   const metaRef = firestore!.collection(META_COLLECTION).doc('meta');
   try {
     const documentCount = await stageFirestoreRevision(data, revisionId);
-    return await firestore!.runTransaction(async transaction => {
+    const version = await firestore!.runTransaction(async transaction => {
       const snapshot = await transaction.get(metaRef); const current = Number(snapshot.data()?.version || 0);
       const version = planRevisionActivation(snapshot.exists ? current : null, expected, mode);
       transaction.set(metaRef, { schemaVersion: STORAGE_SCHEMA_VERSION, version, activeRevision: revisionId, documentCount, updatedAt: new Date().toISOString() });
       return version;
     });
+    // Only an activated revision enters the cleanup ledger; staged ones never do.
+    await firestore!.collection(COMMITTED_COLLECTION).doc(revisionId).set({ revisionId, committedAt: new Date().toISOString() });
+    if (remoteGcDue()) await collectFirestoreStorage(revisionId).catch((error: any) => console.warn('[firestore] evidence cleanup failed:', error?.message || error));
+    return version;
   } catch (error) {
     await deleteFirestoreRevision(revisionId).catch(() => {});
     throw error;
+  }
+}
+
+async function firestoreRevisionReferences(revisionId: string) {
+  const snapshot = await (await getFirestore())!.collection(REVISION_COLLECTION).where('revisionId', '==', revisionId).get();
+  return evidenceArtifactReferences(decodeFirestoreDocuments(snapshot.docs.map((doc: any) => ({ id: doc.id, payload: doc.data() }))));
+}
+
+/** Drop inactive revisions beyond the rollback window, then artifacts no retained revision references. */
+async function collectFirestoreStorage(activeRevision: string, now = Date.now()) {
+  const firestore = await getFirestore();
+  const committed = (await firestore!.collection(COMMITTED_COLLECTION).get()).docs.map((doc: any) => doc.data())
+    .filter((row: any) => typeof row?.revisionId === 'string')
+    .sort((left: any, right: any) => String(right.committedAt).localeCompare(String(left.committedAt)));
+  const inactive = committed.filter((row: any) => row.revisionId !== activeRevision);
+  for (const row of inactive.slice(RETAINED_INACTIVE_REVISIONS)) {
+    await deleteFirestoreRevision(row.revisionId);
+    await firestore!.collection(COMMITTED_COLLECTION).doc(row.revisionId).delete();
+  }
+  const referenced = new Set<string>();
+  for (const revisionId of [activeRevision, ...inactive.slice(0, RETAINED_INACTIVE_REVISIONS).map((row: any) => row.revisionId)]) {
+    for (const sha256 of await firestoreRevisionReferences(revisionId)) referenced.add(sha256);
+  }
+  const metas = (await firestore!.collection(ARTIFACT_COLLECTION).where('encoding', '==', 'gzip-base64').get()).docs.map((doc: any) => doc.data());
+  const ledger = Object.fromEntries(metas.filter((meta: any) => Number.isFinite(meta?.orphanedAt)).map((meta: any) => [meta.sha256, meta.orphanedAt]));
+  const plan = planArtifactCollection(metas.map((meta: any) => String(meta.sha256)), referenced, ledger, now, artifactRetentionMs());
+  for (const meta of metas) {
+    const sha256 = String(meta.sha256);
+    if (referenced.has(sha256)) { if (meta.orphanedAt !== null && meta.orphanedAt !== undefined) await firestore!.collection(ARTIFACT_COLLECTION).doc(sha256).set({ orphanedAt: null }, { merge: true }); continue; }
+    if (!plan.remove.includes(sha256)) { if (meta.orphanedAt !== plan.orphanedSince[sha256]) await firestore!.collection(ARTIFACT_COLLECTION).doc(sha256).set({ orphanedAt: plan.orphanedSince[sha256] }, { merge: true }); continue; }
+    // Re-read before deleting: a writer reusing this artifact resets orphanedAt.
+    const latest = await firestore!.collection(ARTIFACT_COLLECTION).doc(sha256).get();
+    if (!latest.exists || latest.data()?.orphanedAt !== meta.orphanedAt) continue;
+    const batch = firestore!.batch();
+    for (let ordinal = 0; ordinal < Number(meta.chunks || 0); ordinal += 1) batch.delete(firestore!.collection(ARTIFACT_COLLECTION).doc(`${sha256}_${ordinal}`));
+    batch.delete(firestore!.collection(ARTIFACT_COLLECTION).doc(sha256));
+    await batch.commit();
   }
 }
 
@@ -267,7 +313,7 @@ async function initializeFirestore() {
   catch (error: any) { if (error?.status !== 409) throw error; }
 }
 
-async function readDBFirestore() {
+async function readDBFirestore(hydrate = true) {
   const firestore = await getFirestore();
   const metaRef = firestore!.collection(META_COLLECTION).doc('meta');
   const readMeta = async () => typeof (metaRef as any).get === 'function' ? (metaRef as any).get() : ({ exists: false, data: () => undefined });
@@ -281,16 +327,41 @@ async function readDBFirestore() {
   if (snapshot.empty || snapshot.size !== Number(metadata.documentCount)) throw new Error('Active Firestore revision is incomplete.');
   const docs = snapshot.docs.map(doc => ({ id: doc.id, payload: doc.data() }));
   const state = decodeFirestoreDocuments(docs);
-  await hydrateEvidenceArtifacts(state, loadFirestoreArtifact);
-  migrateHydratedEvidence(state, storedSchemaVersion(state));
+  if (hydrate) { await hydrateEvidenceArtifacts(state, loadFirestoreArtifact); migrateHydratedEvidence(state, storedSchemaVersion(state)); }
   const seed = createSeed();
   for (const key of Object.keys(seed)) if (state[key] === undefined) state[key] = (seed as any)[key];
   return attachVersion(state, Number(metadata.version));
 }
 
-export async function readDB() {
-  if (d1) return readDBD1();
-  if (USE_FIRESTORE) return readDBFirestore();
+export async function readDB() { return readStoredState(true); }
+
+/**
+ * The active index exactly as stored, with artifact references left in place.
+ * Recovery uses it when hydration fails closed (a missing or corrupt artifact),
+ * so a restore can still snapshot and replace a damaged workspace.
+ */
+export async function readDBIndex() { return readStoredState(false); }
+
+function activeArtifactLoader() { return d1 ? loadD1Artifact : USE_FIRESTORE ? loadFirestoreArtifact : loadLocalArtifact; }
+
+/** Artifact refs in `state` that the active evidence vault cannot serve intact. */
+export async function missingEvidenceArtifacts(state: any) {
+  const load = activeArtifactLoader(); const missing: string[] = [];
+  for (const sha256 of evidenceArtifactReferences(state)) {
+    try { if (hashText(await load(sha256)) !== sha256) missing.push(sha256); } catch { missing.push(sha256); }
+  }
+  return missing.sort();
+}
+
+/** Resolves an index-only state (for example an index-only backup) against the
+ * active evidence vault, failing closed with the first unavailable artifact. */
+export async function hydrateFromEvidenceVault(state: any) {
+  return hydrateEvidenceArtifacts(state, activeArtifactLoader());
+}
+
+async function readStoredState(hydrate: boolean) {
+  if (d1) return readDBD1(hydrate);
+  if (USE_FIRESTORE) return readDBFirestore(hydrate);
   let storedText: string;
   try { storedText = await fs.readFile(DB_PATH, 'utf8'); }
   catch (error: any) {
@@ -299,7 +370,9 @@ export async function readDB() {
     const version = await writeJsonFile(seed, undefined, true);
     return attachVersion(seed, version);
   }
-  const data = JSON.parse(storedText); const declared = storedSchemaVersion(data); ensureStorageSchema(data); await hydrateEvidenceArtifacts(data, loadLocalArtifact); migrateHydratedEvidence(data, declared); validateTrackerState(data, { jsonFile: true });
+  const data = JSON.parse(storedText); const declared = storedSchemaVersion(data); ensureStorageSchema(data);
+  if (hydrate) { await hydrateEvidenceArtifacts(data, loadLocalArtifact); migrateHydratedEvidence(data, declared); }
+  validateTrackerState(data, { jsonFile: true });
   return attachVersion(data, hashText(storedText));
 }
 
@@ -338,11 +411,12 @@ export const storeInternals = { VERSION, writeJsonFile, stageFirestoreRevision, 
 
 const D1_CHUNK_CHARS = 200_000;
 const D1_MAX_CHUNKS = 32;
+const D1_ARTIFACT_BATCH = 50;
 let d1TablesReady = false;
 
 async function ensureD1Tables() {
   if (d1TablesReady) return;
-  await d1.exec(`CREATE TABLE IF NOT EXISTS tracker_meta (id INTEGER PRIMARY KEY CHECK (id = 1), version INTEGER NOT NULL, active_revision TEXT NOT NULL, chunk_count INTEGER NOT NULL, sha256 TEXT NOT NULL, updated_at TEXT NOT NULL); CREATE TABLE IF NOT EXISTS tracker_revisions (revision_id TEXT NOT NULL, ordinal INTEGER NOT NULL, payload TEXT NOT NULL, created_at TEXT NOT NULL, PRIMARY KEY (revision_id, ordinal)); CREATE INDEX IF NOT EXISTS tracker_revisions_created ON tracker_revisions(created_at); CREATE TABLE IF NOT EXISTS tracker_committed_revisions (revision_id TEXT PRIMARY KEY, committed_at TEXT NOT NULL); CREATE TABLE IF NOT EXISTS tracker_evidence_artifacts (sha256 TEXT PRIMARY KEY, bytes INTEGER NOT NULL, payload TEXT NOT NULL, created_at TEXT NOT NULL);`);
+  await d1.exec(`CREATE TABLE IF NOT EXISTS tracker_meta (id INTEGER PRIMARY KEY CHECK (id = 1), version INTEGER NOT NULL, active_revision TEXT NOT NULL, chunk_count INTEGER NOT NULL, sha256 TEXT NOT NULL, updated_at TEXT NOT NULL); CREATE TABLE IF NOT EXISTS tracker_revisions (revision_id TEXT NOT NULL, ordinal INTEGER NOT NULL, payload TEXT NOT NULL, created_at TEXT NOT NULL, PRIMARY KEY (revision_id, ordinal)); CREATE INDEX IF NOT EXISTS tracker_revisions_created ON tracker_revisions(created_at); CREATE TABLE IF NOT EXISTS tracker_committed_revisions (revision_id TEXT PRIMARY KEY, committed_at TEXT NOT NULL); CREATE TABLE IF NOT EXISTS tracker_evidence_artifacts (sha256 TEXT PRIMARY KEY, bytes INTEGER NOT NULL, payload TEXT NOT NULL, created_at TEXT NOT NULL); CREATE TABLE IF NOT EXISTS tracker_artifact_orphans (sha256 TEXT PRIMARY KEY, orphaned_at INTEGER NOT NULL);`);
   d1TablesReady = true;
 }
 
@@ -361,7 +435,7 @@ function d1Chunks(data: any, stored = false) {
   return { chunks, sha256: hashText(serialized) };
 }
 
-async function readDBD1() {
+async function readDBD1(hydrate = true) {
   await ensureD1Tables();
   let meta: any = await d1.prepare('SELECT version, active_revision, chunk_count, sha256 FROM tracker_meta WHERE id = 1').first();
   if (!meta) {
@@ -378,7 +452,9 @@ async function readDBD1() {
   if (rows.length !== Number(meta.chunk_count)) throw new Error('Active D1 revision is incomplete.');
   const serialized = rows.map((row: any) => row.payload).join('');
   if (hashText(serialized) !== meta.sha256) throw new Error('Active D1 revision failed integrity validation.');
-  const state = JSON.parse(serialized); const declared = storedSchemaVersion(state); ensureStorageSchema(state); await hydrateEvidenceArtifacts(state, loadD1Artifact); migrateHydratedEvidence(state, declared); validateTrackerState(state);
+  const state = JSON.parse(serialized); const declared = storedSchemaVersion(state); ensureStorageSchema(state);
+  if (hydrate) { await hydrateEvidenceArtifacts(state, loadD1Artifact); migrateHydratedEvidence(state, declared); }
+  validateTrackerState(state);
   return attachVersion(state, Number(meta.version));
 }
 
@@ -393,7 +469,14 @@ async function activateD1Revision(data: any, expected: number | undefined, mode:
   await ensureD1Tables();
   removeLegacySecrets(data); ensureStorageSchema(data); ensureWorkspaceIdentity(data); assertSeasonArchivesStorageSize(data.seasonArchives || []); validateTrackerState(data);
   const planned = externalizeEvidenceArtifacts(data); const now = new Date().toISOString();
-  for (const item of planned.artifacts) await d1.prepare('INSERT OR IGNORE INTO tracker_evidence_artifacts (sha256, bytes, payload, created_at) VALUES (?, ?, ?, ?)').bind(item.sha256, item.bytes, gzipSync(Buffer.from(item.json, 'utf8')).toString('base64'), now).run();
+  // Batched: one round trip per D1_ARTIFACT_BATCH artifacts instead of one per artifact.
+  // Reuse also clears any orphan mark, restarting the retention clock.
+  for (let offset = 0; offset < planned.artifacts.length; offset += D1_ARTIFACT_BATCH) {
+    await d1.batch(planned.artifacts.slice(offset, offset + D1_ARTIFACT_BATCH).flatMap(item => [
+      d1.prepare('INSERT OR IGNORE INTO tracker_evidence_artifacts (sha256, bytes, payload, created_at) VALUES (?, ?, ?, ?)').bind(item.sha256, item.bytes, gzipSync(Buffer.from(item.json, 'utf8')).toString('base64'), now),
+      d1.prepare('DELETE FROM tracker_artifact_orphans WHERE sha256 = ?').bind(item.sha256),
+    ]));
+  }
   const { chunks, sha256 } = d1Chunks(planned.state, true);
   const revisionId = crypto.randomUUID();
   await d1.batch(chunks.map((payload, ordinal) => d1.prepare('INSERT INTO tracker_revisions (revision_id, ordinal, payload, created_at) VALUES (?, ?, ?, ?)').bind(revisionId, ordinal, payload, now)));
@@ -414,5 +497,32 @@ async function activateD1Revision(data: any, expected: number | undefined, mode:
     ORDER BY c.committed_at DESC LIMIT -1 OFFSET 3
   )`).run().catch((error: any) => console.warn('[d1] inactive revision cleanup failed:', error?.message || error));
   await d1.prepare('DELETE FROM tracker_committed_revisions WHERE revision_id NOT IN (SELECT DISTINCT revision_id FROM tracker_revisions)').run().catch(() => {});
+  if (remoteGcDue()) await collectD1Artifacts().catch((error: any) => console.warn('[d1] evidence cleanup failed:', error?.message || error));
   return Number(expected || 0) + 1;
+}
+
+/** Remove artifacts that no stored revision (active, retained or still staging) references. */
+async function collectD1Artifacts(now = Date.now()) {
+  const rows: any[] = (await d1.prepare('SELECT revision_id, ordinal, payload FROM tracker_revisions ORDER BY revision_id, ordinal').all()).results || [];
+  const revisions = new Map<string, string[]>();
+  for (const row of rows) revisions.set(row.revision_id, [...(revisions.get(row.revision_id) || []), String(row.payload)]);
+  const referenced = new Set<string>();
+  for (const chunks of revisions.values()) {
+    // A revision that is still being written cannot be parsed yet; skip collection rather than guess.
+    let state: any; try { state = JSON.parse(chunks.join('')); } catch { return; }
+    for (const sha256 of evidenceArtifactReferences(state)) referenced.add(sha256);
+  }
+  const stored = ((await d1.prepare('SELECT sha256 FROM tracker_evidence_artifacts').all()).results || []).map((row: any) => String(row.sha256));
+  const ledger = Object.fromEntries(((await d1.prepare('SELECT sha256, orphaned_at FROM tracker_artifact_orphans').all()).results || []).map((row: any) => [String(row.sha256), Number(row.orphaned_at)]));
+  const plan = planArtifactCollection(stored, referenced, ledger, now, artifactRetentionMs());
+  const statements = [
+    ...plan.remove.flatMap(sha256 => [
+      // Guarded by the ledger row so a writer that just reused the artifact (and cleared its row) keeps it.
+      d1.prepare('DELETE FROM tracker_evidence_artifacts WHERE sha256 = ? AND EXISTS (SELECT 1 FROM tracker_artifact_orphans WHERE sha256 = ? AND orphaned_at = ?)').bind(sha256, sha256, ledger[sha256]),
+      d1.prepare('DELETE FROM tracker_artifact_orphans WHERE sha256 = ?').bind(sha256),
+    ]),
+    ...Object.entries(plan.orphanedSince).filter(([sha256]) => ledger[sha256] === undefined).map(([sha256, since]) => d1.prepare('INSERT OR IGNORE INTO tracker_artifact_orphans (sha256, orphaned_at) VALUES (?, ?)').bind(sha256, since)),
+    ...Object.keys(ledger).filter(sha256 => referenced.has(sha256)).map(sha256 => d1.prepare('DELETE FROM tracker_artifact_orphans WHERE sha256 = ?').bind(sha256)),
+  ];
+  for (let offset = 0; offset < statements.length; offset += D1_ARTIFACT_BATCH * 2) await d1.batch(statements.slice(offset, offset + D1_ARTIFACT_BATCH * 2));
 }

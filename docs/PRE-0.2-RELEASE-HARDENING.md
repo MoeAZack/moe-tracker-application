@@ -5,7 +5,7 @@ acceptance gate. A later stage may not weaken an earlier invariant.
 
 ## H0 — Referential integrity
 
-Status: RE-OPENED by the 20 Oct re-audit; fixes in review.
+Status: PASSED (20 Oct 2026, Africa/Cairo) after the re-audit fixes in #84.
 
 Contract:
 
@@ -37,9 +37,29 @@ Contract:
 
 Re-audit (20 Oct 2026, Africa/Cairo): the external re-audit found the original
 duplicate guard missed an OCR-variant re-capture, the post-recompute FD
-overwrite survived, and save-match/save-rounds could half-commit. Those three
-are addressed on `fix/h0-integrity-reaudit-7keknm`; H0 stays open until that
-branch is reviewed and merged with exact-head CI green.
+overwrite survived, and save-match/save-rounds could half-commit. #84 fixed all
+three and added the duplicate quarantine described above.
+
+Quarantine mechanism: `sameGameEvidence` (`lib/matchIntegrity.ts`) builds the
+round-facts fingerprint and the optional complete-scoreboard key.
+`refreshDuplicateQuarantine` runs after save-match, save-rounds, match delete,
+VOD submission, replay acceptance and the schema-15 upgrade (after evidence
+hydration), and stores a server-owned `duplicateReview` on the later copy.
+Quarantined matches are excluded from analytics history, coaching signals,
+tryout comparisons, calibrated ratings and the website payload. Coaches decide
+through `POST /api/match-duplicate-review` (`keep-both` or `discard-this`) from
+the Match Log side-by-side panel.
+
+Acceptance case: the owner's installed 8-match database, where the same game
+was captured on 15 and 18 Oct (all 10 scoreboard rows, 168/168 kills and
+24/24 win reasons identical; map label, capture folder and four rounds of
+economy differ). On #84's head the owner verified that the pair is quarantined
+without deletion, the website payload excludes the copy, a re-capture of a
+game with two unread scoreboard rows is quarantined, disagreeing complete
+scoreboards stay distinct, deleting the original releases the copy, and a
+kept-distinct decision survives a third copy. Synthetic stand-ins for these
+cases live in `tests/fixtures/sameGameRecapture.ts`; owner data is not
+committed.
 
 Acceptance evidence:
 
@@ -54,12 +74,18 @@ build passed, five Windows lifecycle suites / 41 tests passed, 24- and
 28-round capture dry-runs passed, and the installed database migration dry-run
 reported zero integrity errors and zero destructive repairs.
 
+Re-audit gate result (20 Oct 2026): #84 head `a4d8bb7` passed 138 test files /
+896 tests, lint, production build and both CI jobs (`verify`,
+`windows-lifecycle`), and the owner verified it against the installed database.
+
 ## H1 — Storage v2
 
 Move large replay/VOD/analytics evidence out of the active aggregate payload, add
 retention and capacity telemetry, and prove a 100-match season plus archive/restore.
 
-Status: READY locally. Exact-head CI is the final merge gate.
+Status: RE-AUDIT FIXES IN REVIEW (20 Oct 2026, Africa/Cairo). The re-audit
+reopened six H1 items; all six are fixed on the H1 re-audit PR and wait on
+exact-head CI and owner verification.
 
 Contract:
 
@@ -69,8 +95,34 @@ Contract:
 - Reads hydrate artifacts transparently and fail closed on missing, truncated,
   or corrupted evidence.
 - Writes commit artifacts before atomically activating their referencing index.
-- Local, Firestore, and D1 stores use the same logical contract. Local orphaned
-  artifacts receive a configurable 30-day retention window.
+- Local, Firestore, and D1 stores use the same logical contract. Orphaned
+  artifacts on every backend are collected only after a configurable retention
+  window (`EVIDENCE_ARTIFACT_RETENTION_DAYS`, default 30) measured from the
+  moment they became unreferenced, not from creation. Re-referencing an artifact
+  clears its orphan mark, and deletes re-check the mark so a concurrent writer
+  cannot lose evidence.
+- Externalized fields: round screenshot, replay, VOD and advantage evidence;
+  match `roundAnalytics`; player-stat `screenshotMetrics`; VOD submission
+  `timelineEvidence`; accepted replay intake screenshot drafts; and archived
+  evidence collections.
+- Artifact references are server-owned. Any client payload containing an
+  artifact reference is rejected with 400, and malformed references fail closed
+  on read.
+- D1 artifact inserts run in batches of 50 statements. Firestore and D1 keep
+  the active revision plus the last 3 inactive revisions for rollback and
+  collect everything older (throttled by `EVIDENCE_GC_INTERVAL_MS`, default
+  10 minutes per process).
+- Local writes fsync the index and artifacts before activation.
+- Private backup restore works when the current database has missing
+  artifacts: the pre-restore safety backup falls back to the stored index
+  (`preRestoreScope: 'index-only'`) instead of refusing the restore, and the
+  restore rewrites any artifact deleted outside the store. An index-only
+  backup restores by hydrating against the evidence vault; dry-run reports
+  `evidenceStatus`, and restore fails closed with 409 naming any artifact the
+  vault no longer holds.
+- Offline audit scripts (`stage0-baseline`, `stage0-inventory`,
+  `stage2-catalog-audit`) read through `readOfflineSnapshot`, which hydrates
+  from the evidence vault and runs the post-hydration migrations read-only.
 - Storage telemetry reports the active index and compressed evidence vault
   separately instead of measuring the hydrated in-memory object as one blob.
 - Large season archives remain restorable without crossing the former 800 KiB
@@ -87,6 +139,15 @@ Acceptance evidence:
   retention cleanup have behavior tests.
 - Full local gate (20 Oct 2026): 130 test files / 854 tests, production build,
   six accessibility surfaces, and both capture layouts passed.
+- Re-audit coverage: D1 batching and orphan GC with rollback revisions kept,
+  Firestore revision and orphan GC, restore over a missing artifact, crafted
+  and malformed reference rejection (including over HTTP), round trip of the
+  newly externalized fields, and offline snapshot hydration.
+
+Known limits: GC is throttled per process rather than coordinated across
+instances; an index-only backup is only as restorable as the vault it points
+at; Firestore revisions committed before this change are
+not in the committed ledger and are left in place.
 
 ## H2 — Ingestion reliability
 
