@@ -175,6 +175,8 @@ export interface Schedule {
   primary: string;
   secondary?: string;
   notes?: string;
+  /** Coach-owned notes remain stable when provider fields refresh. */
+  coachNotes?: string;
   attendance: Record<string, string>;
   startTime?: string;
   allDay?: boolean;
@@ -185,6 +187,7 @@ export interface Schedule {
   attendanceEnabled?: boolean;
   requiredPlayerIds?: string[];
   attendanceCheckIns?: AttendanceCheckIn[];
+  attendanceAudit?: AttendanceAuditEntry[];
   source?: 'manual' | 'pracc';
   sourceEventId?: string;
   sourceCalendarHash?: string;
@@ -652,6 +655,17 @@ export interface Round {
     clips?: Array<{ id: string; fileName: string; label: string; startMs: number; endMs: number; createdAt: string }>;
     updatedAt: string;
   };
+}
+
+export interface AttendanceAuditEntry {
+  id: string;
+  playerId: string;
+  action: 'player-check-in' | 'coach-correction' | 'coach-clear';
+  fromStatus?: AttendanceCheckIn['status'] | 'automatic';
+  toStatus?: AttendanceCheckIn['status'] | 'automatic';
+  reason?: string;
+  createdAt: string;
+  createdBy: string;
 }
 
 export interface Veto {
