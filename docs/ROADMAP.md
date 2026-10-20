@@ -58,6 +58,8 @@ Last reconciled: 20 October 2026, Africa/Cairo. This status is tied to executabl
 - [x] Encrypted scheduled local backups
 - [x] Windows installer and in-place upgrade acceptance in isolated Windows profiles
 - [x] Automated WCAG 2.2 A/AA audit for desktop/mobile login and authenticated summary surfaces
+- [x] Release-workspace keyboard, reduced-motion, forced-colors, and 100/125/150/200% reflow gate
+- [x] 0.1.78 same-PC in-place install with encrypted recovery point and retained-workspace integrity check
 - [ ] Signed public release and independent physical-PC/assistive-technology acceptance
 
 ## Upcoming — evidence quality and coach workflow
@@ -70,7 +72,7 @@ the coaching SaaS are maintained in [SAAS-COACHING-ROADMAP.md](./SAAS-COACHING-R
 - [ ] Add coach-side tryout comparison views and a guided promotion flow from temporary identity to permanent roster member
 - [ ] Add scheduled encrypted local backups with restore rehearsal and retention controls
 - [ ] Complete a second-PC install, synchronization, update, rollback, and fullscreen-capture acceptance run
-- [ ] Complete human screen-reader, keyboard-only, high-contrast, and 200% zoom accessibility acceptance
+- [ ] Complete independent human screen-reader/high-contrast acceptance (keyboard-only and 200% automated gates pass)
 - [ ] Obtain a public Windows code-signing certificate and publish the signed installer through the staged update channel
 - [x] S0 — Stabilize canonical evidence references, metric envelopes, and signal identifiers
 - [x] S1 — Generate an accepted-evidence practice-block summary after capture

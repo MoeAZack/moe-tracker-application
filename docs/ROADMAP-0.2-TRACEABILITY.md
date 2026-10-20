@@ -79,9 +79,9 @@ Last reconciled: 20 October 2026, Africa/Cairo. This file is the permanent scope
 
 | ID | Requirement | Highest gate | Evidence / next gate |
 | --- | --- | --- | --- |
-| 11.1 | Clean dashboard/navigation and coherent collapsible UI | Implemented | Complete 100/125/150/200% and keyboard pass. |
-| 11.2 | Accessible Windows desktop release | Automatically tested | Automated WCAG coverage exists; human screen-reader/high-contrast testing remains. |
-| 11.3 | Install, update, rollback and second-PC sync | Automatically tested | Isolated profiles pass; independent physical second-PC run remains. |
+| 11.1 | Clean dashboard/navigation and coherent collapsible UI | Automatically tested | 100/125/150/200% reflow, skip-link and keyboard navigation pass with zero overflow; the installed 0.1.78 Home, review, economy and settings surfaces were verified. |
+| 11.2 | Accessible Windows desktop release | Automatically tested | WCAG 2.2 A/AA, reduced motion and Windows forced-colors gates pass with zero violations; a human screen-reader/high-contrast run remains external. |
+| 11.3 | Install, update, rollback and second-PC sync | Automatically tested | In-place 0.1.78 installation and retained real-data integrity pass on this PC; update/rollback/sync contracts pass in isolated profiles. Independent physical second-PC evidence remains. |
 | 11.4 | Signed public Windows installer | Externally blocked | Requires a public code-signing certificate. |
 | 11.5 | Official Riot ranked/history integration with opt-in | Externally blocked | Production API/RSO approval and eligible product scope required. |
 | 11.6 | Licensed opponent/pro telemetry | Externally blocked | Requires licensed source/terms; no scraping. |
