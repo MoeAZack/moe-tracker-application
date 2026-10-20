@@ -307,7 +307,7 @@ export interface CoachingSignal {
   fingerprint: string;
   blockId: string;
   matchIds: string[];
-  type: 'pistol-conversion' | 'full-buy-loss' | 'anti-eco-loss' | 'low-buy-win' | 'first-death-collapse' | 'repeated-player-first-death' | 'advantage-collapse' | 'map-underperformance' | 'evidence-health';
+  type: 'pistol-conversion' | 'full-buy-loss' | 'anti-eco-loss' | 'low-buy-win' | 'first-death-collapse' | 'repeated-player-first-death' | 'advantage-collapse' | 'map-underperformance' | 'evidence-health' | 'failed-trade-spacing' | 'economy-mismatch' | 'post-plant-loss' | 'first-death-review' | 'utility-unused-review';
   severity: 'critical' | 'warning' | 'info';
   title: string;
   explanation: string;
@@ -625,6 +625,14 @@ export interface Round {
       reason?: string;
       updatedAt: string;
       updatedBy: string;
+    }>;
+    classificationHistory?: Array<{
+      type: import('../lib/roundReviewCockpit').ReviewClassificationType;
+      status: 'confirmed' | 'dismissed';
+      player?: string | null;
+      reason?: string;
+      at: string;
+      by: string;
     }>;
     clips?: Array<{ id: string; fileName: string; label: string; startMs: number; endMs: number; createdAt: string }>;
     updatedAt: string;

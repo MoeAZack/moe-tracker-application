@@ -2,6 +2,7 @@ import type { Express } from 'express';
 import { readDB, saveDB } from '../store';
 import { uid, validate } from '../utils';
 import * as schemas from '../../schemas';
+import { refreshCoachingWorkflow } from './coaching';
 
 const author = (req: any) => ({ name: req.user?.username || 'Unknown', role: req.user?.role || 'player' });
 
@@ -105,12 +106,15 @@ export function registerVodLineupRoutes(app: Express) {
         const index = round.reviewCockpit.classifications.findIndex((item: any) => item.type === body.classification!.type && String(item.player || '') === String(body.classification!.player || ''));
         const decision = { ...body.classification, updatedAt: now, updatedBy: by };
         if (index >= 0) round.reviewCockpit.classifications[index] = decision; else round.reviewCockpit.classifications.push(decision);
+        round.reviewCockpit.classificationHistory ||= [];
+        round.reviewCockpit.classificationHistory.push({ ...body.classification, at: now, by });
       }
       if (body.clips?.length) {
         round.reviewCockpit.clips ||= [];
         for (const clip of body.clips) if (!round.reviewCockpit.clips.some((item: any) => item.id === clip.id)) round.reviewCockpit.clips.push({ ...clip, createdAt: now });
       }
       round.reviewCockpit.updatedAt = now;
+      refreshCoachingWorkflow(db, by, now);
       await saveDB(db); res.json(round);
     } catch (err: any) { res.status(500).json({ error: err.message }); }
   });

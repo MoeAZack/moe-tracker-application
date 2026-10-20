@@ -1,5 +1,25 @@
 # Delivery roadmap
 
+Last reconciled: 20 October 2026, Africa/Cairo. The P0–P4 integration release is implemented in the working tree; release gates below still require tests/build evidence before tagging.
+
+## Integrated coaching intelligence — P0 to P4
+
+- [x] **P0 Canonical coaching decisions** — round-cockpit confirmations and dismissals feed the central Review Inbox; immutable classification history is retained.
+- [x] **P1 Evidence fusion and conflict center** — coach, accepted replay, confirmed screenshot, VOD, and manual facts use one deterministic precedence policy with round-level conflict reporting.
+- [x] **P2 Resilient VOD automation** — durable desktop job history, stage progress, retained downloaded sources, multi-game discovery, and local-file ingestion. A retained source avoids another YouTube download; one-click restart recovery and frame-level OCR checkpoints remain P6 work.
+- [x] **P3 Player development and debriefs** — recurring evidence becomes player strengths/weaknesses and match debrief actions; tactical judgments still require coach confirmation.
+- [x] **P4 Contextual economy intelligence** — weapon outcomes retain buy, map, side, site, player, and agent context with visible sample confidence.
+- [x] **Replay spatial intelligence** — accepted-coordinate-only 2D paths, kill markers, utility timelines, territory, spacing, trade-distance, and cross-match death/utility heatmaps. It deliberately stays unavailable for coordinate-free evidence.
+- [x] **Calibrated player ratings v1** — team-cohort normalization with small-sample reliability shrinkage and visible components; descriptive only, not a predictive or universal rank.
+
+### Next evidence-driven queue
+
+- [ ] P5 Map calibration assets: verified transform/bounds per supported map so world coordinates overlay official tactical-map geometry.
+- [ ] P6 Frame-level VOD checkpoints and restart-safe continuation inside OCR/timeline analysis, not only at durable pipeline stages.
+- [ ] P7 Longitudinal development: role-adjusted baselines, before/after intervention cohorts, and uncertainty intervals.
+- [ ] P8 Spatial sequence models: execute/retake route clustering and utility-to-space impact, gated by representative coordinate coverage.
+- [ ] P9 Rating validation: out-of-sample outcome calibration, role/agent baselines, drift monitoring, and versioned backtests before any predictive label.
+
 ## Now — functional desktop foundation
 
 - [x] Clean public repository and desktop product identity
@@ -32,7 +52,7 @@
 - [x] Background tray behavior and automatic startup option
 - [x] Staged automatic update channel with post-update health verification and cached last-known-good rollback
 - [x] Configurable 30-day replay retention and storage budget
-- [ ] Encrypted scheduled local backups
+- [x] Encrypted scheduled local backups
 - [x] Windows installer and in-place upgrade acceptance in isolated Windows profiles
 - [x] Automated WCAG 2.2 A/AA audit for desktop/mobile login and authenticated summary surfaces
 - [ ] Signed public release and independent physical-PC/assistive-technology acceptance
@@ -62,7 +82,7 @@ the coaching SaaS are maintained in [SAAS-COACHING-ROADMAP.md](./SAAS-COACHING-R
 
 - [ ] Official Riot opt-in/API integration if the product is approved
 - [ ] Optional coach-requested temporary raw upload
-- [ ] Clip extraction from locally available VOD/replay evidence
-- [ ] S8 — Research replay-backed 2D spatial intelligence after parser reliability is proven
+- [x] Clip extraction from locally available VOD evidence
+- [x] S8 — Evidence-gated replay-backed 2D spatial intelligence (coordinate-free replays remain explicitly unsupported)
 - [ ] S9 — Evaluate licensed public opponent intelligence after the private workflow is reliable
 - [ ] Never: process-memory inspection, injection, or live unfair assistance

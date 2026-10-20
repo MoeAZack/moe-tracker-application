@@ -600,17 +600,24 @@ handleTrusted('desktop:choose-vod-file', async () => {
 });
 const activeVodAnalyses = new Map();
 const discoveredVodSources = new Map();
+function vodJobFile() { return path.join(runtime.paths.local, 'Vod Analysis', 'jobs.json'); }
+async function readVodJobs() { try { const value = JSON.parse(await fsp.readFile(vodJobFile(), 'utf8')); return Array.isArray(value) ? value : []; } catch { return []; } }
+let vodJobMutation = Promise.resolve();
+function updateVodJob(id, patch) { const task = vodJobMutation.then(async () => { const file = vodJobFile(); await fsp.mkdir(path.dirname(file), { recursive: true }); const jobs = await readVodJobs(); const index = jobs.findIndex(item => item.id === id); const next = { ...(index >= 0 ? jobs[index] : { id, createdAt: new Date().toISOString() }), ...patch, updatedAt: new Date().toISOString() }; if (index >= 0) jobs[index] = next; else jobs.unshift(next); await fsp.writeFile(file, JSON.stringify(jobs.slice(0, 100), null, 2)); return next; }); vodJobMutation = task.catch(() => {}); return task; }
+handleTrusted('desktop:list-vod-jobs', async () => (await readVodJobs()).map(({ sourcePath: _private, ...job }) => job));
 handleTrusted('desktop:discover-vod-games', async (event, input = {}) => {
   const localPath = input.localPath ? path.resolve(String(input.localPath)) : null;
   if (localPath && !approvedVodPaths.has(localPath)) throw new Error('Choose the local VOD through Moe Tracker before analyzing it.');
-  const progress = payload => { if (!event.sender.isDestroyed()) event.sender.send('desktop:vod-analysis-progress', payload); };
+  const jobId = crypto.randomUUID(); await updateVodJob(jobId, { kind: 'discover-and-import', status: 'working', stage: 'preparing', percent: 0, source: localPath ? 'local-file' : 'youtube', resumable: false });
+  const progress = payload => { if (!event.sender.isDestroyed()) event.sender.send('desktop:vod-analysis-progress', { ...payload, jobId }); void updateVodJob(jobId, { status: 'working', stage: payload.stage, percent: payload.percent, message: payload.message }).catch(() => {}); };
   const jobKey = event.sender.id; if (activeVodAnalyses.has(jobKey)) throw new Error('A VOD analysis is already running in this window.');
   const controller = new AbortController(); activeVodAnalyses.set(jobKey, controller);
   try {
     const result = await discoverVodGames({ vodUrl: String(input.vodUrl || '').trim(), localPath, expectedGames: input.expectedGames, mapNames: Array.isArray(input.mapNames) ? input.mapNames.slice(0, 50).map(item => String(item || '').slice(0, 100)) : [] }, { progress, signal: controller.signal, workRoot: path.join(runtime.paths.local, 'Vod Analysis') });
-    discoveredVodSources.set(result.cacheId, { directory: result.directory, file: result.file, downloaded: result.downloaded, videoId: result.videoId, durationMs: result.durationMs, sourceSha256: result.sourceSha256, owner: event.sender.id, createdAt: Date.now() });
-    const { directory: _directory, file: _file, downloaded: _downloaded, sourceSha256: _sourceSha256, ...publicResult } = result; return publicResult;
-  } finally { activeVodAnalyses.delete(jobKey); }
+    discoveredVodSources.set(result.cacheId, { directory: result.directory, file: result.file, downloaded: result.downloaded, videoId: result.videoId, durationMs: result.durationMs, sourceSha256: result.sourceSha256, owner: event.sender.id, createdAt: Date.now(), jobId });
+    await updateVodJob(jobId, { status: 'ready', stage: 'detected', percent: 100, cacheId: result.cacheId, videoId: result.videoId, sourcePath: result.file, resumable: true, expectedGames: input.expectedGames, detectedGames: result.games?.length || 0 });
+    const { directory: _directory, file: _file, downloaded: _downloaded, sourceSha256: _sourceSha256, ...publicResult } = result; return { ...publicResult, jobId };
+  } catch (error) { await updateVodJob(jobId, { status: 'failed', stage: 'failed', message: String(error?.message || error) }); throw error; } finally { activeVodAnalyses.delete(jobKey); }
 });
 handleTrusted('desktop:analyze-vod', async (event, input = {}) => {
   const players = Array.isArray(input.players) ? input.players.slice(0, 10).map(item => ({ name: String(item?.name || '').trim().slice(0, 100), team: item?.team === 'theirs' ? 'theirs' : 'ours', expectedKills: Number.isInteger(item?.expectedKills) && item.expectedKills >= 0 ? item.expectedKills : null, expectedDeaths: Number.isInteger(item?.expectedDeaths) && item.expectedDeaths >= 0 ? item.expectedDeaths : null })).filter(item => item.name) : [];
@@ -619,16 +626,17 @@ handleTrusted('desktop:analyze-vod', async (event, input = {}) => {
   if (input.cacheId && (!cached || cached.owner !== event.sender.id)) throw new Error('The detected VOD session expired. Detect the games again.');
   const localPath = cached?.file || (input.localPath ? path.resolve(String(input.localPath)) : null);
   if (localPath && !approvedVodPaths.has(localPath)) throw new Error('Choose the local VOD through Moe Tracker before analyzing it.');
-  const progress = payload => { if (!event.sender.isDestroyed()) event.sender.send('desktop:vod-analysis-progress', payload); };
+  const progress = payload => { if (!event.sender.isDestroyed()) event.sender.send('desktop:vod-analysis-progress', { ...payload, jobId: cached?.jobId || null }); if (cached?.jobId) void updateVodJob(cached.jobId, { status: 'working', stage: payload.stage, percent: payload.percent, message: payload.message }).catch(() => {}); };
   const jobKey = event.sender.id; if (activeVodAnalyses.has(jobKey)) throw new Error('A VOD analysis is already running in this window.');
   const controller = new AbortController(); activeVodAnalyses.set(jobKey, controller);
   try {
-    return await analyzeVodTimeline({ vodUrl: String(input.vodUrl || '').trim(), localPath, players, povPlayerName: String(input.povPlayerName || '').trim() || null, observerMode: input.observerMode === true, startMs: Number(input.startMs) || 0, endMs: Number(input.endMs) || null, sourceKind: cached?.downloaded ? 'youtube' : undefined, videoId: cached?.videoId || null, sourceSha256: cached?.sourceSha256 || null }, { progress, signal: controller.signal, workRoot: path.join(runtime.paths.local, 'Vod Analysis') });
-  } finally { activeVodAnalyses.delete(jobKey); if (localPath && !cached) approvedVodPaths.delete(localPath); }
+    const result = await analyzeVodTimeline({ vodUrl: String(input.vodUrl || '').trim(), localPath, players, povPlayerName: String(input.povPlayerName || '').trim() || null, observerMode: input.observerMode === true, startMs: Number(input.startMs) || 0, endMs: Number(input.endMs) || null, sourceKind: cached?.downloaded ? 'youtube' : undefined, videoId: cached?.videoId || null, sourceSha256: cached?.sourceSha256 || null }, { progress, signal: controller.signal, workRoot: path.join(runtime.paths.local, 'Vod Analysis') });
+    if (cached?.jobId) await updateVodJob(cached.jobId, { status: 'ready', stage: 'analyzed', percent: 100 }); return result;
+  } catch (error) { if (cached?.jobId) await updateVodJob(cached.jobId, { status: 'failed', stage: 'analysis-failed', message: String(error?.message || error) }); throw error; } finally { activeVodAnalyses.delete(jobKey); if (localPath && !cached) approvedVodPaths.delete(localPath); }
 });
 handleTrusted('desktop:release-vod-analysis', async (event, cacheId) => {
   const cached = discoveredVodSources.get(String(cacheId || '')); if (!cached || cached.owner !== event.sender.id) return { released: false };
-  discoveredVodSources.delete(String(cacheId)); if (!cached.downloaded) approvedVodPaths.delete(cached.file); await fsp.rm(cached.directory, { recursive: true, force: true }).catch(() => {}); return { released: true };
+  discoveredVodSources.delete(String(cacheId)); if (!cached.downloaded) approvedVodPaths.delete(cached.file); if (!cached.downloaded) await fsp.rm(cached.directory, { recursive: true, force: true }).catch(() => {}); if (cached.jobId) await updateVodJob(cached.jobId, { status: 'completed', stage: 'integrated', percent: 100, retainedSource: cached.downloaded === true, resumable: cached.downloaded === true }); return { released: true, retainedSource: cached.downloaded === true };
 });
 handleTrusted('desktop:cancel-vod-analysis', event => { const controller = activeVodAnalyses.get(event.sender.id); if (!controller) return { cancelled: false }; controller.abort(new Error('VOD analysis was cancelled.')); return { cancelled: true }; });
 handleTrusted('desktop:create-review-clips', async (event, input = {}) => {

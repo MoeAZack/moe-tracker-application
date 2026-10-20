@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import { buildRecurringReviewPatterns, buildRoundReviewCards } from '../lib/roundReviewCockpit';
+import { buildAllPracticeBlockSummaries, generateRoundReviewSignalDrafts } from '../lib/coachingWorkflow';
 
 function data() {
   const elimination = (timestampMs: number, killer: string, victim: string, killerTeam: 'ours' | 'theirs', victimTeam: 'ours' | 'theirs') => ({ kind: 'elimination', timestampMs, killer, victim, killerTeam, victimTeam, confidence: .95 });
@@ -51,5 +52,13 @@ describe('round review cockpit', () => {
       expect.objectContaining({ dimension: 'agent', key: 'Jett', issue: 'first-death-review', count: 2 }),
       expect.objectContaining({ dimension: 'opponent', key: 'GA', count: 2 }),
     ]));
+  });
+
+  it('promotes confirmed cockpit decisions to the canonical inbox and omits dismissals', () => {
+    const source = data(); const summaries = buildAllPracticeBlockSummaries(source);
+    let drafts = generateRoundReviewSignalDrafts(source, summaries);
+    expect(drafts).toEqual(expect.arrayContaining([expect.objectContaining({ type: 'first-death-review', evidence: expect.objectContaining({ roundIds: ['r1'] }) })]));
+    source.rounds[0].reviewCockpit.classifications[0].status = 'dismissed'; drafts = generateRoundReviewSignalDrafts(source, summaries);
+    expect(drafts.some(item => item.type === 'first-death-review' && item.evidence.roundIds?.includes('r1'))).toBe(false);
   });
 });
