@@ -70,6 +70,37 @@ Acceptance evidence:
 Fix and prove YouTube/local VOD handoff, cleanup, normalized frame selection,
 controlled OCR learning, capture behavior, spatial coordinates, and the real corpus.
 
+Status: READY locally. Exact-head CI is the final merge gate.
+
+Contract:
+
+- A downloaded YouTube source is approved for the same trusted renderer session
+  that discovered it, so timeline analysis can consume it without a second file
+  confirmation.
+- Completed downloaded sources are deleted; paused downloads and coach-selected
+  local VODs remain resumable and are never deleted by cleanup.
+- Frame-change scores and thresholds share a normalized 0..1 scale. Candidate
+  frames remain distinct from game boundaries and never inflate the game count.
+- OCR aliases require two distinct captures. Field corrections require three
+  distinct captures and the same model, layout, resolution, and screen region.
+  Coaches can pause learning or reset all local labels.
+- Automatic capture may collect a small overtime tail, but printed round numbers
+  reconcile duplicate tiles before acceptance. Explicit round-count captures
+  still require the exact requested count.
+- Normalized map coordinates remain bounded to 0..1. Raw VALORANT world-space
+  coordinates may be negative and are calibrated before spatial analysis.
+
+Acceptance evidence:
+
+- The supplied 2 h 49 m 40 s, 1280x720 coach VOD
+  (`SHA-256 3e646d...e9f0`) produced exactly three game boundaries at 08:16,
+  1:04:48, and 2:05:04. Twenty-four OCR candidates remained candidates rather
+  than being reported as 24 games.
+- YouTube/live URL normalization, downloaded/local cleanup, cancellation,
+  frame normalization, three-game boundary selection, controlled OCR learning,
+  negative world coordinates, automatic capture deduplication, and capture
+  ground truth have behavior coverage.
+
 ## H3 — Metric trust
 
 One authority per metric, explicit unknown values, numerator/denominator/coverage,

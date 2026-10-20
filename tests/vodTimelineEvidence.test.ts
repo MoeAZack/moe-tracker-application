@@ -4,9 +4,10 @@ import os from 'node:os';
 import path from 'node:path';
 import evidenceModule from '../desktop/vod-timeline-evidence.cjs';
 import analyzerModule from '../desktop/vod-timeline-analyzer.cjs';
+import { boundaryTimelinePlayers } from '../src/components/VodSubmission';
 
 const { aggregateVideoEvidence, parseKillFeedSnapshot, parseUltimateSnapshots, parseRoundStateSnapshot, buildRoundTimeline, buildObserverSegments, applyVisualTemplates, fuseVodEvidence } = evidenceModule;
-const { normalizeYoutubeUrl, youtubeVideoId, frameDifference, visualSignature, scoreboardGeometryScore, agentSelectGeometryScore, chooseGameBoundaries, inferPovPlayer, analyzeVodTimeline } = analyzerModule;
+const { normalizeYoutubeUrl, youtubeVideoId, frameDifference, visualSignature, scoreboardGeometryScore, agentSelectGeometryScore, chooseGameBoundaries, inferPovPlayer, analyzeVodTimeline, releaseVodSource } = analyzerModule;
 const players = [
   { name: 'Alpha', team: 'ours' }, { name: 'Bravo', team: 'ours' }, { name: 'Charlie', team: 'ours' }, { name: 'Delta', team: 'ours' }, { name: 'Echo', team: 'ours' },
   { name: 'EnemyOne', team: 'theirs' }, { name: 'EnemyTwo', team: 'theirs' }, { name: 'EnemyThree', team: 'theirs' }, { name: 'EnemyFour', team: 'theirs' }, { name: 'EnemyFive', team: 'theirs' },
@@ -122,7 +123,7 @@ describe('VOD timeline evidence', () => {
     expect(normalizeYoutubeUrl('<https://youtu.be/abcdefghijk?feature=share>')).toBe('https://youtu.be/abcdefghijk?feature=share');
     expect(normalizeYoutubeUrl('youtube.com/live/6sx2Wpl0cHc?feature=share')).toBe('https://youtube.com/live/6sx2Wpl0cHc?feature=share');
     expect(youtubeVideoId('https://youtube.example/watch?v=abcdefghijk')).toBeNull();
-    expect(frameDifference(Buffer.from([0, 0, 0]), Buffer.from([255, 0, 0]))).toBe(255);
+    expect(frameDifference(Buffer.from([0, 0, 0]), Buffer.from([255, 0, 0]))).toBe(1);
     expect(visualSignature(Buffer.alloc(128, 42))).toMatch(/^[a-f0-9]{16}$/);
   });
 
@@ -162,5 +163,25 @@ describe('VOD timeline evidence', () => {
     await expect(analyzeVodTimeline({ localPath: path.join(directory, 'missing.mp4'), players: [] }, { workRoot: directory, minimumFreeBytes: 1, signal: controller.signal })).rejects.toThrow('cancelled by test');
     expect(await fs.readdir(directory)).toEqual([]);
     await fs.rm(directory, { recursive: true, force: true });
+  });
+
+  it('deletes a completed downloaded VOD but never deletes a coach-selected local file', async () => {
+    const root = await fs.mkdtemp(path.join(os.tmpdir(), 'moe-vod-release-')); const downloaded = path.join(root, 'downloaded'); await fs.mkdir(downloaded); const downloadedFile = path.join(downloaded, 'vod.mp4'); await fs.writeFile(downloadedFile, 'video');
+    await expect(releaseVodSource({ downloaded: true, directory: downloaded, file: downloadedFile }, true)).resolves.toBe(false); await expect(fs.stat(downloaded)).rejects.toThrow();
+    const localFile = path.join(root, 'coach.mp4'); await fs.writeFile(localFile, 'video'); await expect(releaseVodSource({ downloaded: false, directory: root, file: localFile }, true)).resolves.toBe(true); expect(await fs.readFile(localFile, 'utf8')).toBe('video'); await fs.rm(root, { recursive: true, force: true });
+  });
+
+  it('never treats a VOD uploader as a teammate and reuses only proven opponent identities', () => {
+    const roster = [{ displayName: 'Alpha' }, { displayName: 'Bravo' }];
+    const linked = { screenshotEvidence: { scoreboardPlayers: [
+      { name: 'Alpha', allied: true }, { name: 'EnemyOne', allied: false }, { name: 'EnemyTwo', allied: false },
+    ] } };
+    expect(boundaryTimelinePlayers(roster, linked)).toEqual([
+      { name: 'Alpha', team: 'ours' }, { name: 'Bravo', team: 'ours' },
+      { name: 'EnemyOne', team: 'theirs' }, { name: 'EnemyTwo', team: 'theirs' },
+    ]);
+    expect(boundaryTimelinePlayers(roster, null)).toEqual([
+      { name: 'Alpha', team: 'ours' }, { name: 'Bravo', team: 'ours' },
+    ]);
   });
 });

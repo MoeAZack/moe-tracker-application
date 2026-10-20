@@ -211,7 +211,14 @@ function frameDifference(left, right) {
   if (!left || left.length !== right.length) return Number.POSITIVE_INFINITY;
   let total = 0; let count = 0;
   for (let index = 0; index < left.length; index += 24) { total += Math.abs(left[index] - right[index]); count += 1; }
-  return count ? total / count : 0;
+  // Thresholds are expressed as a 0..1 fraction. Returning raw 0..255 values
+  // made nearly every sampled frame look changed and caused enormous OCR jobs.
+  return count ? total / count / 255 : 0;
+}
+
+async function releaseVodSource(cached, completed) {
+  if (completed && cached?.downloaded && cached?.directory) await fsp.rm(path.resolve(cached.directory), { recursive: true, force: true });
+  return Boolean(cached?.file && fs.existsSync(path.resolve(cached.file)));
 }
 
 function visualSignature(frame) {
@@ -347,4 +354,4 @@ async function createReviewClips(input, options = {}) {
   } finally { await fsp.rm(jobDirectory, { recursive: true, force: true }).catch(() => {}); }
 }
 
-module.exports = { normalizeYoutubeUrl, youtubeVideoId, probeVideo, analyzeVodTimeline, discoverVodGames, createReviewClips, changedFrames, frameDifference, visualSignature, ensureDiskSpace, scoreboardGeometryScore, agentSelectGeometryScore, chooseGameBoundaries, inferPovPlayer };
+module.exports = { normalizeYoutubeUrl, youtubeVideoId, probeVideo, analyzeVodTimeline, discoverVodGames, releaseVodSource, createReviewClips, changedFrames, frameDifference, visualSignature, ensureDiskSpace, scoreboardGeometryScore, agentSelectGeometryScore, chooseGameBoundaries, inferPovPlayer };

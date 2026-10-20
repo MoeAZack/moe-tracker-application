@@ -19,7 +19,7 @@ const { canonical, refreshScreenshotOutboxFromData } = require('./sync-outbox.cj
 const { hasRecentRecoveryBackup } = require('./recovery-backup.cjs');
 const { isTrustedSenderUrl, sessionIsFresh } = require('./session-security.cjs');
 const { loginCredentials } = require('./session-credentials.cjs');
-const { analyzeVodTimeline, discoverVodGames, createReviewClips } = require('./vod-timeline-analyzer.cjs');
+const { analyzeVodTimeline, discoverVodGames, releaseVodSource, createReviewClips } = require('./vod-timeline-analyzer.cjs');
 const { createIngestionJob, updateIngestionJob: evolveIngestionJob, recoverInterruptedJobs, publicIngestionJob } = require('./ingestion-jobs.cjs');
 
 let mainWindow;
@@ -647,8 +647,11 @@ handleTrusted('desktop:discover-vod-games', async (event, input = {}) => {
   const controller = new AbortController(); activeVodAnalyses.set(jobKey, controller); activeIngestionControllers.set(jobId, controller);
   try {
     const result = await discoverVodGames({ vodUrl: String(input.vodUrl || '').trim(), localPath, expectedGames: input.expectedGames, mapNames: Array.isArray(input.mapNames) ? input.mapNames.slice(0, 50).map(item => String(item || '').slice(0, 100)) : [] }, { progress, signal: controller.signal, workRoot: path.join(runtime.paths.local, 'Vod Analysis') });
+    approvedVodPaths.add(path.resolve(result.file));
     discoveredVodSources.set(result.cacheId, { directory: result.directory, file: result.file, downloaded: result.downloaded, videoId: result.videoId, durationMs: result.durationMs, sourceSha256: result.sourceSha256, owner: event.sender.id, createdAt: Date.now(), jobId });
-    await updateIngestionJob(jobId, { status: 'ready', stage: 'detected', percent: 100, cacheId: result.cacheId, videoId: result.videoId, sourcePath: result.file, retainedSource: true, resumable: true, checkpoint: { stage: 'detected', cacheId: result.cacheId }, expectedGames: input.expectedGames, detectedGames: result.games?.length || 0 });
+    // Candidate frames are intentionally numerous so OCR has several chances to
+    // see a clean scoreboard. They are not games; boundaries own the game count.
+    await updateIngestionJob(jobId, { status: 'ready', stage: 'detected', percent: 100, cacheId: result.cacheId, videoId: result.videoId, sourcePath: result.file, retainedSource: true, resumable: true, checkpoint: { stage: 'detected', cacheId: result.cacheId }, expectedGames: input.expectedGames, detectedGames: result.boundaries?.length || 0 });
     const { directory: _directory, file: _file, downloaded: _downloaded, sourceSha256: _sourceSha256, ...publicResult } = result; return { ...publicResult, jobId };
   } catch (error) { await updateIngestionJob(jobId, { status: controller.signal.aborted ? 'cancelled' : 'failed', stage: 'failed', message: String(error?.message || error) }); throw error; } finally { activeVodAnalyses.delete(jobKey); activeIngestionControllers.delete(jobId); }
 });
@@ -671,7 +674,8 @@ handleTrusted('desktop:analyze-vod', async (event, input = {}) => {
 handleTrusted('desktop:release-vod-analysis', async (event, input) => {
   const cacheId = typeof input === 'string' ? input : input?.cacheId; const completed = typeof input === 'string' ? true : input?.completed === true;
   const cached = discoveredVodSources.get(String(cacheId || '')); if (!cached || cached.owner !== event.sender.id) return { released: false };
-  discoveredVodSources.delete(String(cacheId)); if (!cached.downloaded) approvedVodPaths.delete(cached.file); const retainedSource = fs.existsSync(cached.file); if (cached.jobId) await updateIngestionJob(cached.jobId, { status: completed ? 'completed' : 'paused', stage: completed ? 'integrated' : 'import-paused', percent: completed ? 100 : null, retainedSource, resumable: retainedSource, checkpoint: completed ? { stage: 'integrated' } : { stage: 'import-paused', cacheId }, ...(!completed ? { message: 'Import stopped before every detected game was integrated. Resume from the retained source.' } : {}) }); return { released: true, retainedSource };
+  discoveredVodSources.delete(String(cacheId)); approvedVodPaths.delete(cached.file);
+  const retainedSource = await releaseVodSource(cached, completed); if (cached.jobId) await updateIngestionJob(cached.jobId, { status: completed ? 'completed' : 'paused', stage: completed ? 'integrated' : 'import-paused', percent: completed ? 100 : null, retainedSource, resumable: !completed && retainedSource, checkpoint: completed ? { stage: 'integrated' } : { stage: 'import-paused', cacheId }, ...(!completed ? { message: 'Import stopped before every detected game was integrated. Resume from the retained source.' } : {}) }); return { released: true, retainedSource };
 });
 handleTrusted('desktop:cancel-vod-analysis', event => { const controller = activeVodAnalyses.get(event.sender.id); if (!controller) return { cancelled: false }; controller.abort(new Error('VOD analysis was cancelled.')); return { cancelled: true }; });
 handleTrusted('desktop:cancel-ingestion-job', async (_event, jobId) => {
