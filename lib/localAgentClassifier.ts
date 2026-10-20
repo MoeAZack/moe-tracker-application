@@ -1,28 +1,11 @@
 export interface AgentTemplateScore { name: string; score: number }
 
-/** Chroma-tolerant portrait distance for row tint and brightness variations. */
-export function agentPortraitDistance(actual: Uint8ClampedArray, expected: Uint8ClampedArray) {
-  if (actual.length !== expected.length || actual.length < 4 || actual.length % 4 !== 0) return Number.POSITIVE_INFINITY;
-  const luminance = (pixels: Uint8ClampedArray) => {
-    const values = new Float64Array(pixels.length / 4); let sum = 0;
-    for (let index = 0; index < values.length; index += 1) { const offset = index * 4; const value = (77 * pixels[offset] + 150 * pixels[offset + 1] + 29 * pixels[offset + 2]) / 256; values[index] = value; sum += value; }
-    const mean = sum / values.length; let variance = 0; for (const value of values) variance += (value - mean) ** 2;
-    return { values, mean, deviation: Math.max(8, Math.sqrt(variance / values.length)) };
-  };
-  const left = luminance(actual); const right = luminance(expected); let normalized = 0; let raw = 0;
-  for (let index = 0; index < left.values.length; index += 1) {
-    normalized += ((left.values[index] - left.mean) / left.deviation - (right.values[index] - right.mean) / right.deviation) ** 2;
-    const offset = index * 4; raw += (actual[offset] - expected[offset]) ** 2 + (actual[offset + 1] - expected[offset + 1]) ** 2 + (actual[offset + 2] - expected[offset + 2]) ** 2;
-  }
-  return raw / (left.values.length * 3) * .35 + normalized / left.values.length * 2_500;
-}
-
 /**
  * Plain per-channel mean squared error. The final scoreboard portraits are
  * rendered over a sampled row tint, so the raw colour difference separates
- * look-alike portraits (Sova/Chamber, Cypher/Gekko) better than the
- * luminance-normalized distance; the labelled corpus regressed from 141 to
- * 130 of 150 agents when the scoreboard switched away from it.
+ * look-alike portraits (Sova/Chamber, Cypher/Gekko) better than a
+ * luminance-normalized distance, which lost cells on the labelled corpus and
+ * confidently filled cells that should stay unknown.
  */
 export function rawPortraitDistance(actual: Uint8ClampedArray, expected: Uint8ClampedArray) {
   if (actual.length !== expected.length || actual.length < 4 || actual.length % 4 !== 0) return Number.POSITIVE_INFINITY;
@@ -65,7 +48,7 @@ export async function createValorantAgentRegionClassifier(image: CanvasImageSour
       context.fillStyle = `rgb(${background[0]},${background[1]},${background[2]})`; context.fillRect(0, 0, 32, 32);
       context.drawImage(template.image, 0, 0, 32, 32);
       const expected = context.getImageData(0, 0, 32, 32).data;
-      scores.push({ name: template.name, score: agentPortraitDistance(actual, expected) });
+      scores.push({ name: template.name, score: rawPortraitDistance(actual, expected) });
     }
     const strict = chooseAgentMatch(scores);
     if (strict) return strict;

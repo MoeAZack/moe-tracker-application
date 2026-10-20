@@ -29,5 +29,10 @@
       ],
       "notes": "Manually labelled against all 22 timeline tiles. Displayed-round verification guards against stale/repeated clicks."
     }
+  ],
+  "agentRowLabels": [
+    { "captureId": "Scrim-20261014-101834", "row": 0, "acceptable": [null, "Jett"], "notes": "Same portrait as row 3. The tint-normalized portrait distance read Deadlock." },
+    { "captureId": "Scrim-20261014-101834", "row": 1, "acceptable": [null, "Sova"], "notes": "The tint-normalized portrait distance read Neon." },
+    { "captureId": "Scrim-20261014-103350", "row": 9, "acceptable": [null, "KAY/O", "Iso"], "notes": "Helmeted agent, not Sage. The tint-normalized portrait distance read Sage." }
   ]
 }
