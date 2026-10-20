@@ -95,17 +95,7 @@ export async function scoreValorantScoreboardAgents(image: CanvasImageSource & {
   return matches;
 }
 
-/**
- * Prefer the calibrated portrait grid. The separator-based row offset is a
- * text-row measurement and a few pixels of it pushes the 48px portrait crop
- * off its cell, so it is only a fallback for rows the fixed grid cannot match.
- */
-export function chooseScoreboardAgents(fixed: readonly AgentTemplateScore[][], shifted: readonly AgentTemplateScore[][] | null) {
-  return fixed.map((scores, row) => chooseAgentMatch(scores) ?? (shifted?.[row] ? chooseAgentMatch(shifted[row]) : null));
-}
-
 /** Match the ten fixed post-match portrait cells against the bundled agent art. */
-export async function classifyValorantScoreboardAgents(image: CanvasImageSource & { naturalWidth?: number; naturalHeight?: number }, layout: 'custom' | 'competitive' = 'custom', rowOffset = 0) {
-  const fixed = await scoreValorantScoreboardAgents(image, layout, 0);
-  return chooseScoreboardAgents(fixed, rowOffset ? await scoreValorantScoreboardAgents(image, layout, rowOffset) : null);
+export async function classifyValorantScoreboardAgents(image: CanvasImageSource & { naturalWidth?: number; naturalHeight?: number }, layout: 'custom' | 'competitive' = 'custom') {
+  return (await scoreValorantScoreboardAgents(image, layout)).map(chooseAgentMatch);
 }

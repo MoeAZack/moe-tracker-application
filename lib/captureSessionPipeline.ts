@@ -66,7 +66,9 @@ export async function extractCaptureSession(input: {
   };
   const draft = await extractLocalScoreboardDraft(scoreboardAdapter, scoreboardImage, scoreboardProfile.dimensions, { capturedAt: new Date().toISOString(), rosterPlayers }, scoreboardProfile);
   progress('Identifying agent portraits locally…');
-  const detectedAgents = await classifyValorantScoreboardAgents(scoreboardImage, scoreboardLayout, rowOffset).catch(() => Array<string | null>(10).fill(null));
+  // Portraits keep the calibrated grid. The separator row offset measures the
+  // text rows, and a few pixels of it push the 48px portrait crop off its cell.
+  const detectedAgents = await classifyValorantScoreboardAgents(scoreboardImage, scoreboardLayout).catch(() => Array<string | null>(10).fill(null));
   draft.stats = draft.stats.map((player, index) => {
     const corrected = { ...player, agent: detectedAgents[index] || player.agent } as any;
     const correctionContext = { sourceModel: draft.sourceMetadata.model, layout: scoreboardLayout, resolution: `${scoreboardImage.naturalWidth}x${scoreboardImage.naturalHeight}` };

@@ -701,9 +701,9 @@ export async function createBrowserLocalTesseractAdapter(): Promise<LocalOcrAdap
       sourceContext.drawImage(image, 0, 0, source.width, source.height);
       const sourcePixels = sourceContext.getImageData(0, 0, source.width, source.height);
       for (const region of browserRecognitionRegions(immutableProfile)) {
-        const processed = region.id === 'score.left' || region.id === 'score.right'
-          ? preprocessTeamColorNumber(sourcePixels, region.rectangle, region.id === 'score.left' ? 'ours' : 'theirs')
-          : region.id.startsWith('averages.')
+        // The final score keeps the plain threshold: the team-colour mask
+        // reads a dimmed one-digit score as empty or as the wrong digit.
+        const processed = region.id.startsWith('averages.')
           ? preprocessTeamColorNumber(sourcePixels, region.rectangle, region.id.includes('.our') ? 'ours' : 'theirs')
           : preprocessRegionPixels(sourcePixels, region.rectangle);
         const rawCrop = document.createElement('canvas'); rawCrop.width = processed.width; rawCrop.height = processed.height;
@@ -782,22 +782,10 @@ export async function createBrowserLocalTesseractAdapter(): Promise<LocalOcrAdap
           enlargedContext.fillStyle = '#fff'; enlargedContext.fillRect(0, 0, enlarged.width, enlarged.height); enlargedContext.imageSmoothingEnabled = true; enlargedContext.imageSmoothingQuality = 'high'; enlargedContext.drawImage(crop, padding, padding, grayscale.width * scale, grayscale.height * scale);
           await worker.setParameters({ tessedit_pageseg_mode: tesseract.PSM.SINGLE_WORD, tessedit_char_whitelist: '0123456789' });
           const retry = await worker.recognize(enlarged);
-          const candidates = [
+          const selected = chooseRecognitionConsensus([
             { text, confidence },
             { text: retry.data.text || '', confidence: Number.isFinite(retry.data.confidence) ? retry.data.confidence : null },
-          ];
-          // The team-colour mask drops a dimmed final score (0.1.15 read it
-          // with the plain threshold), so the score cells also vote with it.
-          if (region.id === 'score.left' || region.id === 'score.right') {
-            const plain = preprocessRegionPixels(sourcePixels, region.rectangle);
-            const plainCrop = document.createElement('canvas'); plainCrop.width = plain.width; plainCrop.height = plain.height;
-            const plainContext = plainCrop.getContext('2d'); if (!plainContext) throw new Error('Canvas preprocessing is unavailable.');
-            plainContext.putImageData(new ImageData(plain.data, plain.width, plain.height), 0, 0);
-            enlargedContext.fillStyle = '#fff'; enlargedContext.fillRect(0, 0, enlarged.width, enlarged.height); enlargedContext.imageSmoothingEnabled = false; enlargedContext.drawImage(plainCrop, padding, padding, plain.width * scale, plain.height * scale);
-            const plainResult = await worker.recognize(enlarged);
-            candidates.push({ text: plainResult.data.text || '', confidence: Number.isFinite(plainResult.data.confidence) ? plainResult.data.confidence : null });
-          }
-          const selected = chooseRecognitionConsensus(candidates, /^\d{1,5}$/);
+          ], /^\d{1,5}$/);
           text = selected.text; confidence = selected.confidence;
         }
         results.push({ regionId: region.id, text, confidence });
