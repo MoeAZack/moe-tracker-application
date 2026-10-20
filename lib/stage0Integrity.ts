@@ -4,6 +4,7 @@ import { STORAGE_SCHEMA_VERSION } from './storageSchema';
 import { buildCanonicalDataSpine, validateCanonicalDataSpine } from './canonicalDataSpine';
 import { auditPhysicalMatchDuplicates } from './physicalMatchIdentity';
 import { auditAcceptedAnonymousLeaks } from './acceptedIdentityProjection';
+import { auditExactRoundEvidenceDuplicates } from './matchIntegrity';
 
 export type Stage0IssueSeverity = 'error' | 'warning';
 export type Stage0Issue = { code: string; severity: Stage0IssueSeverity; message: string; references: string[] };
@@ -58,14 +59,20 @@ export function auditStage0Integrity(state: any): { ok: boolean; errors: number;
     issues.push({ code: 'DUPLICATE_ACCEPTED_SOURCE', severity: 'error', message: `Accepted matches reuse source evidence ${token}.`, references });
   }
   for (const duplicate of auditPhysicalMatchDuplicates(state)) issues.push({ code: 'DUPLICATE_PHYSICAL_MATCH', severity: 'warning', message: 'Multiple records appear to describe the same physical match across ingestion sources.', references: duplicate.matchIds.map(matchId => `match:${matchId}`) });
+  for (const duplicate of auditExactRoundEvidenceDuplicates(state)) issues.push({ code: 'DUPLICATE_EXACT_ROUND_EVIDENCE', severity: 'error', message: 'Multiple matches reuse the same confirmed round evidence.', references: duplicate.matchIds.map(matchId => `match:${matchId}`) });
   for (const leak of auditAcceptedAnonymousLeaks(state)) issues.push({ code: 'ACCEPTED_IDENTITY_LEAK', severity: 'error', message: 'Accepted replay identity still renders as an anonymous or parser identifier.', references: [leak.reference] });
 
   const matchIds = new Set(matches.map((match: any) => id(match?.id)).filter(Boolean));
-  for (const collection of ['playerStats', 'rounds'] as const) {
+  for (const collection of ['playerStats', 'rounds', 'vetos', 'stratRuns'] as const) {
     for (const row of Array.isArray(state?.[collection]) ? state[collection] : []) {
       if (id(row?.matchId) && !matchIds.has(id(row.matchId))) issues.push({ code: 'ORPHAN_MATCH_REFERENCE', severity: 'error', message: `${collection} row references a missing match.`, references: [`${collection}:${id(row?.id) || 'unknown'}`, `match:${id(row.matchId)}`] });
     }
   }
+  for (const submission of state?.vodSubmissions || []) if (id(submission?.linkedMatchId) && !matchIds.has(id(submission.linkedMatchId))) issues.push({ code: 'ORPHAN_MATCH_REFERENCE', severity: 'error', message: 'A VOD submission references a missing match.', references: [`vodSubmission:${id(submission.id) || 'unknown'}`, `match:${id(submission.linkedMatchId)}`] });
+  for (const [matchId] of Object.entries(state?.analyticsBuilds || {})) if (!matchIds.has(matchId)) issues.push({ code: 'ORPHAN_MATCH_REFERENCE', severity: 'error', message: 'An analytics build references a missing match.', references: [`analyticsBuilds:${matchId}`] });
+  const roundIds = new Set((state?.rounds || []).map((round: any) => id(round?.id)).filter(Boolean)); const statIds = new Set((state?.playerStats || []).map((row: any) => id(row?.id)).filter(Boolean));
+  for (const resolution of state?.evidenceFusionResolutions || []) if (!matchIds.has(id(resolution?.matchId)) || (!roundIds.has(id(resolution?.roundId)) && !statIds.has(id(resolution?.roundId)))) issues.push({ code: 'ORPHAN_EVIDENCE_RESOLUTION', severity: 'error', message: 'An evidence resolution references a deleted match, round, or player row.', references: [`resolution:${id(resolution?.id) || 'unknown'}`] });
+  for (const block of state?.practiceBlocks || []) for (const matchId of block.matchIds || []) if (!matchIds.has(id(matchId))) issues.push({ code: 'ORPHAN_MATCH_REFERENCE', severity: 'error', message: 'A practice block references a missing match.', references: [`practiceBlock:${id(block.id) || 'unknown'}`, `match:${id(matchId)}`] });
   const goalIds = new Set((state?.goals || []).map((goal: any) => id(goal?.id)).filter(Boolean)); const actionIds = new Set((state?.coachingActions || []).map((action: any) => id(action?.id)).filter(Boolean));
   for (const action of state?.coachingActions || []) if (id(action?.goalId) && !goalIds.has(id(action.goalId))) issues.push({ code: 'ORPHAN_COACHING_GOAL', severity: 'error', message: 'A coaching action references a missing goal.', references: [`action:${id(action.id)}`, `goal:${id(action.goalId)}`] });
   for (const goal of state?.goals || []) if (id(goal?.coachingActionId) && !actionIds.has(id(goal.coachingActionId))) issues.push({ code: 'ORPHAN_COACHING_ACTION', severity: 'error', message: 'A generated goal references a missing coaching action.', references: [`goal:${id(goal.id)}`, `action:${id(goal.coachingActionId)}`] });

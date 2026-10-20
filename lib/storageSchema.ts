@@ -4,8 +4,9 @@ import { migrateAcceptedMatchAggregates } from './aggregateVersioning';
 import { materializeFirstDeathsFromRoundEvidence, materializeRoundOpeningsFromScreenshotEvidence, materializeRoundPlantsFromScreenshotEvidence } from './scrimRoundAnalytics';
 import { ensureScheduleCalendars } from './schedule';
 import { buildAllPracticeBlockSummaries, migrateLegacyActionChecks } from './coachingWorkflow';
+import { repairOrphanMatchReferences } from './matchIntegrity';
 
-export const STORAGE_SCHEMA_VERSION = 12;
+export const STORAGE_SCHEMA_VERSION = 13;
 export const MAX_ENTITY_BYTES = 840 * 1024;
 export const MAX_DOCUMENT_BYTES = 900 * 1024;
 export const MAX_JSON_DATABASE_BYTES = 64 * 1024 * 1024;
@@ -31,6 +32,7 @@ export type StorageMetadata = {
   schemaVersion: number;
   migratedAt: string;
   migrationLedger: Array<{ from: number; to: number; at: string }>;
+  integrityRepair?: { at: string; removed: Record<string, number> };
 };
 
 export type EncodedDocument = {
@@ -80,6 +82,7 @@ export function ensureStorageSchema(input: any, now = new Date().toISOString()) 
   if (declared > STORAGE_SCHEMA_VERSION) throw storageError(`Database schema ${declared} is newer than this server supports (${STORAGE_SCHEMA_VERSION}).`, 409);
   const ledger = Array.isArray(input._storage?.migrationLedger) ? input._storage.migrationLedger.filter((item: any) =>
     Number.isSafeInteger(item?.from) && Number.isSafeInteger(item?.to) && typeof item?.at === 'string') : [];
+  let integrityRepair = input._storage?.integrityRepair;
   if (declared < STORAGE_SCHEMA_VERSION) {
     materializeRoundOpeningsFromScreenshotEvidence(input);
     materializeRoundPlantsFromScreenshotEvidence(input);
@@ -99,9 +102,10 @@ export function ensureStorageSchema(input: any, now = new Date().toISOString()) 
     if (!Array.isArray(input.dashboardViews)) input.dashboardViews = [];
     if (!Array.isArray(input.evidenceFusionResolutions)) input.evidenceFusionResolutions = [];
     if (!Array.isArray(input.calibratedPlayerRatings)) input.calibratedPlayerRatings = [];
+    if (declared < 13) integrityRepair = { at: now, removed: repairOrphanMatchReferences(input) };
     ledger.push({ from: declared, to: STORAGE_SCHEMA_VERSION, at: now });
   }
-  input._storage = { schemaVersion: STORAGE_SCHEMA_VERSION, migratedAt: declared < STORAGE_SCHEMA_VERSION ? now : String(input._storage?.migratedAt || now), migrationLedger: ledger } satisfies StorageMetadata;
+  input._storage = { schemaVersion: STORAGE_SCHEMA_VERSION, migratedAt: declared < STORAGE_SCHEMA_VERSION ? now : String(input._storage?.migratedAt || now), migrationLedger: ledger, ...(integrityRepair ? { integrityRepair } : {}) } satisfies StorageMetadata;
   if (input.settings) ensureScheduleCalendars(input.settings);
   return input;
 }
