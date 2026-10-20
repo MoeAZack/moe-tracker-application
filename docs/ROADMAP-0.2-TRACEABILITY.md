@@ -44,11 +44,11 @@ Last reconciled: 20 October 2026, Africa/Cairo. This file is the permanent scope
 | 5.1 | One review workspace with functional accept, dismiss, restore and delete | Automatically tested | Review persists before focus changes; status, recovery, deletion and evidence navigation have HTTP/UI contract tests. Physical installed-button pass remains Stage 11. |
 | 5.2 | Match selection filters every linked review panel | Automatically tested | One pure context projection now drives match-derived coach data; match, replay, VOD, economy and coach surfaces share the persisted match/round selection. |
 | 5.3 | Collapsible replay history and dense sections default minimized | Automatically tested | Replay history and integrated intelligence default collapsed; round detail cards remain individually expandable. |
-| 6.1 | Player stats by map, agent, side and period with confidence | Automatically tested | Player Stats and contextual ratings integrated. |
-| 6.2 | Map calculator incorporates roster performance and sample quality | Automatically tested | Map/player scoring exists; Stage 6 publishes an explainable contribution ledger. |
+| 6.1 | Player stats by map, agent, side and period with confidence | Automatically tested | Player Stats, contextual ratings and a per-metric accepted-source coverage ledger are integrated. |
+| 6.2 | Map calculator incorporates roster performance and sample quality | Automatically tested | `best-map-ledger/v1` publishes every weighted input, sample count, coverage level and neutral fallback. |
 | 6.3 | Economy by pistol/mid/full buy, weapon, map, side, site, agent and player | Automatically tested | Contextual economy v2/v3 coverage. |
 | 6.4 | Weapons that win rounds, with sample-aware comparisons | Automatically tested | Confirmed equipped-weapon outcomes only; do not infer purchases. |
-| 6.5 | KAST, FK/FD, trades, multi-kills, plants, defuses, orbs, ults and HS | Implemented | Availability varies by source; Stage 6 gives each metric explicit coverage. |
+| 6.5 | KAST, FK/FD, trades, multi-kills, plants, defuses, orbs, ults and HS | Automatically tested | Each metric reports complete/partial/unavailable coverage; known zero is preserved and KAST/multi-kill denominators are explicit. |
 | 6.6 | Calibrated descriptive player ratings with uncertainty and drift | Automatically tested | Median/MAD, shrinkage, intervals, trends and context splits integrated. |
 | 6.7 | Predictive player ratings | Not started | Requires out-of-sample calibration and drift backtests before any predictive label. |
 | 7.1 | Finding → goal/action → owner → next-block verification | Automatically tested | Coaching workflow and matched cohorts exist. |
