@@ -45,6 +45,9 @@ export interface ReplayEliminationEvent {
   /** Explicit parser evidence only. Unknown source/detail must remain null or omitted. */
   killSource?: 'weapon' | 'ability' | 'melee' | 'environmental' | 'unknown' | null;
   headshot?: boolean | null;
+  /** Explicit world positions emitted by the accepted replay parser. */
+  killerPosition?: { x: number; y: number; z?: number | null } | null;
+  victimPosition?: { x: number; y: number; z?: number | null } | null;
 }
 
 export interface ReplayRoundDraft {

@@ -3,12 +3,18 @@ import { buildSpatialReport, buildCrossMatchHeatmaps } from '../lib/spatialIntel
 import { buildEvidenceFusionReport, upsertEvidenceResolution } from '../lib/evidenceFusion';
 import { buildCalibratedPlayerRatings } from '../lib/calibratedPlayerRatings';
 import { buildContextualWeaponOutcomes } from '../lib/contextualEconomy';
+import { buildPlayerDevelopment } from '../lib/playerDevelopment';
 import fs from 'fs';
 
 describe('integrated intelligence', () => {
   it('exposes a restart bridge for retained VOD jobs', () => {
     expect(fs.readFileSync('desktop/preload.cjs', 'utf8')).toContain("desktop:resume-vod-job");
     const main = fs.readFileSync('desktop/main.cjs', 'utf8'); expect(main).toContain("handleTrusted('desktop:resume-vod-job'"); expect(main).toContain('Retained source reopened for a clean restart.');
+  });
+  it('persists frame-level OCR checkpoints and does not mark failed imports completed', () => {
+    const analyzer = fs.readFileSync('desktop/vod-timeline-analyzer.cjs', 'utf8'); const main = fs.readFileSync('desktop/main.cjs', 'utf8');
+    expect(analyzer).toContain('moetracker.vod-checkpoint/v1'); expect(analyzer).toContain('processed: index + 1'); expect(main).toContain('checkpointFile');
+    expect(main).toContain("status: completed ? 'completed' : 'failed'"); expect(main).toContain("stage: completed ? 'integrated' : 'import-failed'");
   });
   it('fails spatial analysis closed without accepted coordinate evidence', () => {
     expect(buildSpatialReport({ status: 'accepted', draft: { evidence: { observations: [{ signal: 'position-zone', attributes: { zone: 'market' } }] } } })).toMatchObject({ available: false, points: [] });
@@ -26,6 +32,15 @@ describe('integrated intelligence', () => {
     expect(buildCrossMatchHeatmaps([record])).toMatchObject({ matchesWithCoordinates: 1, deaths: [{ cell: '2:2', count: 1 }], utility: [{ cell: '4:5', count: 1 }] });
   });
 
+  it('uses accepted replay movement and positioned elimination records without inventing map calibration', () => {
+    const record = { status: 'accepted', draft: { match: { map: 'Ascent' }, evidence: { observations: [
+      { signal: 'position-zone', roundNumber: 1, occurredAtMs: 1000, playerId: 'a', teamId: 'blue', attributes: { position: { x: 1000, y: 2000 }, coordinateSpace: 'world' } },
+      { signal: 'position-zone', roundNumber: 1, occurredAtMs: 2000, playerId: 'a', teamId: 'blue', attributes: { position: { x: 1200, y: 2200 }, coordinateSpace: 'world' } },
+    ], rounds: [{ roundNumber: 1, events: [{ timestampMs: 1800, killerPlayerId: 'a', victimPlayerId: 'b', killerTeamId: 'blue', victimTeamId: 'red', killerPosition: { x: 1150, y: 2150 }, victimPosition: { x: 1300, y: 2300 } }] }] } } };
+    const report = buildSpatialReport(record); expect(report).toMatchObject({ available: true, map: 'Ascent', transform: { method: 'replay-envelope' } }); expect(report.paths[0].points).toHaveLength(2); expect(report.killMarkers.map(item => item.kind).sort()).toEqual(['death', 'kill']);
+    expect(buildCrossMatchHeatmaps([record])).toMatchObject({ matchesWithCoordinates: 1, comparableMatches: 1, cohortAlignedMatches: 1 });
+  });
+
   it('reports source conflicts and keeps coach/replay priority deterministic', () => {
     const data: any = { rounds: [{ id: 'r1', matchId: 'm1', roundNo: 1, side: 'ATT', result: 'L', buy: 'Eco', screenshotEvidence: { reviewStatus: 'confirmed', result: 'W', players: [], events: [] }, reviewCockpit: { note: 'confirmed plan', updatedAt: '' } }] };
     const report = buildEvidenceFusionReport(data, 'm1'); expect(report.coverage).toBe(100); expect(report.conflicts).toBeGreaterThan(0); expect(report.rounds[0].facts.find(fact => fact.field === 'result')?.source).toBe('screenshot');
@@ -40,7 +55,14 @@ describe('integrated intelligence', () => {
       { id: 's2', matchId: 'm2', playerId: 'p2', player: 'Two', kills: 8, deaths: 15, assists: 3, fk: 1, fd: 4, kastCovered: 10, kastSuccessful: 5, agent: 'Omen' },
     ], rounds: [{ id: 'r1', matchId: 'm1', roundNo: 1, result: 'W', side: 'ATT', site: 'A', buy: 'Full', enemyBuy: 'Eco', screenshotEvidence: { reviewStatus: 'confirmed', players: [{ playerId: 'p1', displayName: 'One', team: 'ours', equippedWeapon: 'Vandal' }] } }] };
     const ratings = buildCalibratedPlayerRatings(data); expect(ratings[0].rating).toBeLessThan(60); expect(ratings[0].reliability).toBe(17);
-    expect(ratings[0]).toMatchObject({ calculationVersion: 'calibrated-player-rating/v2', validationStatus: 'descriptive-unvalidated' }); expect(ratings[0].contexts.maps.length).toBeGreaterThan(0);
+    expect(ratings[0]).toMatchObject({ calculationVersion: 'calibrated-player-rating/v3', validationStatus: 'descriptive-unvalidated', calibration: { status: 'team-context-calibrated', cohortSize: 2, baseline: 'median-mad' } }); expect(ratings[0].contexts.maps.length).toBeGreaterThan(0);
     expect(buildContextualWeaponOutcomes(data)[0]).toMatchObject({ weapon: 'Vandal', map: 'Ascent', buyClass: 'Full buy', enemyBuyClass: 'Eco', side: 'ATT', site: 'A', player: 'One', agent: 'Jett', wins: 1 });
+  });
+
+  it('matches intervention follow-up cohorts by player, map, agent and role', () => {
+    const data: any = { rosterPlayers: [{ id: 'p1', displayName: 'One' }], rounds: [], matches: [{ id: 'before', date: '2026-10-01', map: 'Ascent' }, { id: 'after', date: '2026-10-10', map: 'Ascent' }, { id: 'wrong-map', date: '2026-10-11', map: 'Bind' }], playerStats: [
+      { id: 's1', matchId: 'before', playerId: 'p1', player: 'One', agent: 'Jett', roleSnapshot: 'duelist' }, { id: 's2', matchId: 'after', playerId: 'p1', player: 'One', agent: 'Jett', roleSnapshot: 'duelist' }, { id: 's3', matchId: 'wrong-map', playerId: 'p1', player: 'One', agent: 'Jett', roleSnapshot: 'duelist' },
+    ], coachingActions: [{ id: 'a1', ownerIds: ['p1'], title: 'Opening discipline', state: 'review-next-block', evidence: { matchIds: ['before'] }, outcome: null, check: null, createdAt: '2026-10-02T00:00:00.000Z' }] };
+    expect(buildPlayerDevelopment(data)[0].interventions[0].cohort).toMatchObject({ beforeMatches: 1, afterMatches: 1, maps: ['Ascent'], agents: ['Jett'], roles: ['duelist'], comparable: true });
   });
 });

@@ -253,16 +253,21 @@ async function changedFrames(file, spec, durationSeconds, progress, signal, rang
 
 function pgm(frame, width, height) { return Buffer.concat([Buffer.from(`P5\n${width} ${height}\n255\n`), frame]); }
 
-async function recognizeFrames(frames, spec, worker, progress, offset, total, signal) {
-  const snapshots = [];
-  for (let index = 0; index < frames.length; index += 1) {
+async function recognizeFrames(frames, spec, worker, progress, offset, total, signal, resume = null, saveCheckpoint = null) {
+  const keys = frames.map(frame => `${frame.timestampMs}:${visualSignature(frame.pixels)}`); const compatible = resume && Array.isArray(resume.keys) && JSON.stringify(resume.keys) === JSON.stringify(keys);
+  const processed = compatible ? Math.max(0, Math.min(frames.length, Number(resume.processed) || 0)) : 0; const snapshots = compatible && Array.isArray(resume.snapshots) ? structuredClone(resume.snapshots) : [];
+  for (let index = processed; index < frames.length; index += 1) {
     throwIfAborted(signal);
     const result = await worker.recognize(pgm(frames[index].pixels, spec.width, spec.height)); const text = String(result.data?.text || '').trim(); const confidence = Number(result.data?.confidence);
     if (text) snapshots.push({ timestampMs: frames[index].timestampMs, text, confidence: Number.isFinite(confidence) ? Math.max(0, Math.min(1, confidence / 100)) : null, visualSignature: visualSignature(frames[index].pixels) });
+    if (saveCheckpoint && ((index + 1) % 10 === 0 || index + 1 === frames.length)) await saveCheckpoint({ keys, processed: index + 1, snapshots });
     progress?.({ stage: 'ocr', percent: Math.round((offset + index + 1) / Math.max(1, total) * 100), message: `Reading timeline evidence · ${offset + index + 1}/${total}` });
   }
   return snapshots;
 }
+
+async function readCheckpoint(file) { if (!file) return null; try { return JSON.parse(await fsp.readFile(file, 'utf8')); } catch { return null; } }
+async function writeCheckpoint(file, value) { if (!file) return; await fsp.mkdir(path.dirname(file), { recursive: true }); const temporary = `${file}.${process.pid}.tmp`; await fsp.writeFile(temporary, JSON.stringify(value), { mode: 0o600 }); await fsp.rename(temporary, file); }
 
 function inferPovPlayer(snapshots, players) {
   const counts = players.map(player => ({ name: player.name, count: snapshots.filter(snapshot => {
@@ -292,6 +297,8 @@ async function analyzeVodTimeline(input, options = {}) {
       { key: 'povSnapshots', label: 'POV identity', fps: .25, crop: 'crop=iw*0.34:ih*0.28:0:ih*0.67', width: 560, height: 280, threshold: .08, burstFrames: 1, maxCandidates: 600 },
       { key: 'scoreboardSnapshots', label: 'scoreboard totals', fps: .2, crop: 'crop=iw*0.78:ih*0.72:iw*0.11:ih*0.14', width: 1100, height: 680, threshold: .12, burstFrames: 1, maxCandidates: 480 },
     ];
+    const checkpointKey = crypto.createHash('sha256').update(JSON.stringify({ source: input.sourceSha256 || path.resolve(file), startMs: Number(input.startMs) || 0, endMs: Number(input.endMs) || null, players: input.players || [], observerMode: !!input.observerMode, povPlayerName: input.povPlayerName || null })).digest('hex');
+    const saved = await readCheckpoint(options.checkpointFile); const checkpoint = saved?.schema === 'moetracker.vod-checkpoint/v1' && saved.key === checkpointKey ? saved : { schema: 'moetracker.vod-checkpoint/v1', key: checkpointKey, specs: {}, updatedAt: null };
     const candidates = {};
     for (const spec of specs) candidates[spec.key] = await changedFrames(file, spec, probe.durationSeconds, progress, signal, { startMs: input.startMs, endMs: input.endMs });
     const total = specs.reduce((sum, spec) => sum + candidates[spec.key].length, 0); progress?.({ stage: 'ocr', percent: 0, message: `Reading ${total} changed HUD frames locally…` });
@@ -299,7 +306,7 @@ async function analyzeVodTimeline(input, options = {}) {
     const langPath = path.dirname(unpackedExecutable(require.resolve('@tesseract.js-data/eng/4.0.0/eng.traineddata.gz')));
     const worker = await createWorker('eng', undefined, { langPath }); await worker.setParameters({ tessedit_pageseg_mode: PSM.SPARSE_TEXT });
     let offset = 0; const snapshots = {};
-    try { for (const spec of specs) { snapshots[spec.key] = await recognizeFrames(candidates[spec.key], spec, worker, progress, offset, total, signal); offset += candidates[spec.key].length; } }
+    try { for (const spec of specs) { snapshots[spec.key] = await recognizeFrames(candidates[spec.key], spec, worker, progress, offset, total, signal, checkpoint.specs[spec.key], async state => { checkpoint.specs[spec.key] = state; checkpoint.updatedAt = new Date().toISOString(); await writeCheckpoint(options.checkpointFile, checkpoint); }); offset += candidates[spec.key].length; } }
     finally { await worker.terminate(); }
     if (Array.isArray(input.visualTemplates) && input.visualTemplates.length) for (const spec of specs) snapshots[spec.key] = applyVisualTemplates(snapshots[spec.key], input.visualTemplates);
     const rangeDurationMs = Number(input.endMs) > Number(input.startMs || 0) ? Number(input.endMs) - Number(input.startMs || 0) : probe.durationMs;
@@ -307,7 +314,7 @@ async function analyzeVodTimeline(input, options = {}) {
     const evidence = aggregateVideoEvidence({ players: input.players || [], povPlayerName: inferredPov || null, observerMode: !!input.observerMode, durationMs: rangeDurationMs, killFeedSnapshots: snapshots.killFeedSnapshots, objectiveSnapshots: snapshots.objectiveSnapshots, roundStateSnapshots: snapshots.roundStateSnapshots, ultimateSnapshots: snapshots.ultimateSnapshots, povSnapshots: snapshots.povSnapshots, scoreboardSnapshots: snapshots.scoreboardSnapshots });
     evidence.limitations.push(inferredPov ? `POV identity used for personal orb and ultimate evidence: ${inferredPov}.` : 'No single player POV identity was proven; personal orb and ultimate totals remain unknown.');
     evidence.source = { kind: input.sourceKind || (downloaded ? 'youtube' : 'local-file'), videoId: input.videoId || youtubeVideoId(input.vodUrl), sha256: input.sourceSha256 || await sha256File(file), width: probe.width, height: probe.height, durationMs: probe.durationMs, analyzedAt: new Date().toISOString() };
-    progress?.({ stage: 'complete', percent: 100, message: `Timeline scan complete · ${evidence.observations.length} supported observations.` }); return evidence;
+    checkpoint.completedAt = new Date().toISOString(); await writeCheckpoint(options.checkpointFile, checkpoint); progress?.({ stage: 'complete', percent: 100, message: `Timeline scan complete · ${evidence.observations.length} supported observations.` }); return evidence;
   } finally { clearTimeout(timeout); options.signal?.removeEventListener('abort', externalAbort); await fsp.rm(jobDirectory, { recursive: true, force: true }).catch(() => {}); }
 }
 
