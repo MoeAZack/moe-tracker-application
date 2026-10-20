@@ -9,10 +9,23 @@ function observationId(kind,timestampMs,text) { return crypto.createHash('sha256
 function signatureDistance(left,right) { if (!/^[a-f0-9]{16}$/i.test(String(left||''))||!/^[a-f0-9]{16}$/i.test(String(right||''))) return Number.POSITIVE_INFINITY; let value=BigInt(`0x${left}`)^BigInt(`0x${right}`), count=0; while (value) { count+=Number(value&1n); value>>=1n; } return count; }
 function applyVisualTemplates(snapshots,templates=[]) { return snapshots.map(snapshot=>{ const ranked=templates.map(template=>({...template,distance:signatureDistance(snapshot.visualSignature,template.signature)})).filter(item=>item.distance<=Number(item.maxDistance??6)).sort((a,b)=>a.distance-b.distance); if (!ranked.length||ranked[1]?.distance===ranked[0].distance) return snapshot; return {...snapshot,visualLabels:[ranked[0].label],visualMatch:{label:ranked[0].label,distance:ranked[0].distance,templateId:ranked[0].id||null}}; }); }
 
+// Without a linked scoreboard the opponents' names are unknown. A kill-feed
+// row with exactly one of our players still proves one elimination, so the
+// other side is kept as an unresolved opponent (never a roster identity) and
+// our players' kills and deaths are no longer silently zero.
+function unresolvedOpponent(line,known) {
+  const normalized=normalizeName(line), needle=normalizeName(known.name); const at=normalized.indexOf(needle); if (at<0) return null;
+  const before=normalized.slice(0,at), after=normalized.slice(at+needle.length); const strip=value=>WEAPONS.reduce((rest,weapon)=>rest.replace(weapon,''),value).replace(/headshot|^hs|hs$/g,'');
+  const left=strip(before), right=strip(after); if ((left.length>=3)===(right.length>=3)) return null;
+  const key=left.length>=3?left:right; return {name:`unresolved-opponent:${key}`,team:known.team==='ours'?'theirs':'ours',side:left.length>=3?'killer':'victim',unresolved:true};
+}
+
 function parseKillFeedSnapshot(snapshot, players) {
-  const events=[];
+  const events=[]; const opponentsUnknown=players.length>0&&players.every(player=>player.team==='ours');
   for (const line of String(snapshot.text||'').split(/[\r\n]+/).map(value=>value.trim()).filter(Boolean)) {
-    const names=orderedNames(line,players); if (names.length<2) continue;
+    let names=orderedNames(line,players);
+    if (names.length===1&&opponentsUnknown) { const opponent=unresolvedOpponent(line,names[0]); if (!opponent) continue; names=opponent.side==='victim'?[names[0],opponent]:[opponent,names[0]]; }
+    if (names.length<2) continue;
     const killer=names[0], victim=names[names.length-1]; if (killer.name===victim.name||killer.team===victim.team) continue;
     const weapon=WEAPONS.find(item=>new RegExp(`\\b${item}\\b`,'i').test(line))||null;
     events.push({ id:observationId('elimination',snapshot.timestampMs,`${killer.name}:${victim.name}`),kind:'elimination',timestampMs:snapshot.timestampMs,firstSeenMs:snapshot.timestampMs,lastSeenMs:snapshot.timestampMs,confidence:Math.min(snapshot.confidence??.72,.94),grade:'video-observation',killer:killer.name,victim:victim.name,killerTeam:killer.team,victimTeam:victim.team,assistants:names.slice(1,-1).filter(item=>item.team===killer.team).map(item=>item.name),weapon:weapon||snapshot.visualLabels?.find(label=>label.startsWith('weapon:'))?.slice(7)||null,headshot:/head\s*shot|headshot|\bhs\b/i.test(line)||snapshot.visualLabels?.includes('kill:headshot')?true:null,visualSignature:snapshot.visualSignature||null,visualMatch:snapshot.visualMatch||null,rawText:line });

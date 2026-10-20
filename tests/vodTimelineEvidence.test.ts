@@ -171,6 +171,20 @@ describe('VOD timeline evidence', () => {
     const localFile = path.join(root, 'coach.mp4'); await fs.writeFile(localFile, 'video'); await expect(releaseVodSource({ downloaded: false, directory: root, file: localFile }, true)).resolves.toBe(true); expect(await fs.readFile(localFile, 'utf8')).toBe('video'); await fs.rm(root, { recursive: true, force: true });
   });
 
+  it('counts our eliminations against unresolved opponents when no scoreboard named them', () => {
+    const ours = players.filter(player => player.team === 'ours');
+    const evidence = aggregateVideoEvidence({ players: ours, killFeedSnapshots: [
+      { timestampMs: 1_000, text: 'Alpha Vandal Zorro99', confidence: .9 },
+      { timestampMs: 2_000, text: 'KnightX Phantom Bravo', confidence: .9 },
+      { timestampMs: 3_000, text: 'Charlie', confidence: .9 },
+    ] });
+    expect(evidence.playerMetrics.find((metric: any) => metric.playerName === 'Alpha')).toMatchObject({ kills: 1, deaths: 0 });
+    expect(evidence.playerMetrics.find((metric: any) => metric.playerName === 'Bravo')).toMatchObject({ kills: 0, deaths: 1 });
+    expect(evidence.observations.filter((item: any) => item.kind === 'elimination').map((item: any) => [item.killerTeam, item.victimTeam])).toEqual([['ours', 'theirs'], ['theirs', 'ours']]);
+    // With named opponents, a one-name row stays unresolved rather than guessed.
+    expect(parseKillFeedSnapshot({ timestampMs: 1_000, text: 'Alpha Vandal Zorro99', confidence: .9 }, players)).toEqual([]);
+  });
+
   it('resumes a retained download in its own directory and still deletes it once completed', async () => {
     const root = await fs.mkdtemp(path.join(os.tmpdir(), 'moe-vod-resume-')); const directory = path.join(root, 'source-original'); await fs.mkdir(directory);
     const retained = path.join(directory, 'vod.mp4'); await fs.writeFile(retained, 'not a video');
