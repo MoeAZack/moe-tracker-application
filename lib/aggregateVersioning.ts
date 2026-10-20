@@ -36,6 +36,7 @@ type AggregateContainer = {
   evidenceFusionResolutions?: EvidenceFusionResolution[];
   calibratedPlayerRatings?: CalibratedPlayerRating[];
   rosterPlayers?: any[];
+  settings?: { mapCalibrations?: unknown[] };
 };
 
 const canonical = (value: unknown): string => {
@@ -130,7 +131,7 @@ export function recomputeAcceptedMatchAggregates(container: AggregateContainer, 
     };
   }
   const build = record(matchId, 'recomputed', digest, null);
-  build.intelligence = { schema: 'moetracker.match-intelligence/v1', fusion, economy: buildContextualWeaponOutcomes({ ...(container as any), rounds: resolvedRounds }, new Set([matchId])), spatial: buildSpatialReport(replayRecord), calculatedAtSourceHash: digest };
+  build.intelligence = { schema: 'moetracker.match-intelligence/v1', fusion, economy: buildContextualWeaponOutcomes({ ...(container as any), rounds: resolvedRounds }, new Set([matchId])), spatial: buildSpatialReport(replayRecord, container.settings?.mapCalibrations), calculatedAtSourceHash: digest };
   container.calibratedPlayerRatings = buildCalibratedPlayerRatings(container as any);
   return build;
 }

@@ -9,15 +9,16 @@ Last reconciled: 20 October 2026, Africa/Cairo. This status is tied to executabl
 - [x] **P2 Resilient VOD automation** — durable desktop job history, retained sources, multi-game discovery, local-file ingestion, atomic per-frame OCR checkpoints, and restart without repeating completed OCR frames. Failed imports remain failed and resumable rather than being marked complete.
 - [x] **P3 Player development and debriefs** — recurring evidence becomes strengths/weaknesses, linked interventions, match debrief actions, and before/after cohorts matched by player, map, agent, and role. Tactical judgments still require coach confirmation.
 - [x] **P4 Contextual economy intelligence** — weapon outcomes retain our buy class, enemy buy class, map, side, site, player, and agent with visible sample confidence.
-- [x] **Replay spatial intelligence v3** — the owned replay normalizer now emits bounded two-second movement paths plus positioned eliminations/objectives. Accepted evidence drives 2D paths, kill markers, utility timelines, territory, spacing, trade-distance, and cross-match death/utility heatmaps. Official map artwork is shown only with declared map bounds; otherwise a clearly labeled relative/cohort envelope is used.
+- [x] **Replay spatial intelligence v4** — accepted coordinates drive paths, kill markers, utility timelines, territory, spacing, trade-distance, and heatmaps. Verified map space now requires bounds, orientation, an immutable asset checksum and independent provenance; source-declared and cohort-envelope geometry stays explicitly exploratory.
+- [x] **Gated spatial sequences** — route clusters and descriptive utility-to-space occupancy are implemented and automatically tested, but activate only for verified map calibrations with representative coordinate samples.
 - [x] **Context-calibrated player ratings v3** — persisted robust median/MAD peer calibration with capped components, small-sample shrinkage, uncertainty, trend, and map/agent/role splits. It is explicitly descriptive and not yet outcome-predictive.
 
 ### Next evidence-driven queue
 
-- [ ] P5 Official map calibration assets: independently verified world bounds/orientation per supported map so replay coordinates can overlay official tactical-map geometry rather than the relative cohort envelope.
+- [ ] P5 Production map calibration evidence: the verified calibration contract and downstream gate are complete; independently verify and register bounds/orientation/checksums per supported map before tactical-map overlays activate.
 - [ ] P6 VOD candidate-extraction checkpoints: OCR frames now resume; changed-frame extraction still restarts because its streaming decoder state is not safely serializable.
 - [ ] P7 Causal development validation: matched before/after cohorts now exist; add larger role-adjusted controls and significance reporting before attributing improvement to an intervention.
-- [ ] P8 Spatial sequence models: execute/retake route clustering and utility-to-space impact, gated by representative coordinate coverage.
+- [x] P8 Spatial sequence engine: route clustering and descriptive utility-to-space impact are implemented; production results remain evidence-gated until P5 coverage exists.
 - [ ] P9 Predictive rating validation: out-of-sample outcome calibration, drift monitoring, and versioned backtests before any predictive label.
 
 ## Now — functional desktop foundation
