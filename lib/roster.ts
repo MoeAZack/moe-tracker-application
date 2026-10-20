@@ -1,4 +1,5 @@
 import crypto from 'node:crypto';
+import { identityExactKey } from './identityResolver';
 
 type IdFactory = () => string;
 type Clock = () => string;
@@ -386,7 +387,7 @@ export function createRosterPlayer(db: any, displayName: string, idFactory = def
 }
 
 function normalizedPlayerName(value: unknown) {
-  return String(value || '').trim().toLocaleLowerCase('en');
+  return identityExactKey(value);
 }
 
 /**

@@ -52,7 +52,13 @@ export const settingsSchema = z.object({
   vetoActions: z.array(z.string().max(50)).max(20).optional(),
   stats: looseObject.optional(),
   coachingThresholds: looseObject.optional(),
-  deletedCoachingSignalFingerprints: z.array(z.string().max(240)).max(1000).optional()
+  deletedCoachingSignalFingerprints: z.array(z.string().max(240)).max(1000).optional(),
+  featureFlags: z.object({
+    canonicalDataSpine: z.boolean().optional(), dynamicResourceCatalog: z.boolean().optional(), unifiedIngestion: z.boolean().optional(),
+    evidenceFusionV2: z.boolean().optional(), unifiedReviewWorkspace: z.boolean().optional(), metricsExplorer: z.boolean().optional(),
+    developmentLoopV2: z.boolean().optional(), contextualRoundIntelligence: z.boolean().optional(), spatialPlaybookV2: z.boolean().optional(),
+    teamOperationsV2: z.boolean().optional(), releaseCandidate02: z.boolean().optional(),
+  }).strict().optional()
 });
 
 export const attendanceCheckInSchema = z.object({ scheduleId: z.string().trim().min(1).max(200) }).strict();

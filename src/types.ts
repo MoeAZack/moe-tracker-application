@@ -160,6 +160,8 @@ export interface Settings {
     maxActiveActionsPerPlayer?: number;
   };
   deletedCoachingSignalFingerprints?: string[];
+  /** Staged Moe Tracker 0.2 capabilities. Unknown flags are ignored and every flag defaults off. */
+  featureFlags?: Partial<import('../lib/featureFlags').Moe02FeatureFlags>;
 }
 
 export interface Schedule {
@@ -695,6 +697,7 @@ export interface TrackerData {
   analyticsBuilds?: Record<string, unknown>;
   evidenceFusionResolutions?: import('../lib/evidenceFusion').EvidenceFusionResolution[];
   calibratedPlayerRatings?: import('../lib/calibratedPlayerRatings').CalibratedPlayerRating[];
+  canonicalDataSpine?: import('../lib/canonicalDataSpine').CanonicalDataSpine;
   vetos: Veto[];
   strats: Strat[];
   stratRuns: StratRun[];

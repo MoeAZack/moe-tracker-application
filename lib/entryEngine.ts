@@ -4,6 +4,7 @@ import type {
   ScreenshotReviewConfirmation,
   ScreenshotReviewDraft,
 } from '../src/types';
+import { buildIdentityResolver, identityExactKey } from './identityResolver';
 
 const SOURCE_METHODS = new Set(['manual', 'screenshot', 'live-logger', 'provider-import', 'unknown']);
 const META_FIELDS = new Set(['id', 'matchId', 'sourceMetadata', 'corrections']);
@@ -137,20 +138,16 @@ type ScreenshotOptions = {
   rounds?: Array<{ roundNo: number; result: 'W' | 'L'; winBy?: string | null }>;
 };
 
-export function normalizeRosterName(value: string): string {
-  return value.normalize('NFKD').replace(/[\u0300-\u036f]/g, '').toLocaleLowerCase().replace(/[^a-z0-9]/g, '');
-}
+export function normalizeRosterName(value: string): string { return identityExactKey(value); }
 
 export function matchExtractedRosterName(
   extractedName: string,
   rosterPlayers: Array<{ id?: string; displayName: string; aliases?: string[] }>,
 ) {
-  const normalized = normalizeRosterName(extractedName);
-  const candidates = normalized
-    ? rosterPlayers.filter(player => [player.displayName, ...(player.aliases || [])].some(name => normalizeRosterName(name) === normalized))
-    : [];
-  const status = candidates.length === 1 ? 'matched' : candidates.length > 1 ? 'ambiguous' : 'unmatched';
-  const match = status === 'matched' ? candidates[0] : undefined;
+  const resolution = buildIdentityResolver({ rosterPlayers }).resolve({ observedName: extractedName, includeArchived: false });
+  const candidates = rosterPlayers.filter(player => player.id && resolution.candidatePlayerIds.includes(player.id));
+  const status = resolution.status === 'unresolved' ? 'unmatched' : resolution.status;
+  const match = status === 'matched' ? candidates.find(candidate => candidate.id === resolution.playerId) : undefined;
   return {
     matchedPlayerId: match?.id || null,
     matchedPlayerName: match?.displayName || null,

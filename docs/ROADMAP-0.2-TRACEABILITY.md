@@ -22,10 +22,10 @@ Last reconciled: 20 October 2026, Africa/Cairo. This file is the permanent scope
 
 | ID | Requirement | Highest gate | Evidence / next gate |
 | --- | --- | --- | --- |
-| 1.1 | Canonical Match, Round, PlayerAppearance, Identity and EvidenceSource records | Automatically tested | Existing stable IDs/provenance are covered; Stage 1 normalizes remaining legacy joins. |
-| 1.2 | One identity resolver for OCR, replay, VOD, roster aliases and opponents | Automatically tested | Correction history and roster mapping exist; broaden real-corpus identity acceptance. |
+| 1.1 | Canonical Match, Round, PlayerAppearance, Identity and EvidenceSource records | Real-data validated | Deterministic graph validates 8 matches, 180 rounds, 40 appearances and 228 sources with no broken edges. |
+| 1.2 | One identity resolver for OCR, replay, VOD, roster aliases and opponents | Real-data validated | Shared resolver yields 0 unresolved and 0 ambiguous appearances in the installed test workspace. Opponent identity history remains Stage 6 scope. |
 | 1.3 | Archive, restore and 60-day purge without current-analytics leaks | Automatically tested | Historical rows remain immutable; physical expiry rehearsal remains. |
-| 1.4 | Versioned derived metrics and deterministic rebuilds | Automatically tested | Source hashes and calculation versions exist; Stage 1 makes the dependency graph explicit. |
+| 1.4 | Versioned derived metrics and deterministic rebuilds | Real-data validated | Eight derived builds are linked by source hash/calculation version; canonical fingerprint is order-independent. |
 | 2.1 | Dynamic map catalog across pool, stats, compositions and calculator | Implemented | Runtime map settings exist; remove remaining hard-coded visual/calibration fallbacks. |
 | 2.2 | Dynamic agent catalog across stats and compositions | Implemented | Active/inactive agent settings exist; validate new-agent propagation physically. |
 | 2.3 | Dynamic weapon catalog including new weapons and clear artwork | Implemented | Weapon evidence exists; catalog metadata/art quality needs real Warden validation. |

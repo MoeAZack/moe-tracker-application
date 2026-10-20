@@ -20,7 +20,7 @@ import { cancelRawReplayUpload, deleteRawReplayObject, downloadRawReplayObject, 
 import { clientIp, requestRateLimit } from '../utils';
 import { historicalPlayerLabel, mergeAcceptedPlayerStat, preserveIdentitySnapshot } from '../identitySnapshot';
 import { replayScreenshotReconciliation } from '../ocrLearning';
-import { confusableCaptureKey, normalizeCaptureName } from '../scrimCaptureImport';
+import { buildIdentityResolver, identityOcrKey } from '../identityResolver';
 import { deriveRoundAdvantage } from '../roundAdvantage';
 import { recomputeAcceptedMatchAggregates } from '../aggregateVersioning';
 import { refreshCoachingWorkflow } from './coaching';
@@ -286,14 +286,14 @@ function acceptReviewIntoEngines(db: any, store: ReplayStore, job: ReplayParserJ
   const existingRows = new Map<string, any>(existingMatchRows.filter((item: any) => item.playerId).map((item: any) => [item.playerId, item]));
   const existingRowsByName = new Map<string, any[]>();
   for (const row of existingMatchRows) {
-    const key = confusableCaptureKey(normalizeCaptureName(row.displayNameSnapshot || row.player));
+    const key = identityOcrKey(row.displayNameSnapshot || row.player);
     if (key) existingRowsByName.set(key, [...(existingRowsByName.get(key) || []), row]);
   }
   const activeCoreIds = new Set((db.coreMemberships || []).filter((item: any) => !item.endedAt).map((item: any) => item.playerId));
   const claimedExistingRowIds = new Set<string>();
   const acceptedRows = [...mapping.entries()].map(([parserPlayerId, overlay]) => {
     const raw: any = rawRows.get(parserPlayerId) || {}; const metrics: any = metricRows.get(parserPlayerId) || {};
-    const nameMatches = existingRowsByName.get(confusableCaptureKey(normalizeCaptureName(overlay.displayName))) || [];
+    const nameMatches = existingRowsByName.get(identityOcrKey(overlay.displayName)) || [];
     const storedNumber = (value: any) => typeof value === 'number' && Number.isFinite(value) ? value : null;
     const kdaMatches = existingMatchRows.filter((row: any) => !claimedExistingRowIds.has(row.id)
       && storedNumber(row.kills) === evidenceNumber(raw.kills)
@@ -429,15 +429,12 @@ function autoFinalizeDesktopReplay(db: any, store: ReplayStore, sha256: string, 
   if (ours.length !== 5 || theirs.length !== 5) return null;
 
   const hasCore = activeCorePlayerIds(db).size > 0;
+  const identityResolver = buildIdentityResolver(db);
   const mappings: ReplayMapping[] = screenshot.suggestions.map(item => {
     if ((byId.get(item.parserPlayerId) as any)?.teamId !== teamId) return { parserPlayerId: item.parserPlayerId, rosterPlayerId: null, displayName: item.displayName };
     let roster = (db.rosterPlayers || []).find((player: any) => player.id === item.rosterPlayerId && !player.retiredAt);
-    roster ||= (db.rosterPlayers || []).find((player: any) => String(player.displayName || '').trim().toLocaleLowerCase('en') === item.displayName.trim().toLocaleLowerCase('en'));
-    if (!roster) {
-      const key = confusableCaptureKey(normalizeCaptureName(item.displayName));
-      const candidates = (db.rosterPlayers || []).filter((player: any) => player.retiredAt && confusableCaptureKey(normalizeCaptureName(player.displayName)) === key);
-      if (candidates.length === 1) roster = candidates[0];
-    }
+    const resolved = identityResolver.resolve({ observedName: item.displayName, includeArchived: true });
+    if (!roster && resolved.status === 'matched') roster = (db.rosterPlayers || []).find((player: any) => player.id === resolved.playerId);
     roster ||= ensureObservedRosterPlayer(db, item.displayName);
     if (!roster.retiredAt && !roster.rosterStatus) setObservedRosterStatus(db, { playerId: roster.id, displayName: roster.displayName, status: hasCore ? 'standIn' : 'tryout' });
     return { parserPlayerId: item.parserPlayerId, rosterPlayerId: roster.id, displayName: item.displayName };

@@ -1,4 +1,6 @@
 import { buildAcceptedMatchAggregatePlan, buildCanonicalAnalyticsExport, PLAYER_SCREENSHOT_BUILDER } from './aggregateVersioning';
+import { buildCanonicalDataSpine, validateCanonicalDataSpine } from './canonicalDataSpine';
+import { moe02FeatureEnabled } from './featureFlags';
 
 const PRIVATE_TOP_LEVEL_KEYS = new Set(['authKeys', 'allowedUsers', 'secretValues', '_storage', 'authenticatedViewer', 'tryoutDecisionNotes', 'identityCorrectionBatches']);
 const PRIVATE_SETTING_KEYS = new Set(['discordWebhook', 'gridApiKey', 'henrikApiKey', 'praccCalendarUrl', 'praccCalendarLastAttemptAt', 'praccCalendarLastSyncedAt', 'praccCalendarLastError', 'deletedCoachingSignalFingerprints']);
@@ -43,6 +45,11 @@ export function toPublicTrackerData(db: Record<string, any>, role: 'coach' | 'pl
       return exported;
     });
   }
+  if (role === 'coach' && moe02FeatureEnabled('canonicalDataSpine', db.settings?.featureFlags)) {
+    const spine = buildCanonicalDataSpine(db); const validation = validateCanonicalDataSpine(spine);
+    if (!validation.ok) throw Object.assign(new Error('Canonical data spine contains broken references.'), { status: 500, issues: validation.issues });
+    publicData.canonicalDataSpine = spine;
+  } else delete publicData.canonicalDataSpine;
   if (role === 'coach') publicData.tryoutDecisionNotes = structuredClone(db.tryoutDecisionNotes || []);
   if (role === 'coach') publicData.identityCorrectionBatches = structuredClone(db.identityCorrectionBatches || []);
   delete publicData.replayIntake;
