@@ -902,25 +902,25 @@ export default function SettingsControl({ data, theme, onSaveSettings, onRefresh
 
                 <div className="grid grid-cols-1 md:grid-cols-2 gap-4 pt-4 border-t border-white/5 font-mono text-xs">
                   <div className="space-y-1">
-                    <label className="text-[10px] uppercase font-black text-gray-500 block">Shrinkage Factor (K Coefficient)</label>
+                    <label className="text-[10px] uppercase font-black text-gray-500 block">Small-sample smoothing</label>
                     <input
                       type="number"
                       value={shrinkK}
                       onChange={e => setShrinkK(Number(e.target.value))}
                       className="w-full p-2.5 bg-black/20 text-white border border-white/10 rounded"
                     />
-                    <p className="text-[9px] text-gray-500 leading-relaxed mt-0.5">Determines how aggressively map scores on low-sample pools are regressed towards 50% average to prevent statistical variance distortion.</p>
+                    <p className="text-[9px] text-gray-500 leading-relaxed mt-0.5">Controls how cautiously map scores are shown when only a few matches have been played. Higher values keep small samples closer to the team average.</p>
                   </div>
 
                   <div className="space-y-1">
-                    <label className="text-[10px] uppercase font-black text-gray-500 block">Low Sample Boundary threshold</label>
+                    <label className="text-[10px] uppercase font-black text-gray-500 block">Small-sample match limit</label>
                     <input
                       type="number"
                       value={lowSample}
                       onChange={e => setLowSample(Number(e.target.value))}
                       className="w-full p-2.5 bg-black/20 text-white border border-white/10 rounded"
                     />
-                    <p className="text-[9px] text-gray-500 leading-relaxed mt-0.5">Defines the play-count ceiling below which map pools are highlighted as critically small sample sizes.</p>
+                    <p className="text-[9px] text-gray-500 leading-relaxed mt-0.5">Maps with this many matches or fewer are clearly marked as a small sample.</p>
                   </div>
                 </div>
 

@@ -42,6 +42,14 @@ describe('player overview archive action', () => {
     expect(html).not.toContain('Archive');
   });
 
+  it('shows a player only their identity-bound profile', () => {
+    const data = { ...baseData, authenticatedViewer: { playerId: 'active' }, rosterPlayers: [...baseData.rosterPlayers, { id: 'other', displayName: 'Other teammate', createdAt: '2026-10-14' }], playerStats: [...baseData.playerStats, { id: 's3', matchId: 'm1', playerId: 'other', player: 'Other teammate', kills: 30, deaths: 2 }] };
+    const html = renderToStaticMarkup(<PlayerSoloTracker data={data} theme={{ cardBg: '', border: '' }} role="player" onSyncSoloQ={async () => null} onRefresh={async () => {}} />);
+    expect(html).toContain('My performance profile');
+    expect(html).toContain('Active');
+    expect(html).not.toContain('Other teammate');
+  });
+
   it('presents expanded evidence as labeled metric tiles instead of dense inline strings', () => {
     const source = fs.readFileSync('src/components/PlayerSoloTracker.tsx', 'utf8');
     for (const label of ['Core combat output', 'First-duel pressure', 'First deaths', 'Round-winning actions', 'High-leverage round outcomes']) expect(source).toContain(label);

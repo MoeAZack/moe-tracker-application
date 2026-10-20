@@ -210,6 +210,11 @@ export const vodRoundReviewSchema = z.object({
     player: z.string().max(100).nullable().optional(),
     reason: z.string().max(500).optional(),
   }).optional(),
+  factCorrection: z.object({
+    field: z.enum(['side', 'result', 'buy', 'enemyBuy', 'winBy', 'plant', 'site', 'firstKillBy', 'firstDeathBy']),
+    value: z.string().trim().max(100),
+    reason: z.string().trim().min(5).max(500),
+  }).optional(),
   clips: z.array(z.object({ id: nonEmpty, fileName: z.string().min(1).max(255), label: z.string().min(1).max(200), startMs: z.number().int().min(0), endMs: z.number().int().min(1) })).max(20).optional(),
 });
 const vodMetric = z.number().finite().int().min(0).max(2000).nullable();

@@ -1687,7 +1687,7 @@ export function ReplayReviewEvidence({
             <div>
               <p className="text-xs text-slate-500">
                 Save the overlay first. Acceptance replaces this match’s
-                analytics rows with the mapped canonical replay facts.
+                analytics rows with the reviewed replay facts.
               </p>
               {review && dirty && (
                 <p role="status" className="mt-2 text-xs text-amber-300">
