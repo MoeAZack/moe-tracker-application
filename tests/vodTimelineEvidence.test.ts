@@ -4,6 +4,7 @@ import os from 'node:os';
 import path from 'node:path';
 import evidenceModule from '../desktop/vod-timeline-evidence.cjs';
 import analyzerModule from '../desktop/vod-timeline-analyzer.cjs';
+import { boundaryTimelinePlayers } from '../src/components/VodSubmission';
 
 const { aggregateVideoEvidence, parseKillFeedSnapshot, parseUltimateSnapshots, parseRoundStateSnapshot, buildRoundTimeline, buildObserverSegments, applyVisualTemplates, fuseVodEvidence } = evidenceModule;
 const { normalizeYoutubeUrl, youtubeVideoId, frameDifference, visualSignature, scoreboardGeometryScore, agentSelectGeometryScore, chooseGameBoundaries, inferPovPlayer, analyzeVodTimeline, releaseVodSource } = analyzerModule;
@@ -168,5 +169,19 @@ describe('VOD timeline evidence', () => {
     const root = await fs.mkdtemp(path.join(os.tmpdir(), 'moe-vod-release-')); const downloaded = path.join(root, 'downloaded'); await fs.mkdir(downloaded); const downloadedFile = path.join(downloaded, 'vod.mp4'); await fs.writeFile(downloadedFile, 'video');
     await expect(releaseVodSource({ downloaded: true, directory: downloaded, file: downloadedFile }, true)).resolves.toBe(false); await expect(fs.stat(downloaded)).rejects.toThrow();
     const localFile = path.join(root, 'coach.mp4'); await fs.writeFile(localFile, 'video'); await expect(releaseVodSource({ downloaded: false, directory: root, file: localFile }, true)).resolves.toBe(true); expect(await fs.readFile(localFile, 'utf8')).toBe('video'); await fs.rm(root, { recursive: true, force: true });
+  });
+
+  it('never treats a VOD uploader as a teammate and reuses only proven opponent identities', () => {
+    const roster = [{ displayName: 'Alpha' }, { displayName: 'Bravo' }];
+    const linked = { screenshotEvidence: { scoreboardPlayers: [
+      { name: 'Alpha', allied: true }, { name: 'EnemyOne', allied: false }, { name: 'EnemyTwo', allied: false },
+    ] } };
+    expect(boundaryTimelinePlayers(roster, linked)).toEqual([
+      { name: 'Alpha', team: 'ours' }, { name: 'Bravo', team: 'ours' },
+      { name: 'EnemyOne', team: 'theirs' }, { name: 'EnemyTwo', team: 'theirs' },
+    ]);
+    expect(boundaryTimelinePlayers(roster, null)).toEqual([
+      { name: 'Alpha', team: 'ours' }, { name: 'Bravo', team: 'ours' },
+    ]);
   });
 });

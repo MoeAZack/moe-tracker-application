@@ -29,6 +29,18 @@ const fileFromBase64 = (base64: string, name: string, type: string) => {
 };
 const sha256File = async (file: File) => [...new Uint8Array(await crypto.subtle.digest('SHA-256', await file.arrayBuffer()))].map(value => value.toString(16).padStart(2, '0')).join('');
 
+export function boundaryTimelinePlayers(activeRoster: readonly { displayName: string }[], linkedMatch: any) {
+  const ours = activeRoster.map(player => String(player.displayName || '').trim()).filter(Boolean);
+  const theirs = (linkedMatch?.screenshotEvidence?.scoreboardPlayers || [])
+    .filter((player: any) => player?.allied === false)
+    .map((player: any) => String(player?.name || '').trim()).filter(Boolean);
+  const identified: Array<{ name: string; team: 'ours' | 'theirs' }> = [
+    ...ours.map(name => ({ name, team: 'ours' as const })),
+    ...theirs.map((name: string) => ({ name, team: 'theirs' as const })),
+  ];
+  return [...new Map(identified.map(player => [player.name.toLocaleLowerCase('en'), player])).values()].slice(0, 10);
+}
+
 export default function VodSubmission({ data, role, onRefresh }: Props) {
   const [history, setHistory] = useState<VodSubmissionRecord[]>([]);
   const [vodUrl, setVodUrl] = useState(''); const [matchId, setMatchId] = useState(''); const [playerId, setPlayerId] = useState('');
@@ -116,8 +128,10 @@ export default function VodSubmission({ data, role, onRefresh }: Props) {
           const possibleMatches = matches.filter(candidate => candidate.date === dateKey && (!boundary.map || candidate.map?.toLocaleLowerCase() === boundary.map.toLocaleLowerCase()) && [...rosterIds].every(id => data.playerStats.some(stat => stat.matchId === candidate.id && stat.playerId === id)));
           const linked = possibleMatches.length === 1 ? possibleMatches[0] : null; const endMs = boundaries[index + 1]?.timestampMs || discovery.durationMs;
           progressContext.current = { owner: 'batch', gameIndex: index, totalGames: boundaries.length }; setTimelineProgress({ owner: 'batch', step: 3, stepPercent: Math.round(index / boundaries.length * 100), message: `Analyzing game ${index + 1}/${boundaries.length} · ${mapName}…`, status: 'working' });
-          const observedNames = [...new Set([...(discovery.uploader ? [discovery.uploader] : []), ...activeRoster.map(player => player.displayName)])].slice(0, 10);
-          const players = observedNames.map(name => ({ name, team: 'ours' as const }));
+          // A channel/uploader name is not a player identity. Reuse opponent names
+          // only when a linked scoreboard proved them; otherwise unknown opponents
+          // remain unknown instead of being mislabeled as our team.
+          const players = boundaryTimelinePlayers(activeRoster, linked);
           const evidence = await window.moeDesktop.analyzeVod({ vodUrl: normalizedVodUrl, cacheId, startMs: boundary.timestampMs, endMs, players, observerMode: vodPerspective === 'coach', ...(vodPerspective === 'player' && selectedPovName ? { povPlayerName: selectedPovName } : {}) });
           const publicTimeline = JSON.parse(JSON.stringify(evidence, (key, item) => key === 'rawText' ? undefined : item)); const frame = fileFromBase64(boundary.base64, `vod-game-start-${index + 1}.png`, boundary.mediaType);
           setTimelineProgress({ owner: 'batch', step: 4, stepPercent: Math.round(index / boundaries.length * 100), message: `Saving game ${index + 1}/${boundaries.length}…`, status: 'working' }); const response = await apiFetch('/api/vod-submissions', { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ vodUrl: normalizedVodUrl, imageSha256: await sha256File(frame), ...(linked ? { matchId: linked.id } : {}), coachTeamEvidence: true, date: dateKey, map: boundary.map, opponent: linked?.opponent || null, ourScore: linked?.ourScore ?? null, theirScore: linked?.theirScore ?? null, players: [], timelineEvidence: publicTimeline }) });
