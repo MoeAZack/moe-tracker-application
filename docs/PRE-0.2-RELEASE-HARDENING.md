@@ -158,10 +158,11 @@ controlled OCR learning, capture behavior, spatial coordinates, and the real cor
 
 Status: RE-AUDIT FIXES IN REVIEW (20 Oct 2026, Africa/Cairo). The re-audit
 found 2 of 12 items fixed. The code-only items below are fixed on the H2
-re-audit PR; the measured corpus regressions (competitive agent detection
-141 to 130 of 150, one session's score 9-13 read as 1-13, three blank assist
-cells now wrong) are still being reproduced on the owner's private corpus,
-so H2 does not pass yet.
+re-audit PR. The corpus regressions were reproduced on the owner's private
+corpus and traced to the scoreboard row offset and tint-normalized portrait
+distance (agents), the team-colour score mask (one session's score) and the
+removed K/D/A confidence floor (three assist cells). H2 passes once the final
+head's harness run matches 0.1.15 with no wrong cells.
 
 Contract:
 
@@ -198,6 +199,14 @@ Contract:
 - Two rifles beside pistols classify as a half buy; the Bandit is a pistol.
 - Normalized map coordinates remain bounded to 0..1. Raw VALORANT world-space
   coordinates may be negative and are calibrated before spatial analysis.
+- Final scoreboard portraits are matched on the calibrated grid with plain
+  colour error; the separator row offset never moves the portrait crop. The
+  final score cells use the plain threshold, and a joined K/D/A line below
+  confidence 70 leaves kills, deaths and assists unknown.
+- `tests/fixtures/capture-ground-truth.json` `rowLabels` lists cells that must
+  stay unknown unless the true value is read;
+  `node scripts/ocr-row-label-check.mjs <backtest-out-dir>` fails a run that
+  fills one wrongly.
 
 Acceptance evidence:
 
@@ -209,6 +218,13 @@ Acceptance evidence:
   frame normalization, three-game boundary selection, controlled OCR learning,
   negative world coordinates, automatic capture deduplication, and capture
   ground truth have behavior coverage.
+- Private 15-session corpus (`Scrim-20261014-*`, headless harness, no roster,
+  no learning store), run on the owner's PC; screenshots never leave it.
+  Baseline 0.1.15 (`d685d56`): 141/150 agents. Before the fix (`b6f964d`):
+  130/150, one score half unknown, three wrong assist cells. At `4c63469`:
+  141/150, every agent, score and round identical to 0.1.15, the three
+  labelled portraits unknown; the three assist cells were still wrong and are
+  fixed by the K/D/A confidence floor. Final-head run: pending.
 
 ## H3 — Metric trust
 

@@ -17,15 +17,19 @@ describe('labelled capture corpus contract', () => {
     }
   });
 
-  it('labels agent rows that must stay unknown unless the true agent is read', () => {
+  it('labels scoreboard cells that must stay unknown unless the true value is read', () => {
     const corpus = JSON.parse(readFileSync(new URL('./fixtures/capture-ground-truth.json', import.meta.url), 'utf8'));
     const agents = JSON.parse(readFileSync(new URL('../public/agents/agents.json', import.meta.url), 'utf8')).map((item: any) => item.name);
-    expect(corpus.agentRowLabels.length).toBeGreaterThan(0);
-    for (const label of corpus.agentRowLabels) {
+    expect(corpus.rowLabels.length).toBeGreaterThan(0);
+    for (const label of corpus.rowLabels) {
       expect(label.captureId).toMatch(/^Scrim-\d{8}-\d{6}$/);
       expect(label.row).toBeGreaterThanOrEqual(0); expect(label.row).toBeLessThan(10);
       expect(label.acceptable).toContain(null);
-      for (const agent of label.acceptable.filter(Boolean)) expect(agents).toContain(agent);
+      expect(['agent', 'kills', 'deaths', 'assists']).toContain(label.field);
+      for (const value of label.acceptable.filter((item: unknown) => item !== null)) {
+        if (label.field === 'agent') expect(agents).toContain(value);
+        else expect(Number.isInteger(value) && value >= 0).toBe(true);
+      }
     }
   });
 });

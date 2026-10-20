@@ -418,6 +418,9 @@ function cleanScoreboardMap(raw: string | undefined): string | null {
   return cleaned || null;
 }
 
+/** 0.1.15 dropped K/D/A recognitions below this Tesseract confidence. */
+export const KDA_CONFIDENCE_FLOOR = 70;
+
 export function parseStrictKda(raw: string | undefined): { kills: number; deaths: number; assists: number } | null {
   const matched = (raw?.trim() || '').match(/^(\d{1,3})\s*\/\s*(\d{1,3})\s*\/\s*(\d{1,3})$/);
   if (!matched) return null;
@@ -458,7 +461,9 @@ export function parseLocalScoreboardRecognitions(
     const rawMetrics = { ...Object.fromEntries(METRICS.map(metric => [metric, byId.get(`player.${row}.${metric}`)?.text || ''])), kda: joinedRaw };
     const rawConfidence = { ...Object.fromEntries(METRICS.map(metric => [metric, byId.get(`player.${row}.${metric}`)?.confidence ?? null])), kda: byId.get(`player.${row}.kda`)?.confidence ?? null, name: byId.get(`player.${row}.name`)?.confidence ?? null };
     const parsedMetrics = Object.fromEntries(METRICS.map(metric => [metric, strictInteger(rawMetrics[metric], MAX_BY_METRIC[metric])])) as Record<LocalOcrMetric, number | null>;
-    const joinedKda = parseStrictKda(joinedRaw);
+    // A low-confidence K/D/A line can parse cleanly with a wrong digit, and
+    // nothing cross-checks assists, so below the floor all three stay unknown.
+    const joinedKda = (rawConfidence.kda ?? 0) >= KDA_CONFIDENCE_FLOOR ? parseStrictKda(joinedRaw) : null;
     if (joinedKda) Object.assign(parsedMetrics, joinedKda);
     return {
       name: byId.get(`player.${row}.name`)?.text?.trim() || '',
