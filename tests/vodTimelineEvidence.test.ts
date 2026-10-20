@@ -171,6 +171,15 @@ describe('VOD timeline evidence', () => {
     const localFile = path.join(root, 'coach.mp4'); await fs.writeFile(localFile, 'video'); await expect(releaseVodSource({ downloaded: false, directory: root, file: localFile }, true)).resolves.toBe(true); expect(await fs.readFile(localFile, 'utf8')).toBe('video'); await fs.rm(root, { recursive: true, force: true });
   });
 
+  it('reconciles as complete only when every player row was checked', () => {
+    const scoreboard = (names: readonly string[]) => [{ timestampMs: 5_000, text: names.map(name => `${name} 0 0 0`).join('\n'), confidence: .9 }];
+    const fiveRows = aggregateVideoEvidence({ players, scoreboardSnapshots: scoreboard(players.slice(0, 5).map(player => player.name)) });
+    expect(fiveRows.reconciliation).toMatchObject({ status: 'partial', comparedFields: 10 });
+    const allRows = aggregateVideoEvidence({ players, scoreboardSnapshots: scoreboard(players.map(player => player.name)) });
+    expect(allRows.reconciliation).toMatchObject({ status: 'matched', comparedFields: 20 });
+    expect(allRows.coverage.signals.eliminations).toBe('complete');
+  });
+
   it('counts our eliminations against unresolved opponents when no scoreboard named them', () => {
     const ours = players.filter(player => player.team === 'ours');
     const evidence = aggregateVideoEvidence({ players: ours, killFeedSnapshots: [
