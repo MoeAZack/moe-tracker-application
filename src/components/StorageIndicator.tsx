@@ -17,7 +17,8 @@ export default function StorageIndicator({ expanded = false }: { expanded?: bool
     <p className="mt-1 text-xs leading-relaxed text-slate-400">{status ? 'The save ceiling and provider storage baseline are measured separately.' : failed ? 'Storage measurements are temporarily unavailable.' : 'Measuring storage…'}</p>
     {status && <div className="mt-3 h-2 overflow-hidden rounded-full bg-white/10" role="progressbar" aria-label="Tracked storage used" aria-valuemin={0} aria-valuemax={100} aria-valuenow={Math.round(percent)}><div className="h-full rounded-full bg-gradient-to-r from-cyan-400 via-teal-300 to-violet-400 transition-[width] duration-500" style={{ width: `${Math.max(1, percent)}%` }} /></div>}
     <dl className="storage-values">
-      <div><dt>Active database payload</dt><dd>{status ? size(status.usedBytes) : 'Unavailable'}</dd></div>
+      <div><dt>Active database index</dt><dd>{status ? size(status.activeIndexBytes ?? status.databaseBytes) : 'Unavailable'}</dd></div>
+      <div><dt>Evidence vault</dt><dd>{status ? `${size(status.evidenceArtifactStoredBytes || 0)} · ${Number(status.evidenceArtifactCount || 0).toLocaleString()} items` : 'Unavailable'}</dd></div>
       <div><dt>Tracked room to baseline</dt><dd>{status ? size(status.remainingBytes) : 'Unavailable'}</dd></div>
       <div><dt>Application write limit</dt><dd>{status?.applicationWriteLimitCharacters ? `${Number(status.applicationWritePercent).toFixed(2)}% · ${Number(status.applicationWriteRemainingCharacters).toLocaleString()} characters left` : 'Not applicable locally'}</dd></div>
       <div><dt>Provider baseline used</dt><dd>{status ? `${Number(status.percentOfBaseline || 0).toFixed(2)}%` : 'Unavailable'}</dd></div>

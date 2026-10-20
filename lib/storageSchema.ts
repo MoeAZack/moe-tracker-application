@@ -6,7 +6,7 @@ import { ensureScheduleCalendars } from './schedule';
 import { buildAllPracticeBlockSummaries, migrateLegacyActionChecks } from './coachingWorkflow';
 import { repairOrphanMatchReferences } from './matchIntegrity';
 
-export const STORAGE_SCHEMA_VERSION = 13;
+export const STORAGE_SCHEMA_VERSION = 14;
 export const MAX_ENTITY_BYTES = 840 * 1024;
 export const MAX_DOCUMENT_BYTES = 900 * 1024;
 export const MAX_JSON_DATABASE_BYTES = 64 * 1024 * 1024;
@@ -33,6 +33,7 @@ export type StorageMetadata = {
   migratedAt: string;
   migrationLedger: Array<{ from: number; to: number; at: string }>;
   integrityRepair?: { at: string; removed: Record<string, number> };
+  evidenceArtifacts?: { schemaVersion: number; count: number; logicalBytes: number };
 };
 
 export type EncodedDocument = {
@@ -105,7 +106,8 @@ export function ensureStorageSchema(input: any, now = new Date().toISOString()) 
     if (declared < 13) integrityRepair = { at: now, removed: repairOrphanMatchReferences(input) };
     ledger.push({ from: declared, to: STORAGE_SCHEMA_VERSION, at: now });
   }
-  input._storage = { schemaVersion: STORAGE_SCHEMA_VERSION, migratedAt: declared < STORAGE_SCHEMA_VERSION ? now : String(input._storage?.migratedAt || now), migrationLedger: ledger, ...(integrityRepair ? { integrityRepair } : {}) } satisfies StorageMetadata;
+  const evidenceArtifacts = input._storage?.evidenceArtifacts;
+  input._storage = { schemaVersion: STORAGE_SCHEMA_VERSION, migratedAt: declared < STORAGE_SCHEMA_VERSION ? now : String(input._storage?.migratedAt || now), migrationLedger: ledger, ...(integrityRepair ? { integrityRepair } : {}), ...(evidenceArtifacts ? { evidenceArtifacts } : {}) } satisfies StorageMetadata;
   if (input.settings) ensureScheduleCalendars(input.settings);
   return input;
 }
