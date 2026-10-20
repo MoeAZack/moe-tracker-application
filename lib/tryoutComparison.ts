@@ -115,7 +115,7 @@ export function comparisonParticipants(data: ComparisonData) {
 }
 function score(match: Match) { if (typeof match.ourScore === 'number' && typeof match.theirScore === 'number') return { ours: match.ourScore, theirs: match.theirScore }; if ([match.attW,match.defW,match.attL,match.defL].every(value => typeof value === 'number')) return { ours: match.attW! + match.defW!, theirs: match.attL! + match.defL! }; return null; }
 function composition(matchId: string, stats: readonly PlayerStats[]) { const agents = stats.filter(row => row.matchId === matchId && row.playerId && row.agent?.trim()).map(row => row.agent.trim()); return agents.length === 5 && new Set(agents.map(normalized)).size === 5 ? agents.sort().join(' / ') : null; }
-function accepted(match: Match) { return match.comparisonEvidence?.accepted === true || (match.sourceMetadata?.method === 'screenshot' ? match.reviewConfirmation?.alliedSideConfirmed === true : !!match.sourceMetadata && match.sourceMetadata.method !== 'unknown'); }
+function accepted(match: Match) { if (match.duplicateReview?.status === 'quarantined') return false; return match.comparisonEvidence?.accepted === true || (match.sourceMetadata?.method === 'screenshot' ? match.reviewConfirmation?.alliedSideConfirmed === true : !!match.sourceMetadata && match.sourceMetadata.method !== 'unknown'); }
 
 function filterMatches(data: ComparisonData, filters: ComparisonFilter = {}) {
   const blocks = resolvePracticeBlocks(data.matches, data.practiceBlocks);

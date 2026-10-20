@@ -12,9 +12,8 @@ import { recomputeAcceptedMatchAggregates } from '../aggregateVersioning';
 import { attendancePolicy, attendanceStatus, attendanceSummary, attendanceWindow } from '../attendance';
 import { refreshCoachingWorkflow } from './coaching';
 import { purgeExpiredRosterPlayers } from '../roster';
-import { findPhysicalMatchCandidates } from '../physicalMatchIdentity';
 import { applyScheduleEdit, normalizeScheduleRow, removeScheduleRows, repeatedHourlyScheduleRows } from '../schedule';
-import { findExactRoundEvidenceDuplicate, findExactSourceDuplicate, purgeMatchGraph, purgeRemovedRoundReferences, stableRoundReplacement } from '../matchIntegrity';
+import { findExactRoundEvidenceDuplicate, findExactSourceDuplicate, purgeMatchGraph, isDuplicateQuarantined, purgeRemovedRoundReferences, refreshDuplicateQuarantine, stableRoundReplacement } from '../matchIntegrity';
 import { buildCalibratedPlayerRatings } from '../calibratedPlayerRatings';
 
 // Core data + match logging: full payload, reset, settings, generic upsert/remove,
@@ -24,6 +23,52 @@ export function registerDataRoutes(app: Express, options: { websiteSummaryOnly?:
     if (req.user?.role === 'coach') return true;
     res.status(403).json({ error: 'Only the coach can manage team operations.' });
     return false;
+  };
+  const conflict = (message: string, details: Record<string, unknown>) => Object.assign(new Error(message), { status: 409, details });
+  const sendError = (res: any, err: any) => res.status(err.status || 500).json({ error: err.message, ...(err.details || {}) });
+
+  /** Validate a round replacement without mutating the database. */
+  const planRoundReplacement = (db: any, matchId: string, rows: any[]) => {
+    const existing = (db.rounds || []).filter((round: any) => round.matchId === matchId);
+    const replacement = stableRoundReplacement(existing, rows || [], uid).map((round: any) => ({ ...round, matchId }));
+    const duplicate = findExactRoundEvidenceDuplicate(db, matchId, replacement);
+    if (duplicate) throw conflict('These exact confirmed round screenshots are already attached to another match. Nothing was saved.', { existingMatchId: duplicate.existingMatchId, evidenceFingerprint: duplicate.fingerprint });
+    return replacement;
+  };
+
+  /** Apply a planned round replacement and refresh everything derived from it. */
+  const applyRoundReplacement = (db: any, matchId: string, replacement: any[]) => {
+    purgeRemovedRoundReferences(db, matchId, new Set(replacement.map((round: any) => round.id)));
+    db.rounds = (db.rounds || []).filter((r: any) => r.matchId !== matchId);
+    db.rounds.push(...replacement);
+    materializeRoundOpeningsFromScreenshotEvidence(db, { matchId });
+    materializeRoundPlantsFromScreenshotEvidence(db, { matchId });
+    // Fill-only: coach-entered or scoreboard FD values are never replaced, and
+    // only values this materializer derived earlier are refreshed. Runs before
+    // the aggregate rebuild so the build sees the same FD the table shows.
+    materializeFirstDeathsFromRoundEvidence(db, { matchId });
+    const match = db.matches.find((item: any) => item.id === matchId) || null;
+    db.analyticsBuilds ||= {};
+    // Materialized summaries come only from the versioned accepted-source
+    // adapter. The website receives aggregates, never raw screenshots.
+    if (match) db.analyticsBuilds[matchId] = recomputeAcceptedMatchAggregates(db, matchId);
+    return match;
+  };
+
+  const roundSaveResult = (db: any, matchId: string, replacement: any[], match: any) => {
+    const matchStats = db.playerStats.filter((item: any) => item.matchId === matchId);
+    const summarizedStats = matchStats.filter((item: any) => item.screenshotMetrics);
+    return {
+      matchId, rows: replacement, count: replacement.length,
+      // The analytics upload intentionally contains only rows with derived
+      // screenshot metrics. Return the complete scoreboard separately so a
+      // partial OCR identity match can never shrink the visible/saved lineup.
+      playerStats: matchStats,
+      duplicateReview: match?.duplicateReview || null,
+      screenshotSummary: match && !isDuplicateQuarantined(match) && (summarizedStats.length || match.screenshotEvidence?.scoreboardPlayers?.length === 10)
+        ? { schemaVersion: 1, match, playerStats: summarizedStats, updatedAt: match.sourceMetadata?.capturedAt || new Date().toISOString() }
+        : null,
+    };
   };
   // GET tracker full payload
   app.get('/api/data', async (req, res) => {
@@ -304,6 +349,8 @@ export function registerDataRoutes(app: Express, options: { websiteSummaryOnly?:
       if (sheet === 'Matches') {
         if (!(db.matches || []).some((match: any) => match.id === id)) return res.status(404).json({ error: 'Match was not found.' });
         matchPurge = purgeMatchGraph(db, id);
+        // Deleting an original releases its quarantined copy in the same write.
+        refreshDuplicateQuarantine(db);
       } else db[key] = db[key].filter((x: any) => x.id !== id);
 
       if (sheet === 'Schedule') for (const item of db.schedule || []) if (item.linkedReviewEventId === id) item.linkedReviewEventId = undefined;
@@ -393,6 +440,9 @@ export function registerDataRoutes(app: Express, options: { websiteSummaryOnly?:
 
       match = applyImmutableEntryMetadata(existingMatch, match, actor, timestamp);
       match = applyScreenshotReviewConfirmation(existingMatch, match, actor, timestamp);
+      // Duplicate review state is server-owned; a client copy can never clear a quarantine.
+      delete match.duplicateReview;
+      if (existingMatch?.duplicateReview) match.duplicateReview = existingMatch.duplicateReview;
       if (!match.id) match.id = uid();
 
       let savedStats: any[] | undefined;
@@ -425,20 +475,20 @@ export function registerDataRoutes(app: Express, options: { websiteSummaryOnly?:
           if (correction && withMetadata.corrections?.length > previousCorrectionCount) {
             withMetadata.corrections[withMetadata.corrections.length - 1].reason = correction.reason;
           }
+          // A changed FD is a correction, so it is no longer owned by the round-evidence materializer.
+          if (withMetadata.fdDerivedFrom && (!existingStat || withMetadata.fd !== existingStat.fd)) delete withMetadata.fdDerivedFrom;
           return { ...withMetadata, id: existingStat?.id || uid(), matchId: match.id };
         });
       }
 
       // All validation and metadata planning above is fail-closed. Mutate only now.
       const matchIndex = db.matches.findIndex((entry: any) => entry.id === match.id);
-      if (matchIndex < 0) {
-        const sourceDuplicate = findExactSourceDuplicate(db, match);
-        if (sourceDuplicate) return res.status(409).json({ error: 'This exact source evidence is already attached to another match.', existingMatchId: sourceDuplicate.existingMatchId, sourceToken: sourceDuplicate.sourceToken });
-        if (savedStats) {
-          const duplicate = findPhysicalMatchCandidates(db, match, savedStats)[0];
-          if (duplicate) return res.status(409).json({ error: 'This physical match already exists. Open the existing match instead of creating a duplicate.', existingMatchId: duplicate.id });
-        }
-      }
+      // Only an exact immutable source blocks. Date/map/opponent/score/roster
+      // agreement is never duplicate proof (H0); same-game re-captures are
+      // quarantined for coach review below instead of rejected.
+      const sourceDuplicate = matchIndex < 0 ? findExactSourceDuplicate(db, match) : null;
+      if (sourceDuplicate) return res.status(409).json({ error: 'This exact source evidence is already attached to another match. Nothing was saved.', existingMatchId: sourceDuplicate.existingMatchId, sourceToken: sourceDuplicate.sourceToken });
+      const plannedRounds = Array.isArray((body as any).rounds) ? planRoundReplacement(db, match.id, (body as any).rounds) : null;
 
       if (matchIndex >= 0) db.matches[matchIndex] = match;
       else db.matches.push(match);
@@ -446,6 +496,9 @@ export function registerDataRoutes(app: Express, options: { websiteSummaryOnly?:
         db.playerStats = db.playerStats.filter((stat: any) => stat.matchId !== match.id);
         db.playerStats.push(...savedStats);
       }
+      if (plannedRounds) applyRoundReplacement(db, match.id, plannedRounds);
+      refreshDuplicateQuarantine(db, timestamp);
+      match = db.matches.find((entry: any) => entry.id === match.id);
 
       refreshCoachingWorkflow(db, actor);
       await saveDB(db);
@@ -461,11 +514,13 @@ export function registerDataRoutes(app: Express, options: { websiteSummaryOnly?:
       res.json({
         match,
         statsUpdate: statsUpdate.operation === 'replace'
-          ? { operation: 'replace', stats: savedStats }
+          ? { operation: 'replace', stats: db.playerStats.filter((stat: any) => stat.matchId === match.id) }
           : { operation: 'preserve' },
+        duplicateReview: match.duplicateReview || null,
+        ...(plannedRounds ? { roundsUpdate: roundSaveResult(db, match.id, plannedRounds, match) } : {}),
       });
     } catch (err: any) {
-      res.status(err.status || 500).json({ error: err.message });
+      sendError(res, err);
     }
   });
 
@@ -476,41 +531,39 @@ export function registerDataRoutes(app: Express, options: { websiteSummaryOnly?:
       const { matchId, rows } = body as any;
       const db = await readDB();
       if (!(db.matches || []).some((item: any) => item.id === matchId)) return res.status(404).json({ error: 'Match was not found.' });
-      const existing = (db.rounds || []).filter((round: any) => round.matchId === matchId);
-      const replacement = stableRoundReplacement(existing, rows || [], uid).map((round: any) => ({ ...round, matchId }));
-      const duplicate = findExactRoundEvidenceDuplicate(db, matchId, replacement);
-      if (duplicate) return res.status(409).json({ error: 'These exact confirmed round screenshots are already attached to another match.', existingMatchId: duplicate.existingMatchId, evidenceFingerprint: duplicate.fingerprint });
-      purgeRemovedRoundReferences(db, matchId, new Set(replacement.map((round: any) => round.id)));
-      db.rounds = db.rounds.filter((r: any) => r.matchId !== matchId);
-      db.rounds.push(...replacement);
-
-      materializeRoundOpeningsFromScreenshotEvidence(db, { matchId });
-      materializeRoundPlantsFromScreenshotEvidence(db, { matchId });
-
+      const replacement = planRoundReplacement(db, matchId, rows || []);
+      applyRoundReplacement(db, matchId, replacement);
+      refreshDuplicateQuarantine(db);
       const match = db.matches.find((item: any) => item.id === matchId) || null;
-      db.analyticsBuilds ||= {};
-      if (match) db.analyticsBuilds[matchId] = recomputeAcceptedMatchAggregates(db, matchId);
-
-      // Materialized summaries come only from the versioned accepted-source
-      // adapter above. The website receives aggregates, never raw screenshots.
-      materializeFirstDeathsFromRoundEvidence(db, { overwrite: true, matchId });
 
       refreshCoachingWorkflow(db, (req as any).user?.username || 'Unknown coach');
       await saveDB(db);
-      const matchStats = db.playerStats.filter((item: any) => item.matchId === matchId);
-      const summarizedStats = matchStats.filter((item: any) => item.screenshotMetrics);
-      res.json({
-        matchId, rows: replacement, count: replacement.length,
-        // The analytics upload intentionally contains only rows with derived
-        // screenshot metrics. Return the complete scoreboard separately so a
-        // partial OCR identity match can never shrink the visible/saved lineup.
-        playerStats: matchStats,
-        screenshotSummary: match && (summarizedStats.length || match.screenshotEvidence?.scoreboardPlayers?.length === 10)
-          ? { schemaVersion: 1, match, playerStats: summarizedStats, updatedAt: match.sourceMetadata?.capturedAt || new Date().toISOString() }
-          : null,
-      });
+      res.json(roundSaveResult(db, matchId, replacement, match));
     } catch (err: any) {
-      res.status(err.status || 500).json({ error: err.message });
+      sendError(res, err);
+    }
+  });
+
+  // POST coach decision on a quarantined same-game duplicate.
+  app.post('/api/match-duplicate-review', async (req, res) => {
+    try {
+      if (!requireCoach(req, res)) return;
+      const body = validate(schemas.matchDuplicateReviewSchema, req.body, res); if (!body) return;
+      const db = await readDB();
+      const match = (db.matches || []).find((item: any) => item.id === body.matchId);
+      if (!match) return res.status(404).json({ error: 'Match was not found.' });
+      if (match.duplicateReview?.status !== 'quarantined') return res.status(409).json({ error: 'This match is not waiting on a duplicate review.' });
+      const actor = (req as any).user?.username || 'Unknown coach';
+      const timestamp = new Date().toISOString();
+      let matchPurge = null;
+      if (body.decision === 'discard-this') matchPurge = purgeMatchGraph(db, match.id);
+      else match.duplicateReview = { ...match.duplicateReview, status: 'kept-distinct', resolvedAt: timestamp, resolvedBy: actor };
+      refreshDuplicateQuarantine(db, timestamp);
+      refreshCoachingWorkflow(db, actor);
+      await saveDB(db);
+      res.json({ success: true, decision: body.decision, duplicateReview: body.decision === 'keep-both' ? match.duplicateReview : null, matchPurge });
+    } catch (err: any) {
+      sendError(res, err);
     }
   });
 

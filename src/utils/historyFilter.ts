@@ -10,11 +10,13 @@ export function filterAnalyticsHistory(
   const archivedBatchIds = new Set(
     (data.tryoutBatches || []).filter(batch => batch.status === 'archived').map(batch => batch.id),
   );
-  const hiddenTryoutMatchIds = new Set(
-    includeArchivedTryouts ? [] : (data.matches || [])
+  const hiddenTryoutMatchIds = new Set([
+    ...(includeArchivedTryouts ? [] : (data.matches || [])
       .filter(match => match.rosterContext?.kind === 'tryout' && match.rosterContext.tryoutBatchId && archivedBatchIds.has(match.rosterContext.tryoutBatchId))
-      .map(match => match.id),
-  );
+      .map(match => match.id)),
+    // A suspected re-capture of an existing game counts once until a coach decides.
+    ...(data.matches || []).filter(match => match.duplicateReview?.status === 'quarantined').map(match => match.id),
+  ]);
   const matches = (data.matches || []).filter(match => !hiddenTryoutMatchIds.has(match.id));
   const playerStats = (data.playerStats || []).filter(stat => {
     if (hiddenTryoutMatchIds.has(stat.matchId)) return false;

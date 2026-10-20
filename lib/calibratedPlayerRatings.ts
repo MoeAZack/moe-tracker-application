@@ -36,7 +36,7 @@ function rawComponents(rows: readonly any[]) {
 }
 
 export function buildCalibratedPlayerRatings(data: Pick<TrackerData, 'playerStats' | 'matches' | 'rosterPlayers'>): CalibratedPlayerRating[] {
-  const matchRows = new Map((data.matches || []).map(match => [match.id, match])); const activeMatches = new Set(matchRows.keys());
+  const matchRows = new Map((data.matches || []).filter(match => match.duplicateReview?.status !== 'quarantined').map(match => [match.id, match])); const activeMatches = new Set(matchRows.keys());
   const archived = new Set((data.rosterPlayers || []).filter(player => player.retiredAt).map(player => player.id));
   const groups = new Map<string, typeof data.playerStats>();
   for (const row of data.playerStats || []) {

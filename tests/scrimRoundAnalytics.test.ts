@@ -89,6 +89,32 @@ describe('scrim screenshot analytics', () => {
     expect(data.rounds[0]).toMatchObject({ firstKillBy: 'Reviewed Killer', firstDeathBy: 'Reviewed Victim' });
     expect(data.playerStats[0].fd).toBe(7);
   });
+  it('never writes FD zero for a player missing from the round evidence', () => {
+    const data: any = {
+      matches: [{ id: 'm1', ourScore: 1, theirScore: 0 }], rounds: [round()],
+      playerStats: [{ matchId: 'm1', playerId: 'p1', player: 'Alpha', fd: null }, { matchId: 'm1', playerId: 'p-unseen', player: 'Unseen', fd: null }],
+    };
+    expect(materializeFirstDeathsFromRoundEvidence(data, { matchId: 'm1' })).toBe(1);
+    expect(data.playerStats[0]).toMatchObject({ fd: 0, fdDerivedFrom: 'round-evidence' });
+    expect(data.playerStats[1].fd).toBeNull();
+  });
+  it('refreshes only its own derived FD and retracts it when evidence becomes incomplete', () => {
+    const victimRound = round({ screenshotEvidence: { ...round().screenshotEvidence, events: [{ sequence: 1, killerPlayerId: 'x1', victimPlayerId: 'p1', killerTeam: 'theirs', victimTeam: 'ours' }] } });
+    const data: any = {
+      matches: [{ id: 'm1', ourScore: 0, theirScore: 1 }], rounds: [round()],
+      playerStats: [{ matchId: 'm1', playerId: 'p1', player: 'Alpha', fd: null }, { matchId: 'm1', playerId: 'p2', player: 'Coach Set', fd: 4 }],
+    };
+    data.rounds[0].screenshotEvidence.players.push({ playerId: 'p2', displayName: 'Coach Set', team: 'ours' });
+    materializeFirstDeathsFromRoundEvidence(data); expect(data.playerStats[0].fd).toBe(0);
+    data.rounds = [{ ...victimRound, screenshotEvidence: { ...victimRound.screenshotEvidence, players: data.rounds[0].screenshotEvidence.players } }];
+    materializeFirstDeathsFromRoundEvidence(data);
+    expect(data.playerStats[0]).toMatchObject({ fd: 1, fdDerivedFrom: 'round-evidence' });
+    expect(data.playerStats[1].fd).toBe(4);
+    data.rounds[0].screenshotEvidence = { ...data.rounds[0].screenshotEvidence, openingEventComplete: false, eventsComplete: false };
+    materializeFirstDeathsFromRoundEvidence(data);
+    expect(data.playerStats[0].fd).toBeNull(); expect(data.playerStats[0]).not.toHaveProperty('fdDerivedFrom');
+    expect(data.playerStats[1].fd).toBe(4);
+  });
   it('backfills positive plant evidence without inventing negatives or replacing coach review', () => {
     const positive = round({ plant: '', screenshotEvidence: { ...round().screenshotEvidence, objectives: [{ type: 'plant', sourceRow: 4 }] } });
     const unknown = round({ id: 'r2', roundNo: 2, plant: '', screenshotEvidence: { ...round().screenshotEvidence, objectives: [] } });

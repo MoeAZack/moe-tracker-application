@@ -273,6 +273,18 @@ export interface Match {
   /** Team-only round conversion summary synchronized without raw screenshot evidence. */
   roundAnalytics?: Record<string, unknown>;
   vodSubmissionIds?: string[];
+  /** Server-owned same-game duplicate state. Quarantined matches are excluded from analytics until a coach decides. */
+  duplicateReview?: MatchDuplicateReview;
+}
+
+export interface MatchDuplicateReview {
+  schema: 'moetracker.duplicate-review/v1';
+  status: 'quarantined' | 'kept-distinct';
+  fingerprint: string;
+  candidateMatchIds: string[];
+  detectedAt: string;
+  resolvedAt?: string;
+  resolvedBy?: string;
 }
 
 export type EntrySourceMethod = 'manual' | 'screenshot' | 'live-logger' | 'provider-import' | 'vod-submission' | 'unknown';
@@ -427,6 +439,8 @@ export interface PlayerStats {
   kastCovered?: number | null;
   fk?: number | null;
   fd?: number | null;
+  /** Set when FD was materialized from complete round evidence, so later round edits may refresh it. */
+  fdDerivedFrom?: 'round-evidence';
   rating?: string | number | null;
   performanceScore?: number | null;
   /** Scoreboard TRADES column (competitive layout only). */

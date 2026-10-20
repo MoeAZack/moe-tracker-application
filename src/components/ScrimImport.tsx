@@ -21,8 +21,7 @@ import { deriveRoundAdvantage } from '../../lib/roundAdvantage';
 interface Props {
   data: TrackerData;
   theme: any;
-  onSaveMatch: (match: any, statsUpdate: MatchStatsUpdate) => Promise<any>;
-  onSaveRounds: (matchId: string, rows: any[]) => Promise<void>;
+  onSaveMatch: (match: any, statsUpdate: MatchStatsUpdate, rounds?: any[]) => Promise<any>;
   onClose: () => void;
 }
 
@@ -44,7 +43,7 @@ const imageFromBase64 = async (base64: string, mediaType: string) => {
   return image;
 };
 
-export default function ScrimImport({ data, theme, onSaveMatch, onSaveRounds, onClose }: Props) {
+export default function ScrimImport({ data, theme, onSaveMatch, onClose }: Props) {
   const roster = data.settings?.players || [];
   const rosterPlayers = (data.rosterPlayers || []).filter(player => !player.retiredAt);
   const agents = data.settings?.agents || [];
@@ -263,18 +262,16 @@ export default function ScrimImport({ data, theme, onSaveMatch, onSaveRounds, on
         };
         });
 
-      const result = await onSaveMatch(match, { operation: 'replace', stats });
+      const economyLabel = (value: unknown, evidence: any, team: 'ours' | 'theirs') => {
+        const equipment = classifyTeamEquipment(evidence?.players || [], team);
+        const label = equipment !== 'unknown' ? equipment : classifyAverageLoadout(value);
+        return label === 'unknown' ? '' : label[0].toUpperCase() + label.slice(1);
+      };
+      const roundRows = hasRounds ? rounds.map((r) => ({ roundNo: r.roundNo, side: sideForRound(r.roundNo, meta.firstHalf), result: r.result, winBy: r.winBy || '', buy: economyLabel(r.screenshotEvidence?.ourAverageLoadout, r.screenshotEvidence, 'ours'), enemyBuy: economyLabel(r.screenshotEvidence?.enemyAverageLoadout, r.screenshotEvidence, 'theirs'), ...(r.screenshotEvidence ? { screenshotEvidence: r.screenshotEvidence, advantageEvidence: deriveRoundAdvantage({ source: 'screenshot', complete: r.screenshotEvidence.reviewStatus === 'confirmed' && r.screenshotEvidence.eventsComplete === true, winner: r.result, events: (r.screenshotEvidence.events || []).map((event: any) => ({ sequence: event.sequence, victimTeam: event.victimTeam })) }) } : {}) })) : undefined;
+      // Match, scoreboard and rounds are one server write: a rejected round set saves nothing.
+      const result = await onSaveMatch(match, { operation: 'replace', stats }, roundRows);
       const saved = result?.match || result;
       if (saved?.id && ocrBaseline) await recordOcrCorrections(correctionSamplesFromAcceptedEdit({ beforeMatch: { ...ocrBaseline.match, id: saved.id }, beforeStats: ocrBaseline.stats, nextMatch: { ...match, id: saved.id }, nextStats: stats }));
-      if (saved?.id && hasRounds) {
-        const economyLabel = (value: unknown, evidence: any, team: 'ours' | 'theirs') => {
-          const equipment = classifyTeamEquipment(evidence?.players || [], team);
-          const label = equipment !== 'unknown' ? equipment : classifyAverageLoadout(value);
-          return label === 'unknown' ? '' : label[0].toUpperCase() + label.slice(1);
-        };
-        const roundRows = rounds.map((r) => ({ roundNo: r.roundNo, side: sideForRound(r.roundNo, meta.firstHalf), result: r.result, winBy: r.winBy || '', buy: economyLabel(r.screenshotEvidence?.ourAverageLoadout, r.screenshotEvidence, 'ours'), enemyBuy: economyLabel(r.screenshotEvidence?.enemyAverageLoadout, r.screenshotEvidence, 'theirs'), ...(r.screenshotEvidence ? { screenshotEvidence: r.screenshotEvidence, advantageEvidence: deriveRoundAdvantage({ source: 'screenshot', complete: r.screenshotEvidence.reviewStatus === 'confirmed' && r.screenshotEvidence.eventsComplete === true, winner: r.result, events: (r.screenshotEvidence.events || []).map((event: any) => ({ sequence: event.sequence, victimTeam: event.victimTeam })) }) } : {}) }));
-        await onSaveRounds(saved.id, roundRows);
-      }
       if (pendingCaptureId && window.moeDesktop) await window.moeDesktop.completeScoreboard(pendingCaptureId);
       onClose();
     } catch (err: any) {

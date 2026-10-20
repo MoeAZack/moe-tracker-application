@@ -299,7 +299,32 @@ export default function App() {
     }
   };
 
-  const handleSaveMatch = async (match: any, statsUpdate: MatchStatsUpdate = { operation: 'preserve' }) => {
+  /** Server errors carry the reason (and the existing match on a conflict); never replace them with a generic message. */
+  const saveError = async (res: Response, fallback: string) => {
+    const body = await res.json().catch(() => null);
+    return Object.assign(new Error(body?.error || fallback), { status: res.status, details: body });
+  };
+
+  const mergeRoundsResult = (prev: TrackerData, matchId: string, resJson: any): TrackerData => {
+    const savedRows: any[] = resJson.rows || [];
+    const completeMatchStats: any[] = resJson.playerStats || [];
+    const summarizedStats: any[] = resJson.screenshotSummary?.playerStats || [];
+    return {
+      ...prev,
+      rounds: [...(prev.rounds || []).filter((r) => r.matchId !== matchId), ...savedRows],
+      playerStats: completeMatchStats.length
+        ? [...(prev.playerStats || []).filter((stat) => stat.matchId !== matchId), ...completeMatchStats]
+        : summarizedStats.length
+          ? (prev.playerStats || []).map(stat => {
+              if (stat.matchId !== matchId) return stat;
+              const summary = summarizedStats.find(item => item.id === stat.id);
+              return summary ? { ...stat, ...summary } : stat;
+            })
+          : prev.playerStats,
+    };
+  };
+
+  const handleSaveMatch = async (match: any, statsUpdate: MatchStatsUpdate = { operation: 'preserve' }, rounds?: any[]) => {
     try {
       const priorMatch = data?.matches?.find(item => item.id === match?.id);
       const priorStats = priorMatch ? (data?.playerStats || []).filter(item => item.matchId === priorMatch.id) : [];
@@ -309,12 +334,13 @@ export default function App() {
       const res = await apiFetch('/api/save-match', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ match, statsUpdate })
+        body: JSON.stringify({ match, statsUpdate, ...(rounds ? { rounds } : {}) })
       });
-      if (!res.ok) throw new Error('Save Match failed.');
+      if (!res.ok) throw await saveError(res, 'Save Match failed.');
       const resJson = await res.json();
       const savedMatch = resJson.match || resJson;
       if (learningSamples.length) await recordOcrCorrections(learningSamples);
+      if (resJson.roundsUpdate?.screenshotSummary && window.moeDesktop) await window.moeDesktop.queueScreenshotSummary(resJson.roundsUpdate.screenshotSummary);
       const appliedStatsUpdate: MatchStatsUpdate = resJson.statsUpdate || { operation: 'preserve' };
       setData((prev) => {
         if (!prev) return prev;
@@ -327,8 +353,10 @@ export default function App() {
               ...appliedStatsUpdate.stats,
             ] as any[]
           : prev.playerStats;
-        return { ...prev, matches, playerStats };
+        const next = { ...prev, matches, playerStats };
+        return resJson.roundsUpdate ? mergeRoundsResult(next, savedMatch.id, resJson.roundsUpdate) : next;
       });
+      if (resJson.duplicateReview?.status === 'quarantined') alert('This match looks like a second capture of a game that is already saved. It was kept but is excluded from analytics until a coach keeps or discards it in Match Log.');
       return resJson;
     } catch (err: any) {
       alert(err.message || 'Error saving match details.');
@@ -343,30 +371,32 @@ export default function App() {
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ matchId, rows })
       });
-      if (!res.ok) throw new Error('Failed to update round log sheets.');
+      if (!res.ok) throw await saveError(res, 'Failed to update round log sheets.');
       const resJson = await res.json();
-      const savedRows: any[] = resJson.rows || [];
       if (resJson.screenshotSummary && window.moeDesktop) await window.moeDesktop.queueScreenshotSummary(resJson.screenshotSummary);
       setData((prev) => {
         if (!prev) return prev;
-        const completeMatchStats: any[] = resJson.playerStats || [];
-        const summarizedStats: any[] = resJson.screenshotSummary?.playerStats || [];
-        return {
-          ...prev,
-          rounds: [...(prev.rounds || []).filter((r) => r.matchId !== matchId), ...savedRows],
-          playerStats: completeMatchStats.length
-            ? [...(prev.playerStats || []).filter((stat) => stat.matchId !== matchId), ...completeMatchStats]
-            : summarizedStats.length
-              ? (prev.playerStats || []).map(stat => {
-                  if (stat.matchId !== matchId) return stat;
-                  const summary = summarizedStats.find(item => item.id === stat.id);
-                  return summary ? { ...stat, ...summary } : stat;
-                })
-              : prev.playerStats,
-        };
+        const next = mergeRoundsResult(prev, matchId, resJson);
+        return { ...next, matches: (next.matches || []).map(item => item.id === matchId ? { ...item, duplicateReview: resJson.duplicateReview || undefined } : item) };
       });
+      if (resJson.duplicateReview?.status === 'quarantined') alert('These rounds match a game that is already saved. The match is excluded from analytics until a coach keeps or discards it in Match Log.');
     } catch (err: any) {
       alert(err.message || 'Error saving rounds.');
+      throw err;
+    }
+  };
+
+  const handleDuplicateReview = async (matchId: string, decision: 'keep-both' | 'discard-this') => {
+    try {
+      const res = await apiFetch('/api/match-duplicate-review', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ matchId, decision })
+      });
+      if (!res.ok) throw await saveError(res, 'Duplicate review failed.');
+      await fetchDatabase();
+    } catch (err: any) {
+      alert(err.message || 'Error saving duplicate review.');
       throw err;
     }
   };
@@ -665,7 +695,7 @@ export default function App() {
           </nav>
         )}
 
-        {data && desktopMode && <DesktopReplayAutomation data={data} role={role} onProcessed={fetchDatabase} onSaveMatch={handleSaveMatch} onSaveRounds={handleSaveRounds} />}
+        {data && desktopMode && <DesktopReplayAutomation data={data} role={role} onProcessed={fetchDatabase} onSaveMatch={handleSaveMatch} />}
         <div className="aurora-utility-bar"><div className="aurora-utility-context"><span className="aurora-eyebrow">{data && activeTryoutPhase(data) ? `Tryouts · ${activeTryoutPhase(data)?.name}` : 'Team workspace'}</span><span className="aurora-version-badge" title="Installed MoeTracker version">v{__APP_VERSION__}</span></div>{data && <TeamSyncIndicator teamName={data.settings.teamName || 'MoeTracker team'} role={role} desktopMode={desktopMode} />}</div>
         {data && ['dashboard', 'economy', 'maps', 'comps', 'roster', 'playerstats', 'comparisons'].includes(activeTab) && (data.tryoutBatches || []).some(batch => batch.status === 'archived') && <label className="mx-auto flex max-w-7xl w-full flex-wrap items-center gap-2 px-6 text-sm text-slate-300">Analytics history<select aria-label="Analytics phase" className="ui-field min-h-11 px-3" value={historicalTryoutId} onChange={event => setHistoricalTryoutId(event.target.value)}><option value="">Current workspace</option>{data.tryoutBatches.filter(batch => batch.status === 'archived').map(batch => <option key={batch.id} value={batch.id}>Archived tryouts · {batch.name}</option>)}</select>{historicalTryoutId && <span className="text-xs text-cyan-300">Viewing archived results only; new entries still use the current workspace.</span>}</label>}
 
@@ -707,6 +737,7 @@ export default function App() {
                 reviewMatchId={reviewMatchId}
                 reviewRoundNo={reviewRoundNo}
                 onReviewContextChange={(matchId, roundNo) => { setReviewMatchId(matchId); setReviewRoundNo(roundNo || null); }}
+                onDuplicateReview={handleDuplicateReview}
               />
             )}
             {activeTab === 'matches' && workspaceData && !desktopMode && <WebsiteMatchLog data={workspaceData} theme={theme} />}
@@ -778,7 +809,6 @@ export default function App() {
             data={data}
             theme={theme}
             onSaveMatch={handleSaveMatch}
-            onSaveRounds={handleSaveRounds}
             onClose={() => setScrimOpen(false)}
           />
         </Suspense>

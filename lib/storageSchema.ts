@@ -4,9 +4,9 @@ import { migrateAcceptedMatchAggregates } from './aggregateVersioning';
 import { materializeFirstDeathsFromRoundEvidence, materializeRoundOpeningsFromScreenshotEvidence, materializeRoundPlantsFromScreenshotEvidence } from './scrimRoundAnalytics';
 import { ensureScheduleCalendars } from './schedule';
 import { buildAllPracticeBlockSummaries, migrateLegacyActionChecks } from './coachingWorkflow';
-import { repairOrphanMatchReferences } from './matchIntegrity';
+import { repairOrphanMatchReferences, refreshDuplicateQuarantine } from './matchIntegrity';
 
-export const STORAGE_SCHEMA_VERSION = 14;
+export const STORAGE_SCHEMA_VERSION = 15;
 export const MAX_ENTITY_BYTES = 840 * 1024;
 export const MAX_DOCUMENT_BYTES = 900 * 1024;
 export const MAX_JSON_DATABASE_BYTES = 64 * 1024 * 1024;
@@ -104,11 +104,23 @@ export function ensureStorageSchema(input: any, now = new Date().toISOString()) 
     if (!Array.isArray(input.evidenceFusionResolutions)) input.evidenceFusionResolutions = [];
     if (!Array.isArray(input.calibratedPlayerRatings)) input.calibratedPlayerRatings = [];
     if (declared < 13) integrityRepair = { at: now, removed: repairOrphanMatchReferences(input) };
+    // Schema 15 flags existing same-game re-captures for coach review. Nothing is deleted.
+    if (declared < 15) refreshDuplicateQuarantine(input, now);
     ledger.push({ from: declared, to: STORAGE_SCHEMA_VERSION, at: now });
   }
   const evidenceArtifacts = input._storage?.evidenceArtifacts;
   input._storage = { schemaVersion: STORAGE_SCHEMA_VERSION, migratedAt: declared < STORAGE_SCHEMA_VERSION ? now : String(input._storage?.migratedAt || now), migrationLedger: ledger, ...(integrityRepair ? { integrityRepair } : {}), ...(evidenceArtifacts ? { evidenceArtifacts } : {}) } satisfies StorageMetadata;
   if (input.settings) ensureScheduleCalendars(input.settings);
+  return input;
+}
+
+/**
+ * Migrations that read round evidence must run on hydrated state: a stored
+ * index carries artifact stubs, so ensureStorageSchema alone cannot see it.
+ * `declared` is the schema version the stored payload had before ensureStorageSchema.
+ */
+export function migrateHydratedEvidence(input: any, declared: number, now = new Date().toISOString()) {
+  if (declared < 15) refreshDuplicateQuarantine(input, now);
   return input;
 }
 
