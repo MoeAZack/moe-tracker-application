@@ -1,5 +1,6 @@
 import fs from 'fs/promises';
 import path from 'path';
+import { readOfflineSnapshot } from '../lib/offlineSnapshot';
 
 const option = (name: string) => { const index = process.argv.indexOf(name); return index >= 0 ? process.argv[index + 1] : undefined; };
 const root = path.resolve(option('--root') || '.');
@@ -21,7 +22,8 @@ async function filesUnder(folder: string, extensions: string[]) {
   return result.sort();
 }
 
-const db = JSON.parse(await fs.readFile(dbPath, 'utf8'));
+// Field inventory covers hydrated evidence, not the artifact stubs in the stored index.
+const { state: db } = await readOfflineSnapshot(dbPath, { artifactDir: option('--evidence') });
 const fields = new Map<string, { types: Set<string>; occurrences: number }>();
 function typeOf(value: unknown) { return value === null ? 'null' : Array.isArray(value) ? 'array' : typeof value; }
 const dynamicContainers = /\.(riotIds|analyticsBuilds|blobs|associations|parserJobs|reviews|screenshots|rawReceipts|rawSessions|devices|pairingCodes|records)$/;

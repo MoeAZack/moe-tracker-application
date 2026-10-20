@@ -83,7 +83,9 @@ Re-audit gate result (20 Oct 2026): #84 head `a4d8bb7` passed 138 test files /
 Move large replay/VOD/analytics evidence out of the active aggregate payload, add
 retention and capacity telemetry, and prove a 100-match season plus archive/restore.
 
-Status: READY locally. Exact-head CI is the final merge gate.
+Status: RE-AUDIT FIXES IN REVIEW (20 Oct 2026, Africa/Cairo). The re-audit
+reopened six H1 items; all six are fixed on the H1 re-audit PR and wait on
+exact-head CI and owner verification.
 
 Contract:
 
@@ -93,8 +95,30 @@ Contract:
 - Reads hydrate artifacts transparently and fail closed on missing, truncated,
   or corrupted evidence.
 - Writes commit artifacts before atomically activating their referencing index.
-- Local, Firestore, and D1 stores use the same logical contract. Local orphaned
-  artifacts receive a configurable 30-day retention window.
+- Local, Firestore, and D1 stores use the same logical contract. Orphaned
+  artifacts on every backend are collected only after a configurable retention
+  window (`EVIDENCE_ARTIFACT_RETENTION_DAYS`, default 30) measured from the
+  moment they became unreferenced, not from creation. Re-referencing an artifact
+  clears its orphan mark, and deletes re-check the mark so a concurrent writer
+  cannot lose evidence.
+- Externalized fields: round screenshot, replay, VOD and advantage evidence;
+  match `roundAnalytics`; player-stat `screenshotMetrics`; VOD submission
+  `timelineEvidence`; accepted replay intake screenshot drafts; and archived
+  evidence collections.
+- Artifact references are server-owned. Any client payload containing an
+  artifact reference is rejected with 400, and malformed references fail closed
+  on read.
+- D1 artifact inserts run in batches of 50 statements. Firestore and D1 keep
+  the active revision plus the last 3 inactive revisions for rollback and
+  collect everything older (throttled by `EVIDENCE_GC_INTERVAL_MS`, default
+  10 minutes per process).
+- Local writes fsync the index and artifacts before activation.
+- Private backup restore works when the current database has missing
+  artifacts: the pre-restore safety backup falls back to the stored index
+  (`preRestoreScope: 'index-only'`) instead of refusing the restore.
+- Offline audit scripts (`stage0-baseline`, `stage0-inventory`,
+  `stage2-catalog-audit`) read through `readOfflineSnapshot`, which hydrates
+  from the evidence vault and runs the post-hydration migrations read-only.
 - Storage telemetry reports the active index and compressed evidence vault
   separately instead of measuring the hydrated in-memory object as one blob.
 - Large season archives remain restorable without crossing the former 800 KiB
@@ -111,6 +135,15 @@ Acceptance evidence:
   retention cleanup have behavior tests.
 - Full local gate (20 Oct 2026): 130 test files / 854 tests, production build,
   six accessibility surfaces, and both capture layouts passed.
+- Re-audit coverage: D1 batching and orphan GC with rollback revisions kept,
+  Firestore revision and orphan GC, restore over a missing artifact, crafted
+  and malformed reference rejection (including over HTTP), round trip of the
+  newly externalized fields, and offline snapshot hydration.
+
+Known limits: GC is throttled per process rather than coordinated across
+instances; an index-only pre-restore backup cannot itself be restored while its
+artifacts remain missing; Firestore revisions committed before this change are
+not in the committed ledger and are left in place.
 
 ## H2 — Ingestion reliability
 

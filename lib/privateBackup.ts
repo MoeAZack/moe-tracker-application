@@ -4,7 +4,7 @@ import { createReadStream } from 'fs';
 import path from 'path';
 import { pipeline } from 'stream/promises';
 import { Transform } from 'stream';
-import { DB_PATH, readDB, replaceDB } from './store';
+import { DB_PATH, readDB, readDBIndex, replaceDB } from './store';
 import { STORAGE_SCHEMA_VERSION, validateTrackerState } from './storageSchema';
 import { assertSeasonArchivesStorageSize } from './roster';
 
@@ -95,8 +95,8 @@ async function atomicWrite(file: string, contents: string) {
   await fs.rename(temporary, file);
 }
 
-export async function createPrivateBackup(options: { reason?: string; directory?: string } = {}) {
-  const state = await readDB(); validateTrackerState(state);
+export async function createPrivateBackup(options: { reason?: string; directory?: string; state?: any } = {}) {
+  const state = options.state ?? await readDB(); validateTrackerState(state);
   const createdAt = new Date().toISOString();
   const id = `${createdAt.replace(/[:.]/g, '-')}-${crypto.randomBytes(5).toString('hex')}`;
   const directory = path.resolve(options.directory || path.join(backupRoot(), id));
@@ -162,10 +162,18 @@ export async function restorePrivateBackup(directory: string, options: { dryRun?
   }
   if (options.dryRun) return { dryRun: true, metadataValid: validated.metadataValid, blobInventoryComplete: validated.blobStatus.complete, readyForRestore: validated.metadataValid && validated.blobStatus.complete, blobStatus: validated.blobStatus, backupId: validated.manifest.id, preRestoreBackupId: null };
   if (!validated.blobStatus.complete) throw Object.assign(new Error('Private backup metadata is valid, but its replay blob inventory is missing or corrupt.'), { status: 409, blobStatus: validated.blobStatus });
-  const before = await createPrivateBackup({ reason: `pre-restore:${validated.manifest.id}` });
-  const current = await readDB();
+  // Restore is the recovery path for a workspace whose evidence is damaged, so
+  // it must not depend on the current state hydrating. When an artifact is
+  // missing or corrupt, the pre-restore snapshot keeps the stored index as-is.
+  let current: any; let preRestoreScope: 'complete' | 'index-only' = 'complete';
+  try { current = await readDB(); }
+  catch (error: any) {
+    if (!/Evidence artifact/.test(String(error?.message || ''))) throw error;
+    current = await readDBIndex(); preRestoreScope = 'index-only';
+  }
+  const before = await createPrivateBackup({ reason: `pre-restore${preRestoreScope === 'index-only' ? '-index-only' : ''}:${validated.manifest.id}`, state: current });
   await replaceDB({ ...validated.state, secrets: { ...(validated.state.secrets || {}), ...(current.secrets || {}) } });
-  return { dryRun: false, restored: true, backupId: validated.manifest.id, preRestoreBackupId: before.id, completeReplacement: true };
+  return { dryRun: false, restored: true, backupId: validated.manifest.id, preRestoreBackupId: before.id, preRestoreScope, completeReplacement: true };
 }
 
 export async function reconcileReplayBlobInventory() {

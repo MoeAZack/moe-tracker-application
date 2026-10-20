@@ -1,16 +1,16 @@
 import crypto from 'crypto';
 import fs from 'fs/promises';
 import path from 'path';
-import { ensureStorageSchema, validateTrackerState } from '../lib/storageSchema';
+import { validateTrackerState } from '../lib/storageSchema';
+import { readOfflineSnapshot } from '../lib/offlineSnapshot';
 import { auditStage0Integrity, stage0BaselineSummary } from '../lib/stage0Integrity';
 import { DEFAULT_MOE_02_FEATURE_FLAGS } from '../lib/featureFlags';
 
 const option = (name: string) => { const index = process.argv.indexOf(name); return index >= 0 ? process.argv[index + 1] : undefined; };
 const dbPath = path.resolve(option('--db') || process.env.DB_PATH || 'data/db.json');
 const outputPath = option('--output') ? path.resolve(option('--output')!) : null;
-const raw = await fs.readFile(dbPath, 'utf8');
-const parsed = JSON.parse(raw);
-const migrated = ensureStorageSchema(structuredClone(parsed), '2026-10-20T00:00:00.000Z');
+// Audit the hydrated state: the stored index alone carries artifact stubs.
+const { raw, index: parsed, state: migrated } = await readOfflineSnapshot(dbPath, { artifactDir: option('--evidence'), now: '2026-10-20T00:00:00.000Z' });
 validateTrackerState(migrated, { jsonFile: true });
 const integrity = auditStage0Integrity(migrated);
 const report = {

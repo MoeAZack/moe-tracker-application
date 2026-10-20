@@ -90,4 +90,34 @@ describe('Storage v2 local store', () => {
     expect(upgraded.matches.map((match: any) => match.duplicateReview?.status || null)).toEqual([null, 'quarantined']);
     expect(upgraded.rounds).toHaveLength(48);
   });
+  it('restores a backup over a workspace whose evidence artifact is missing', async () => {
+    const dir = await fs.mkdtemp(path.join(os.tmpdir(), 'moe-storage-v2-restore-')); dirs.push(dir);
+    const dbPath = path.join(dir, 'db.json'); const evidenceDir = path.join(dir, 'evidence');
+    vi.stubEnv('DB_PATH', dbPath); vi.stubEnv('EVIDENCE_ARTIFACT_DIR', evidenceDir); vi.stubEnv('PRIVATE_BACKUP_DIR', path.join(dir, 'backups')); vi.stubEnv('USE_FIRESTORE', 'false');
+    const { readDB, saveDB } = await import('../lib/store'); const { createPrivateBackup, restorePrivateBackup } = await import('../lib/privateBackup');
+    let db = await readDB();
+    db.matches = [{ id: 'm1' }]; db.rounds = [{ id: 'r1', matchId: 'm1', roundNo: 1, screenshotEvidence: { pixels: 'good'.repeat(5_000) } }]; await saveDB(db);
+    const backup = await createPrivateBackup({ reason: 'manual-test' });
+    db = await readDB(); db.rounds[0].screenshotEvidence = { pixels: 'later'.repeat(5_000) }; await saveDB(db);
+    // Lose the current round artifact: reads now fail closed.
+    const current = JSON.parse(await fs.readFile(dbPath, 'utf8')).rounds[0].screenshotEvidence.sha256;
+    await fs.unlink(path.join(evidenceDir, `${current}.json.gz`));
+    await expect(readDB()).rejects.toThrow(/Evidence artifact/);
+    const result = await restorePrivateBackup(backup.directory);
+    expect(result).toMatchObject({ restored: true, preRestoreScope: 'index-only' });
+    expect((await readDB()).rounds[0].screenshotEvidence.pixels).toBe('good'.repeat(5_000));
+  });
+
+  it('lets offline audits read hydrated evidence instead of artifact stubs', async () => {
+    const dir = await fs.mkdtemp(path.join(os.tmpdir(), 'moe-storage-v2-offline-')); dirs.push(dir);
+    const dbPath = path.join(dir, 'db.json');
+    vi.stubEnv('DB_PATH', dbPath); vi.stubEnv('EVIDENCE_ARTIFACT_DIR', ''); vi.stubEnv('USE_FIRESTORE', 'false');
+    const { readDB, saveDB } = await import('../lib/store'); const db = await readDB();
+    db.matches = [{ id: 'm1' }]; db.rounds = [{ id: 'r1', matchId: 'm1', roundNo: 1, screenshotEvidence: { pixels: 'z'.repeat(20_000) } }]; await saveDB(db);
+    const { readOfflineSnapshot } = await import('../lib/offlineSnapshot');
+    const snapshot = await readOfflineSnapshot(dbPath);
+    expect(snapshot.index.rounds[0].screenshotEvidence.__moeEvidenceArtifact).toBe(1);
+    expect(snapshot.state.rounds[0].screenshotEvidence.pixels).toHaveLength(20_000);
+    expect(JSON.parse(await fs.readFile(dbPath, 'utf8'))).toEqual(snapshot.index);
+  });
 });

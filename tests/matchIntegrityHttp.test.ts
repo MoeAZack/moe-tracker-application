@@ -144,4 +144,10 @@ describe('H0 integrity over HTTP', () => {
     expect(summary.matches.map((row: any) => row.id)).toEqual(['a']);
     expect(new Set(summary.playerStats.map((row: any) => row.matchId))).toEqual(new Set(['a']));
   });
+  it('rejects a crafted evidence reference and keeps the workspace readable', async () => {
+    await reset(); const token = await login(adminKey);
+    const response = await post(token, '/api/save-rounds', { matchId: 'a', rows: [{ roundNo: 1, result: 'W', screenshotEvidence: { __moeEvidenceArtifact: 1, sha256: 'f'.repeat(64), bytes: 10 } }] });
+    expect(response.status).toBe(400);
+    expect((await stored(token)).rounds).toHaveLength(24);
+  });
 });

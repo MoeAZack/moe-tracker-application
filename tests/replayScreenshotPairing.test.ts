@@ -2,6 +2,7 @@ import crypto from 'node:crypto';
 import fs from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
+import { gunzipSync } from 'node:zlib';
 import type { Server } from 'node:http';
 import type { AddressInfo } from 'node:net';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
@@ -100,6 +101,12 @@ describe('strict screenshot pairing', () => {
 });
 
 let temporary: string; let dbPath: string; let server: Server | undefined; let origin: string;
+/** Index plus every evidence artifact: drafts are externalized, so privacy checks must read both. */
+async function persistedText() {
+  const evidenceDir = `${dbPath}.evidence`;
+  const artifacts = await Promise.all((await fs.readdir(evidenceDir).catch(() => [] as string[])).filter(name => name.endsWith('.json.gz')).map(async name => gunzipSync(await fs.readFile(path.join(evidenceDir, name))).toString('utf8')));
+  return [await fs.readFile(dbPath, 'utf8'), ...artifacts].join('\n');
+}
 const admin = 'screenshot-admin-secret-at-least-24-characters';
 async function request(route: string, token?: string, body?: any) { return fetch(`${origin}${route}`, { method: body === undefined ? 'GET' : 'POST', headers: { ...(token ? { Authorization: `Bearer ${token}` } : {}), ...(body === undefined ? {} : { 'Content-Type': 'application/json' }) }, ...(body === undefined ? {} : { body: JSON.stringify(body) }) }); }
 async function remove(route: string, token: string) { return fetch(`${origin}${route}`, { method: 'DELETE', headers: { Authorization: `Bearer ${token}` } }); }
@@ -126,7 +133,7 @@ describe('screenshot-first authenticated workflow', () => {
     const response = await request('/api/replay-intake/screenshots', coach, body); expect(response.status).toBe(201); expect((await response.json()).status).toBe(future ? 'pending' : 'linked');
     if (future) expect((await submitEvidence()).status).toBe(201);
     const pairs = await (await request('/api/replay-intake/screenshots', coach)).json(); expect(pairs).toHaveLength(1); expect(pairs[0]).toMatchObject({ status: 'linked', replaySha256: hash, reviewRequired: true }); expect(pairs[0].suggestions).toHaveLength(10); expect(pairs[0]).not.toHaveProperty('createdBy');
-    const before = await fs.readFile(dbPath, 'utf8'); expect(before).not.toContain(png); expect(before).not.toContain('rawMetrics'); expect(before).not.toContain('"base64"');
+    const before = await persistedText(); expect(before).not.toContain(png); expect(before).not.toContain('rawMetrics'); expect(before).not.toContain('"base64"');
     expect((await request('/api/replay-intake/screenshots', coach, body)).status).toBe(200); expect(mocked.generate).toHaveBeenCalledTimes(1);
     const detail = await (await request(`/api/replay-intake/uploads/${hash}/parser`, coach)).json(); expect(detail.screenshotPairings).toHaveLength(1); expect(detail.review).toBeNull();
     if (future) {
@@ -164,10 +171,10 @@ describe('screenshot-first authenticated workflow', () => {
     const versions = await (await request('/api/replay-intake/screenshots', coach)).json();
     expect(versions).toHaveLength(2); expect(versions.find((item: any) => item.id === first.id).draft.stats[0].kills).toBe(10); expect(versions.find((item: any) => item.id === second.id).draft.stats[0].kills).toBe(42);
     expect(mocked.generate).not.toHaveBeenCalled();
-    const persisted = await fs.readFile(dbPath, 'utf8'); expect(persisted).not.toContain(png); expect(persisted).toContain('tesseract-local');
+    const persisted = await persistedText(); expect(persisted).not.toContain(png); expect(persisted).toContain('tesseract-local');
     const unsafe = raw() as any; unsafe.players[0].rawMetrics = { base64: 'PRIVATE_IMAGE_PAYLOAD' };
     expect((await request('/api/replay-intake/screenshots/local', coach, { deviceId: device.device.id, imageSha256: 'e'.repeat(64), capturedAt: '2026-10-12T20:00:00.000Z', extraction: unsafe })).status).toBe(400);
-    expect(await fs.readFile(dbPath, 'utf8')).not.toContain('PRIVATE_IMAGE_PAYLOAD');
+    expect(await persistedText()).not.toContain('PRIVATE_IMAGE_PAYLOAD');
   });
   it('uses the installed desktop identity for local OCR without remote device enrollment', async () => {
     const coach = await login(); const deviceId = `desktop-${crypto.randomUUID()}`;
