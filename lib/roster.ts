@@ -1,5 +1,6 @@
 import crypto from 'node:crypto';
 import { identityExactKey } from './identityResolver';
+import { externalizeEvidenceArtifacts } from './evidenceArtifacts';
 
 type IdFactory = () => string;
 type Clock = () => string;
@@ -113,7 +114,8 @@ function clone<T>(value: T): T {
 
 export function assertSeasonArchivesStorageSize(archives: unknown) {
   if (!Array.isArray(archives)) fail('Season archive storage must be an array.', 400);
-  for (const archive of archives) {
+  const projected = externalizeEvidenceArtifacts({ seasonArchives: archives, _storage: {} }).state.seasonArchives;
+  for (const archive of projected) {
     const bytes = Buffer.byteLength(JSON.stringify({ v: archive }), 'utf8');
     if (bytes > MAX_SEASON_ARCHIVES_BYTES) {
       fail(`Season archive storage would exceed the safe ${Math.floor(MAX_SEASON_ARCHIVES_BYTES / 1024)} KiB limit. Reduce this archive before retrying.`, 413);

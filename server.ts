@@ -6,6 +6,7 @@ import jwt from 'jsonwebtoken';
 import * as schemas from './schemas';
 import { uid, validate, safeEqual, hashAccessKey, clientIp, cached } from './lib/utils';
 import { clearLoginThrottle, loginThrottleRemaining, readDB, recordLoginThrottleFailure, saveDB } from './lib/store';
+import { evidenceStorageFootprint } from './lib/evidenceArtifacts';
 import { registerVodLineupRoutes } from './lib/routes/vodLineup';
 import { registerVodSubmissionRoutes } from './lib/routes/vodSubmissions';
 import { registerIntegrationRoutes } from './lib/routes/integrations';
@@ -302,8 +303,9 @@ export async function createApp(serveFrontend = true) {
   app.get('/api/storage/status', async (_req, res) => {
     try {
       const db = await readDB();
-      const databaseBytes = Buffer.byteLength(JSON.stringify(db), 'utf8');
-      const databaseCharacters = JSON.stringify(db).length;
+      const footprint = evidenceStorageFootprint(db);
+      const databaseBytes = footprint.indexBytes;
+      const databaseCharacters = footprint.indexCharacters;
       const applicationWriteLimitCharacters = cloudflareRuntime ? 32 * 200_000 : null;
       const applicationWritePercent = applicationWriteLimitCharacters ? Math.min(100, databaseCharacters / applicationWriteLimitCharacters * 100) : null;
       const intake = db.replayIntake || {};
@@ -315,12 +317,12 @@ export async function createApp(serveFrontend = true) {
       const configuredCap = Number(process.env.APP_STORAGE_SAFETY_CAP_BYTES);
       const safetyCapBytes = Number.isSafeInteger(configuredCap) && configuredCap > 0
         ? Math.min(freeTierBaselineBytes, Math.max(64 * 1024 ** 2, configuredCap)) : 768 * 1024 ** 2;
-      const usedBytes = databaseBytes;
+      const usedBytes = databaseBytes + footprint.artifactStoredBytes;
       const percentOfBaseline = Math.min(100, (usedBytes / freeTierBaselineBytes) * 100);
       const status = applicationWritePercent !== null && applicationWritePercent >= 100 ? 'over-application-limit' : applicationWritePercent !== null && applicationWritePercent >= 80 ? 'warning' : usedBytes >= freeTierBaselineBytes ? 'over-baseline' : usedBytes >= safetyCapBytes ? 'warning' : 'tracked-below-cap';
       res.json({
-        measuredAt: new Date().toISOString(), basis: 'active-app-payload', databaseBytes, temporaryRawBytes, retainedEvidenceBytes,
-        combinedTrackedBytes: databaseBytes + temporaryRawBytes,
+        measuredAt: new Date().toISOString(), basis: 'storage-v2-index-and-artifacts', databaseBytes, activeIndexBytes: databaseBytes, evidenceArtifactCount: footprint.artifactCount, evidenceArtifactLogicalBytes: footprint.artifactLogicalBytes, evidenceArtifactStoredBytes: footprint.artifactStoredBytes, temporaryRawBytes, retainedEvidenceBytes,
+        combinedTrackedBytes: usedBytes + temporaryRawBytes,
         usedBytes, remainingBytes: Math.max(0, freeTierBaselineBytes - usedBytes), percentOfBaseline,
         databaseCharacters, applicationWriteLimitCharacters,
         applicationWriteRemainingCharacters: applicationWriteLimitCharacters ? Math.max(0, applicationWriteLimitCharacters - databaseCharacters) : null,

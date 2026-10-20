@@ -60,7 +60,7 @@ describe('private replay intake', () => {
     const legacy = { version: '0.2.5', binarySha256: 'aa55fc410f1596a6ffedc7ab579341da6edb262197c64902e74b4eed485dc23f', binaryCommit: 'c4d6cc0e5ec3904fdb64b350b2656b8e3ff33d53' };
     const response = await fetch(`${origin}/api/replay-intake/evidence/${hash}`, { method: 'POST', headers: { 'Content-Type': 'application/json', 'X-Device-Id': enrollment.device.id, 'X-Device-Token': enrollment.credential.token }, body: JSON.stringify(evidenceEnvelope(hash, 100, enrollment.device.id, legacy)) });
     expect(response.status).toBe(201);
-    const stored = JSON.parse(await fs.readFile(dbPath, 'utf8')); const blob = stored.replayIntake.blobs[hash];
+    const { readDB } = await import('../lib/store'); const stored = await readDB(); const blob = stored.replayIntake.blobs[hash];
     expect(stored.replayIntake.parserJobs[blob.parserJobId].parser).toEqual({ name: 'vrfkit', version: '0.2.5' });
   });
 
@@ -90,7 +90,7 @@ describe('private replay intake', () => {
     const revisedBase = { ...revised }; delete revisedBase.evidenceSha256; revised.evidenceSha256 = localEvidenceDigest(revisedBase);
     const retry = await jsonRequest('/api/desktop/replay-evidence', coach, revised);
     expect(retry.status).toBe(201); expect(await retry.json()).toMatchObject({ sha256: hash, idempotent: false });
-    const stored = JSON.parse(await fs.readFile(dbPath, 'utf8')); const blob = stored.replayIntake.blobs[hash];
+    const { readDB } = await import('../lib/store'); const stored = await readDB(); const blob = stored.replayIntake.blobs[hash];
     expect(stored.replayIntake.parserJobs[blob.parserJobId].result.scoreboard.durationMs.value).toBe(2);
   });
 

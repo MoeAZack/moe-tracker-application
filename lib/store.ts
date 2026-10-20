@@ -1,15 +1,18 @@
 import fs from 'fs/promises';
 import path from 'path';
 import crypto from 'crypto';
+import { gzipSync, gunzipSync } from 'node:zlib';
 import { createSeed } from './seed';
 import { assertSeasonArchivesStorageSize } from './roster';
 import { ensureWorkspaceIdentity } from './evidenceReference';
 import { decodeFirestoreDocuments, encodeFirestoreDocuments, ensureStorageSchema, planFirestoreWriteBatches, planRevisionActivation, STORAGE_SCHEMA_VERSION, validateTrackerState } from './storageSchema';
+import { evidenceArtifactReferences, externalizeEvidenceArtifacts, hydrateEvidenceArtifacts, type EvidenceArtifact } from './evidenceArtifacts';
 
 // Runtime state never defaults to the repository's historical/demo db.json.
 // Existing deployments keep their explicit DB_PATH; a fresh local install gets
 // an empty structural seed under the private runtime data directory.
 export const DB_PATH = process.env.DB_PATH || path.join(process.cwd(), 'data', 'db.json');
+export const EVIDENCE_ARTIFACT_DIR = process.env.EVIDENCE_ARTIFACT_DIR || `${DB_PATH}.evidence`;
 const USE_FIRESTORE = process.env.USE_FIRESTORE === 'true';
 let firestore: any = null;
 async function getFirestore() {
@@ -24,6 +27,7 @@ async function getFirestore() {
 const LEGACY_COLLECTION = 'tracker';
 const META_COLLECTION = 'tracker_v2';
 const REVISION_COLLECTION = 'tracker_v2_revisions';
+const ARTIFACT_COLLECTION = 'tracker_v2_evidence';
 const VERSION = Symbol('tracker-version');
 let d1: any = null;
 const LOGIN_THROTTLE_MAX_FAILS = 5;
@@ -86,6 +90,34 @@ function attachVersion<T extends Record<string, any>>(data: T, version: string |
 
 function hashText(text: string) { return crypto.createHash('sha256').update(text).digest('hex'); }
 
+async function storeLocalArtifacts(artifacts: EvidenceArtifact[]) {
+  if (!artifacts.length) return;
+  await fs.mkdir(EVIDENCE_ARTIFACT_DIR, { recursive: true });
+  for (const item of artifacts) {
+    const target = path.join(EVIDENCE_ARTIFACT_DIR, `${item.sha256}.json.gz`);
+    try { await fs.access(target); continue; } catch (error: any) { if (error?.code !== 'ENOENT') throw error; }
+    const temp = `${target}.${process.pid}.${crypto.randomBytes(6).toString('hex')}.tmp`;
+    await fs.writeFile(temp, gzipSync(Buffer.from(item.json, 'utf8')), { flag: 'wx', mode: 0o600 });
+    try { await fs.rename(temp, target); } catch (error: any) { if (error?.code !== 'EEXIST') throw error; await fs.unlink(temp).catch(() => {}); }
+  }
+}
+
+async function loadLocalArtifact(sha256: string) {
+  if (!/^[a-f0-9]{64}$/.test(sha256)) throw new Error('Evidence artifact reference is invalid.');
+  try { return gunzipSync(await fs.readFile(path.join(EVIDENCE_ARTIFACT_DIR, `${sha256}.json.gz`))).toString('utf8'); }
+  catch (error: any) { throw new Error(`Evidence artifact ${sha256} could not be loaded: ${error?.message || error}`); }
+}
+
+async function pruneLocalArtifacts(active: ReadonlySet<string>) {
+  const days = Math.max(1, Math.min(365, Number(process.env.EVIDENCE_ARTIFACT_RETENTION_DAYS || 30)));
+  const cutoff = Date.now() - days * 24 * 60 * 60 * 1000;
+  for (const entry of await fs.readdir(EVIDENCE_ARTIFACT_DIR, { withFileTypes: true }).catch(() => [])) {
+    const match = /^([a-f0-9]{64})\.json\.gz$/.exec(entry.name); if (!entry.isFile() || !match || active.has(match[1])) continue;
+    const target = path.join(EVIDENCE_ARTIFACT_DIR, entry.name); const stat = await fs.stat(target).catch(() => null);
+    if (stat && stat.mtimeMs < cutoff) await fs.unlink(target).catch(() => {});
+  }
+}
+
 async function writeJsonFile(data: any, expected: string | undefined, allowCreate: boolean) {
   ensureWorkspaceIdentity(data);
   assertSeasonArchivesStorageSize(data.seasonArchives || []);
@@ -97,22 +129,49 @@ async function writeJsonFile(data: any, expected: string | undefined, allowCreat
   if (currentText !== null && hashText(currentText) !== expected) throw Object.assign(new Error('Data changed while this request was being processed. Please retry.'), { status: 409 });
   await fs.mkdir(path.dirname(DB_PATH), { recursive: true });
   const tempPath = `${DB_PATH}.${process.pid}.${crypto.randomBytes(8).toString('hex')}.tmp`;
-  const serialized = JSON.stringify(data, null, 2);
+  const planned = externalizeEvidenceArtifacts(data);
+  await storeLocalArtifacts(planned.artifacts);
+  const serialized = JSON.stringify(planned.state, null, 2);
   const handle = await fs.open(tempPath, 'wx', 0o600);
   try { await handle.writeFile(serialized, 'utf8'); await handle.sync(); } finally { await handle.close(); }
   await fs.rename(tempPath, DB_PATH);
+  await pruneLocalArtifacts(evidenceArtifactReferences(planned.state)).catch(() => {});
   return hashText(serialized);
 }
 
 async function stageFirestoreRevision(data: any, revisionId: string) {
   const firestore = await getFirestore();
-  const encoded = encodeFirestoreDocuments(data);
+  const planned = externalizeEvidenceArtifacts(data);
+  for (const item of planned.artifacts) {
+    const compressed = gzipSync(Buffer.from(item.json, 'utf8')).toString('base64');
+    const chunks = compressed.match(/[\s\S]{1,600000}/g) || [''];
+    const metaRef = firestore!.collection(ARTIFACT_COLLECTION).doc(item.sha256);
+    if ((await metaRef.get()).exists) continue;
+    const batch = firestore!.batch();
+    batch.create(metaRef, { sha256: item.sha256, bytes: item.bytes, chunks: chunks.length, encoding: 'gzip-base64' });
+    chunks.forEach((payload, ordinal) => batch.create(firestore!.collection(ARTIFACT_COLLECTION).doc(`${item.sha256}_${ordinal}`), { sha256: item.sha256, ordinal, payload }));
+    try { await batch.commit(); }
+    catch (error) { if (!(await metaRef.get()).exists) throw error; }
+  }
+  const encoded = encodeFirestoreDocuments(planned.state);
   for (const documents of planFirestoreWriteBatches(encoded, revisionId)) {
     const batch = firestore!.batch();
     for (const doc of documents) batch.create(firestore!.collection(REVISION_COLLECTION).doc(`${revisionId}_${doc.id}`), { revisionId, ...doc.payload });
     await batch.commit();
   }
   return encoded.length;
+}
+
+async function loadFirestoreArtifact(sha256: string) {
+  const firestore = await getFirestore(); const meta = await firestore!.collection(ARTIFACT_COLLECTION).doc(sha256).get();
+  if (!meta.exists) throw new Error(`Evidence artifact ${sha256} is missing.`);
+  const chunks: string[] = [];
+  for (let ordinal = 0; ordinal < Number(meta.data()?.chunks || 0); ordinal += 1) {
+    const part = await firestore!.collection(ARTIFACT_COLLECTION).doc(`${sha256}_${ordinal}`).get();
+    if (!part.exists) throw new Error(`Evidence artifact ${sha256} is incomplete.`);
+    chunks.push(String(part.data()?.payload || ''));
+  }
+  return gunzipSync(Buffer.from(chunks.join(''), 'base64')).toString('utf8');
 }
 
 async function deleteFirestoreRevision(revisionId: string) {
@@ -182,6 +241,7 @@ async function readDBFirestore() {
   if (snapshot.empty || snapshot.size !== Number(metadata.documentCount)) throw new Error('Active Firestore revision is incomplete.');
   const docs = snapshot.docs.map(doc => ({ id: doc.id, payload: doc.data() }));
   const state = decodeFirestoreDocuments(docs);
+  await hydrateEvidenceArtifacts(state, loadFirestoreArtifact);
   const seed = createSeed();
   for (const key of Object.keys(seed)) if (state[key] === undefined) state[key] = (seed as any)[key];
   return attachVersion(state, Number(metadata.version));
@@ -190,16 +250,16 @@ async function readDBFirestore() {
 export async function readDB() {
   if (d1) return readDBD1();
   if (USE_FIRESTORE) return readDBFirestore();
-  try {
-    const text = await fs.readFile(DB_PATH, 'utf8');
-    const data = JSON.parse(text); ensureStorageSchema(data); validateTrackerState(data, { jsonFile: true });
-    return attachVersion(data, hashText(text));
-  } catch (error: any) {
+  let storedText: string;
+  try { storedText = await fs.readFile(DB_PATH, 'utf8'); }
+  catch (error: any) {
     if (error?.code !== 'ENOENT') throw error;
     const seed = ensureStorageSchema(createSeed());
     const version = await writeJsonFile(seed, undefined, true);
     return attachVersion(seed, version);
   }
+  const data = JSON.parse(storedText); ensureStorageSchema(data); await hydrateEvidenceArtifacts(data, loadLocalArtifact); validateTrackerState(data, { jsonFile: true });
+  return attachVersion(data, hashText(storedText));
 }
 
 let writeQueue: Promise<void> = Promise.resolve();
@@ -241,12 +301,12 @@ let d1TablesReady = false;
 
 async function ensureD1Tables() {
   if (d1TablesReady) return;
-  await d1.exec(`CREATE TABLE IF NOT EXISTS tracker_meta (id INTEGER PRIMARY KEY CHECK (id = 1), version INTEGER NOT NULL, active_revision TEXT NOT NULL, chunk_count INTEGER NOT NULL, sha256 TEXT NOT NULL, updated_at TEXT NOT NULL); CREATE TABLE IF NOT EXISTS tracker_revisions (revision_id TEXT NOT NULL, ordinal INTEGER NOT NULL, payload TEXT NOT NULL, created_at TEXT NOT NULL, PRIMARY KEY (revision_id, ordinal)); CREATE INDEX IF NOT EXISTS tracker_revisions_created ON tracker_revisions(created_at); CREATE TABLE IF NOT EXISTS tracker_committed_revisions (revision_id TEXT PRIMARY KEY, committed_at TEXT NOT NULL);`);
+  await d1.exec(`CREATE TABLE IF NOT EXISTS tracker_meta (id INTEGER PRIMARY KEY CHECK (id = 1), version INTEGER NOT NULL, active_revision TEXT NOT NULL, chunk_count INTEGER NOT NULL, sha256 TEXT NOT NULL, updated_at TEXT NOT NULL); CREATE TABLE IF NOT EXISTS tracker_revisions (revision_id TEXT NOT NULL, ordinal INTEGER NOT NULL, payload TEXT NOT NULL, created_at TEXT NOT NULL, PRIMARY KEY (revision_id, ordinal)); CREATE INDEX IF NOT EXISTS tracker_revisions_created ON tracker_revisions(created_at); CREATE TABLE IF NOT EXISTS tracker_committed_revisions (revision_id TEXT PRIMARY KEY, committed_at TEXT NOT NULL); CREATE TABLE IF NOT EXISTS tracker_evidence_artifacts (sha256 TEXT PRIMARY KEY, bytes INTEGER NOT NULL, payload TEXT NOT NULL, created_at TEXT NOT NULL);`);
   d1TablesReady = true;
 }
 
-function d1Chunks(data: any) {
-  removeLegacySecrets(data); ensureStorageSchema(data); ensureWorkspaceIdentity(data); assertSeasonArchivesStorageSize(data.seasonArchives || []); validateTrackerState(data);
+function d1Chunks(data: any, stored = false) {
+  removeLegacySecrets(data); ensureStorageSchema(data); ensureWorkspaceIdentity(data); assertSeasonArchivesStorageSize(data.seasonArchives || []); if (!stored) validateTrackerState(data);
   const serialized = JSON.stringify(data);
   const chunks: string[] = [];
   for (let offset = 0; offset < serialized.length;) {
@@ -277,15 +337,24 @@ async function readDBD1() {
   if (rows.length !== Number(meta.chunk_count)) throw new Error('Active D1 revision is incomplete.');
   const serialized = rows.map((row: any) => row.payload).join('');
   if (hashText(serialized) !== meta.sha256) throw new Error('Active D1 revision failed integrity validation.');
-  const state = JSON.parse(serialized); ensureStorageSchema(state); validateTrackerState(state);
+  const state = JSON.parse(serialized); ensureStorageSchema(state); await hydrateEvidenceArtifacts(state, loadD1Artifact); validateTrackerState(state);
   return attachVersion(state, Number(meta.version));
+}
+
+async function loadD1Artifact(sha256: string) {
+  const row: any = await d1.prepare('SELECT payload FROM tracker_evidence_artifacts WHERE sha256 = ?').bind(sha256).first();
+  if (!row) throw new Error(`Evidence artifact ${sha256} is missing.`);
+  return gunzipSync(Buffer.from(String(row.payload), 'base64')).toString('utf8');
 }
 
 async function activateD1Revision(data: any, expected: number | undefined, mode: 'ordinary' | 'initialize' | 'replace') {
   if (mode === 'ordinary' && expected === undefined) throw Object.assign(new Error('Database revision is required for ordinary writes.'), { status: 409 });
   await ensureD1Tables();
-  const { chunks, sha256 } = d1Chunks(data);
-  const revisionId = crypto.randomUUID(); const now = new Date().toISOString();
+  removeLegacySecrets(data); ensureStorageSchema(data); ensureWorkspaceIdentity(data); assertSeasonArchivesStorageSize(data.seasonArchives || []); validateTrackerState(data);
+  const planned = externalizeEvidenceArtifacts(data); const now = new Date().toISOString();
+  for (const item of planned.artifacts) await d1.prepare('INSERT OR IGNORE INTO tracker_evidence_artifacts (sha256, bytes, payload, created_at) VALUES (?, ?, ?, ?)').bind(item.sha256, item.bytes, gzipSync(Buffer.from(item.json, 'utf8')).toString('base64'), now).run();
+  const { chunks, sha256 } = d1Chunks(planned.state, true);
+  const revisionId = crypto.randomUUID();
   await d1.batch(chunks.map((payload, ordinal) => d1.prepare('INSERT INTO tracker_revisions (revision_id, ordinal, payload, created_at) VALUES (?, ?, ?, ?)').bind(revisionId, ordinal, payload, now)));
   let result: any;
   if (mode === 'initialize') result = await d1.prepare('INSERT OR IGNORE INTO tracker_meta (id, version, active_revision, chunk_count, sha256, updated_at) VALUES (1, 1, ?, ?, ?, ?)').bind(revisionId, chunks.length, sha256, now).run();

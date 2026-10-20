@@ -165,15 +165,12 @@ describe('full roster-season archive domain', () => {
     expect(db).toEqual(before);
   });
 
-  it('rejects oversized archives before changing active state', () => {
+  it('accepts large evidence collections because Storage v2 externalizes them', () => {
     const db: any = seasonDb();
     db.matches[0].privateNotes = 'x'.repeat(MAX_SEASON_ARCHIVES_BYTES);
-    const before = structuredClone(db);
-
-    expect(() => archiveAndResetSeason(db, 'Too large', 'Next')).toThrowError(
-      expect.objectContaining({ status: 413 }),
-    );
-    expect(db).toEqual(before);
+    const archive = archiveAndResetSeason(db, 'Large but safe', 'Next');
+    expect(archive.matches[0].privateNotes).toHaveLength(MAX_SEASON_ARCHIVES_BYTES);
+    expect(db.matches).toEqual([]);
   });
 
   it('fails closed when a nonempty top-level collection lacks an archive/retain policy', () => {
@@ -251,19 +248,10 @@ describe('season archive HTTP and version boundary', () => {
     const oversized = JSON.parse(await fs.readFile(dbPath, 'utf8'));
     oversized.matches[0].privateNotes = 'x'.repeat(MAX_SEASON_ARCHIVES_BYTES);
     await fs.writeFile(dbPath, JSON.stringify(oversized));
-    const rejected = await reset(coachToken);
-    expect(rejected.status).toBe(413);
-    expect(await rejected.json()).toMatchObject({ error: expect.stringContaining('safe 800 KiB limit') });
-    const unchanged = JSON.parse(await fs.readFile(dbPath, 'utf8'));
-    expect(unchanged.seasonArchives).toEqual([]);
-    expect(unchanged.matches[0].id).toBe('match-1');
-
-    delete unchanged.matches[0].privateNotes;
-    await fs.writeFile(dbPath, JSON.stringify(unchanged));
     expect((await reset(coachToken)).status).toBe(200);
     const stored = JSON.parse(await fs.readFile(dbPath, 'utf8'));
     expect(stored.seasonArchives).toHaveLength(1);
-    expect(stored.seasonArchives[0].matches[0].id).toBe('match-1');
+    expect(stored.seasonArchives[0].matches.__moeEvidenceArtifact).toBe(1);
     expect(stored.matches).toEqual([]);
     expect(stored.rosterPlayers).toEqual([]);
   }, 15_000);
