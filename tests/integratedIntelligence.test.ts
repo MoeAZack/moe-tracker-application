@@ -49,6 +49,18 @@ describe('integrated intelligence', () => {
     const resolved = buildEvidenceFusionReport(data, 'm1'); expect(resolved.unresolvedConflicts).toBe(0); expect(resolved.rounds[0].facts.find(fact => fact.field === 'result')).toMatchObject({ source: 'screenshot', value: 'W', resolved: true }); expect(data.evidenceFusionResolutions[0].history).toHaveLength(2);
   });
 
+  it('excludes draft screenshot facts and fuses player fields independently', () => {
+    const data: any = {
+      rounds: [{ id: 'r1', matchId: 'm1', roundNo: 1, result: 'L', screenshotEvidence: { reviewStatus: 'review-required', result: 'W', eventsComplete: true, events: [{ sequence: 1 }] } }],
+      playerStats: [{ id: 's1', matchId: 'm1', playerId: 'p1', player: 'One', kills: 20, sourceMetadata: { method: 'provider-import' }, evidenceReconciliation: { comparisons: [{ field: 'kills', screenshot: 19, replay: 20, agrees: false }] } }],
+    };
+    const report = buildEvidenceFusionReport(data, 'm1');
+    expect(report).toMatchObject({ schema: 'moetracker.evidence-fusion/v3', conflicts: 1, unresolvedConflicts: 1 });
+    expect(report.rounds[0].facts.find(fact => fact.field === 'result')).toMatchObject({ source: 'manual', value: 'L' });
+    expect(report.rounds[0].facts.some(fact => fact.field === 'events')).toBe(false);
+    expect(report.players[0].facts.find(fact => fact.field === 'kills')).toMatchObject({ source: 'replay', value: 20, conflict: true });
+  });
+
   it('shrinks calibrated ratings toward 50 and preserves context on weapon outcomes', () => {
     const data: any = { rosterPlayers: [], matches: [{ id: 'm1', map: 'Ascent' }, { id: 'm2', map: 'Bind' }], playerStats: [
       { id: 's1', matchId: 'm1', playerId: 'p1', player: 'One', kills: 20, deaths: 10, assists: 5, fk: 4, fd: 1, kastCovered: 10, kastSuccessful: 8, agent: 'Jett' },

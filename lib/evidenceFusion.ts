@@ -6,7 +6,8 @@ export interface EvidenceResolutionAudit { at: string; by: string; source: Evide
 export interface EvidenceFusionResolution { id: string; matchId: string; roundId: string; field: string; selectedSource: EvidenceSource; selectedValue: unknown; reason: string; revision: number; updatedAt: string; updatedBy: string; history: EvidenceResolutionAudit[] }
 export interface FusedFact { field: string; value: unknown; source: EvidenceSource; confidence: 'high' | 'medium' | 'low'; candidates: EvidenceCandidate[]; alternatives: EvidenceCandidate[]; conflict: boolean; resolved: boolean; resolutionId?: string }
 export interface RoundFusion { roundId: string; roundNo: number; facts: FusedFact[]; conflicts: number; unresolvedConflicts: number; sources: EvidenceSource[] }
-export interface EvidenceFusionReport { schema: 'moetracker.evidence-fusion/v2'; matchId: string; rounds: RoundFusion[]; coverage: number; conflicts: number; unresolvedConflicts: number; sourceCounts: Record<EvidenceSource, number>; policy: string[]; calculationVersion: string }
+export interface PlayerFusion { playerStatId: string; playerId: string | null; displayName: string; facts: FusedFact[]; conflicts: number; unresolvedConflicts: number; sources: EvidenceSource[] }
+export interface EvidenceFusionReport { schema: 'moetracker.evidence-fusion/v3'; matchId: string; rounds: RoundFusion[]; players: PlayerFusion[]; coverage: number; conflicts: number; unresolvedConflicts: number; sourceCounts: Record<EvidenceSource, number>; policy: string[]; calculationVersion: string }
 
 const priority: EvidenceSource[] = ['coach', 'replay', 'screenshot', 'vod', 'manual'];
 const present = (value: unknown) => value !== null && value !== undefined && value !== '' && value !== 'Unknown';
@@ -14,13 +15,29 @@ const same = (a: unknown, b: unknown) => JSON.stringify(a) === JSON.stringify(b)
 function candidate(rows: EvidenceCandidate[], source: EvidenceSource, value: unknown, reference?: string) { if (present(value)) rows.push({ source, value, ...(reference ? { reference } : {}) }); }
 const observationRound = (observation: any) => Number(observation?.roundNumber || observation?.attributes?.roundNumber || 0);
 
+function fuseFields(fields: Record<string, EvidenceCandidate[]>, entityId: string, resolutionRows: EvidenceFusionResolution[]): FusedFact[] {
+  return Object.entries(fields).filter(([, rows]) => rows.length > 0).map(([field, rows]) => {
+    const ordered = [...rows].sort((a, b) => priority.indexOf(a.source) - priority.indexOf(b.source));
+    const resolution = resolutionRows.filter(item => item.roundId === entityId && item.field === field).sort((a, b) => b.revision - a.revision)[0];
+    const winner = resolution ? { source: resolution.selectedSource, value: resolution.selectedValue, reference: `resolution:${resolution.id}` } : ordered[0];
+    const alternatives = ordered.filter(item => item.source !== winner.source || !same(item.value, winner.value)).filter(item => !same(item.value, winner.value));
+    const distinct = new Set(ordered.map(item => JSON.stringify(item.value))).size;
+    return { field, value: winner.value, source: winner.source, confidence: resolution || winner.source === 'coach' || winner.source === 'replay' ? 'high' : winner.source === 'screenshot' ? 'medium' : 'low', candidates: ordered, alternatives, conflict: distinct > 1, resolved: !!resolution, ...(resolution ? { resolutionId: resolution.id } : {}) };
+  });
+}
+
 function factsFor(round: Round, replayRecord: any, resolutionRows: EvidenceFusionResolution[]): FusedFact[] {
   const fields: Record<string, EvidenceCandidate[]> = {};
   const add = (field: string, source: EvidenceSource, value: unknown, reference?: string) => candidate(fields[field] ||= [], source, value, reference);
   const screenshot: any = round.screenshotEvidence; const vod = (round.vodEvidence?.observations || []) as any[]; const coach = round.reviewCockpit;
-  for (const [field, value] of Object.entries({ result: round.result, side: round.side, buy: round.buy, enemyBuy: round.enemyBuy, plant: round.plant, site: round.site, firstKillBy: round.firstKillBy, firstDeathBy: round.firstDeathBy })) add(field, 'manual', value, `round:${round.id}`);
-  if (screenshot) {
-    add('result', 'screenshot', screenshot.result, `screenshot:${round.id}`); add('buy', 'screenshot', screenshot.ourBuy || screenshot.ourAverageLoadout, `screenshot:${round.id}`); add('enemyBuy', 'screenshot', screenshot.enemyBuy || screenshot.enemyAverageLoadout, `screenshot:${round.id}`); add('events', 'screenshot', screenshot.events?.length, `screenshot:${round.id}`);
+  const reconciled = new Set<string>();
+  for (const comparison of (round as any).evidenceReconciliation?.comparisons || []) {
+    reconciled.add(comparison.field); add(comparison.field, 'screenshot', comparison.screenshot, `round-screenshot:${round.id}`); add(comparison.field, 'replay', comparison.replay, `round-replay:${round.id}`);
+  }
+  for (const [field, value] of Object.entries({ result: round.result, side: round.side, buy: round.buy, enemyBuy: round.enemyBuy, plant: round.plant, site: round.site, firstKillBy: round.firstKillBy, firstDeathBy: round.firstDeathBy })) if (!reconciled.has(field)) add(field, 'manual', value, `round:${round.id}`);
+  if (screenshot?.reviewStatus === 'confirmed') {
+    if (!reconciled.has('result')) add('result', 'screenshot', screenshot.result ?? round.result, `screenshot:${round.id}`); if (!reconciled.has('buy')) add('buy', 'screenshot', screenshot.ourBuy || screenshot.ourAverageLoadout || round.buy, `screenshot:${round.id}`); if (!reconciled.has('enemyBuy')) add('enemyBuy', 'screenshot', screenshot.enemyBuy || screenshot.enemyAverageLoadout || round.enemyBuy, `screenshot:${round.id}`); add('events', 'screenshot', screenshot.events?.length, `screenshot:${round.id}`);
+    if (screenshot.eventsComplete !== true) delete fields.events;
   }
   if (round.replayEvidence) { add('tradeOpportunities', 'replay', round.replayEvidence.tradeOpportunities, `replay:${round.id}`); add('successfulTrades', 'replay', round.replayEvidence.successfulTrades, `replay:${round.id}`); }
   if (round.advantageEvidence) add('advantageStates', 'replay', round.advantageEvidence.states, `replay:${round.id}`);
@@ -30,21 +47,26 @@ function factsFor(round: Round, replayRecord: any, resolutionRows: EvidenceFusio
   }
   if (vod.length) { add('events', 'vod', vod.length, `vod-round:${round.roundNo}`); add('ultimateUses', 'vod', vod.filter(event => event.kind === 'ultimate-use').length, `vod-round:${round.roundNo}`); add('orbCaptures', 'vod', vod.filter(event => event.kind === 'orb-capture').length, `vod-round:${round.roundNo}`); }
   if (coach?.note) add('coachNote', 'coach', coach.note, `coach:${round.id}`);
-  return Object.entries(fields).filter(([, rows]) => rows.length > 0).map(([field, rows]) => {
-    const ordered = [...rows].sort((a, b) => priority.indexOf(a.source) - priority.indexOf(b.source));
-    const resolution = resolutionRows.filter(item => item.roundId === round.id && item.field === field).sort((a, b) => b.revision - a.revision)[0];
-    const winner = resolution ? { source: resolution.selectedSource, value: resolution.selectedValue, reference: `resolution:${resolution.id}` } : ordered[0];
-    const alternatives = ordered.filter(item => item.source !== winner.source || !same(item.value, winner.value)).filter(item => !same(item.value, winner.value));
-    const distinct = new Set(ordered.map(item => JSON.stringify(item.value))).size;
-    return { field, value: winner.value, source: winner.source, confidence: resolution || winner.source === 'coach' || winner.source === 'replay' ? 'high' : winner.source === 'screenshot' ? 'medium' : 'low', candidates: ordered, alternatives, conflict: distinct > 1, resolved: !!resolution, ...(resolution ? { resolutionId: resolution.id } : {}) };
-  });
+  return fuseFields(fields, round.id, resolutionRows);
 }
 
-export function buildEvidenceFusionReport(data: Pick<TrackerData, 'rounds'> & { evidenceFusionResolutions?: EvidenceFusionResolution[] }, matchId: string, replayRecord?: any): EvidenceFusionReport {
+function playerFacts(stat: any, resolutionRows: EvidenceFusionResolution[]) {
+  const fields: Record<string, EvidenceCandidate[]> = {}; const add = (field: string, source: EvidenceSource, value: unknown, reference?: string) => candidate(fields[field] ||= [], source, value, reference);
+  for (const comparison of stat.evidenceReconciliation?.comparisons || []) {
+    add(comparison.field, 'screenshot', comparison.screenshot, `player-screenshot:${stat.id}`);
+    add(comparison.field, 'replay', comparison.replay, `player-replay:${stat.id}`);
+  }
+  const method = stat.sourceMetadata?.method; const currentSource: EvidenceSource = method === 'provider-import' ? 'replay' : method === 'screenshot' ? 'screenshot' : method === 'vod-submission' ? 'vod' : 'manual';
+  for (const field of ['kills', 'deaths', 'assists', 'acs', 'adr', 'hs', 'headshots', 'orbPoints', 'ultimateUses', 'kastSuccessful', 'kastCovered', 'fk', 'fd', 'plants', 'defuses', 'trades']) if (!(stat.evidenceReconciliation?.comparisons || []).some((item: any) => item.field === field)) add(field, currentSource, stat[field], `player:${stat.id}`);
+  return fuseFields(fields, stat.id, resolutionRows);
+}
+
+export function buildEvidenceFusionReport(data: Pick<TrackerData, 'rounds' | 'playerStats'> & { evidenceFusionResolutions?: EvidenceFusionResolution[] }, matchId: string, replayRecord?: any): EvidenceFusionReport {
   const sourceCounts = { coach: 0, replay: 0, screenshot: 0, vod: 0, manual: 0 }; const resolutions = (data.evidenceFusionResolutions || []).filter(item => item.matchId === matchId);
   const rounds = (data.rounds || []).filter(round => round.matchId === matchId).sort((a, b) => a.roundNo - b.roundNo).map(round => { const facts = factsFor(round, replayRecord, resolutions); const sources = [...new Set(facts.flatMap(fact => fact.candidates.map(item => item.source)))]; for (const source of sources) sourceCounts[source] += 1; return { roundId: round.id, roundNo: round.roundNo, facts, conflicts: facts.filter(fact => fact.conflict).length, unresolvedConflicts: facts.filter(fact => fact.conflict && !fact.resolved).length, sources }; });
+  const players = (data.playerStats || []).filter(stat => stat.matchId === matchId).map(stat => { const facts = playerFacts(stat, resolutions); const sources = [...new Set(facts.flatMap(fact => fact.candidates.map(item => item.source)))]; for (const source of sources) sourceCounts[source] += 1; return { playerStatId: stat.id, playerId: stat.playerId || null, displayName: stat.displayNameSnapshot || stat.player, facts, conflicts: facts.filter(fact => fact.conflict).length, unresolvedConflicts: facts.filter(fact => fact.conflict && !fact.resolved).length, sources }; });
   const covered = rounds.filter(round => round.facts.length > 0).length;
-  return { schema: 'moetracker.evidence-fusion/v2', matchId, rounds, coverage: rounds.length ? Math.round(covered / rounds.length * 100) : 0, conflicts: rounds.reduce((sum, round) => sum + round.conflicts, 0), unresolvedConflicts: rounds.reduce((sum, round) => sum + round.unresolvedConflicts, 0), sourceCounts, policy: ['Coach resolution', 'Accepted replay', 'Confirmed screenshot', 'Corroborated VOD', 'Manual log'], calculationVersion: 'evidence-fusion/v2' };
+  return { schema: 'moetracker.evidence-fusion/v3', matchId, rounds, players, coverage: rounds.length ? Math.round(covered / rounds.length * 100) : 0, conflicts: [...rounds, ...players].reduce((sum, item) => sum + item.conflicts, 0), unresolvedConflicts: [...rounds, ...players].reduce((sum, item) => sum + item.unresolvedConflicts, 0), sourceCounts, policy: ['Coach resolution', 'Accepted replay', 'Confirmed screenshot', 'Corroborated VOD', 'Manual log'], calculationVersion: 'evidence-fusion/v3' };
 }
 
 export function upsertEvidenceResolution(rows: EvidenceFusionResolution[], input: Omit<EvidenceFusionResolution, 'id' | 'revision' | 'updatedAt' | 'updatedBy' | 'history'>, by: string, now = new Date().toISOString()) {

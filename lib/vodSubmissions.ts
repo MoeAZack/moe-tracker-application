@@ -1,6 +1,7 @@
 import type { Match, PlayerStats, VodSubmission, VodSubmissionPlayer, VodTimelineEvidence } from '../src/types';
 import evidenceModule from '../desktop/vod-timeline-evidence.cjs';
 import { deriveRoundAdvantage } from './roundAdvantage';
+import { findPhysicalMatchCandidates } from './physicalMatchIdentity';
 
 const { fuseVodEvidence } = evidenceModule as { fuseVodEvidence: (items: VodTimelineEvidence[]) => VodTimelineEvidence | null };
 
@@ -92,7 +93,9 @@ export function integrateVodSubmission(db: any, input: SubmissionInput, actorNam
   if (input.matchId && !requested) throw Object.assign(new Error('The selected match no longer exists.'), { status: 404 });
   const rosterIds = new Set(players.map(row => row.rosterPlayerId));
   if (requested && [...rosterIds].filter(id => matchRosterIds(db, requested.id).has(id)).length < 5 && !hasUniqueKdaCoverage(db, requested.id, players)) throw Object.assign(new Error('The selected match does not contain the same five-player roster or five unique K/D/A rows. Choose the correct match or create a new VOD entry.'), { status: 409 });
-  const automatic = !requested ? (db.matches || []).filter((match: Match) => identityMatches(input, match) && [...rosterIds].every(id => matchRosterIds(db, match.id).has(id))) : [];
+  const incomingIdentityRows = players.map(player => ({ playerId: player.rosterPlayerId, player: player.rosterDisplayName }));
+  const physical = !requested ? findPhysicalMatchCandidates(db, { date: input.date, map: input.map || '', opponent: input.opponent || '', ourScore: input.ourScore, theirScore: input.theirScore } as Match, incomingIdentityRows) : [];
+  const automatic = !requested ? (physical.length ? physical : (db.matches || []).filter((match: Match) => identityMatches(input, match) && [...rosterIds].every(id => matchRosterIds(db, match.id).has(id)))) : [];
   let match: Match | undefined = requested || (automatic.length === 1 ? automatic[0] : undefined);
   const createdMatch = !match;
   if (!match) {

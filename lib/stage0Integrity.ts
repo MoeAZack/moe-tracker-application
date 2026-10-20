@@ -2,6 +2,8 @@ import crypto from 'crypto';
 import { currentAnalyticsIdentityPolicy, projectCurrentPlayerAnalytics } from './activePlayerAnalytics';
 import { STORAGE_SCHEMA_VERSION } from './storageSchema';
 import { buildCanonicalDataSpine, validateCanonicalDataSpine } from './canonicalDataSpine';
+import { auditPhysicalMatchDuplicates } from './physicalMatchIdentity';
+import { auditAcceptedAnonymousLeaks } from './acceptedIdentityProjection';
 
 export type Stage0IssueSeverity = 'error' | 'warning';
 export type Stage0Issue = { code: string; severity: Stage0IssueSeverity; message: string; references: string[] };
@@ -55,6 +57,8 @@ export function auditStage0Integrity(state: any): { ok: boolean; errors: number;
   for (const [token, references] of duplicateValues(accepted.map((match: any, index: number) => ({ value: sourceToken(match) || '', reference: `matches[${matches.indexOf(match)}]:${id(match.id) || index}` })))) {
     issues.push({ code: 'DUPLICATE_ACCEPTED_SOURCE', severity: 'error', message: `Accepted matches reuse source evidence ${token}.`, references });
   }
+  for (const duplicate of auditPhysicalMatchDuplicates(state)) issues.push({ code: 'DUPLICATE_PHYSICAL_MATCH', severity: 'warning', message: 'Multiple records appear to describe the same physical match across ingestion sources.', references: duplicate.matchIds.map(matchId => `match:${matchId}`) });
+  for (const leak of auditAcceptedAnonymousLeaks(state)) issues.push({ code: 'ACCEPTED_IDENTITY_LEAK', severity: 'error', message: 'Accepted replay identity still renders as an anonymous or parser identifier.', references: [leak.reference] });
 
   const matchIds = new Set(matches.map((match: any) => id(match?.id)).filter(Boolean));
   for (const collection of ['playerStats', 'rounds'] as const) {
