@@ -69,11 +69,11 @@ Last reconciled: 20 October 2026, Africa/Cairo. This file is the permanent scope
 | 9.3 | Official map-bound calibration and orientation | Contract automatically tested | Fail-closed bounds/orientation/asset-checksum/provenance contract is implemented; production maps remain unverified until independent calibration evidence is registered. |
 | 9.4 | Route clustering and utility-to-space impact | Engine automatically tested | Calculations activate only in verified map space and remain unavailable for current uncalibrated production evidence. |
 | 9.5 | Compositions and playbook with map/agent thumbnails | Implemented | Visual/UI refinement and dynamic-catalog linkage remain. |
-| 10.1 | Monthly and hourly day calendar modes | Implemented | Physical responsive/accessibility pass remains. |
-| 10.2 | Full-day goals plus repeatable hourly practices/debriefs/team talks | Implemented | Recurrence and PRACC import exist; Stage 10 unifies edit rules. |
-| 10.3 | PRACC calendar ingestion | Real-data validated | ICS integration configured; provider availability remains external. |
-| 10.4 | Player attendance check-in, late strikes, red/green dots and coach override | Implemented | Rules and credits exist; physical multi-role acceptance remains. |
-| 10.5 | WhatsApp, Telegram and Discord notifications | Not started | Provider credentials, consent, quiet hours, retry and dedupe required. |
+| 10.1 | Monthly and hourly day calendar modes | Automatically tested | Both views consume the same canonical event rows; physical responsive/accessibility pass remains. |
+| 10.2 | Full-day goals plus repeatable hourly practices/debriefs/team talks | Automatically tested | Atomic series creation, series-content edits and single/series deletion share one server contract. |
+| 10.3 | PRACC calendar ingestion | Real-data validated | Provider fields refresh by event ID while coach notes, attendance history and evidence links remain local and durable. |
+| 10.4 | Player attendance check-in, late strikes, red/green dots and coach override | Automatically tested | Cairo/DST windows, permissions, append-only correction history and reversible credits are covered. Physical multi-role acceptance remains. |
+| 10.5 | WhatsApp, Telegram and Discord notifications | Deferred by product scope | Later integration requires credentials, consent, verified destinations, quiet hours, retry and dedupe; no messages are sent in 0.2 Stage 10. |
 
 ## Stage 11 — release candidate and external gates
 

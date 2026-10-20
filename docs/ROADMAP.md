@@ -11,6 +11,7 @@ Last reconciled: 20 October 2026, Africa/Cairo. This status is tied to executabl
 - [x] **P4 Contextual economy intelligence** — weapon outcomes retain our buy class, enemy buy class, map, side, site, player, and agent with visible sample confidence.
 - [x] **Replay spatial intelligence v4** — accepted coordinates drive paths, kill markers, utility timelines, territory, spacing, trade-distance, and heatmaps. Verified map space now requires bounds, orientation, an immutable asset checksum and independent provenance; source-declared and cohort-envelope geometry stays explicitly exploratory.
 - [x] **Gated spatial sequences** — route clusters and descriptive utility-to-space occupancy are implemented and automatically tested, but activate only for verified map calibrations with representative coordinate samples.
+- [x] **Team operations v2** — monthly/day schedule views now share atomic repeated-series mutations, PRACC-owned fields are protected from local drift, coach notes survive sync, and attendance corrections retain an append-only audit trail.
 - [x] **Context-calibrated player ratings v3** — persisted robust median/MAD peer calibration with capped components, small-sample shrinkage, uncertainty, trend, and map/agent/role splits. It is explicitly descriptive and not yet outcome-predictive.
 
 ### Next evidence-driven queue
@@ -20,6 +21,7 @@ Last reconciled: 20 October 2026, Africa/Cairo. This status is tied to executabl
 - [ ] P7 Causal development validation: matched before/after cohorts now exist; add larger role-adjusted controls and significance reporting before attributing improvement to an intervention.
 - [x] P8 Spatial sequence engine: route clustering and descriptive utility-to-space impact are implemented; production results remain evidence-gated until P5 coverage exists.
 - [ ] P9 Predictive rating validation: out-of-sample outcome calibration, drift monitoring, and versioned backtests before any predictive label.
+- [ ] P10 Consented team notifications: add verified WhatsApp/Telegram/Discord destinations, quiet hours, idempotent retry and delivery receipts only when provider credentials and player consent are available.
 
 ## Now — functional desktop foundation
 
