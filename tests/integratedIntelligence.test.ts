@@ -9,12 +9,12 @@ import fs from 'fs';
 describe('integrated intelligence', () => {
   it('exposes a restart bridge for retained VOD jobs', () => {
     expect(fs.readFileSync('desktop/preload.cjs', 'utf8')).toContain("desktop:resume-vod-job");
-    const main = fs.readFileSync('desktop/main.cjs', 'utf8'); expect(main).toContain("handleTrusted('desktop:resume-vod-job'"); expect(main).toContain('Retained source reopened for a clean restart.');
+    const main = fs.readFileSync('desktop/main.cjs', 'utf8'); expect(main).toContain("handleTrusted('desktop:resume-vod-job'"); expect(main).toContain('Retained source reopened from its checkpoint.');
   });
   it('persists frame-level OCR checkpoints and does not mark failed imports completed', () => {
     const analyzer = fs.readFileSync('desktop/vod-timeline-analyzer.cjs', 'utf8'); const main = fs.readFileSync('desktop/main.cjs', 'utf8');
     expect(analyzer).toContain('moetracker.vod-checkpoint/v1'); expect(analyzer).toContain('processed: index + 1'); expect(main).toContain('checkpointFile');
-    expect(main).toContain("status: completed ? 'completed' : 'failed'"); expect(main).toContain("stage: completed ? 'integrated' : 'import-failed'");
+    expect(main).toContain("status: completed ? 'completed' : 'paused'"); expect(main).toContain("stage: completed ? 'integrated' : 'import-paused'");
   });
   it('fails spatial analysis closed without accepted coordinate evidence', () => {
     expect(buildSpatialReport({ status: 'accepted', draft: { evidence: { observations: [{ signal: 'position-zone', attributes: { zone: 'market' } }] } } })).toMatchObject({ available: false, points: [] });
