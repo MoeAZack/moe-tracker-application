@@ -1,37 +1,59 @@
 # Desktop release acceptance
 
-Last updated: 20 October 2026, 14:40 Cairo (`Africa/Cairo`).
+Last updated: 20 October 2026, 17:12 Cairo (`Africa/Cairo`).
 
-Moe Tracker 0.1.78 is the current accepted local release candidate on this PC. It is not a signed public release and has not been accepted on a second physical PC.
+Moe Tracker 0.2.0 is the current accepted **local release candidate** on this
+PC. It is not a signed public release and has not been accepted on a second
+physical PC.
 
 ## Automated and installed gates
 
-- Type checking, lint, production build, 127 test files, and 837 tests passed.
-- Authenticated release UI passed at 100%, 125%, 150%, and 200% effective zoom with keyboard-only navigation, a working skip link, reduced motion, zero horizontal overflow, and zero WCAG 2.2 A/AA violations.
-- Windows forced-colors emulation passed with zero violations.
-- An encrypted recovery point was created and dry-run restored before upgrade.
-- Silent in-place installation completed with exit code 0; the installed product version is `0.1.78.0`.
-- Installed Home, team sync, Match Review, Economy, Settings, and Device/Sync/Storage surfaces all passed the current UI contract.
-- The retained schema-12 workspace still contains 8 matches, 180 rounds, and 40 player-stat rows with zero integrity errors or warnings.
+- Type checking, lint, the production build, 135 test files, and 874 tests pass.
+- The runtime gate verifies exact versions for Electron 41.10.7, Electron
+  Builder 26.15.3, Sharp 0.35.5, FFmpeg 5.3.0, FFprobe 3.1.0, and
+  youtube-dl-exec 3.1.17, plus exact Windows hashes for their shipped native
+  binaries.
+- The replay runtime verifies VRFKit `0.2.6-moe.1` at commit
+  `4bacfdc2b766caec02d830cc65f8c4e2ea9dc14c`, Python 3.12.10, and PyArrow
+  18.1.0. The VRFKit archive/executable, Python archive/executable, and PyArrow
+  wheel are all hash-pinned before packaging.
+- The packaged desktop bridge passes a fresh-profile journey covering local
+  service startup, coach session creation, encrypted credential availability,
+  scoreboard/ingestion reads, retention/capture preference writes, and an
+  encrypted recovery backup.
+- A recovery point was created and restore-dry-run verified before installation:
+  `2026-10-20T14-06-45-985Z-c69607464a` (17:06 Cairo).
+- The installed 0.1.78 product upgraded silently to 0.2.0. The retained
+  workspace remained 8 matches, 180 rounds, and 40 player-stat rows.
+- The 0.2.0 binaries were then fully uninstalled and clean-installed for the
+  current user. The installed product reports `0.2.0.0` and passes the same IPC
+  journey against both a fresh profile and the retained profile.
+- The exact 0.1.78 and 0.2.0 installers pass the staged updater/rollback drill:
+  0.1.78 becomes last-known-good, 0.2.0 enters startup verification, and a second
+  failed startup launches exactly one 0.1.78 rollback installer.
 
-Machine-readable and screenshot evidence is stored locally under `release/release-evidence` and `release/ui-verification`. The implementation and exact acceptance boundaries are recorded in `STAGE-11-RELEASE-CANDIDATE.md`.
+Machine-readable candidate, runtime, UI, and rollback evidence is written under
+`release/release-evidence`. The final installer hash is recorded after the exact
+merged head is rebuilt.
 
-## Windows artifact
+## Signing and public distribution
 
-- Artifact: `Moe-Tracker-Application-0.1.78-Setup.exe`
-- Size: 371,464,653 bytes
-- SHA-256: `7FE41EB8FB0E15DCA5BF0B8CAFBEA35A90A0205003665D1CD7C078AAC3FD7EEE`
-- Installed executable: `C:\Program Files\Moe Tracker Application\Moe Tracker Application.exe`
-- Authenticode: `NotSigned`
+No public Windows code-signing certificate is configured on this PC or in the
+GitHub `release` environment. The local installer therefore reports
+`Authenticode: NotSigned` and must not be represented as a trusted public build.
 
-## Update, rollback, and synchronization scope
+The tag workflow is prepared and fail-closed: it requires the certificate,
+builds and verifies the signed installer, clean-installs it, verifies the
+installed executable signature, runs the packaged IPC journey, and only then
+publishes the release assets.
 
-The staged update controller requires a completed download before install. Post-update health promotes a healthy installer as last-known-good, launches it after two failed starts, and enters safe mode when no rollback artifact exists. Recovery-backup, portable package encryption, outbox deduplication, pairing/session security, and ranked-summary synchronization pass their automated contracts. The 0.1.78 upgrade itself was validated on this PC; a full update/rollback/sync run on an independent physical PC remains open.
+Public distribution still requires:
 
-## Public distribution gates still open
+1. Configure `WINDOWS_CSC_LINK` and `WINDOWS_CSC_KEY_PASSWORD` with a publicly
+   trusted Windows code-signing certificate and run the protected tag workflow.
+2. Accept the exact signed artifact on an independent physical Windows PC,
+   including update, rollback, fullscreen capture, high contrast, 200% zoom,
+   keyboard-only use, and a human screen-reader pass.
 
-1. Obtain and configure a publicly trusted Windows code-signing certificate, then sign and verify the exact public artifact.
-2. Run install, capture, offline restart, pairing, synchronization, update, rollback, fullscreen capture, high contrast, 200% zoom, and screen-reader acceptance on a second physical Windows PC.
-3. Publish only that exact signed and independently accepted artifact, then confirm the staged update path from the previous public version.
-
-Official Riot ranked/history integration and licensed opponent/pro telemetry have separate external approval/licensing gates. Until all relevant external gates close, 0.1.78 remains a local release candidate rather than a public production release.
+Official Riot ranked/history and licensed opponent/pro telemetry retain their
+separate external approval and licensing gates.
