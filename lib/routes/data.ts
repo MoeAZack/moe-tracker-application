@@ -94,6 +94,7 @@ export function registerDataRoutes(app: Express, options: { websiteSummaryOnly?:
       const { sheet } = body;
       let row: any = { ...body.row };
       const db = await readDB();
+      let previousLinkedReviewEventId: string | undefined;
       
       const key = {
         Schedule: 'schedule',
@@ -109,6 +110,7 @@ export function registerDataRoutes(app: Express, options: { websiteSummaryOnly?:
 
       if (sheet === 'Schedule') {
         const existing = row.id ? db.schedule.find((item: any) => item.id === row.id) : null;
+        previousLinkedReviewEventId = existing?.linkedReviewEventId;
         const activeIds = new Set((db.rosterPlayers || []).filter((player: any) => !player.retiredAt).map((player: any) => player.id));
         row.requiredPlayerIds = [...new Set((Array.isArray(row.requiredPlayerIds) ? row.requiredPlayerIds : []).filter((id: unknown) => typeof id === 'string' && activeIds.has(id)))];
         row.allDay = Boolean(row.allDay);
@@ -117,11 +119,22 @@ export function registerDataRoutes(app: Express, options: { websiteSummaryOnly?:
         row.attendanceEnabled = Boolean(!row.allDay && row.attendanceEnabled && row.startTime && row.requiredPlayerIds.length);
         row.source = existing?.source === 'pracc' ? 'pracc' : 'manual';
         row.attendanceCheckIns = Array.isArray(existing?.attendanceCheckIns) ? existing.attendanceCheckIns : [];
+        row.linkedReviewEventId = typeof row.linkedReviewEventId === 'string' && row.linkedReviewEventId.trim() ? row.linkedReviewEventId.trim() : undefined;
+        if (row.linkedReviewEventId) {
+          const linked = db.schedule.find((item: any) => item.id === row.linkedReviewEventId); const pair = new Set([row.calendarKey, linked?.calendarKey]);
+          if (!linked || linked.id === row.id || pair.size !== 2 || !pair.has('team-talk') || !pair.has('debrief')) return res.status(400).json({ error: 'Team Talk may only link to a distinct Debrief event.' });
+        }
       }
 
       if (sheet === 'Goals') {
         row.matchId = typeof row.matchId === 'string' && row.matchId.trim() ? row.matchId.trim() : undefined;
         if (row.matchId && !(db.matches || []).some((match: any) => match.id === row.matchId)) return res.status(400).json({ error: 'Linked match was not found.' });
+        row.ownerPlayerId = typeof row.ownerPlayerId === 'string' && row.ownerPlayerId.trim() ? row.ownerPlayerId.trim() : undefined;
+        if (row.ownerPlayerId && !(db.rosterPlayers || []).some((player: any) => player.id === row.ownerPlayerId && !player.retiredAt)) return res.status(400).json({ error: 'Goal owner is not an active player.' });
+        row.roundId = typeof row.roundId === 'string' && row.roundId.trim() ? row.roundId.trim() : undefined;
+        if (row.roundId && !(db.rounds || []).some((round: any) => round.id === row.roundId && round.matchId === row.matchId)) return res.status(400).json({ error: 'Linked round does not belong to the selected match.' });
+        row.evidenceClipId = typeof row.evidenceClipId === 'string' && row.evidenceClipId.trim() ? row.evidenceClipId.trim() : undefined;
+        if (row.evidenceClipId && !(db.rounds || []).some((round: any) => round.id === row.roundId && round.reviewCockpit?.clips?.some((clip: any) => clip.id === row.evidenceClipId))) return res.status(400).json({ error: 'Linked evidence clip does not belong to the selected round.' });
       }
 
       if (!row.id) {
@@ -133,6 +146,15 @@ export function registerDataRoutes(app: Express, options: { websiteSummaryOnly?:
           db[key][idx] = row;
         } else {
           db[key].push(row);
+        }
+      }
+
+      if (sheet === 'Schedule') {
+        if (previousLinkedReviewEventId && previousLinkedReviewEventId !== row.linkedReviewEventId) {
+          const previous = db.schedule.find((item: any) => item.id === previousLinkedReviewEventId); if (previous?.linkedReviewEventId === row.id) previous.linkedReviewEventId = undefined;
+        }
+        if (row.linkedReviewEventId) {
+          const linked = db.schedule.find((item: any) => item.id === row.linkedReviewEventId); if (linked) linked.linkedReviewEventId = row.id;
         }
       }
 
@@ -230,6 +252,9 @@ export function registerDataRoutes(app: Express, options: { websiteSummaryOnly?:
 
       db[key] = db[key].filter((x: any) => x.id !== id);
 
+      if (sheet === 'Schedule') for (const item of db.schedule || []) if (item.linkedReviewEventId === id) item.linkedReviewEventId = undefined;
+      if (sheet === 'Goals') for (const action of db.coachingActions || []) if (action.goalId === id) action.goalId = undefined;
+
       // Cascading deletes
       if (sheet === 'Matches') {
         db.playerStats = db.playerStats.filter((p: any) => p.matchId !== id);
@@ -254,6 +279,7 @@ export function registerDataRoutes(app: Express, options: { websiteSummaryOnly?:
       const { id } = req.body;
       const db = await readDB();
       db.schedule = db.schedule.filter((x: any) => x.id !== id);
+      for (const item of db.schedule || []) if (item.linkedReviewEventId === id) item.linkedReviewEventId = undefined;
       await saveDB(db);
       res.json({ success: true });
     } catch (err: any) {
@@ -358,6 +384,7 @@ export function registerDataRoutes(app: Express, options: { websiteSummaryOnly?:
         const duplicate = findPhysicalMatchCandidates(db, match, savedStats)[0];
         if (duplicate) return res.status(409).json({ error: 'This physical match already exists. Open the existing match instead of creating a duplicate.', existingMatchId: duplicate.id });
       }
+
       if (matchIndex >= 0) db.matches[matchIndex] = match;
       else db.matches.push(match);
       if (savedStats) {

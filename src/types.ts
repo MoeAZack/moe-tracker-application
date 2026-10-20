@@ -192,6 +192,8 @@ export interface Schedule {
   linkedGoalIds?: string[];
   progressLinkedAt?: string;
   progressLinkedBy?: string;
+  /** Links a Team Talk to its Debrief (or vice versa) without merging their distinct event types. */
+  linkedReviewEventId?: string;
 }
 
 export interface AttendanceCheckIn {
@@ -223,7 +225,13 @@ export interface Goal {
   notes?: string;
   status: string;
   owner?: string;
+  ownerPlayerId?: string;
   matchId?: string;
+  roundId?: string;
+  evidenceClipId?: string;
+  sourceSignalId?: string;
+  coachingActionId?: string;
+  dueBlockId?: string;
 }
 
 export interface Match {
@@ -331,6 +339,7 @@ export interface CoachingAction {
   id: string;
   sourceSignalId: string;
   sourceFingerprint: string;
+  goalId?: string;
   evidence: CoachingSignal['evidence'];
   title: string;
   kind: 'player-feedback' | 'team-task' | 'vod-review' | 'strategy-board' | 'map-plan' | 'schedule-objective' | 'next-block-check';
