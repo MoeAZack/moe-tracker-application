@@ -21,10 +21,12 @@ describe('map discipline roster identities', () => {
     expect(html).not.toContain('Former');
   });
 
-  it('publishes the contribution ledger and names every neutral fallback', () => {
+  it('publishes an experimental contribution ledger without neutral fallbacks', () => {
     const source = fs.readFileSync('src/components/MapBestStats.tsx', 'utf8');
     expect(source).toContain('buildMapScoreLedger');
     expect(source).toContain('Score evidence');
-    expect(source).toContain('neutral fallback');
+    expect(source).toContain('Not enough data');
+    expect(source).not.toContain('neutral fallback');
   });
 });
+

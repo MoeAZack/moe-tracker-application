@@ -57,6 +57,6 @@ describe('player overview archive action', () => {
   it('exposes a collapsed metric coverage ledger that separates zero from unknown', () => {
     const source = fs.readFileSync('src/components/PlayerSoloTracker.tsx', 'utf8');
     for (const label of ['Metric availability', 'known zero remains data', 'accepted rows', 'Denominator:']) expect(source).toContain(label);
-    expect(source).toContain('buildPlayerMetricCoverage(reconciledRows)');
+    expect(source).toMatch(/buildPlayerMetricCoverage\(\s*reconciledRows,\s*data\.settings\.stats\?\.lowSample \|\| 15,?\s*\)/);
   });
 });

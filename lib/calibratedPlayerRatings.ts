@@ -1,18 +1,79 @@
 import type { TrackerData } from '../src/types';
 
-export interface RatingContextSplit { context: string; matches: number; rating: number; killsPerDeath: number | null; kast: number | null }
-export interface CalibratedPlayerRating { playerId: string; player: string; rating: number; rawScore: number; reliability: number; matches: number; confidence: 'low' | 'medium' | 'high'; interval: { low: number; high: number }; trend: { previous: number | null; recent: number | null; delta: number | null }; contexts: { maps: RatingContextSplit[]; agents: RatingContextSplit[]; roles: RatingContextSplit[] }; components: { combat: number; survival: number; teamplay: number; openings: number }; calibration: { status: 'team-context-calibrated'; cohortSize: number; baseline: 'median-mad'; shrinkageTarget: number; minimumReliableMatches: number }; validationStatus: 'descriptive-unvalidated'; method: string; calculationVersion: string }
+export const MINIMUM_RATING_MATCHES = 10;
+export const MINIMUM_RATING_COHORT = 10;
+
+export interface RatingContextSplit { context: string; matches: number; rating: number | null; killsPerDeath: number | null; kast: number | null }
+export interface CalibratedPlayerRating {
+  playerId: string; player: string; rating: number | null; rawScore: number | null; reliability: number; matches: number;
+  confidence: 'unavailable' | 'low' | 'medium' | 'high'; interval: { low: number | null; high: number | null };
+  trend: { previous: number | null; recent: number | null; delta: number | null };
+  contexts: { maps: RatingContextSplit[]; agents: RatingContextSplit[]; roles: RatingContextSplit[] };
+  components: { combat: number | null; survival: number | null; teamplay: number | null; openings: number | null };
+  calibration: { status: 'experimental-team-context' | 'insufficient-evidence'; cohortSize: number; baseline: 'median-mad'; shrinkageTarget: number; minimumReliableMatches: number; minimumCohortSize: number };
+  publicationStatus: 'experimental-only' | 'insufficient-evidence'; unknownReasons: string[];
+  validationStatus: 'experimental-unvalidated'; method: string; calculationVersion: 'calibrated-player-rating/v4';
+}
+
 const clamp = (value: number, min = 0, max = 100) => Math.max(min, Math.min(max, value));
 const mean = (values: number[]) => values.length ? values.reduce((a, b) => a + b, 0) / values.length : 0;
-const sd = (values: number[], avg: number) => Math.sqrt(mean(values.map(value => (value - avg) ** 2))) || 1;
 const median = (values: number[]) => { const ordered = [...values].sort((a, b) => a - b); if (!ordered.length) return 0; const middle = Math.floor(ordered.length / 2); return ordered.length % 2 ? ordered[middle] : (ordered[middle - 1] + ordered[middle]) / 2; };
-const robustSpread = (values: number[], center: number) => median(values.map(value => Math.abs(value - center))) * 1.4826 || sd(values, mean(values)) || 1;
+const spread = (values: number[], center: number) => median(values.map(value => Math.abs(value - center))) * 1.4826 || Math.sqrt(mean(values.map(value => (value - mean(values)) ** 2))) || 1;
+const known = (value: unknown): value is number => typeof value === 'number' && Number.isFinite(value) && value >= 0;
+const totalIfComplete = (rows: readonly any[], field: string) => rows.length && rows.every(row => known(row[field])) ? rows.reduce((sum, row) => sum + Number(row[field]), 0) : null;
+
+function rawComponents(rows: readonly any[]) {
+  const kills = totalIfComplete(rows, 'kills'); const deaths = totalIfComplete(rows, 'deaths'); const assists = totalIfComplete(rows, 'assists');
+  const fk = totalIfComplete(rows, 'fk'); const fd = totalIfComplete(rows, 'fd');
+  const kastCovered = rows.length && rows.every(row => known(row.kastCovered) && known(row.kastSuccessful) && row.kastCovered > 0) ? rows.reduce((sum, row) => sum + row.kastCovered, 0) : null;
+  const kastSuccessful = kastCovered === null ? null : rows.reduce((sum, row) => sum + row.kastSuccessful, 0);
+  return {
+    combat: kills !== null && deaths !== null && deaths > 0 ? kills / deaths : null,
+    survival: kastCovered && kastSuccessful !== null ? kastSuccessful / kastCovered : null,
+    teamplay: kills !== null && deaths !== null && assists !== null && kills + deaths > 0 ? assists / (kills + deaths) : null,
+    openings: fk !== null && fd !== null && fk + fd > 0 ? (fk - fd) / (fk + fd) : null,
+  };
+}
+
 export function buildCalibratedPlayerRatings(data: Pick<TrackerData, 'playerStats' | 'matches' | 'rosterPlayers'>): CalibratedPlayerRating[] {
-  const matchRows = new Map((data.matches || []).map(match => [match.id, match])); const activeMatches = new Set(matchRows.keys()); const archived = new Set((data.rosterPlayers || []).filter(player => player.retiredAt).map(player => player.id));
-  const groups = new Map<string, typeof data.playerStats>(); for (const row of data.playerStats || []) { if (!activeMatches.has(row.matchId) || (row.playerId && archived.has(row.playerId))) continue; const key = row.playerId || `name:${String(row.player || '').toLowerCase()}`; groups.set(key, [...(groups.get(key) || []), row]); }
-  const base = [...groups.entries()].map(([id, rows]) => { const kills = rows.reduce((s, r) => s + Number(r.kills || 0), 0), deaths = rows.reduce((s, r) => s + Number(r.deaths || 0), 0), assists = rows.reduce((s, r) => s + Number(r.assists || 0), 0), fk = rows.reduce((s, r) => s + Number(r.fk || 0), 0), fd = rows.reduce((s, r) => s + Number(r.fd || 0), 0); const covered = rows.reduce((s, r) => s + Number(r.kastCovered || 0), 0), successful = rows.reduce((s, r) => s + Number(r.kastSuccessful || 0), 0); return { id, player: rows[0].displayNameSnapshot || rows[0].player || id, matches: new Set(rows.map(r => r.matchId)).size, combat: deaths ? kills / deaths : kills, survival: covered ? successful / covered : deaths ? clamp(1 - deaths / Math.max(1, kills + deaths), 0, 1) : .5, teamplay: (kills + deaths) ? assists / (kills + deaths) : 0, openings: (fk + fd) ? (fk - fd) / (fk + fd) : 0 }; });
-  const keys = ['combat', 'survival', 'teamplay', 'openings'] as const; const stats = Object.fromEntries(keys.map(key => { const values = base.map(row => row[key]); const center = median(values); return [key, { center, spread: robustSpread(values, center) }]; })) as Record<typeof keys[number], { center: number; spread: number }>;
-  const scoreRows = (rows: any[]) => { const kills = rows.reduce((s, r) => s + Number(r.kills || 0), 0), deaths = rows.reduce((s, r) => s + Number(r.deaths || 0), 0), covered = rows.reduce((s, r) => s + Number(r.kastCovered || r.screenshotMetrics?.kast?.covered || 0), 0), successful = rows.reduce((s, r) => s + Number(r.kastSuccessful || r.screenshotMetrics?.kast?.successful || 0), 0); return { matches: new Set(rows.map(r => r.matchId)).size, killsPerDeath: deaths ? Math.round(kills / deaths * 100) / 100 : null, kast: covered ? Math.round(successful / covered * 1000) / 10 : null, rating: Math.round(clamp(50 + ((deaths ? kills / deaths : kills) - stats.combat.center) / stats.combat.spread * 10) * 10) / 10 }; };
-  const splits = (rows: any[], kind: 'maps' | 'agents' | 'roles') => { const grouped = new Map<string, any[]>(); for (const item of rows) { const context = kind === 'maps' ? (matchRows.get(item.matchId)?.map || 'Unknown') : kind === 'agents' ? (item.agent || 'Unknown') : (item.roleSnapshot || 'Unknown'); grouped.set(context, [...(grouped.get(context) || []), item]); } return [...grouped.entries()].map(([context, values]) => ({ context, ...scoreRows(values) })).sort((a, b) => b.matches - a.matches || b.rating - a.rating); };
-  return base.map(row => { const rows = groups.get(row.id) || []; const component = (key: typeof keys[number]) => clamp(50 + Math.max(-3, Math.min(3, (row[key] - stats[key].center) / stats[key].spread)) * 12); const components = { combat: component('combat'), survival: component('survival'), teamplay: component('teamplay'), openings: component('openings') }; const rawScore = components.combat * .4 + components.survival * .25 + components.teamplay * .2 + components.openings * .15; const reliabilityRatio = row.matches / (row.matches + 5); const rating = Math.round((50 + (rawScore - 50) * reliabilityRatio) * 10) / 10; const confidence: CalibratedPlayerRating['confidence'] = row.matches >= 10 ? 'high' : row.matches >= 5 ? 'medium' : 'low'; const uncertainty = Math.round(18 / Math.sqrt(Math.max(1, row.matches)) * 10) / 10; const ordered = [...rows].sort((a, b) => String(matchRows.get(a.matchId)?.date || '').localeCompare(String(matchRows.get(b.matchId)?.date || ''))); const cut = Math.max(1, Math.floor(ordered.length / 2)); const prior = ordered.length > 1 ? scoreRows(ordered.slice(0, cut)).rating : null; const recent = ordered.length ? scoreRows(ordered.slice(cut)).rating : null; return { playerId: row.id, player: row.player, rating, rawScore: Math.round(rawScore * 10) / 10, reliability: Math.round(reliabilityRatio * 100), matches: row.matches, confidence, interval: { low: clamp(Math.round((rating - uncertainty) * 10) / 10), high: clamp(Math.round((rating + uncertainty) * 10) / 10) }, trend: { previous: prior, recent, delta: prior !== null && recent !== null ? Math.round((recent - prior) * 10) / 10 : null }, contexts: { maps: splits(rows, 'maps'), agents: splits(rows, 'agents'), roles: splits(rows, 'roles') }, components: Object.fromEntries(Object.entries(components).map(([key, value]) => [key, Math.round(value * 10) / 10])) as CalibratedPlayerRating['components'], calibration: { status: 'team-context-calibrated' as const, cohortSize: base.length, baseline: 'median-mad' as const, shrinkageTarget: 50, minimumReliableMatches: 10 }, validationStatus: 'descriptive-unvalidated' as const, method: 'Robust team-context calibration v3 · median/MAD peer baseline · reliability shrinkage · descriptive, not outcome-predictive', calculationVersion: 'calibrated-player-rating/v3' }; }).sort((a, b) => b.rating - a.rating);
+  const matchRows = new Map((data.matches || []).map(match => [match.id, match])); const activeMatches = new Set(matchRows.keys());
+  const archived = new Set((data.rosterPlayers || []).filter(player => player.retiredAt).map(player => player.id));
+  const groups = new Map<string, typeof data.playerStats>();
+  for (const row of data.playerStats || []) {
+    if (!activeMatches.has(row.matchId) || (row.playerId && archived.has(row.playerId))) continue;
+    const key = row.playerId || `name:${String(row.player || '').toLocaleLowerCase()}`; groups.set(key, [...(groups.get(key) || []), row]);
+  }
+  const base = [...groups.entries()].map(([id, rows]) => ({ id, rows, player: rows[0].displayNameSnapshot || rows[0].player || id, matches: new Set(rows.map(row => row.matchId)).size, raw: rawComponents(rows) }));
+  const keys = ['combat', 'survival', 'teamplay', 'openings'] as const;
+  const cohort = Object.fromEntries(keys.map(key => { const values = base.map(row => row.raw[key]).filter((value): value is number => value !== null); const center = median(values); return [key, { values, center, spread: spread(values, center) }]; })) as Record<typeof keys[number], { values: number[]; center: number; spread: number }>;
+  const scoreComponent = (key: typeof keys[number], value: number | null) => value === null || cohort[key].values.length < MINIMUM_RATING_COHORT ? null : clamp(50 + Math.max(-3, Math.min(3, (value - cohort[key].center) / cohort[key].spread)) * 12);
+  const splitRows = (rows: any[], kind: 'maps' | 'agents' | 'roles'): RatingContextSplit[] => {
+    const grouped = new Map<string, any[]>();
+    for (const row of rows) { const context = kind === 'maps' ? (matchRows.get(row.matchId)?.map || 'Unknown') : kind === 'agents' ? (row.agent || 'Unknown') : (row.roleSnapshot || 'Unknown'); grouped.set(context, [...(grouped.get(context) || []), row]); }
+    return [...grouped.entries()].map(([context, values]) => {
+      const matches = new Set(values.map(row => row.matchId)).size; const kills = totalIfComplete(values, 'kills'); const deaths = totalIfComplete(values, 'deaths');
+      const covered = totalIfComplete(values, 'kastCovered'); const successful = totalIfComplete(values, 'kastSuccessful'); const kd = kills !== null && deaths !== null && deaths > 0 ? kills / deaths : null;
+      return { context, matches, killsPerDeath: kd === null ? null : Math.round(kd * 100) / 100, kast: covered && successful !== null ? Math.round(successful / covered * 1000) / 10 : null, rating: matches >= MINIMUM_RATING_MATCHES && kd !== null && cohort.combat.values.length >= MINIMUM_RATING_COHORT ? Math.round(clamp(50 + (kd - cohort.combat.center) / cohort.combat.spread * 10) * 10) / 10 : null };
+    }).sort((left, right) => right.matches - left.matches || (right.rating ?? -1) - (left.rating ?? -1));
+  };
+  return base.map(row => {
+    const components = Object.fromEntries(keys.map(key => { const score = scoreComponent(key, row.raw[key]); return [key, score === null ? null : Math.round(score * 10) / 10]; })) as CalibratedPlayerRating['components'];
+    const unknownReasons: string[] = [];
+    if (base.length < MINIMUM_RATING_COHORT) unknownReasons.push(`minimum-${MINIMUM_RATING_COHORT}-player-cohort-required`);
+    if (row.matches < MINIMUM_RATING_MATCHES) unknownReasons.push(`minimum-${MINIMUM_RATING_MATCHES}-matches-required`);
+    for (const key of keys) if (row.raw[key] === null) unknownReasons.push(`${key}-evidence-incomplete`);
+    const complete = unknownReasons.length === 0 && keys.every(key => components[key] !== null);
+    const rawScore = complete ? components.combat! * .4 + components.survival! * .25 + components.teamplay! * .2 + components.openings! * .15 : null;
+    const reliability = Math.round(row.matches / (row.matches + 5) * 100); const rating = rawScore === null ? null : Math.round((50 + (rawScore - 50) * row.matches / (row.matches + 5)) * 10) / 10;
+    return {
+      playerId: row.id, player: row.player, rating, rawScore: rawScore === null ? null : Math.round(rawScore * 10) / 10, reliability, matches: row.matches,
+      confidence: rating === null ? 'unavailable' as const : row.matches >= 20 ? 'high' as const : 'medium' as const,
+      interval: { low: null, high: null }, trend: { previous: null, recent: null, delta: null },
+      contexts: { maps: splitRows(row.rows, 'maps'), agents: splitRows(row.rows, 'agents'), roles: splitRows(row.rows, 'roles') }, components,
+      calibration: { status: complete ? 'experimental-team-context' as const : 'insufficient-evidence' as const, cohortSize: base.length, baseline: 'median-mad' as const, shrinkageTarget: 50, minimumReliableMatches: MINIMUM_RATING_MATCHES, minimumCohortSize: MINIMUM_RATING_COHORT },
+      publicationStatus: complete ? 'experimental-only' as const : 'insufficient-evidence' as const, unknownReasons,
+      validationStatus: 'experimental-unvalidated' as const,
+      method: 'Experimental team-context description; not an authoritative or outcome-predictive player rating', calculationVersion: 'calibrated-player-rating/v4' as const,
+    };
+  }).sort((left, right) => (right.rating ?? -1) - (left.rating ?? -1));
 }

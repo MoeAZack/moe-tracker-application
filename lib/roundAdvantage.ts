@@ -82,3 +82,16 @@ export function summarizeRoundAdvantages(rounds: readonly { advantageEvidence?: 
   return [...grouped.values()].map(row => ({ ...row, conversionRate: row.converted + row.lost ? Math.round(row.converted / (row.converted + row.lost) * 100) : null }))
     .sort((left, right) => Number(right.label.split('v')[0]) - Number(left.label.split('v')[0]) || Number(right.label.split('v')[1]) - Number(left.label.split('v')[1]));
 }
+
+/** Overall advantage conversion counts a round once even if it passed through several exact states. */
+export function summarizeRoundAdvantageTotals(rounds: readonly { advantageEvidence?: RoundAdvantageEvidence }[]) {
+  const totals = { opportunities: 0, converted: 0, lost: 0, unknown: 0, conversionRate: null as number | null };
+  for (const round of rounds) {
+    const evidence = round.advantageEvidence;
+    if (evidence?.status !== 'complete' || !evidence.states.length) continue;
+    totals.opportunities += 1; totals[evidence.roundOutcome] += 1;
+  }
+  const decided = totals.converted + totals.lost;
+  totals.conversionRate = decided ? Math.round(totals.converted / decided * 100) : null;
+  return totals;
+}

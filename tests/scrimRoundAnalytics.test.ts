@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { buildPlayerScreenshotMetrics, classifyAverageLoadout, combinePlayerScreenshotMetrics, combineStoredScreenshotMetrics, deriveSpecialRoundConversions, materializeFirstDeathsFromRoundEvidence, materializeRoundOpeningsFromScreenshotEvidence, materializeRoundPlantsFromScreenshotEvidence } from '../lib/scrimRoundAnalytics';
+import { buildPlayerScreenshotMetrics, classifyAverageLoadout, classifyTeamEquipment, combinePlayerScreenshotMetrics, combineStoredScreenshotMetrics, deriveSpecialRoundConversions, materializeFirstDeathsFromRoundEvidence, materializeRoundOpeningsFromScreenshotEvidence, materializeRoundPlantsFromScreenshotEvidence } from '../lib/scrimRoundAnalytics';
 
 const round = (overrides: any = {}) => ({
   id: 'r1', matchId: 'm1', roundNo: 1, side: 'Attack', result: 'W',
@@ -13,6 +13,7 @@ const round = (overrides: any = {}) => ({
 describe('scrim screenshot analytics', () => {
   it('uses stable economy thresholds', () => {
     expect([1999, 2000, 3499, 3500, 3899, 3900].map(classifyAverageLoadout)).toEqual(['eco', 'low', 'low', 'half', 'half', 'full']);
+    expect(classifyTeamEquipment(Array.from({ length: 5 }, () => ({ team: 'ours', equippedWeapon: 'Bandit' })), 'ours')).toBe('eco');
   });
   it('derives weapon, opening, multikill, KAST and low-budget wins from confirmed evidence', () => {
     expect(buildPlayerScreenshotMetrics([round()] as any)).toEqual([expect.objectContaining({ identity: 'p1', coveredRounds: 1, wins: 1, firstKills: 1, lowBudgetWins: 1, multikills: { two: 1, three: 0, four: 0, ace: 0 }, kast: { successful: 1, covered: 1 }, weapons: [{ weapon: 'Sheriff', rounds: 1, wins: 1, kills: 2, deaths: 0 }] })]);
@@ -22,12 +23,12 @@ describe('scrim screenshot analytics', () => {
     const second = round({ id: 'r2', roundNo: 2, screenshotEvidence: { ...round().screenshotEvidence, players: [{ playerId: 'p1', displayName: 'Alpha', team: 'ours', assists: 1, survived: false }], events: [{ sequence: 1, killerPlayerId: 'x1', victimPlayerId: 'p1' }] } });
     expect(buildPlayerScreenshotMetrics([first, second] as any)[0].kast).toEqual({ successful: 1, covered: 2 });
   });
-  it('counts a proven KAST success even when the assist delta is unavailable', () => {
+  it('keeps KAST unknown when assist coverage is unavailable even on a successful round', () => {
     const survived = round({ roundNo: 7, screenshotEvidence: {
       ...round().screenshotEvidence,
       players: [{ playerId: 'p1', displayName: 'Alpha', team: 'ours', survived: true }],
     } });
-    expect(buildPlayerScreenshotMetrics([survived] as any)[0].kast).toEqual({ successful: 1, covered: 1 });
+    expect(buildPlayerScreenshotMetrics([survived] as any)[0].kast).toEqual({ successful: 0, covered: 0 });
   });
   it('detects full-buy and anti-eco losses without counting review-required evidence', () => {
     const loss = round({ result: 'L', screenshotEvidence: { ...round().screenshotEvidence, ourAverageLoadout: 4300, enemyAverageLoadout: 1700 } });
