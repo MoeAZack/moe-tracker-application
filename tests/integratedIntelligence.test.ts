@@ -90,14 +90,31 @@ describe('integrated intelligence', () => {
     expect(report.players[0].facts.find(fact => fact.field === 'kills')).toMatchObject({ source: 'replay', value: 20, conflict: true });
   });
 
-  it('shrinks calibrated ratings toward 50 and preserves context on weapon outcomes', () => {
+  it('keeps undersampled experimental ratings unpublished and preserves context on weapon outcomes', () => {
     const data: any = { rosterPlayers: [], matches: [{ id: 'm1', map: 'Ascent' }, { id: 'm2', map: 'Bind' }], playerStats: [
       { id: 's1', matchId: 'm1', playerId: 'p1', player: 'One', kills: 20, deaths: 10, assists: 5, fk: 4, fd: 1, kastCovered: 10, kastSuccessful: 8, agent: 'Jett' },
       { id: 's2', matchId: 'm2', playerId: 'p2', player: 'Two', kills: 8, deaths: 15, assists: 3, fk: 1, fd: 4, kastCovered: 10, kastSuccessful: 5, agent: 'Omen' },
     ], rounds: [{ id: 'r1', matchId: 'm1', roundNo: 1, result: 'W', side: 'ATT', site: 'A', buy: 'Full', enemyBuy: 'Eco', screenshotEvidence: { reviewStatus: 'confirmed', players: [{ playerId: 'p1', displayName: 'One', team: 'ours', equippedWeapon: 'Vandal' }] } }] };
-    const ratings = buildCalibratedPlayerRatings(data); expect(ratings[0].rating).toBeLessThan(60); expect(ratings[0].reliability).toBe(17);
-    expect(ratings[0]).toMatchObject({ calculationVersion: 'calibrated-player-rating/v3', validationStatus: 'descriptive-unvalidated', calibration: { status: 'team-context-calibrated', cohortSize: 2, baseline: 'median-mad' } }); expect(ratings[0].contexts.maps.length).toBeGreaterThan(0);
+    const ratings = buildCalibratedPlayerRatings(data); expect(ratings[0].rating).toBeNull(); expect(ratings[0].reliability).toBe(17);
+    expect(ratings[0]).toMatchObject({ calculationVersion: 'calibrated-player-rating/v4', validationStatus: 'experimental-unvalidated', publicationStatus: 'insufficient-evidence', calibration: { status: 'insufficient-evidence', cohortSize: 2, baseline: 'median-mad', minimumCohortSize: 10 }, unknownReasons: expect.arrayContaining(['minimum-10-player-cohort-required', 'minimum-10-matches-required']) }); expect(ratings[0].contexts.maps.length).toBeGreaterThan(0);
     expect(buildContextualWeaponOutcomes(data)[0]).toMatchObject({ weapon: 'Vandal', map: 'Ascent', buyClass: 'Full buy', enemyBuyClass: 'Eco', side: 'ATT', site: 'A', player: 'One', agent: 'Jett', wins: 1 });
+  });
+
+  it('only computes an experimental player score for a complete 10-player, 10-match cohort', () => {
+    const matches = Array.from({ length: 10 }, (_, index) => ({ id: `m${index}`, map: index % 2 ? 'Bind' : 'Ascent' }));
+    const playerStats = Array.from({ length: 10 }, (_, player) => Array.from({ length: 10 }, (_, match) => ({
+      id: `p${player}-m${match}`, matchId: `m${match}`, playerId: `p${player}`, player: `Player ${player}`,
+      kills: 12 + player, deaths: 10 + (player % 3), assists: 4 + (player % 2), fk: 2 + (player % 2), fd: 1,
+      kastCovered: 20, kastSuccessful: 12 + (player % 5), agent: player % 2 ? 'Omen' : 'Jett',
+    }))).flat();
+    const ratings = buildCalibratedPlayerRatings({ rosterPlayers: [], matches, playerStats } as any);
+    expect(ratings).toHaveLength(10);
+    expect(ratings.every(item => item.rating !== null && item.publicationStatus === 'experimental-only')).toBe(true);
+    expect(ratings.every(item => item.interval.low === null && item.interval.high === null && item.validationStatus === 'experimental-unvalidated')).toBe(true);
+
+    playerStats.find(item => item.playerId === 'p0')!.assists = null as any;
+    const incomplete = buildCalibratedPlayerRatings({ rosterPlayers: [], matches, playerStats } as any).find(item => item.playerId === 'p0')!;
+    expect(incomplete).toMatchObject({ rating: null, publicationStatus: 'insufficient-evidence', unknownReasons: expect.arrayContaining(['teamplay-evidence-incomplete']) });
   });
 
   it('matches intervention follow-up cohorts by player, map, agent and role', () => {

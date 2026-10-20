@@ -159,32 +159,32 @@ export default function MapBestStats({ data, evidenceData = data, theme, onUpser
   const calculatedBestMaps = useMemo(() => {
     const weights = data.settings.weights || { mapWin: 25, attWin: 12.5, defWin: 12.5, pistol: 20, eco: 10, bonus: 10, kd: 10 };
     const statsConfig = data.settings.stats || { shrinkK: 10, lowSample: 15 };
+    const experimentalScoresEnabled = statsConfig.experimentalCompositeScores === true;
 
-    const playerPerformanceWeight = 15;
     return (Object.entries(mapStatsTable) as [string, any][]).map(([mapName, s]) => {
       const n = s.actualPlayed;
       const weightedPlayed = s.played;
-      const rawWr = weightedPlayed > 0 ? (s.won / weightedPlayed) : 0.5;
+      const rawWr = weightedPlayed > 0 ? (s.won / weightedPlayed) : null;
 
       // Low sample shrinkage / regression to the mean (0.5)
       const shrinkK = statsConfig.shrinkK || 10;
-      const wr = weightedPlayed > 0 ? (s.won + shrinkK * 0.5) / (weightedPlayed + shrinkK) : 0.5;
+      const wr = weightedPlayed > 0 ? (s.won + shrinkK * 0.5) / (weightedPlayed + shrinkK) : null;
 
-      const attWr = (s.attW + s.attL) > 0 ? (s.attW / (s.attW + s.attL)) : 0.5;
-      const defWr = (s.defW + s.defL) > 0 ? (s.defW / (s.defW + s.defL)) : 0.5;
+      const attWr = (s.attW + s.attL) > 0 ? (s.attW / (s.attW + s.attL)) : null;
+      const defWr = (s.defW + s.defL) > 0 ? (s.defW / (s.defW + s.defL)) : null;
 
       const pistolTotal = s.pistolW + s.pistolL;
-      const pistolWr = pistolTotal > 0 ? (s.pistolW / pistolTotal) : 0.5;
+      const pistolWr = pistolTotal > 0 ? (s.pistolW / pistolTotal) : null;
 
       const ecoTotal = s.ecoW + s.ecoL;
-      const ecoWr = ecoTotal > 0 ? (s.ecoW / ecoTotal) : 0.5;
+      const ecoWr = ecoTotal > 0 ? (s.ecoW / ecoTotal) : null;
 
       const bonusTotal = s.bonusW + s.bonusL;
-      const bonusWr = bonusTotal > 0 ? (s.bonusW / bonusTotal) : 0.5;
+      const bonusWr = bonusTotal > 0 ? (s.bonusW / bonusTotal) : null;
 
-      const kdRatio = s.deaths > 0 ? (s.kills / s.deaths) : 1.0;
+      const kdRatio = s.deaths > 0 ? (s.kills / s.deaths) : null;
       // Map KD to a 0-1 scale, where 1.0 is 0.5, 1.5 is 0.75, 0.5 is 0.25, etc.
-      const kdScore = Math.max(0, Math.min(1.0, kdRatio / 2.0));
+      const kdScore = kdRatio === null ? null : Math.max(0, Math.min(1.0, kdRatio / 2.0));
 
       // Equal-weight current-player form prevents one high-volume fragger from
       // hiding a weak roster fit. Each player's reconciled map K/D contributes
@@ -197,22 +197,23 @@ export default function MapBestStats({ data, evidenceData = data, theme, onUpser
       }
       const playerScores = [...rowsByPlayer.values()].map(rows => {
         const reconciled = reconcileObservedPlayerRows(rows);
+        if (!reconciled.length || !reconciled.every(row => typeof row.kills === 'number' && typeof row.deaths === 'number')) return null;
         const kills = reconciled.reduce((sum, row) => sum + (typeof row.kills === 'number' ? row.kills : 0), 0);
         const deaths = reconciled.reduce((sum, row) => sum + (typeof row.deaths === 'number' ? row.deaths : 0), 0);
         return deaths > 0 ? Math.max(0, Math.min(1, (kills / deaths) / 2)) : kills > 0 ? 1 : null;
       }).filter((value): value is number => value !== null);
-      const playerPerformanceScore = playerScores.length ? playerScores.reduce((sum, value) => sum + value, 0) / playerScores.length : 0.5;
+      const playerPerformanceScore = n >= (statsConfig.lowSample || 15) && playerScores.length === rowsByPlayer.size && playerScores.length
+        ? playerScores.reduce((sum, value) => sum + value, 0) / playerScores.length : null;
 
       const ledger = buildMapScoreLedger({
-        mapWin: { label: 'Shrunk match win rate', value: wr, weight: weights.mapWin, known: n > 0, samples: n },
-        attack: { label: 'Attack round win rate', value: attWr, weight: weights.attWin, known: (s.attW + s.attL) > 0, samples: s.attW + s.attL },
-        defense: { label: 'Defense round win rate', value: defWr, weight: weights.defWin, known: (s.defW + s.defL) > 0, samples: s.defW + s.defL },
-        pistol: { label: 'Pistol conversion', value: pistolWr, weight: weights.pistol, known: pistolTotal > 0, samples: pistolTotal },
-        eco: { label: 'Post-pistol conversion', value: ecoWr, weight: weights.eco, known: ecoTotal > 0, samples: ecoTotal },
-        bonus: { label: 'Earned bonus conversion', value: bonusWr, weight: weights.bonus, known: bonusTotal > 0, samples: bonusTotal },
-        kd: { label: 'Team K/D score', value: kdScore, weight: weights.kd, known: (s.kills + s.deaths) > 0, samples: s.kills + s.deaths },
-        playerForm: { label: 'Equal-weight player form', value: playerPerformanceScore, weight: playerPerformanceWeight, known: playerScores.length > 0, samples: playerScores.length },
-      });
+        mapWin: { label: 'Shrunk match win rate', value: wr ?? 0, weight: weights.mapWin, known: experimentalScoresEnabled && wr !== null, samples: n },
+        attack: { label: 'Attack round win rate', value: attWr ?? 0, weight: weights.attWin, known: experimentalScoresEnabled && attWr !== null, samples: s.attW + s.attL },
+        defense: { label: 'Defense round win rate', value: defWr ?? 0, weight: weights.defWin, known: experimentalScoresEnabled && defWr !== null, samples: s.defW + s.defL },
+        pistol: { label: 'Pistol conversion', value: pistolWr ?? 0, weight: weights.pistol, known: experimentalScoresEnabled && pistolWr !== null, samples: pistolTotal },
+        eco: { label: 'Post-pistol conversion', value: ecoWr ?? 0, weight: weights.eco, known: experimentalScoresEnabled && ecoWr !== null, samples: ecoTotal },
+        bonus: { label: 'Earned bonus conversion', value: bonusWr ?? 0, weight: weights.bonus, known: experimentalScoresEnabled && bonusWr !== null, samples: bonusTotal },
+        kd: { label: 'Team K/D score', value: kdScore ?? 0, weight: weights.kd, known: experimentalScoresEnabled && kdScore !== null, samples: s.kills + s.deaths },
+      }, statsConfig.lowSample || 15);
 
       // 95% Wilson Score Interval (highly accurate for small sample sizes and extreme rates)
       let ciLow = 0;
@@ -232,18 +233,18 @@ export default function MapBestStats({ data, evidenceData = data, theme, onUpser
         score: ledger.score,
         ledger,
         n,
-        wr: Math.round(rawWr * 100),
+        wr: rawWr === null ? null : Math.round(rawWr * 100),
         ci: `${Math.round(ciLow * 100)}% - ${Math.round(ciHigh * 100)}%`,
-        attWr: Math.round(attWr * 100),
-        defWr: Math.round(defWr * 100),
-        pistolWr: Math.round(pistolWr * 100),
-        ecoWr: Math.round(ecoWr * 100),
-        bonusWr: Math.round(bonusWr * 100),
-        kd: kdRatio.toFixed(2),
-        playerPerformance: Math.round(playerPerformanceScore * 100),
+        attWr: attWr === null ? null : Math.round(attWr * 100),
+        defWr: defWr === null ? null : Math.round(defWr * 100),
+        pistolWr: pistolWr === null ? null : Math.round(pistolWr * 100),
+        ecoWr: ecoWr === null ? null : Math.round(ecoWr * 100),
+        bonusWr: bonusWr === null ? null : Math.round(bonusWr * 100),
+        kd: kdRatio === null ? null : kdRatio.toFixed(2),
+        playerPerformance: playerPerformanceScore === null ? null : Math.round(playerPerformanceScore * 100),
         contributingPlayers: playerScores.length,
       };
-    }).sort((a, b) => b.score - a.score);
+    }).sort((a, b) => (b.score ?? -1) - (a.score ?? -1));
   }, [mapStatsTable, data.settings.weights, data.settings.stats, matches, playerStats]);
 
   // --- TACTICAL LOSS & THROW ANALYTICS ---
@@ -602,7 +603,7 @@ export default function MapBestStats({ data, evidenceData = data, theme, onUpser
             <div className="flex flex-wrap items-start justify-between gap-3">
               <div className="flex items-center gap-2">
                 <Calculator className={`w-5 h-5 ${theme.text}`} />
-                <div><h4 className="font-black text-sm uppercase tracking-wide">Esports Weighted Best Map Rating</h4><p className="mt-1 text-[10px] text-gray-500">Team results, side conversions, economy, team K/D and equal-weight player performance per map.</p></div>
+                <div><h4 className="font-black text-sm uppercase tracking-wide">Experimental best-map score</h4><p className="mt-1 text-[10px] text-gray-500">A descriptive composite of team results, side conversions, economy and team K/D. Unknown and undersampled inputs are excluded, never scored as average.</p></div>
               </div>
               <span className="text-[10px] text-gray-500 font-mono uppercase bg-black/10 px-2 py-1 rounded">Shrink K: {data.settings.stats?.shrinkK || 10}</span>
             </div>
@@ -627,22 +628,22 @@ export default function MapBestStats({ data, evidenceData = data, theme, onUpser
                 </thead>
                 <tbody className="divide-y divide-white/5">
                   {calculatedBestMaps.map((cm, idx) => (
-                    <tr key={cm.map} className={`${idx === 0 ? 'bg-[#ff4655]/5 border border-[#ff4655]/10 font-bold' : ''} hover:bg-white/5 transition-all`}>
+                    <tr key={cm.map} className={`${idx === 0 && cm.score !== null ? 'bg-[#ff4655]/5 border border-[#ff4655]/10 font-bold' : ''} hover:bg-white/5 transition-all`}>
                       <td className="py-3.5 px-4 flex items-center gap-2 text-white text-sm">
-                        {idx === 0 && <TrendingUp className="w-4 h-4 text-[#ff4655]" />}
+                        {idx === 0 && cm.score !== null && <TrendingUp className="w-4 h-4 text-[#ff4655]" />}
                         {cm.map}
                       </td>
-                      <td className="py-3.5 px-4 text-center font-black text-sm text-[#ff4655]">{cm.score}</td>
+                      <td className="py-3.5 px-4 text-center font-black text-sm text-[#ff4655]">{cm.score ?? 'Not enough data'}</td>
                       <td className="py-3.5 px-4 text-center text-gray-400">{cm.n > 0 ? cm.ci : 'N/A (unplayed)'}</td>
                       <td className="py-3.5 px-4 text-center text-gray-300 font-bold">{cm.n}</td>
-                      <td className={`py-3.5 px-4 text-center font-bold ${percentageTextClass(cm.wr)}`}>{cm.wr}%</td>
-                      <td className={`py-3.5 px-4 text-center ${percentageTextClass(cm.attWr)}`}>{cm.attWr}%</td>
-                      <td className={`py-3.5 px-4 text-center ${percentageTextClass(cm.defWr)}`}>{cm.defWr}%</td>
-                      <td className={`py-3.5 px-4 text-center ${percentageTextClass(cm.pistolWr)}`}>{cm.pistolWr}%</td>
-                      <td className={`py-3.5 px-4 text-center ${percentageTextClass(cm.ecoWr)}`}>{cm.ecoWr}%</td>
-                      <td className="py-3.5 px-4 text-center font-bold text-gray-300">{cm.kd}</td>
-                      <td className={`py-3.5 px-4 text-center font-bold ${percentageTextClass(cm.contributingPlayers ? cm.playerPerformance : null)}`}>{cm.contributingPlayers ? `${cm.playerPerformance}% · ${cm.contributingPlayers}P` : '—'}</td>
-                      <td className="py-3.5 px-4 text-center"><details className="relative"><summary className="cursor-pointer whitespace-nowrap text-cyan-300">{cm.ledger.coveragePercent}% · {cm.ledger.confidence}</summary><div className="mt-2 min-w-[280px] space-y-1 rounded-lg border border-white/10 bg-slate-950 p-2 text-left text-[10px]">{cm.ledger.contributions.map(item => <p key={item.key} className="flex justify-between gap-3"><span className={item.status === 'observed' ? 'text-slate-300' : 'text-amber-300'}>{item.label}{item.status === 'neutral-fallback' ? ' · neutral fallback' : ` · ${item.samples} samples`}</span><strong>{item.weightedPoints.toFixed(1)} / {item.weight}</strong></p>)}</div></details></td>
+                      <td className={`py-3.5 px-4 text-center font-bold ${percentageTextClass(cm.wr)}`}>{cm.wr === null ? 'Unknown' : `${cm.wr}%`}</td>
+                      <td className={`py-3.5 px-4 text-center ${percentageTextClass(cm.attWr)}`}>{cm.attWr === null ? 'Unknown' : `${cm.attWr}%`}</td>
+                      <td className={`py-3.5 px-4 text-center ${percentageTextClass(cm.defWr)}`}>{cm.defWr === null ? 'Unknown' : `${cm.defWr}%`}</td>
+                      <td className={`py-3.5 px-4 text-center ${percentageTextClass(cm.pistolWr)}`}>{cm.pistolWr === null ? 'Unknown' : `${cm.pistolWr}%`}</td>
+                      <td className={`py-3.5 px-4 text-center ${percentageTextClass(cm.ecoWr)}`}>{cm.ecoWr === null ? 'Unknown' : `${cm.ecoWr}%`}</td>
+                      <td className="py-3.5 px-4 text-center font-bold text-gray-300">{cm.kd ?? 'Unknown'}</td>
+                      <td className={`py-3.5 px-4 text-center font-bold ${percentageTextClass(cm.playerPerformance)}`}>{cm.playerPerformance === null ? 'Unknown' : `${cm.playerPerformance}% · ${cm.contributingPlayers}P`}</td>
+                      <td className="py-3.5 px-4 text-center"><details className="relative"><summary className="cursor-pointer whitespace-nowrap text-cyan-300">{cm.ledger.coveragePercent}% · {cm.ledger.confidence}</summary><div className="mt-2 min-w-[280px] space-y-1 rounded-lg border border-white/10 bg-slate-950 p-2 text-left text-[10px]">{cm.ledger.contributions.map(item => <p key={item.key} className="flex justify-between gap-3"><span className={item.status === 'observed' ? 'text-slate-300' : 'text-amber-300'}>{item.label} · {item.samples} samples{item.status === 'insufficient-sample' ? ` (needs ${cm.ledger.minimumSamples})` : item.status === 'unknown' ? ' (unknown)' : ''}</span><strong>{item.status === 'observed' ? `${item.weightedPoints.toFixed(1)} / ${item.weight}` : 'Excluded'}</strong></p>)}</div></details></td>
                     </tr>
                   ))}
                 </tbody>

@@ -13,7 +13,8 @@ function text(value: unknown, max = 160) { return typeof value === 'string' ? va
 export function refreshCoachingWorkflow(db: any, who = 'system', now = new Date().toISOString()) {
   const summaries = buildAllPracticeBlockSummaries(db, now);
   const deletedFingerprints = new Set<string>(db.settings?.deletedCoachingSignalFingerprints || []);
-  const drafts = [...summaries.flatMap(summary => generateReviewSignalDrafts(summary, db.settings?.coachingThresholds)), ...generateRoundReviewSignalDrafts(db, summaries, now)].filter(draft => !deletedFingerprints.has(draft.fingerprint));
+  const thresholds = { minimumSamples: db.settings?.stats?.lowSample || 15, ...(db.settings?.coachingThresholds || {}) };
+  const drafts = [...summaries.flatMap(summary => generateReviewSignalDrafts(summary, thresholds)), ...generateRoundReviewSignalDrafts(db, summaries, now)].filter(draft => !deletedFingerprints.has(draft.fingerprint));
   db.coachingSignals = reconcileReviewSignals(db.coachingSignals || [], drafts, who);
   for (const signal of db.coachingSignals as CoachingSignal[]) {
     const related = (db.coachingActions || []).find((action: CoachingAction) => !['resolved', 'cancelled'].includes(action.state) && action.check?.signalType === signal.type && coachingContextMatches(action.check.context, signal.context) && action.sourceSignalId !== signal.id && Date.parse(action.createdAt) < Date.parse(signal.createdAt));

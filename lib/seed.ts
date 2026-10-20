@@ -44,7 +44,8 @@ export function createSeed() {
       decayEnabled: true,
       halfLifeDays: 120,
       lowSample: 15,
-      rollingWindow: 10
+      rollingWindow: 10,
+      experimentalCompositeScores: false
     }
   };
 

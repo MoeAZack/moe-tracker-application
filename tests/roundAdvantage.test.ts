@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { deriveRoundAdvantage, summarizeRoundAdvantages } from '../lib/roundAdvantage';
+import { deriveRoundAdvantage, summarizeRoundAdvantages, summarizeRoundAdvantageTotals } from '../lib/roundAdvantage';
 
 describe('round advantage evidence', () => {
   it('records exact 5v3, 3v1 and 2v1 states when the round is lost', () => {
@@ -25,5 +25,16 @@ describe('round advantage evidence', () => {
     const won = deriveRoundAdvantage({ source: 'screenshot', complete: true, winner: 'W', events: [{ sequence: 1, victimTeam: 'theirs' }, { sequence: 2, victimTeam: 'ours' }, { sequence: 3, victimTeam: 'theirs' }] });
     const lost = deriveRoundAdvantage({ source: 'replay', complete: true, winner: 'L', events: [{ sequence: 1, victimTeam: 'theirs' }, { sequence: 2, victimTeam: 'ours' }, { sequence: 3, victimTeam: 'ours' }, { sequence: 4, victimTeam: 'ours' }, { sequence: 5, victimTeam: 'ours' }] });
     expect(summarizeRoundAdvantages([{ advantageEvidence: won }, { advantageEvidence: lost }]).find(row => row.label === '5v4')).toMatchObject({ opportunities: 2, converted: 1, lost: 1, conversionRate: 50 });
+    expect(summarizeRoundAdvantageTotals([{ advantageEvidence: won }, { advantageEvidence: lost }])).toMatchObject({ opportunities: 2, converted: 1, lost: 1, conversionRate: 50 });
+  });
+
+  it('counts one overall opportunity when a round passes through several advantage states', () => {
+    const lost = deriveRoundAdvantage({ source: 'replay', complete: true, winner: 'L', events: [
+      { sequence: 1, victimTeam: 'theirs' }, { sequence: 2, victimTeam: 'theirs' }, { sequence: 3, victimTeam: 'ours' },
+      { sequence: 4, victimTeam: 'ours' }, { sequence: 5, victimTeam: 'theirs' }, { sequence: 6, victimTeam: 'theirs' },
+      { sequence: 7, victimTeam: 'ours' }, { sequence: 8, victimTeam: 'ours' }, { sequence: 9, victimTeam: 'ours' },
+    ] });
+    expect(lost.states.length).toBeGreaterThan(1);
+    expect(summarizeRoundAdvantageTotals([{ advantageEvidence: lost }])).toMatchObject({ opportunities: 1, converted: 0, lost: 1 });
   });
 });

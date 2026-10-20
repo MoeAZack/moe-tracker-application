@@ -168,6 +168,7 @@ export default function SettingsControl({ data, theme, onSaveSettings, onRefresh
   const [decayEnabled, setDecayEnabled] = useState(data.settings.stats?.decayEnabled ?? false);
   const [halfLifeDays, setHalfLifeDays] = useState(data.settings.stats?.halfLifeDays ?? 120);
   const [rollingWindow, setRollingWindow] = useState(data.settings.stats?.rollingWindow ?? 10);
+  const [experimentalCompositeScores, setExperimentalCompositeScores] = useState(data.settings.stats?.experimentalCompositeScores ?? false);
 
   // Advanced configurations
   const [aiModel, setAiModel] = useState(data.settings.ai?.model || 'gemini-2.5-flash');
@@ -295,7 +296,8 @@ export default function SettingsControl({ data, theme, onSaveSettings, onRefresh
         lowSample: Number(lowSample),
         decayEnabled,
         halfLifeDays: Number(halfLifeDays),
-        rollingWindow: Number(rollingWindow)
+        rollingWindow: Number(rollingWindow),
+        experimentalCompositeScores
       },
       confirmOnSave,
       confirmOnDelete,
@@ -921,6 +923,11 @@ export default function SettingsControl({ data, theme, onSaveSettings, onRefresh
                     <p className="text-[9px] text-gray-500 leading-relaxed mt-0.5">Defines the play-count ceiling below which map pools are highlighted as critically small sample sizes.</p>
                   </div>
                 </div>
+
+                <label className="flex items-start gap-3 rounded-xl border border-amber-400/20 bg-amber-400/[0.04] p-3 text-xs">
+                  <input type="checkbox" checked={experimentalCompositeScores} onChange={event => setExperimentalCompositeScores(event.target.checked)} className="mt-0.5 rounded" />
+                  <span><strong className="block text-amber-200">Show experimental composite scores</strong><span className="mt-1 block text-[10px] leading-relaxed text-gray-500">Displays unvalidated player ratings and best-map composites only when their sample gates pass. Raw K/D, KAST, win rates and evidence remain available regardless.</span></span>
+                </label>
 
                 <div className="border-t border-white/5 pt-4 space-y-4 font-mono text-xs text-left">
                   <h5 className="text-[11px] font-black uppercase text-[#ff4655]">Form Decay & Recency Controls</h5>
