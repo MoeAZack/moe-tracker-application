@@ -186,9 +186,12 @@ async function sha256File(file) {
 
 async function discoverVodGames(input, options = {}) {
   const progress = options.progress; const workRoot = options.workRoot || path.join(require('node:os').tmpdir(), 'moetracker-vod'); await fsp.mkdir(workRoot, { recursive: true }); await ensureDiskSpace(workRoot, options.minimumFreeBytes || MIN_FREE_BYTES);
-  const signal = options.signal; throwIfAborted(signal); const cacheId = crypto.randomUUID(); const directory = path.join(workRoot, `source-${cacheId}`); await fsp.mkdir(directory, { recursive: true });
+  // A resumed job reopens its original working directory, so frame checkpoints
+  // are reused and a retained download is still deleted once it completes.
+  const resume = options.resume?.directory ? options.resume : null;
+  const signal = options.signal; throwIfAborted(signal); const cacheId = resume?.cacheId || crypto.randomUUID(); const directory = resume ? path.resolve(resume.directory) : path.join(workRoot, `source-${cacheId}`); await fsp.mkdir(directory, { recursive: true });
   try {
-    const downloaded = !input.localPath; const file = input.localPath ? path.resolve(String(input.localPath)) : await downloadYoutube(input.vodUrl, directory, progress, signal);
+    const downloaded = resume ? resume.downloaded === true : !input.localPath; const file = input.localPath ? path.resolve(String(input.localPath)) : await downloadYoutube(input.vodUrl, directory, progress, signal);
     const probe = await probeVideo(file, signal); const candidates = await sampleScoreboardCandidates(file, probe.durationSeconds, progress, signal, input.expectedGames); const games = [];
     for (let index = 0; index < candidates.length; index += 1) {
       const target = path.join(directory, `scoreboard-${String(index + 1).padStart(2, '0')}.png`); await extractFrame(file, candidates[index].timestampMs, target, signal);
@@ -204,7 +207,7 @@ async function discoverVodGames(input, options = {}) {
     const boundaries = recognizedBoundaries.map(({ path: _path, ...item }) => item); const publicGames = games.map(({ path: _path, ...item }) => item);
     const sourceSha256 = await sha256File(file); const vodUrl = input.vodUrl ? normalizeYoutubeUrl(input.vodUrl) : `moetracker-local://sha256/${sourceSha256}`;
     return { cacheId, directory, file, downloaded, uploadDate, uploader, vodUrl, videoId: youtubeVideoId(input.vodUrl), sourceSha256, durationMs: probe.durationMs, width: probe.width, height: probe.height, games: publicGames, boundaries };
-  } catch (error) { await fsp.rm(directory, { recursive: true, force: true }).catch(() => {}); throw error; }
+  } catch (error) { if (!resume) await fsp.rm(directory, { recursive: true, force: true }).catch(() => {}); throw error; }
 }
 
 function frameDifference(left, right) {

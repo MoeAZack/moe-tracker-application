@@ -39,6 +39,9 @@ let runtime;
 let updateController;
 let quitting = false;
 const approvedVodPaths = new Set();
+// Retained sources reopened by desktop:resume-vod-job, keyed by path, so the next
+// discovery continues the same job, directory and cleanup policy.
+const resumedVodJobs = new Map();
 
 // Keep Windows taskbar/notification identity aligned with the owl-branded
 // executable instead of inheriting an older Electron/VALORANT-style cache.
@@ -635,18 +638,24 @@ handleTrusted('desktop:resume-vod-job', async (_event, jobId) => {
   const job = (await readIngestionJobs()).find(item => item.id === String(jobId || ''));
   if (!job || !job.resumable || !job.sourcePath) throw new Error('This VOD job has no retained source to restart from.');
   const sourcePath = path.resolve(job.sourcePath); const stat = await fsp.stat(sourcePath).catch(() => null); if (!stat?.isFile()) { await updateIngestionJob(job.id, { status: 'failed', resumable: false, retainedSource: false, message: 'The retained video is no longer available.' }); throw new Error('The retained video is no longer available on this PC.'); }
-  approvedVodPaths.add(sourcePath); await updateIngestionJob(job.id, { status: 'ready', stage: 'restart-ready', percent: 0, message: 'Retained source reopened from its checkpoint.' });
+  approvedVodPaths.add(sourcePath); const resumeCacheId = job.cacheId || job.checkpoint?.cacheId || null; const downloadedSource = job.source === 'youtube-vod';
+  // A download lives inside its own work directory; a coach's local VOD never
+  // does, so its frames go back to the job's work directory beside the others.
+  resumedVodJobs.set(sourcePath, { jobId: job.id, cacheId: resumeCacheId, downloaded: downloadedSource, directory: downloadedSource ? path.dirname(sourcePath) : resumeCacheId ? path.join(runtime.paths.local, 'Vod Analysis', `source-${resumeCacheId}`) : null });
+  await updateIngestionJob(job.id, { status: 'ready', stage: 'restart-ready', percent: 0, message: 'Retained source reopened from its checkpoint.' });
   return { path: sourcePath, name: path.basename(sourcePath), expectedGames: Number(job.expectedGames) || 1, vodUrl: String(job.vodUrl || '') };
 });
 handleTrusted('desktop:discover-vod-games', async (event, input = {}) => {
   const localPath = input.localPath ? path.resolve(String(input.localPath)) : null;
   if (localPath && !approvedVodPaths.has(localPath)) throw new Error('Choose the local VOD through Moe Tracker before analyzing it.');
-  const jobId = crypto.randomUUID(); await updateIngestionJob(jobId, { kind: 'discover-and-import', status: 'running', stage: 'preparing', percent: 0, source: localPath ? 'local-vod' : 'youtube-vod', sourcePath: localPath || undefined, vodUrl: String(input.vodUrl || '').trim(), expectedGames: input.expectedGames, mapNames: Array.isArray(input.mapNames) ? input.mapNames.slice(0, 50) : [], retainedSource: Boolean(localPath), resumable: false, checkpoint: localPath ? { stage: 'source-ready' } : null });
-  const progress = payload => { const update = { ...payload, jobId, source: localPath ? 'local-vod' : 'youtube-vod', status: 'running' }; if (!event.sender.isDestroyed()) { event.sender.send('desktop:vod-analysis-progress', update); event.sender.send('desktop:ingestion-progress', update); } void updateIngestionJob(jobId, { status: 'running', stage: payload.stage, percent: payload.percent, message: payload.message, checkpoint: { stage: payload.stage, percent: payload.percent } }).catch(() => {}); };
+  const resumed = localPath ? resumedVodJobs.get(localPath) || null : null; if (resumed) resumedVodJobs.delete(localPath);
+  const source = resumed?.downloaded || !localPath ? 'youtube-vod' : 'local-vod';
+  const jobId = resumed?.jobId || crypto.randomUUID(); await updateIngestionJob(jobId, { kind: 'discover-and-import', status: 'running', stage: 'preparing', percent: 0, source, sourcePath: localPath || undefined, vodUrl: String(input.vodUrl || '').trim(), expectedGames: input.expectedGames, mapNames: Array.isArray(input.mapNames) ? input.mapNames.slice(0, 50) : [], retainedSource: Boolean(localPath), resumable: Boolean(resumed), checkpoint: localPath ? { stage: 'source-ready' } : null });
+  const progress = payload => { const update = { ...payload, jobId, source, status: 'running' }; if (!event.sender.isDestroyed()) { event.sender.send('desktop:vod-analysis-progress', update); event.sender.send('desktop:ingestion-progress', update); } void updateIngestionJob(jobId, { status: 'running', stage: payload.stage, percent: payload.percent, message: payload.message, checkpoint: { stage: payload.stage, percent: payload.percent } }).catch(() => {}); };
   const jobKey = event.sender.id; if (activeVodAnalyses.has(jobKey)) throw new Error('A VOD analysis is already running in this window.');
   const controller = new AbortController(); activeVodAnalyses.set(jobKey, controller); activeIngestionControllers.set(jobId, controller);
   try {
-    const result = await discoverVodGames({ vodUrl: String(input.vodUrl || '').trim(), localPath, expectedGames: input.expectedGames, mapNames: Array.isArray(input.mapNames) ? input.mapNames.slice(0, 50).map(item => String(item || '').slice(0, 100)) : [] }, { progress, signal: controller.signal, workRoot: path.join(runtime.paths.local, 'Vod Analysis') });
+    const result = await discoverVodGames({ vodUrl: String(input.vodUrl || '').trim(), localPath, expectedGames: input.expectedGames, mapNames: Array.isArray(input.mapNames) ? input.mapNames.slice(0, 50).map(item => String(item || '').slice(0, 100)) : [] }, { progress, signal: controller.signal, workRoot: path.join(runtime.paths.local, 'Vod Analysis'), resume: resumed?.directory ? resumed : null });
     approvedVodPaths.add(path.resolve(result.file));
     discoveredVodSources.set(result.cacheId, { directory: result.directory, file: result.file, downloaded: result.downloaded, videoId: result.videoId, durationMs: result.durationMs, sourceSha256: result.sourceSha256, owner: event.sender.id, createdAt: Date.now(), jobId });
     // Candidate frames are intentionally numerous so OCR has several chances to

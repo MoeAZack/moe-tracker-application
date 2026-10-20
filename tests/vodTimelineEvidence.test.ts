@@ -7,7 +7,7 @@ import analyzerModule from '../desktop/vod-timeline-analyzer.cjs';
 import { boundaryTimelinePlayers } from '../src/components/VodSubmission';
 
 const { aggregateVideoEvidence, parseKillFeedSnapshot, parseUltimateSnapshots, parseRoundStateSnapshot, buildRoundTimeline, buildObserverSegments, applyVisualTemplates, fuseVodEvidence } = evidenceModule;
-const { normalizeYoutubeUrl, youtubeVideoId, frameDifference, visualSignature, scoreboardGeometryScore, agentSelectGeometryScore, chooseGameBoundaries, inferPovPlayer, analyzeVodTimeline, releaseVodSource } = analyzerModule;
+const { normalizeYoutubeUrl, youtubeVideoId, frameDifference, visualSignature, scoreboardGeometryScore, agentSelectGeometryScore, chooseGameBoundaries, inferPovPlayer, analyzeVodTimeline, releaseVodSource, discoverVodGames } = analyzerModule;
 const players = [
   { name: 'Alpha', team: 'ours' }, { name: 'Bravo', team: 'ours' }, { name: 'Charlie', team: 'ours' }, { name: 'Delta', team: 'ours' }, { name: 'Echo', team: 'ours' },
   { name: 'EnemyOne', team: 'theirs' }, { name: 'EnemyTwo', team: 'theirs' }, { name: 'EnemyThree', team: 'theirs' }, { name: 'EnemyFour', team: 'theirs' }, { name: 'EnemyFive', team: 'theirs' },
@@ -169,6 +169,22 @@ describe('VOD timeline evidence', () => {
     const root = await fs.mkdtemp(path.join(os.tmpdir(), 'moe-vod-release-')); const downloaded = path.join(root, 'downloaded'); await fs.mkdir(downloaded); const downloadedFile = path.join(downloaded, 'vod.mp4'); await fs.writeFile(downloadedFile, 'video');
     await expect(releaseVodSource({ downloaded: true, directory: downloaded, file: downloadedFile }, true)).resolves.toBe(false); await expect(fs.stat(downloaded)).rejects.toThrow();
     const localFile = path.join(root, 'coach.mp4'); await fs.writeFile(localFile, 'video'); await expect(releaseVodSource({ downloaded: false, directory: root, file: localFile }, true)).resolves.toBe(true); expect(await fs.readFile(localFile, 'utf8')).toBe('video'); await fs.rm(root, { recursive: true, force: true });
+  });
+
+  it('resumes a retained download in its own directory and still deletes it once completed', async () => {
+    const root = await fs.mkdtemp(path.join(os.tmpdir(), 'moe-vod-resume-')); const directory = path.join(root, 'source-original'); await fs.mkdir(directory);
+    const retained = path.join(directory, 'vod.mp4'); await fs.writeFile(retained, 'not a video');
+    // A failed resumed discovery must never delete the retained source it reopened.
+    await expect(discoverVodGames({ localPath: retained }, { workRoot: root, minimumFreeBytes: 1, resume: { cacheId: 'original', directory, downloaded: true } })).rejects.toThrow();
+    expect(await fs.readFile(retained, 'utf8')).toBe('not a video');
+    expect(await fs.readdir(root)).toEqual(['source-original']);
+    const ffmpeg = (await import('ffmpeg-static')).default as unknown as string; const { execFileSync } = await import('node:child_process');
+    execFileSync(ffmpeg, ['-hide_banner', '-loglevel', 'error', '-f', 'lavfi', '-i', 'testsrc=size=320x180:rate=4:duration=3', '-pix_fmt', 'yuv420p', '-y', retained]);
+    const result = await discoverVodGames({ localPath: retained }, { workRoot: root, minimumFreeBytes: 1, resume: { cacheId: 'original', directory, downloaded: true } });
+    expect(result).toMatchObject({ cacheId: 'original', directory: path.resolve(directory), downloaded: true, file: path.resolve(retained) });
+    expect(await fs.readdir(root)).toEqual(['source-original']);
+    await expect(releaseVodSource({ downloaded: true, directory, file: retained }, true)).resolves.toBe(false); await expect(fs.stat(directory)).rejects.toThrow();
+    await fs.rm(root, { recursive: true, force: true });
   });
 
   it('never treats a VOD uploader as a teammate and reuses only proven opponent identities', () => {
