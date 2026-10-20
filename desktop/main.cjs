@@ -19,7 +19,7 @@ const { canonical, refreshScreenshotOutboxFromData } = require('./sync-outbox.cj
 const { hasRecentRecoveryBackup } = require('./recovery-backup.cjs');
 const { isTrustedSenderUrl, sessionIsFresh } = require('./session-security.cjs');
 const { loginCredentials } = require('./session-credentials.cjs');
-const { analyzeVodTimeline, discoverVodGames, releaseVodSource, createReviewClips } = require('./vod-timeline-analyzer.cjs');
+const { analyzeVodTimeline, discoverVodGames, releaseVodSource, createReviewClips, readVodFrame } = require('./vod-timeline-analyzer.cjs');
 const { createIngestionJob, updateIngestionJob: evolveIngestionJob, recoverInterruptedJobs, publicIngestionJob } = require('./ingestion-jobs.cjs');
 
 let mainWindow;
@@ -663,6 +663,11 @@ handleTrusted('desktop:discover-vod-games', async (event, input = {}) => {
     await updateIngestionJob(jobId, { status: 'ready', stage: 'detected', percent: 100, cacheId: result.cacheId, videoId: result.videoId, sourcePath: result.file, retainedSource: true, resumable: true, checkpoint: { stage: 'detected', cacheId: result.cacheId }, expectedGames: input.expectedGames, detectedGames: result.boundaries?.length || 0 });
     const { directory: _directory, file: _file, downloaded: _downloaded, sourceSha256: _sourceSha256, ...publicResult } = result; return { ...publicResult, jobId };
   } catch (error) { await updateIngestionJob(jobId, { status: controller.signal.aborted ? 'cancelled' : 'failed', stage: 'failed', message: String(error?.message || error) }); throw error; } finally { activeVodAnalyses.delete(jobKey); activeIngestionControllers.delete(jobId); }
+});
+handleTrusted('desktop:read-vod-frame', async (event, input = {}) => {
+  const cached = discoveredVodSources.get(String(input?.cacheId || ''));
+  if (!cached || cached.owner !== event.sender.id) throw new Error('The detected VOD session expired. Detect the games again.');
+  return readVodFrame(cached.directory, input?.frame);
 });
 handleTrusted('desktop:analyze-vod', async (event, input = {}) => {
   const players = Array.isArray(input.players) ? input.players.slice(0, 10).map(item => ({ name: String(item?.name || '').trim().slice(0, 100), team: item?.team === 'theirs' ? 'theirs' : 'ours', expectedKills: Number.isInteger(item?.expectedKills) && item.expectedKills >= 0 ? item.expectedKills : null, expectedDeaths: Number.isInteger(item?.expectedDeaths) && item.expectedDeaths >= 0 ? item.expectedDeaths : null })).filter(item => item.name) : [];

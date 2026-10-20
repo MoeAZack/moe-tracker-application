@@ -195,16 +195,18 @@ async function discoverVodGames(input, options = {}) {
     const probe = await probeVideo(file, signal); const candidates = await sampleScoreboardCandidates(file, probe.durationSeconds, progress, signal, input.expectedGames); const games = [];
     for (let index = 0; index < candidates.length; index += 1) {
       const target = path.join(directory, `scoreboard-${String(index + 1).padStart(2, '0')}.png`); await extractFrame(file, candidates[index].timestampMs, target, signal);
-      games.push({ timestampMs: candidates[index].timestampMs, score: candidates[index].score, agentSelectScore: candidates[index].agentSelectScore, path: target, mediaType: 'image/png', base64: (await fsp.readFile(target)).toString('base64') });
+      games.push({ timestampMs: candidates[index].timestampMs, score: candidates[index].score, agentSelectScore: candidates[index].agentSelectScore, path: target, mediaType: 'image/png' });
       progress?.({ stage: 'discover', percent: Math.round((index + 1) / Math.max(1, candidates.length) * 100), message: `Preparing scoreboard candidates · ${index + 1}/${candidates.length}` });
     }
     let uploadDate = null; let uploader = null; if (downloaded) { const infoPath = path.join(directory, `${youtubeVideoId(input.vodUrl)}.info.json`); const info = JSON.parse(await fsp.readFile(infoPath, 'utf8').catch(() => '{}')); if (/^\d{8}$/.test(String(info.upload_date || ''))) uploadDate = `${info.upload_date.slice(0, 4)}-${info.upload_date.slice(4, 6)}-${info.upload_date.slice(6, 8)}`; uploader = String(info.uploader || info.channel || '').trim().slice(0, 100) || null; }
     const boundaryCandidates = chooseGameBoundaries(games, probe.durationMs, input.expectedGames); const requestedBoundaryCount = Math.max(1, Math.min(12, Number(input.expectedGames) || 1));
     if (boundaryCandidates.length === requestedBoundaryCount - 1 && boundaryCandidates[0]?.timestampMs > 10 * 60_000) {
-      const target = path.join(directory, 'game-start-00.png'); await extractFrame(file, 0, target, signal); boundaryCandidates.unshift({ timestampMs: 0, score: 0, agentSelectScore: 0, path: target, mediaType: 'image/png', base64: (await fsp.readFile(target)).toString('base64') });
+      const target = path.join(directory, 'game-start-00.png'); await extractFrame(file, 0, target, signal); boundaryCandidates.unshift({ timestampMs: 0, score: 0, agentSelectScore: 0, path: target, mediaType: 'image/png' });
     }
     const recognizedBoundaries = await recognizeBoundaryMaps(boundaryCandidates, input.mapNames, progress, signal);
-    const boundaries = recognizedBoundaries.map(({ path: _path, ...item }) => item); const publicGames = games.map(({ path: _path, ...item }) => item);
+    // Frames stay on disk and are named, not inlined: dozens of 1080p PNGs in one
+    // IPC reply stalled the renderer. desktop:read-vod-frame serves them one at a time.
+    const boundaries = recognizedBoundaries.map(({ path: framePath, ...item }) => ({ ...item, frame: path.basename(framePath) })); const publicGames = games.map(({ path: framePath, ...item }) => ({ ...item, frame: path.basename(framePath) }));
     const sourceSha256 = await sha256File(file); const vodUrl = input.vodUrl ? normalizeYoutubeUrl(input.vodUrl) : `moetracker-local://sha256/${sourceSha256}`;
     return { cacheId, directory, file, downloaded, uploadDate, uploader, vodUrl, videoId: youtubeVideoId(input.vodUrl), sourceSha256, durationMs: probe.durationMs, width: probe.width, height: probe.height, games: publicGames, boundaries };
   } catch (error) { if (!resume) await fsp.rm(directory, { recursive: true, force: true }).catch(() => {}); throw error; }
@@ -357,4 +359,12 @@ async function createReviewClips(input, options = {}) {
   } finally { await fsp.rm(jobDirectory, { recursive: true, force: true }).catch(() => {}); }
 }
 
-module.exports = { normalizeYoutubeUrl, youtubeVideoId, probeVideo, analyzeVodTimeline, discoverVodGames, releaseVodSource, createReviewClips, changedFrames, frameDifference, visualSignature, ensureDiskSpace, scoreboardGeometryScore, agentSelectGeometryScore, chooseGameBoundaries, inferPovPlayer };
+const VOD_FRAME_NAME = /^(?:scoreboard-\d{2}|game-start-00)\.png$/;
+
+/** Reads one named candidate frame from a discovery directory. */
+async function readVodFrame(directory, frame) {
+  const name = String(frame || ''); if (!VOD_FRAME_NAME.test(name)) throw new Error('Unknown VOD frame.');
+  return { mediaType: 'image/png', base64: (await fsp.readFile(path.join(path.resolve(directory), name))).toString('base64') };
+}
+
+module.exports = { readVodFrame, normalizeYoutubeUrl, youtubeVideoId, probeVideo, analyzeVodTimeline, discoverVodGames, releaseVodSource, createReviewClips, changedFrames, frameDifference, visualSignature, ensureDiskSpace, scoreboardGeometryScore, agentSelectGeometryScore, chooseGameBoundaries, inferPovPlayer };

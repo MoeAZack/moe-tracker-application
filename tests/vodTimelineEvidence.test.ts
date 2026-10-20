@@ -7,7 +7,7 @@ import analyzerModule from '../desktop/vod-timeline-analyzer.cjs';
 import { boundaryTimelinePlayers } from '../src/components/VodSubmission';
 
 const { aggregateVideoEvidence, parseKillFeedSnapshot, parseUltimateSnapshots, parseRoundStateSnapshot, buildRoundTimeline, buildObserverSegments, applyVisualTemplates, fuseVodEvidence } = evidenceModule;
-const { normalizeYoutubeUrl, youtubeVideoId, frameDifference, visualSignature, scoreboardGeometryScore, agentSelectGeometryScore, chooseGameBoundaries, inferPovPlayer, analyzeVodTimeline, releaseVodSource, discoverVodGames } = analyzerModule;
+const { normalizeYoutubeUrl, youtubeVideoId, frameDifference, visualSignature, scoreboardGeometryScore, agentSelectGeometryScore, chooseGameBoundaries, inferPovPlayer, analyzeVodTimeline, releaseVodSource, discoverVodGames, readVodFrame } = analyzerModule;
 const players = [
   { name: 'Alpha', team: 'ours' }, { name: 'Bravo', team: 'ours' }, { name: 'Charlie', team: 'ours' }, { name: 'Delta', team: 'ours' }, { name: 'Echo', team: 'ours' },
   { name: 'EnemyOne', team: 'theirs' }, { name: 'EnemyTwo', team: 'theirs' }, { name: 'EnemyThree', team: 'theirs' }, { name: 'EnemyFour', team: 'theirs' }, { name: 'EnemyFive', team: 'theirs' },
@@ -192,6 +192,13 @@ describe('VOD timeline evidence', () => {
     expect(evidence.observations.filter((item: any) => item.kind === 'elimination').map((item: any) => [item.killerTeam, item.victimTeam])).toEqual([['ours', 'theirs'], ['theirs', 'ours']]);
     // With named opponents, a one-name row stays unresolved rather than guessed.
     expect(parseKillFeedSnapshot({ timestampMs: 1_000, text: 'Alpha Vandal Zorro99', confidence: .9 }, players)).toEqual([]);
+  });
+
+  it('serves discovered candidate frames by name instead of inlining them in the discovery reply', async () => {
+    const directory = await fs.mkdtemp(path.join(os.tmpdir(), 'moe-vod-frames-')); await fs.writeFile(path.join(directory, 'scoreboard-01.png'), 'png-bytes');
+    await expect(readVodFrame(directory, 'scoreboard-01.png')).resolves.toEqual({ mediaType: 'image/png', base64: Buffer.from('png-bytes').toString('base64') });
+    for (const frame of ['../scoreboard-01.png', 'vod.mp4', 'scoreboard-1.png']) await expect(readVodFrame(directory, frame)).rejects.toThrow('Unknown VOD frame.');
+    await fs.rm(directory, { recursive: true, force: true });
   });
 
   it('resumes a retained download in its own directory and still deletes it once completed', async () => {
