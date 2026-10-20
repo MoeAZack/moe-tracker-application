@@ -41,9 +41,9 @@ Last reconciled: 20 October 2026, Africa/Cairo. This file is the permanent scope
 
 | ID | Requirement | Highest gate | Evidence / next gate |
 | --- | --- | --- | --- |
-| 5.1 | One review workspace with functional accept, dismiss, restore and delete | Automatically tested | Persisted coaching/review actions exist; physical end-to-end button pass remains. |
-| 5.2 | Match selection filters every linked review panel | Implemented | Shared match/round context exists; physical navigation acceptance remains. |
-| 5.3 | Collapsible replay history and dense sections default minimized | Implemented | Existing collapsible surfaces; complete consistency pass in Stage 5. |
+| 5.1 | One review workspace with functional accept, dismiss, restore and delete | Automatically tested | Review persists before focus changes; status, recovery, deletion and evidence navigation have HTTP/UI contract tests. Physical installed-button pass remains Stage 11. |
+| 5.2 | Match selection filters every linked review panel | Automatically tested | One pure context projection now drives match-derived coach data; match, replay, VOD, economy and coach surfaces share the persisted match/round selection. |
+| 5.3 | Collapsible replay history and dense sections default minimized | Automatically tested | Replay history and integrated intelligence default collapsed; round detail cards remain individually expandable. |
 | 6.1 | Player stats by map, agent, side and period with confidence | Automatically tested | Player Stats and contextual ratings integrated. |
 | 6.2 | Map calculator incorporates roster performance and sample quality | Automatically tested | Map/player scoring exists; Stage 6 publishes an explainable contribution ledger. |
 | 6.3 | Economy by pistol/mid/full buy, weapon, map, side, site, agent and player | Automatically tested | Contextual economy v2/v3 coverage. |
