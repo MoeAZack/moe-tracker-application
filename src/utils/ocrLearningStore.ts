@@ -5,8 +5,10 @@ const DB_NAME = 'moetracker-ocr-learning';
 const DB_VERSION = 1;
 const MAX_CORRECTIONS = 50_000;
 const MAX_OUTCOMES = 10_000;
+const ENABLED_KEY = 'moetracker-ocr-learning-enabled';
 const memoryCorrections = new Map<string, OcrCorrectionSample>();
 const memoryOutcomes = new Map<string, OcrSessionOutcome>();
+function learningEnabled() { try { return globalThis.localStorage?.getItem(ENABLED_KEY) !== 'false'; } catch { return true; } }
 
 function openDb() {
   return new Promise<IDBDatabase | null>((resolve) => {
@@ -59,6 +61,7 @@ async function prune(storeName: 'corrections' | 'outcomes', limit: number) {
 }
 
 export async function recordOcrCorrections(samples: OcrCorrectionSample[]) {
+  if (!learningEnabled()) return;
   for (const sample of samples) memoryCorrections.set(sample.id, structuredClone(sample));
   if (samples.length) { await putMany('corrections', samples); void prune('corrections', MAX_CORRECTIONS); }
 }
@@ -71,8 +74,16 @@ export async function getOcrLearningState(roster: readonly { id: string; display
   const [corrections, outcomes] = await Promise.all([
     readAll<OcrCorrectionSample>('corrections', memoryCorrections), readAll<OcrSessionOutcome>('outcomes', memoryOutcomes),
   ]);
-  const aliases = learnedAliasesFromCorrections(corrections, roster);
-  return { corrections, outcomes, aliases, model: buildLocalCorrectionModel(corrections), health: ocrHealthSummary(outcomes, corrections, aliases) };
+  const enabled = learningEnabled(); const activeCorrections = enabled ? corrections : [];
+  const aliases = learnedAliasesFromCorrections(activeCorrections, roster);
+  return { enabled, corrections, outcomes, aliases, model: buildLocalCorrectionModel(activeCorrections), health: ocrHealthSummary(outcomes, corrections, aliases) };
+}
+
+export function setOcrLearningEnabled(enabled: boolean) { try { globalThis.localStorage?.setItem(ENABLED_KEY, String(enabled)); } catch { /* browser storage unavailable */ } }
+
+export async function resetOcrLearning() {
+  memoryCorrections.clear(); memoryOutcomes.clear(); const db = await openDb(); if (!db) return;
+  await new Promise<void>(resolve => { const transaction = db.transaction(['corrections', 'outcomes'], 'readwrite'); transaction.objectStore('corrections').clear(); transaction.objectStore('outcomes').clear(); transaction.oncomplete = () => resolve(); transaction.onerror = () => resolve(); transaction.onabort = () => resolve(); }); db.close();
 }
 
 export function downloadOcrLearningDataset(state: Awaited<ReturnType<typeof getOcrLearningState>>) {

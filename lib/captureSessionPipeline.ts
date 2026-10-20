@@ -70,7 +70,7 @@ export async function extractCaptureSession(input: {
   draft.stats = draft.stats.map((player, index) => {
     const corrected = { ...player, agent: detectedAgents[index] || player.agent } as any;
     const correctionContext = { sourceModel: draft.sourceMetadata.model, layout: scoreboardLayout, resolution: `${scoreboardImage.naturalWidth}x${scoreboardImage.naturalHeight}` };
-    for (const field of ['agent', 'kills', 'deaths', 'assists', 'fk', 'fd', 'plants', 'defuses', 'trades'] as OcrLearningField[]) corrected[field] = applyLocalCorrection(input.correctionModel, field, corrected[field], correctionContext);
+    for (const field of ['agent', 'kills', 'deaths', 'assists', 'fk', 'fd', 'plants', 'defuses', 'trades'] as OcrLearningField[]) corrected[field] = applyLocalCorrection(input.correctionModel, field, corrected[field], { ...correctionContext, sourceRegion: `player.${index}.${field}` });
     return corrected;
   });
   const performanceCapture = captures.find(item => item.kind === 'performance');

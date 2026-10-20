@@ -28,8 +28,8 @@ function rawCoordinates(observation: any): { x: number; y: number; normalized: b
   const coordinateSpace = String(a.coordinateSpace || p.coordinateSpace || '').toLowerCase();
   const hasNormalized = a.normalizedX !== undefined || p.normalizedX !== undefined;
   const x = finite(a.normalizedX ?? p.normalizedX ?? p.x ?? a.x); const y = finite(a.normalizedY ?? p.normalizedY ?? p.y ?? a.y);
-  if (x === null || y === null || x < 0 || y < 0) return null;
-  if (hasNormalized || coordinateSpace === 'map-normalized') return x <= 1 && y <= 1 ? { x, y, normalized: true, bounds: null } : null;
+  if (x === null || y === null) return null;
+  if (hasNormalized || coordinateSpace === 'map-normalized') return x >= 0 && y >= 0 && x <= 1 && y <= 1 ? { x, y, normalized: true, bounds: null } : null;
   return { x, y, normalized: false, bounds: a.mapBounds || null };
 }
 const distance = (a: Pick<SpatialPoint, 'x' | 'y'>, b: Pick<SpatialPoint, 'x' | 'y'>) => Math.hypot(a.x - b.x, a.y - b.y);

@@ -42,6 +42,12 @@ describe('integrated intelligence', () => {
     expect(buildCrossMatchHeatmaps([record])).toMatchObject({ matchesWithCoordinates: 1, comparableMatches: 1, cohortAlignedMatches: 1 });
   });
 
+  it('keeps valid negative VALORANT world coordinates', () => {
+    const record: any = { status: 'accepted', draft: { match: { map: 'Lotus' }, evidence: { observations: [{ roundNumber: 1, signal: 'position-zone', playerId: 'p1', teamId: 'ours', occurredAtMs: 10, attributes: { position: { x: -4200, y: -7300 }, coordinateSpace: 'world' } }, { roundNumber: 1, signal: 'position-zone', playerId: 'p1', teamId: 'ours', occurredAtMs: 20, attributes: { position: { x: -4000, y: -7000 }, coordinateSpace: 'world' } }], rounds: [] } } };
+    const report = buildSpatialReport(record, []);
+    expect(report).toMatchObject({ available: true, transform: { method: 'replay-envelope' } }); expect(report.points).toHaveLength(2);
+  });
+
   it('activates official map space only for a provenance-verified calibration', () => {
     const draft = { schema: MAP_CALIBRATION_SCHEMA, map: 'Ascent', status: 'draft', bounds: { minX: 100, minY: 200, width: 1000, height: 2000 }, orientation: { rotate: 90, flipX: false, flipY: false }, asset: { path: '/maps/Ascent.png', sha256: 'a'.repeat(64) }, provenance: { source: 'replay format documentation', verifiedBy: 'independent-fixture', verifiedAt: '2026-10-20T10:00:00.000Z' } } as const;
     expect(validateMapCalibration(draft)).toContain('status'); expect(resolveVerifiedMapCalibration('Ascent', [draft]).calibration).toBeNull();

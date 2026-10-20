@@ -14,8 +14,9 @@ describe('private OCR learning', () => {
       recordedAt: '2026-10-18T10:00:00.000Z',
     });
     expect(samples.map(sample => sample.field)).toEqual(['map', 'opponent', 'name', 'agent']);
-    const aliases = learnedAliasesFromCorrections(samples, [{ id: 'p1', displayName: 'bellatrix' }]);
-    expect(aliases).toMatchObject([{ observed: 'be11atrix', playerId: 'p1', confirmations: 1 }]);
+    expect(learnedAliasesFromCorrections(samples, [{ id: 'p1', displayName: 'bellatrix' }])).toEqual([]);
+    const aliases = learnedAliasesFromCorrections([...samples, { ...samples.find(sample => sample.field === 'name')!, id: 'second', matchId: 'm2', captureId: 'cap-2' }], [{ id: 'p1', displayName: 'bellatrix' }]);
+    expect(aliases).toMatchObject([{ observed: 'be11atrix', playerId: 'p1', confirmations: 2 }]);
     const roster = rosterWithLearnedAliases([{ id: 'p1', displayName: 'bellatrix' }], aliases);
     expect(matchExtractedRosterName('be11atrix', roster)).toMatchObject({ matchedPlayerId: 'p1', matchedPlayerName: 'bellatrix', rosterMatch: { status: 'matched' } });
   });
@@ -26,6 +27,14 @@ describe('private OCR learning', () => {
     const model = buildLocalCorrectionModel(rows);
     expect(applyLocalCorrection(model, 'agent', '0men')).toBe('Omen');
     expect(applyLocalCorrection(model, 'agent', '0men', { sourceModel: 'different-model' })).toBe('0men');
+  });
+
+  it('does not learn from repeated edits to one capture or apply a rule to another row', () => {
+    const base = { captureId: 'same', matchId: 'm1', playerId: 'p1', field: 'kills' as const, predicted: 1, corrected: 7, modelVersion: 'x', recordedAt: '2026-10-18T10:00:00.000Z', sourceRegion: 'player.0.kills' };
+    expect(buildLocalCorrectionModel([0, 1, 2].map(index => ({ ...base, id: String(index) }))).rules).toEqual([]);
+    const model = buildLocalCorrectionModel([0, 1, 2].map(index => ({ ...base, id: String(index), captureId: `cap-${index}`, matchId: `m${index}` })));
+    expect(applyLocalCorrection(model, 'kills', 1, { sourceRegion: 'player.0.kills' })).toBe(7);
+    expect(applyLocalCorrection(model, 'kills', 1, { sourceRegion: 'player.1.kills' })).toBe(1);
   });
 
   it('suggests an opponent only from a unique three-player enemy overlap', () => {
