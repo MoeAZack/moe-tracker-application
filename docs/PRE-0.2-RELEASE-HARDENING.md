@@ -36,6 +36,35 @@ reported zero integrity errors and zero destructive repairs.
 Move large replay/VOD/analytics evidence out of the active aggregate payload, add
 retention and capacity telemetry, and prove a 100-match season plus archive/restore.
 
+Status: READY locally. Exact-head CI is the final merge gate.
+
+Contract:
+
+- The active database is a small referential index; bulky round evidence,
+  aggregate intelligence, parser results, accepted replay drafts, and archived
+  evidence collections live in immutable SHA-256-addressed artifacts.
+- Reads hydrate artifacts transparently and fail closed on missing, truncated,
+  or corrupted evidence.
+- Writes commit artifacts before atomically activating their referencing index.
+- Local, Firestore, and D1 stores use the same logical contract. Local orphaned
+  artifacts receive a configurable 30-day retention window.
+- Storage telemetry reports the active index and compressed evidence vault
+  separately instead of measuring the hydrated in-memory object as one blob.
+- Large season archives remain restorable without crossing the former 800 KiB
+  entity ceiling.
+
+Acceptance evidence:
+
+- The current 8-match / 180-round workspace projects from 2,292,213 bytes to a
+  245,710-byte active index (89.3% reduction), with 139 deduplicated artifacts
+  occupying 289,852 compressed bytes.
+- A 100-match / 2,400-round season stays below the former D1 index wall and
+  passes archive, externalize, hydrate, and restore round-trip coverage.
+- Local atomic commit, missing-artifact failure, corruption detection, and
+  retention cleanup have behavior tests.
+- Full local gate (20 Oct 2026): 130 test files / 854 tests, production build,
+  six accessibility surfaces, and both capture layouts passed.
+
 ## H2 — Ingestion reliability
 
 Fix and prove YouTube/local VOD handoff, cleanup, normalized frame selection,

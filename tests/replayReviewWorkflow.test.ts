@@ -91,7 +91,7 @@ describe('coach replay review workflow', () => {
     await fs.writeFile(dbPath, JSON.stringify(withSecondReplay));
     expect((await request(`/api/replay-intake/uploads/${secondSha256}/review`, coach, { expectedRevision: 0, requestId: 'save-2', matchId: 'm2', teamId: 'team-us', mappings })).status).toBe(200);
     expect((await request(`/api/replay-intake/uploads/${secondSha256}/accept`, coach, { expectedRevision: 1, requestId: 'accept-2', confirmed: true })).status).toBe(200);
-    const stored = JSON.parse(await fs.readFile(dbPath, 'utf8')); expect(stored.replayIntake.parserJobs.job1.result).toEqual(rawBefore); expect(stored.replayIntake.reviews[sha256].mappings).toEqual(mappings);
+    const { readDB } = await import('../lib/store'); const stored = await readDB(); expect(stored.replayIntake.parserJobs.job1.result).toEqual(rawBefore); expect(stored.replayIntake.reviews[sha256].mappings).toEqual(mappings);
     expect(stored.matches[0]).toMatchObject({ id: 'm1', map: 'Haven', ourScore: 1, theirScore: 0, sourceMetadata: { provider: 'vrfkit', externalId: sha256 } });
     expect(stored.playerStats).toEqual(expect.arrayContaining([expect.objectContaining({ matchId: 'm1', playerId: 'p1', player: 'Reviewed Alpha', displayNameSnapshot: 'Reviewed Alpha', deaths: 0, fk: 1 }), expect.objectContaining({ matchId: 'm1', playerId: 'p2', player: 'Reviewed Bravo', displayNameSnapshot: 'Reviewed Bravo', kills: 1, defuses: 1 })]));
     expect(stored.playerStats.find((row: any) => row.matchId === 'm1' && row.playerId === 'p1')).toMatchObject({ id: 'manual-p1', kills: 99, hs: 44, notes: 'coach player note', corrections: expect.arrayContaining([expect.objectContaining({ fields: ['kills'] })]) });
