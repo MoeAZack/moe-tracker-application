@@ -14,6 +14,7 @@ import DesktopReplayAutomation from './components/DesktopReplayAutomation';
 import ReviewContextBar from './components/ReviewContextBar';
 import { projectCurrentPlayerAnalytics } from '../lib/activePlayerAnalytics';
 import { projectReviewContext } from '../lib/reviewContext';
+import { parseWorkspaceRoute, replaceWorkspaceRoute, type WorkspaceTabId } from './utils/workspaceRoute';
 
 // Heavy route views are code-split so the initial bundle only loads the shell + login.
 const Dashboard = lazy(() => import('./components/Dashboard'));
@@ -42,7 +43,7 @@ const SystemReadinessPanel = lazy(() => import('./components/SystemReadinessPane
 import {
   ShieldAlert, RefreshCw, Trophy, Calendar, Swords, Compass,
   Layers, Users, Settings as SettingsIcon, Image, Activity, Sparkles,
-  Film, Crosshair, Coins, FileCheck2, GitCompareArrows, Upload
+  Film, Crosshair, Coins, FileCheck2, GitCompareArrows, Upload, X
 } from 'lucide-react';
 
 export default function App() {
@@ -61,11 +62,17 @@ export default function App() {
   const [data, setData] = useState<TrackerData | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
+  const [appNotice, setAppNotice] = useState<string | null>(null);
+  useEffect(() => {
+    const nativeAlert = window.alert;
+    window.alert = message => setAppNotice(String(message || 'Action completed.'));
+    return () => { window.alert = nativeAlert; };
+  }, []);
   
   // Navigation
-  const [activeTab, setActiveTab] = useState<'dashboard' | 'calendar' | 'matches' | 'replays' | 'maps' | 'comps' | 'roster' | 'playerstats' | 'settings' | 'livelogger' | 'aitactical' | 'vod' | 'vodsubmit' | 'lineups' | 'economy' | 'comparisons'>('dashboard');
-  const [reviewMatchId, setReviewMatchId] = useState<string | null>(() => sessionStorage.getItem('moetracker-review-match'));
-  const [reviewRoundNo, setReviewRoundNo] = useState<number | null>(() => { const value = Number(sessionStorage.getItem('moetracker-review-round')); return Number.isSafeInteger(value) && value > 0 ? value : null; });
+  const [activeTab, setActiveTab] = useState<WorkspaceTabId>(() => parseWorkspaceRoute(window.location.hash).tab);
+  const [reviewMatchId, setReviewMatchId] = useState<string | null>(() => parseWorkspaceRoute(window.location.hash).matchId || sessionStorage.getItem('moetracker-review-match'));
+  const [reviewRoundNo, setReviewRoundNo] = useState<number | null>(() => { const routeRound = parseWorkspaceRoute(window.location.hash).roundNo; if (routeRound) return routeRound; const value = Number(sessionStorage.getItem('moetracker-review-round')); return Number.isSafeInteger(value) && value > 0 ? value : null; });
   const [manualReplayDraft, setManualReplayDraft] = useState<ScreenshotReviewDraft | null>(null);
   const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
   const [showTryoutComparisons, setShowTryoutComparisons] = useState<boolean | null>(null);
@@ -73,7 +80,18 @@ export default function App() {
   useEffect(() => {
     if (reviewMatchId) sessionStorage.setItem('moetracker-review-match', reviewMatchId); else sessionStorage.removeItem('moetracker-review-match');
     if (reviewRoundNo) sessionStorage.setItem('moetracker-review-round', String(reviewRoundNo)); else sessionStorage.removeItem('moetracker-review-round');
-  }, [reviewMatchId, reviewRoundNo]);
+    replaceWorkspaceRoute({ tab: activeTab, matchId: reviewMatchId, roundNo: reviewRoundNo });
+  }, [activeTab, reviewMatchId, reviewRoundNo]);
+  useEffect(() => {
+    const applyRoute = () => {
+      const route = parseWorkspaceRoute(window.location.hash);
+      setActiveTab(route.tab);
+      setReviewMatchId(route.matchId);
+      setReviewRoundNo(route.roundNo);
+    };
+    window.addEventListener('hashchange', applyRoute);
+    return () => window.removeEventListener('hashchange', applyRoute);
+  }, []);
   useEffect(() => {
     if (data && reviewMatchId && !(data.matches || []).some(match => match.id === reviewMatchId)) { setReviewMatchId(null); setReviewRoundNo(null); }
   }, [data, reviewMatchId]);
@@ -429,11 +447,14 @@ export default function App() {
   const tryoutComparisonsVisible = showTryoutComparisons ?? Boolean((data?.settings as any)?.tryoutsMode);
   const visibleTabs = useMemo(() => {
     const surfaceTabs = desktopMode ? tabsList : tabsList.filter(tab => ['dashboard', 'calendar', 'matches', 'vodsubmit', 'economy', 'aitactical', 'maps', 'roster', 'playerstats', 'comparisons'].includes(tab.id));
-    const roleTabs = role === 'player' ? surfaceTabs.filter(tab => !['settings', 'livelogger', 'vod', 'aitactical'].includes(tab.id)) : surfaceTabs;
+    const roleTabs = role === 'player' ? surfaceTabs.filter(tab => !['settings', 'livelogger', 'vod', 'aitactical', 'roster'].includes(tab.id)) : surfaceTabs;
     return tryoutComparisonsVisible ? roleTabs : roleTabs.filter(tab => tab.id !== 'comparisons');
   }, [desktopMode, role, tryoutComparisonsVisible]);
   const groupedTabs = useMemo(() => (['Home', 'Schedule & Goals', 'Performance', 'Review', 'Playbook', 'Team'] as const)
     .map(group => ({ group, tabs: visibleTabs.filter(tab => tab.group === group) })).filter(section => section.tabs.length), [visibleTabs]);
+  useEffect(() => {
+    if (!visibleTabs.some(tab => tab.id === activeTab)) setActiveTab('dashboard');
+  }, [activeTab, visibleTabs]);
 
   const appTitle = data?.settings?.teamName || 'MoeAZack Valorant Tracker';
   const themeMode = data?.settings?.theme || 'slate';
@@ -454,6 +475,7 @@ export default function App() {
   return (
     <div data-theme={themeMode} className={`app-shell min-h-screen ${theme.bg} flex flex-col lg:flex-row font-sans relative overflow-x-hidden selection:bg-[#ff4655]/30 selection:text-[#ff4655]`}>
       <a href="#main-content" className="skip-link">Skip to main content</a>
+      {appNotice && <div role="status" className="fixed right-4 top-4 z-[100] flex max-w-md items-start gap-3 rounded-xl border border-cyan-300/20 bg-slate-950/95 px-4 py-3 text-sm text-slate-200 shadow-2xl backdrop-blur"><span className="flex-1">{appNotice}</span><button type="button" aria-label="Dismiss notification" onClick={() => setAppNotice(null)} className="rounded p-1 text-slate-400 hover:bg-white/10 hover:text-white"><X className="h-4 w-4" /></button></div>}
       {/* Background flares */}
       <div className="ambient-orb top-[-12rem] left-[-10rem] h-[28rem] w-[28rem] bg-[#46d8c7]/10"></div>
       <div className="ambient-orb bottom-[-12rem] right-[-10rem] h-[30rem] w-[30rem] bg-[#ff5361]/8"></div>

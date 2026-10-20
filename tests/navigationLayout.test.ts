@@ -27,6 +27,20 @@ describe('workspace navigation layout', () => {
     expect(settings).toContain('only affects this app session and does not delete any tryout data');
   });
 
+  it('hides the coach roster surface from players and provides dismissible notifications', () => {
+    const app = fs.readFileSync('src/App.tsx', 'utf8');
+    expect(app).toContain("['settings', 'livelogger', 'vod', 'aitactical', 'roster']");
+    expect(app).toContain('aria-label="Dismiss notification"');
+    expect(app).toContain('window.alert = message => setAppNotice');
+  });
+
+  it('uses a readable replay evidence summary instead of exposing raw evidence JSON', () => {
+    const vod = fs.readFileSync('src/components/VodReview.tsx', 'utf8');
+    expect(vod).toContain('Evidence summary');
+    expect(vod).toContain('Technical source details remain in the audit record');
+    expect(vod).not.toContain('JSON.stringify({ crossChecks:');
+  });
+
   it('keeps semantic color cues on high-value player numbers', () => {
     const players = fs.readFileSync('src/components/PlayerSoloTracker.tsx', 'utf8');
     expect(players).toContain('<span className="text-emerald-300">{row.kills}</span>');
