@@ -12,6 +12,7 @@ import { recomputeAcceptedMatchAggregates } from '../aggregateVersioning';
 import { attendancePolicy, attendanceStatus, attendanceSummary, attendanceWindow } from '../attendance';
 import { refreshCoachingWorkflow } from './coaching';
 import { purgeExpiredRosterPlayers } from '../roster';
+import { findPhysicalMatchCandidates } from '../physicalMatchIdentity';
 
 // Core data + match logging: full payload, reset, settings, generic upsert/remove,
 // and match/round/veto saves. Protected routes (registered after the auth middleware).
@@ -353,6 +354,10 @@ export function registerDataRoutes(app: Express, options: { websiteSummaryOnly?:
 
       // All validation and metadata planning above is fail-closed. Mutate only now.
       const matchIndex = db.matches.findIndex((entry: any) => entry.id === match.id);
+      if (matchIndex < 0 && savedStats) {
+        const duplicate = findPhysicalMatchCandidates(db, match, savedStats)[0];
+        if (duplicate) return res.status(409).json({ error: 'This physical match already exists. Open the existing match instead of creating a duplicate.', existingMatchId: duplicate.id });
+      }
       if (matchIndex >= 0) db.matches[matchIndex] = match;
       else db.matches.push(match);
       if (savedStats) {

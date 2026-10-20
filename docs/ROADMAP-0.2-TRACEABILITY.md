@@ -33,9 +33,9 @@ Last reconciled: 20 October 2026, Africa/Cairo. This file is the permanent scope
 | 3.2 | Multi-map coach/player VOD discovery with per-game matching | Real-data validated | Disposable 2h49m coach fixture separated the expected three games; two map names resolved and one remained explicitly unknown. |
 | 3.3 | Incremental OCR/cache invalidation instead of full reprocessing | Automatically tested | Frame checkpoints resume VOD work; bounded screenshot results reuse unchanged image/roster/selection/version keys. |
 | 3.4 | Replay parser owned fork, patch compatibility and OCR fallback | Real-data validated | Moe vrfkit fork and fallback path work; representative every-patch corpus remains. |
-| 4.1 | Field-level replay/screenshot/VOD/manual evidence fusion | Automatically tested | Persisted conflict ledger and coach resolution revision history. |
-| 4.2 | Accepted evidence replaces anonymous IDs in every review surface | Implemented | Identity overlays exist; Stage 4 adds a no-anonymous-after-resolution invariant. |
-| 4.3 | Dedupe same physical match across every ingestion source | Automatically tested | Hash/idempotency protections exist; Stage 4 adds canonical cross-source fingerprinting. |
+| 4.1 | Field-level replay/screenshot/VOD/manual evidence fusion | Real-data validated | `evidence-fusion/v3` unifies round and player facts, excludes draft/incomplete evidence, versions coach resolutions and invalidates downstream source hashes. |
+| 4.2 | Accepted evidence replaces anonymous IDs in every review surface | Real-data validated | Accepted overlays project reviewed names while raw parser evidence stays immutable; installed-data invariant reports zero leaks. |
+| 4.3 | Dedupe same physical match across every ingestion source | Real-data validated | Fail-closed date/map/opponent/score/five-player fingerprint is order-independent; VOD linking uses it and installed-data audit reports zero duplicates. |
 
 ## Stages 5–7 — review, analytics and coaching loop
 
