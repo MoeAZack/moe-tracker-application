@@ -1,5 +1,14 @@
 # Delivery status
 
+## Current 0.2 release hardening — 20 October 2026 (Africa/Cairo)
+
+H0 through H4 are merged. H5 produces the version 0.2.0 local candidate with
+hash-pinned runtimes, packaged IPC acceptance, upgrade/clean-install proof, and
+an exact-installer rollback drill. Public distribution remains fail-closed until
+a publicly trusted Windows signing certificate and independent physical-PC
+acceptance are available. See `PRE-0.2-RELEASE-HARDENING.md` and
+`RELEASE_ACCEPTANCE.md`; older delivery notes below are historical.
+
 ## Current audit remediation — 13 October 2026 (Africa/Cairo)
 
 Working branch: `codex/team-usability-audit`, based on deployed main `921035a0d5c06ba3f076c8396698e910df361b00`. The entries below this section are historical and their release restrictions/status claims are superseded by later reviewed releases.
