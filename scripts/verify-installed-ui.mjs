@@ -25,8 +25,9 @@ try {
       onStatus: () => () => {}, listScoreboards: async () => [], syncNow: async () => ({}), checkForUpdates: async () => ({}),
     };
   }, { ...session, version: packageJson.version });
-  await page.goto(origin, { waitUntil: 'networkidle' });
-  await page.getByRole('button', { name: 'Dashboard' }).waitFor({ state: 'visible', timeout: 20_000 });
+  await page.goto(origin, { waitUntil: 'domcontentloaded' });
+  const navigation = page.getByRole('navigation');
+  await navigation.getByRole('button', { name: 'Home', exact: true }).waitFor({ state: 'visible', timeout: 20_000 });
   const checks = {};
   const capture = async (name, expected) => {
     await page.waitForTimeout(500);
@@ -38,13 +39,17 @@ try {
   await page.locator('summary[aria-label^="Team sync for"]').click();
   await capture('team-sync', ['Connect this PC', 'Device, Sync & Storage']);
   await page.locator('summary[aria-label^="Team sync for"]').click();
-  await page.getByRole('button', { name: 'Matches Log' }).click();
+  await navigation.getByRole('button', { name: 'Match Review', exact: true }).click();
   await capture('matches', ['Scrims & Matches Log']);
-  await page.getByRole('button', { name: 'Economy' }).click();
+  await navigation.getByRole('button', { name: 'Economy', exact: true }).click();
   await capture('economy', ['Economy Analytics', 'Economy evidence by match']);
-  await page.getByRole('button', { name: 'Settings' }).click();
+  await navigation.getByRole('button', { name: 'Settings', exact: true }).click();
   await capture('settings', ['Workspace Team Configurations', 'External API & Webhook Endpoints', 'Official GRID.GG API key']);
   await page.getByRole('button', { name: 'Device, Sync & Storage' }).click();
   await capture('settings-device', ['This PC & Team Sync', 'Pair PC', 'Device, Sync & Storage']);
-  console.log(JSON.stringify({ checks, evidenceDir }));
+  const failed = Object.entries(checks).filter(([, passed]) => !passed).map(([name]) => name);
+  const result = { version: packageJson.version, checks, failed, evidenceDir };
+  await import('node:fs/promises').then(({ writeFile }) => writeFile(path.join(evidenceDir, `installed-ui-${packageJson.version}.json`), JSON.stringify(result, null, 2)));
+  console.log(JSON.stringify(result, null, 2));
+  if (failed.length) throw new Error(`Installed UI verification failed: ${failed.join(', ')}`);
 } finally { await browser.close(); }
