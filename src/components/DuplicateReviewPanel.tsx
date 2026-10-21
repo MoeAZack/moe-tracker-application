@@ -1,5 +1,6 @@
 import { useState } from 'react';
 import type { Match, TrackerData } from '../types';
+import { confirmDialog } from '../utils/appDialogs';
 
 interface Props {
   data: TrackerData;
@@ -23,7 +24,7 @@ export default function DuplicateReviewPanel({ data, match, isLight, onDecide, o
     ['Rounds saved', String((data.rounds || []).filter(round => round.matchId === item.id).length)], ['Capture', capture(item)],
   ];
   const decide = async (decision: 'keep-both' | 'discard-this') => {
-    if (decision === 'discard-this' && !confirm('Discard this copy and everything attached to it? The original match stays.')) return;
+    if (decision === 'discard-this' && !(await confirmDialog('Discard this copy and everything attached to it? The original match stays.', { destructive: true, confirmLabel: 'Discard copy' }))) return;
     setBusy(true);
     try { await onDecide?.(match.id, decision); } catch { /* the save handler already reported the reason */ } finally { setBusy(false); }
   };

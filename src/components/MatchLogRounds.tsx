@@ -15,6 +15,7 @@ import {
   Save, Trash, Shuffle, RefreshCw, Zap, Globe, AlertCircle, ShieldAlert, Check,
   Sparkles, Send, Copy, Loader2, ArrowUpRight
 } from 'lucide-react';
+import { confirmDialog, notify } from '../utils/appDialogs';
 
 interface ComponentProps {
   data: TrackerData;
@@ -263,9 +264,9 @@ export default function MatchLogRounds({ data, theme, onSaveMatch, onRemove, onS
   const handleSaveMatchSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!editingMatch || !editingMatch.opponent) return;
-    if (unmappedScreenshotRows.length) { window.alert('Map or exclude the remaining screenshot rows before saving.'); return; }
+    if (unmappedScreenshotRows.length) { notify('Map or exclude the remaining screenshot rows before saving.'); return; }
 
-    if (data.settings.confirmOnSave && !window.confirm('Save this match data?')) return;
+    if (data.settings.confirmOnSave && !(await confirmDialog('Save this match data?', { confirmLabel: 'Save' }))) return;
 
     // Complete side splits are authoritative. Imported totals survive while a
     // coach has not yet supplied both sides.
@@ -281,7 +282,7 @@ export default function MatchLogRounds({ data, theme, onSaveMatch, onRemove, onS
   };
 
   const handleDeleteMatch = async (id: string) => {
-    if (data.settings.confirmOnDelete && !window.confirm('Delete this match, round logs, player metrics, and vetoes?')) return;
+    if (data.settings.confirmOnDelete && !(await confirmDialog('Delete this match, round logs, player metrics, and vetoes?', { destructive: true, confirmLabel: 'Delete' }))) return;
     await onRemove('Matches', id);
     setSelectedMatch(null);
   };
@@ -874,7 +875,7 @@ export default function MatchLogRounds({ data, theme, onSaveMatch, onRemove, onS
                             // Update our selectedMatch local state ref
                             setSelectedMatch(prev => prev ? { ...prev, aiAnalysis: resJson.aiAnalysis } : null);
                           } catch (err: any) {
-                            alert(err.message || 'Failed to analyze match.');
+                            notify(err.message || 'Failed to analyze match.', 'error');
                           } finally {
                             clearInterval(interval);
                             setAnalyzingMatch(false);
@@ -1192,7 +1193,7 @@ export default function MatchLogRounds({ data, theme, onSaveMatch, onRemove, onS
                   <select aria-label={`Map screenshot player ${row.extractedName || index + 1}`} className="ui-field min-h-11 px-2" value="" onChange={event => {
                     const player = knownPlayers.find(item => item.id === event.target.value); if (!player) return;
                     const existing = editingStats.find(item => item.playerId === player.id);
-                    if (existing && [existing.kills, existing.deaths, existing.assists].some(value => value !== null && value !== undefined)) { window.alert('This teammate already has scores. Remove their current match row before assigning another screenshot row.'); return; }
+                    if (existing && [existing.kills, existing.deaths, existing.assists].some(value => value !== null && value !== undefined)) { notify('This teammate already has scores. Remove their current match row before assigning another screenshot row.'); return; }
                     setEditingStats(old => [...old.filter(item => item.playerId !== player.id), { id: '', matchId: '', player: player.displayName, playerId: player.id, displayNameSnapshot: player.displayName, appearanceType: tryoutPhase?.candidatePlayerIds.includes(player.id) ? 'tryout' : activeCoreIds.has(player.id) ? 'core' : 'standIn', agent: row.agent || '', kAtt: null, kDef: null, dAtt: null, dDef: null, aAtt: null, aDef: null, kills: row.kills, deaths: row.deaths, assists: row.assists, sourceMetadata: editingMatch.sourceMetadata }]);
                     setEditingMatch(old => old ? { ...old, rosterContext: { kind: 'mixed', tryoutBatchId: old.rosterContext?.tryoutBatchId } } : old);
                     setUnmappedScreenshotRows(old => old.filter((_, i) => i !== index));

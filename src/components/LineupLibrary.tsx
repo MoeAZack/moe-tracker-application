@@ -2,6 +2,7 @@ import React, { useState, useMemo } from 'react';
 import { TrackerData } from '../types';
 import { apiFetch } from '../utils/api';
 import { Crosshair, Plus, Trash2, MessageSquare, Send, ExternalLink } from 'lucide-react';
+import { notify } from '../utils/appDialogs';
 
 interface Props {
   data: TrackerData;
@@ -36,7 +37,7 @@ export default function LineupLibrary({ data, theme, role, onRefresh }: Props) {
       if (!res.ok) throw new Error((await res.json().catch(() => ({}))).error || 'Request failed.');
       await onRefresh();
     } catch (err: any) {
-      alert(err.message || 'Action failed.');
+      notify(err.message || 'Action failed.', 'error');
     } finally {
       setBusy(false);
     }

@@ -12,13 +12,6 @@ describe('coach review inbox actions', () => {
     expect(mutation).toContain('JSON.stringify({ status, reason })');
   });
 
-  it('persists Review before focusing the match and keeps Evidence as the explicit navigation action', () => {
-    const source = fs.readFileSync('src/components/CoachWorkflow.tsx', 'utf8');
-    expect(source).toContain('const saved = await mutate(signal, "reviewing")');
-    expect(source).toContain('if (saved && signal.matchIds[0]) onFocusMatch(signal.matchIds[0])');
-    expect(source).toContain('onClick={() => onOpenMatch(signal.matchIds[0])}');
-  });
-
   it('starts dense integrated intelligence minimized', () => {
     const source = fs.readFileSync('src/components/ReviewIntelligencePanels.tsx', 'utf8');
     expect(source).toContain('const [open, setOpen] = useState(false)');

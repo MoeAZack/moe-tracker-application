@@ -12,6 +12,7 @@ import {
   CheckCircle2, AlertTriangle, Shield, Award, Sparkles, Trophy, 
   ChevronRight, X, Check, FileText, Sliders, RefreshCw
 } from 'lucide-react';
+import { confirmDialog, notify } from '../utils/appDialogs';
 
 interface ComponentProps {
   data: TrackerData;
@@ -161,11 +162,11 @@ export default function LiveLogger({ data, theme, onSaveMatch, onSaveRounds, onR
   // --- BOOT LIVE MATCH ---
   const handleStartLiveMatch = async () => {
     if (!opponent.trim()) {
-      alert('Please enter an opponent team name.');
+      notify('Please enter an opponent team name.');
       return;
     }
     if (activeRoster.length === 0) {
-      alert('Please select at least 1 player on the roster.');
+      notify('Please select at least 1 player on the roster.');
       return;
     }
 
@@ -217,7 +218,7 @@ export default function LiveLogger({ data, theme, onSaveMatch, onSaveRounds, onR
       }
     } catch (err) {
       console.error(err);
-      alert('Failed to boot live match database entry.');
+      notify('Failed to boot live match database entry.', 'error');
     }
   };
 
@@ -427,14 +428,14 @@ export default function LiveLogger({ data, theme, onSaveMatch, onSaveRounds, onR
       resetRoundInputs();
     } catch (err) {
       console.error(err);
-      alert('Error updating live database during round log.');
+      notify('Error updating live database during round log.', 'error');
     }
   };
 
   // --- DELETE A ROUND FROM TIMELINE ---
   const handleDeleteRound = async (idx: number) => {
     if (!sessionMatch) return;
-    if (!window.confirm(`Delete round ${idx + 1} logging records?`)) return;
+    if (!(await confirmDialog(`Delete round ${idx + 1} logging records?`, { destructive: true, confirmLabel: 'Delete' }))) return;
 
     const filtered = liveRounds.filter((_, i) => i !== idx);
     // Re-index round numbers
@@ -541,11 +542,11 @@ export default function LiveLogger({ data, theme, onSaveMatch, onSaveRounds, onR
       setLiveRounds([]);
       setScoreboardOpen(false);
       
-      alert('Live match finalized successfully and logged to standard database!');
+      notify('Live match finalized successfully and logged to standard database!');
       setActiveTab('matches');
     } catch (err) {
       console.error(err);
-      alert('Failed to finalize final scoreboard records.');
+      notify('Failed to finalize final scoreboard records.', 'error');
     }
   };
 

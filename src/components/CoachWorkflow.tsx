@@ -24,6 +24,7 @@ import {
   type PracticeBlockSummary,
 } from "../../lib/coachingWorkflow";
 import { apiFetch } from "../utils/api";
+import { confirmDialog } from '../utils/appDialogs';
 
 type WorkflowPayload = {
   summaries: PracticeBlockSummary[];
@@ -250,9 +251,7 @@ export default function CoachWorkflow({
   };
   const deleteSignal = async (signal: CoachingSignal) => {
     if (
-      !window.confirm(
-        `Permanently delete “${signal.title}” from the review inbox?`,
-      )
+      !(await confirmDialog(`Permanently delete “${signal.title}” from the review inbox?`, { destructive: true, confirmLabel: 'Delete permanently' }))
     )
       return;
     setBusy(signal.id);

@@ -45,6 +45,8 @@ import {
   Layers, Users, Settings as SettingsIcon, Image, Activity, Sparkles,
   Film, Crosshair, Coins, FileCheck2, GitCompareArrows, Upload, X
 } from 'lucide-react';
+import { notify } from './utils/appDialogs';
+import AppDialogHost from './components/AppDialogHost';
 
 export default function App() {
   useEffect(() => {
@@ -62,12 +64,6 @@ export default function App() {
   const [data, setData] = useState<TrackerData | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
-  const [appNotice, setAppNotice] = useState<string | null>(null);
-  useEffect(() => {
-    const nativeAlert = window.alert;
-    window.alert = message => setAppNotice(String(message || 'Action completed.'));
-    return () => { window.alert = nativeAlert; };
-  }, []);
   
   // Navigation
   const [activeTab, setActiveTab] = useState<WorkspaceTabId>(() => parseWorkspaceRoute(window.location.hash).tab);
@@ -274,7 +270,7 @@ export default function App() {
       if (key) upsertLocal(key, resJson);
       return resJson;
     } catch (err: any) {
-      alert(err.message || 'Error occurred during upsert.');
+      notify(err.message || 'Error occurred during upsert.', 'error');
       throw err;
     }
   };
@@ -305,7 +301,7 @@ export default function App() {
         return next;
       });
     } catch (err: any) {
-      alert(err.message || 'Error deleting row.');
+      notify(err.message || 'Error deleting row.', 'error');
     }
   };
 
@@ -366,10 +362,10 @@ export default function App() {
         const next = { ...prev, matches, playerStats };
         return resJson.roundsUpdate ? mergeRoundsResult(next, savedMatch.id, resJson.roundsUpdate) : next;
       });
-      if (resJson.duplicateReview?.status === 'quarantined') alert('This match looks like a second capture of a game that is already saved. It was kept but is excluded from analytics until a coach keeps or discards it in Match Log.');
+      if (resJson.duplicateReview?.status === 'quarantined') notify('This match looks like a second capture of a game that is already saved. It was kept but is excluded from analytics until a coach keeps or discards it in Match Log.');
       return resJson;
     } catch (err: any) {
-      alert(err.message || 'Error saving match details.');
+      notify(err.message || 'Error saving match details.', 'error');
       throw err;
     }
   };
@@ -389,9 +385,9 @@ export default function App() {
         const next = mergeRoundsResult(prev, matchId, resJson);
         return { ...next, matches: (next.matches || []).map(item => item.id === matchId ? { ...item, duplicateReview: resJson.duplicateReview || undefined } : item) };
       });
-      if (resJson.duplicateReview?.status === 'quarantined') alert('These rounds match a game that is already saved. The match is excluded from analytics until a coach keeps or discards it in Match Log.');
+      if (resJson.duplicateReview?.status === 'quarantined') notify('These rounds match a game that is already saved. The match is excluded from analytics until a coach keeps or discards it in Match Log.');
     } catch (err: any) {
-      alert(err.message || 'Error saving rounds.');
+      notify(err.message || 'Error saving rounds.', 'error');
       throw err;
     }
   };
@@ -406,7 +402,7 @@ export default function App() {
       if (!res.ok) throw await saveError(res, 'Duplicate review failed.');
       await fetchDatabase();
     } catch (err: any) {
-      alert(err.message || 'Error saving duplicate review.');
+      notify(err.message || 'Error saving duplicate review.', 'error');
       throw err;
     }
   };
@@ -426,7 +422,7 @@ export default function App() {
         vetos: [...(prev.vetos || []).filter((v) => v.matchId !== matchId), ...savedVetos]
       } : prev);
     } catch (err: any) {
-      alert(err.message || 'Error saving veto draft.');
+      notify(err.message || 'Error saving veto draft.', 'error');
       throw err;
     }
   };
@@ -460,7 +456,7 @@ export default function App() {
       setData((prev) => prev ? { ...prev, settings: resJson } : prev);
       return resJson;
     } catch (err: any) {
-      alert(err.message || 'Error saving settings.');
+      notify(err.message || 'Error saving settings.', 'error');
       throw err;
     }
   };
@@ -501,7 +497,7 @@ export default function App() {
   const themeMode = data?.settings?.theme || 'slate';
 
   if (!key) {
-    return <LoginScreen onLoginSuccess={handleLoginSuccess} />;
+    return <><LoginScreen onLoginSuccess={handleLoginSuccess} /><AppDialogHost /></>;
   }
 
   if (loading) {
@@ -516,7 +512,7 @@ export default function App() {
   return (
     <div data-theme={themeMode} className={`app-shell min-h-screen ${theme.bg} flex flex-col lg:flex-row font-sans relative overflow-x-hidden selection:bg-[#ff4655]/30 selection:text-[#ff4655]`}>
       <a href="#main-content" className="skip-link">Skip to main content</a>
-      {appNotice && <div role="status" className="fixed right-4 top-4 z-[100] flex max-w-md items-start gap-3 rounded-xl border border-cyan-300/20 bg-slate-950/95 px-4 py-3 text-sm text-slate-200 shadow-2xl backdrop-blur"><span className="flex-1">{appNotice}</span><button type="button" aria-label="Dismiss notification" onClick={() => setAppNotice(null)} className="rounded p-1 text-slate-400 hover:bg-white/10 hover:text-white"><X className="h-4 w-4" /></button></div>}
+      <AppDialogHost />
       {/* Background flares */}
       <div className="ambient-orb top-[-12rem] left-[-10rem] h-[28rem] w-[28rem] bg-[#46d8c7]/10"></div>
       <div className="ambient-orb bottom-[-12rem] right-[-10rem] h-[30rem] w-[30rem] bg-[#ff5361]/8"></div>

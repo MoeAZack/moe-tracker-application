@@ -1,6 +1,7 @@
 import React, { useEffect, useState } from 'react';
 import { apiFetch } from '../utils/api';
 import { UserPlus, Trash2, ShieldCheck, Users, AlertCircle } from 'lucide-react';
+import { confirmDialog } from '../utils/appDialogs';
 
 interface Allowed { email: string; role: string; name?: string; playerId?: string; addedAt?: string; }
 interface RosterIdentity { id: string; displayName: string; retiredAt?: string | null; }
@@ -58,7 +59,7 @@ export default function AccessControl({ theme, rosterPlayers = [] }: { theme: an
   };
 
   const remove = async (em: string) => {
-    if (!window.confirm(`Remove access for ${em}? They will be signed out immediately.`)) return;
+    if (!(await confirmDialog(`Remove access for ${em}? They will be signed out immediately.`, { destructive: true, confirmLabel: 'Remove' }))) return;
     try {
       const res = await apiFetch('/api/access/remove', {
         method: 'POST',

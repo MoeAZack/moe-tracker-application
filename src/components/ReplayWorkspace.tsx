@@ -22,6 +22,7 @@ import { reportDesktopDiagnostic } from "../utils/desktopDiagnostics";
 import ScoreboardCrop from './ScoreboardCrop';
 import type { ScoreboardSelection } from '../../lib/localOcrEngine';
 import { extractScoreboardLocally } from '../utils/localScoreboard';
+import { confirmDialog } from '../utils/appDialogs';
 
 export type Device = {
   id: string;
@@ -559,9 +560,7 @@ export default function ReplayWorkspace({
   };
   const removeDevice = async (device: Device) => {
     if (
-      !window.confirm(
-        `Remove “${device.name}” from collection devices? Its collector credential will stop working immediately.`,
-      )
+      !(await confirmDialog(`Remove “${device.name}” from collection devices? Its collector credential will stop working immediately.`, { destructive: true, confirmLabel: 'Remove' }))
     )
       return;
     await mutate(
@@ -572,7 +571,7 @@ export default function ReplayWorkspace({
     );
   };
   const removeReplay = async (upload: Upload) => {
-    if (!window.confirm(`Delete replay evidence “${upload.originalName}”? The saved match, if any, will remain.`)) return;
+    if (!(await confirmDialog(`Delete replay evidence “${upload.originalName}”? The saved match, if any, will remain.`, { destructive: true, confirmLabel: 'Delete' }))) return;
     setBusy(`delete-replay-${upload.sha256}`); setError(""); setMessage("");
     try {
       const response = await apiFetch(`/api/replay-intake/uploads/${upload.sha256}`, { method: "DELETE" });
@@ -585,7 +584,7 @@ export default function ReplayWorkspace({
   };
   const removeScreenshot = async (id?: string) => {
     const all = !id;
-    if (!window.confirm(all ? `Delete all ${screenshots.length} retained scoreboard drafts?` : "Delete this retained scoreboard draft?")) return;
+    if (!(await confirmDialog(all ? `Delete all ${screenshots.length} retained scoreboard drafts?` : "Delete this retained scoreboard draft?", { destructive: true, confirmLabel: 'Delete' }))) return;
     setBusy(all ? "clear-screenshots" : `delete-screenshot-${id}`); setError(""); setMessage("");
     try {
       const response = await apiFetch(`/api/replay-intake/screenshots${id ? `/${id}` : ""}`, { method: "DELETE" });

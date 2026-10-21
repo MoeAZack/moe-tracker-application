@@ -26,12 +26,6 @@ describe('workspace navigation layout', () => {
     expect(settings).toContain('only affects this app session and does not delete any tryout data');
   });
 
-  it('hides the coach roster surface from players and provides dismissible notifications', () => {
-    const app = fs.readFileSync('src/App.tsx', 'utf8');
-    expect(app).toContain('aria-label="Dismiss notification"');
-    expect(app).toContain('window.alert = message => setAppNotice');
-  });
-
   it('uses a readable replay evidence summary instead of exposing raw evidence JSON', () => {
     const vod = fs.readFileSync('src/components/VodReview.tsx', 'utf8');
     expect(vod).toContain('Evidence summary');

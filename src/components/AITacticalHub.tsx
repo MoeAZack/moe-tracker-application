@@ -7,6 +7,7 @@ import { DEFAULT_MINIMUM_METRIC_SAMPLES } from '../../lib/metricTrust';
 import { agentProficiency, buildPeriodMetrics, clutchPublication, emptyPeriodMetrics, gatedUntradedRate, kpiRecommendation, type AgentProficiency } from '../../lib/tacticalHubMetrics';
 import { percentageBarClass, percentageSurfaceClass, percentageTextClass } from '../utils/percentageColor';
 import { playerAggregationKey } from '../../lib/identitySnapshot';
+import { notify } from '../utils/appDialogs';
 
 interface ComponentProps {
   data: TrackerData;
@@ -299,7 +300,7 @@ export default function AITacticalHub({ data, theme, onUpsert, onRemove }: Compo
       setEditedNotes(stratData.notes);
     } catch (err) {
       console.error(err);
-      alert('AI Generation timed out or failed. Please ensure your Gemini API key is set in Settings.');
+      notify('AI Generation timed out or failed. Please ensure your Gemini API key is set in Settings.', 'error');
     } finally {
       clearInterval(interval);
       setGenerating(false);
@@ -320,7 +321,7 @@ export default function AITacticalHub({ data, theme, onUpsert, onRemove }: Compo
         active: 'TRUE'
       });
       
-      alert('Strategy successfully saved to your active Team Playbook!');
+      notify('Strategy successfully saved to your active Team Playbook!');
       setGeneratedStrat(null);
       setCustomFocus('');
     } catch (err) {
@@ -435,7 +436,7 @@ export default function AITacticalHub({ data, theme, onUpsert, onRemove }: Compo
       if (simRoster.length < 5) {
         setSimRoster([...simRoster, player]);
       } else {
-        alert('Rosters are limited to exactly 5 active players.');
+        notify('Rosters are limited to exactly 5 active players.');
       }
     }
   };
