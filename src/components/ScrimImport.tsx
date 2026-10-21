@@ -1,7 +1,7 @@
 import React, { useEffect, useMemo, useRef, useState } from 'react';
 import { EntrySourceMetadata, MatchStatsUpdate, TrackerData } from '../types';
 import { apiFetch } from '../utils/api';
-import { CLOUD_AI_OFF_MESSAGE, useCloudAiAvailable } from '../utils/cloudAi';
+import { CLOUD_AI_OFF_MESSAGE, cloudAiActionBlocked, useCloudAiAvailable } from '../utils/cloudAi';
 import { Sparkles, Upload, X, Loader2, CheckCircle, Image as ImageIcon } from 'lucide-react';
 import { canCommitScreenshotReview, matchExtractedRosterName } from '../../lib/entryEngine';
 import { reportDesktopDiagnostic } from '../utils/desktopDiagnostics';
@@ -314,7 +314,7 @@ export default function ScrimImport({ data, theme, onSaveMatch, onClose }: Props
             <p className="text-xs text-gray-400 leading-relaxed">{window.moeDesktop ? 'Load latest one-button capture reads the screenshots locally on this PC. ' : ''}Read selected screenshots sends the images you choose to Gemini, a cloud AI service, and needs a Gemini API key. Every detected player, score, and round stays a draft until you review and confirm it.</p>
             {fileRow('Scoreboard screenshot', scoreboard, setScoreboard, true)}
             {fileRow('Round timeline screenshot (optional)', timeline, setTimeline)}
-            <button onClick={runImport} disabled={!scoreboard || cloudAiAvailable !== true} className="w-full py-3 bg-[#d12a3a] hover:bg-[#b91c2e] disabled:opacity-40 text-white font-bold text-xs uppercase tracking-widest rounded-lg flex items-center justify-center gap-2 cursor-pointer">
+            <button onClick={runImport} disabled={cloudAiActionBlocked(cloudAiAvailable, !scoreboard)} className="w-full py-3 bg-[#d12a3a] hover:bg-[#b91c2e] disabled:opacity-40 text-white font-bold text-xs uppercase tracking-widest rounded-lg flex items-center justify-center gap-2 cursor-pointer">
               <Upload className="w-4 h-4" /> Read selected screenshots with cloud AI
             </button>
             {cloudAiAvailable === false && <p className="text-[10px] text-gray-400">{CLOUD_AI_OFF_MESSAGE}</p>}

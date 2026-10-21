@@ -16,7 +16,7 @@ import {
   Sparkles, Send, Copy, Loader2, ArrowUpRight
 } from 'lucide-react';
 import { confirmDialog, notify } from '../utils/appDialogs';
-import { CLOUD_AI_OFF_MESSAGE, cloudAiErrorMessage, useCloudAiAvailable } from '../utils/cloudAi';
+import { CLOUD_AI_OFF_MESSAGE, cloudAiActionBlocked, cloudAiErrorMessage, useCloudAiAvailable } from '../utils/cloudAi';
 
 interface ComponentProps {
   data: TrackerData;
@@ -842,7 +842,7 @@ export default function MatchLogRounds({ data, theme, onSaveMatch, onRemove, onS
                     </span>
                     <div className="flex gap-2 shrink-0">
                       <button
-                        disabled={analyzingMatch || cloudAiAvailable !== true}
+                        disabled={cloudAiActionBlocked(cloudAiAvailable, analyzingMatch)}
                         title={cloudAiAvailable === false ? CLOUD_AI_OFF_MESSAGE : undefined}
                         onClick={async () => {
                           setAnalyzingMatch(true);

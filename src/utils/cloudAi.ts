@@ -9,6 +9,12 @@ export function cloudAiConfigured(status: unknown): boolean {
   return (status as any)?.gemini?.configured === true;
 }
 
+// A cloud AI action is blocked while availability is unknown (null) or off,
+// and whenever the caller is busy or missing input.
+export function cloudAiActionBlocked(available: boolean | null, busyOrMissingInput: boolean): boolean {
+  return busyOrMissingInput || available !== true;
+}
+
 // null while the status loads; false when the status cannot be read.
 export function useCloudAiAvailable(): boolean | null {
   const [available, setAvailable] = useState<boolean | null>(null);
