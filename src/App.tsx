@@ -14,7 +14,7 @@ import DesktopReplayAutomation from './components/DesktopReplayAutomation';
 import ReviewContextBar from './components/ReviewContextBar';
 import { projectCurrentPlayerAnalytics } from '../lib/activePlayerAnalytics';
 import { projectReviewContext } from '../lib/reviewContext';
-import { focusReviewContext, navWorkspaceTabs, parseWorkspaceRoute, resolveWorkspaceTab, routableWorkspaceTabs, syncWorkspaceRoute, type WorkspaceRoute, type WorkspaceTabId } from './utils/workspaceRoute';
+import { evidenceReviewTab, focusReviewContext, navWorkspaceTabs, parseWorkspaceRoute, resolveWorkspaceTab, routableWorkspaceTabs, syncWorkspaceRoute, type WorkspaceRoute, type WorkspaceTabId } from './utils/workspaceRoute';
 
 // Heavy route views are code-split so the initial bundle only loads the shell + login.
 const Dashboard = lazy(() => import('./components/Dashboard'));
@@ -713,7 +713,7 @@ export default function App() {
               </div>
             }>
             {activeTab === 'dashboard' && analyticsData && (
-              <Dashboard data={analyticsData} theme={theme} role={role} username={username} summaryMode={!desktopMode} onOpenMatch={(matchId) => { setReviewMatchId(matchId); setActiveTab('vod'); }} onOpenReplay={() => setActiveTab('replays')} onOpenCapture={() => setScrimOpen(true)} onOpenSchedule={() => setActiveTab('calendar')} onOpenCoachWorkspace={() => setActiveTab('aitactical')} />
+              <Dashboard data={analyticsData} theme={theme} role={role} username={username} summaryMode={!desktopMode} onOpenMatch={(matchId) => { setReviewMatchId(matchId); setActiveTab(evidenceReviewTab(routableTabs)); }} onOpenReplay={() => setActiveTab('replays')} onOpenCapture={() => setScrimOpen(true)} onOpenSchedule={() => setActiveTab('calendar')} onOpenCoachWorkspace={() => setActiveTab('aitactical')} />
             )}
             {activeTab === 'calendar' && data && (
               <CalendarGoals data={data} theme={theme} role={role || 'player'} onUpsert={handleUpsert} onRemove={handleRemove} onRefresh={fetchDatabase} />
@@ -767,7 +767,7 @@ export default function App() {
             )}
             {activeTab === 'aitactical' && analyticsData && (
               <div className="space-y-8">
-                <CoachWorkflow data={analyticsData} role={role} preferredMatchId={reviewMatchId} onRefresh={fetchDatabase} onFocusMatch={focusReview} onOpenMatch={(matchId, roundNo) => { focusReview(matchId, roundNo); setActiveTab('vod'); }} />
+                <CoachWorkflow data={analyticsData} role={role} preferredMatchId={reviewMatchId} onRefresh={fetchDatabase} onFocusMatch={focusReview} onOpenMatch={(matchId, roundNo) => { focusReview(matchId, roundNo); setActiveTab(evidenceReviewTab(routableTabs)); }} />
                 <AITacticalHub data={coachReviewData || analyticsData} theme={theme} onUpsert={handleUpsert} onRemove={handleRemove} />
               </div>
             )}
@@ -784,7 +784,7 @@ export default function App() {
               </div>
             )}
             {activeTab === 'playerstats' && analyticsData && (
-              <PlayerSoloTracker data={analyticsData} theme={theme} role={role} onRefresh={fetchDatabase} onOpenEvidence={(matchId, roundNo) => { setReviewMatchId(matchId); setReviewRoundNo(roundNo); setActiveTab('vod'); }} />
+              <PlayerSoloTracker data={analyticsData} theme={theme} role={role} onRefresh={fetchDatabase} onOpenEvidence={(matchId, roundNo) => { setReviewMatchId(matchId); setReviewRoundNo(roundNo); setActiveTab(evidenceReviewTab(routableTabs)); }} />
             )}
             {activeTab === 'settings' && data && (
               <div className="space-y-6">

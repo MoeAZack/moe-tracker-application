@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { focusReviewContext, navWorkspaceTabs, parseWorkspaceRoute, resolveWorkspaceTab, routableWorkspaceTabs, syncWorkspaceRoute, workspaceHistoryMode, workspaceRouteHash } from '../src/utils/workspaceRoute';
+import { evidenceReviewTab, focusReviewContext, navWorkspaceTabs, parseWorkspaceRoute, resolveWorkspaceTab, routableWorkspaceTabs, syncWorkspaceRoute, workspaceHistoryMode, workspaceRouteHash } from '../src/utils/workspaceRoute';
 
 describe('workspace deep links', () => {
   it('round-trips a review route with match and round context', () => {
@@ -83,5 +83,21 @@ describe('review context focus', () => {
     expect(focusReviewContext({ matchId: 'm1', roundNo: 9 }, 'm2', 4)).toEqual({ matchId: 'm2', roundNo: 4 });
     expect(focusReviewContext({ matchId: 'm1', roundNo: 9 }, 'm2')).toEqual({ matchId: 'm2', roundNo: null });
     expect(focusReviewContext({ matchId: 'm1', roundNo: 9 }, null, 3)).toEqual({ matchId: null, roundNo: null });
+  });
+});
+
+describe('evidence link destination', () => {
+  it('opens VOD Review only where the role and surface can use it', () => {
+    expect(evidenceReviewTab(routableWorkspaceTabs({ desktopMode: true, role: 'coach' }))).toBe('vod');
+    expect(evidenceReviewTab(routableWorkspaceTabs({ desktopMode: true, role: 'player' }))).toBe('matches');
+    expect(evidenceReviewTab(routableWorkspaceTabs({ desktopMode: false, role: 'coach' }))).toBe('matches');
+    expect(evidenceReviewTab(routableWorkspaceTabs({ desktopMode: false, role: 'player' }))).toBe('matches');
+  });
+
+  it('always lands on a tab the session can open', () => {
+    for (const desktopMode of [true, false]) for (const role of ['coach', 'player', null]) {
+      const routable = routableWorkspaceTabs({ desktopMode, role });
+      expect(routable).toContain(evidenceReviewTab(routable));
+    }
   });
 });

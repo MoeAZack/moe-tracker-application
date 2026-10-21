@@ -36,6 +36,6 @@ describe('shared match review context', () => {
     expect(players).not.toContain('stat.playerId === row.playerId');
     expect(players).toContain('playerMetricRoundEvidence(data, row)');
     expect(players).toContain('onOpenEvidence?.(item.matchId, item.roundNo)');
-    expect(app).toContain("setReviewRoundNo(roundNo); setActiveTab('vod')");
+    expect(app).toContain('setReviewRoundNo(roundNo); setActiveTab(evidenceReviewTab(routableTabs))');
   });
 });
