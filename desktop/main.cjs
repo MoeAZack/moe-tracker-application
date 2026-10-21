@@ -12,6 +12,7 @@ const { MAX_ENVELOPE_BYTES, encryptPortablePackage, decryptPortablePackage } = r
 const { appendLocalCrashEvent } = require('./local-crash-log.cjs');
 const { createUpdateController } = require('./update-controller.cjs');
 const { createUpdateHealth } = require('./update-health.cjs');
+const { createUpdateTrust } = require('./update-trust.cjs');
 const { createSupportBundle } = require('./support-bundle.cjs');
 const { resolveReplayRuntime } = require('./replay-runtime.cjs');
 const { collectChildOutput, collectJson } = require('./collector-command.cjs');
@@ -19,6 +20,7 @@ const { canonical, refreshScreenshotOutboxFromData } = require('./sync-outbox.cj
 const { hasRecentRecoveryBackup } = require('./recovery-backup.cjs');
 const { isTrustedSenderUrl, sessionIsFresh } = require('./session-security.cjs');
 const { loginCredentials } = require('./session-credentials.cjs');
+const { publicSession, apiRequestFilter, createSessionHeaderInjector } = require('./renderer-session.cjs');
 const { analyzeVodTimeline, discoverVodGames, releaseVodSource, createReviewClips, readOwnedVodFrame, sweepOrphanedVodDirectories } = require('./vod-timeline-analyzer.cjs');
 const { launchScrimCapture } = require('./capture-launch.cjs');
 const { createIngestionJob, updateIngestionJob: evolveIngestionJob, recoverInterruptedJobs, publicIngestionJob } = require('./ingestion-jobs.cjs');
@@ -519,6 +521,10 @@ async function createWindow() {
   });
   mainWindow.on('close', event => { if (!quitting) { event.preventDefault(); mainWindow.hide(); } });
   mainWindow.on('closed', () => { mainWindow = null; });
+  // The coach token never enters the page: requests from this window to the
+  // local API get it added here, in the main process.
+  const windowContents = mainWindow.webContents;
+  windowContents.session.webRequest.onBeforeSendHeaders(apiRequestFilter(runtime.port), createSessionHeaderInjector({ port: runtime.port, getSession: () => bootstrapSession(), isTrustedWebContents: id => !windowContents.isDestroyed() && id === windowContents.id }));
   mainWindow.webContents.setWindowOpenHandler(() => ({ action: 'deny' }));
   mainWindow.webContents.on('will-navigate', (event, url) => { if (url !== `http://127.0.0.1:${runtime.port}/?desktop=1` && !url.startsWith(`http://127.0.0.1:${runtime.port}/`)) event.preventDefault(); });
   await mainWindow.loadURL(`http://127.0.0.1:${runtime.port}/?desktop=1`);
@@ -572,7 +578,7 @@ function handleTrusted(channel, listener) {
   ipcMain.handle(channel, (event, ...args) => { requireTrustedSender(event); return listener(event, ...args); });
 }
 
-handleTrusted('desktop:bootstrap-session', (event, force) => { requireTrustedSender(event); return bootstrapSession(force === true); });
+handleTrusted('desktop:bootstrap-session', async (event, force) => { requireTrustedSender(event); return publicSession(await bootstrapSession(force === true)); });
 handleTrusted('desktop:get-status', desktopStatus);
 handleTrusted('desktop:create-recovery-backup', async () => {
   const result = await createRecoveryBackup(true);
@@ -867,11 +873,14 @@ app.on('second-instance', () => { if (runtime) void showMainWindow().catch(error
 if (singleInstanceLock) app.whenReady().then(async () => {
   await ensureRuntime(); applyLoginPreference();
   const { autoUpdater } = require('electron-updater');
-  const updateHealth = createUpdateHealth({ directory: path.join(runtime.paths.local, 'Updates') });
+  // Every installer the updater downloads, installs or rolls back to must be
+  // Authenticode-signed by a publisher named in update-trust.json.
+  const updateTrust = createUpdateTrust();
+  const updateHealth = createUpdateHealth({ directory: path.join(runtime.paths.local, 'Updates'), verifyInstaller: updateTrust.verify });
   const healthState = app.isPackaged ? await updateHealth.beginStartup(app.getVersion()) : { state: 'not-pending' };
   if (healthState.state === 'rollback-started') { quitting = true; app.quit(); return; }
   const updatesEnabled = app.isPackaged && healthState.state !== 'safe-mode';
-  updateController = createUpdateController({ autoUpdater, enabled: updatesEnabled, currentVersion: app.getVersion(), updateHealth });
+  updateController = createUpdateController({ autoUpdater, enabled: updatesEnabled, currentVersion: app.getVersion(), updateHealth, trust: updateTrust });
   updateController.start();
   await startLocalServer(); await startCollector(); await createWindow(); createTray();
   captureInboxTimer = setInterval(() => { void notifyLatestCapture().catch(error => recordLocalCrash('capture-inbox-watch-failed', error)); }, 2_000); captureInboxTimer.unref?.();

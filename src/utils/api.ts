@@ -14,6 +14,12 @@ export function applicationApiTarget(
   }
 }
 
+/**
+ * Session marker the installed desktop uses in place of a token: its coach
+ * JWT stays in the main process, which adds it to this window's API requests.
+ */
+export const DESKTOP_SESSION = "desktop-session";
+
 // Custom fetch wrapper to safely handle authentication headers and intercept errors
 export async function apiFetch(
   input: RequestInfo | URL,
@@ -63,17 +69,15 @@ export async function apiFetch(
   ) {
     try {
       const session = await window.moeDesktop.bootstrapSession(true);
-      localStorage.setItem("team_tracker_key", session.key);
+      localStorage.removeItem("team_tracker_key");
       localStorage.setItem("team_tracker_role", session.role);
       localStorage.setItem("team_tracker_username", session.username);
+      // Retry without a page credential; the main process adds the renewed one.
       const retryOptions: RequestInit = {
         ...options,
         headers: new Headers(options.headers || {}),
       };
-      (retryOptions.headers as Headers).set(
-        "Authorization",
-        `Bearer ${session.key}`,
-      );
+      (retryOptions.headers as Headers).delete("Authorization");
       response = await fetch(input, retryOptions);
     } catch {
       // The normal 401 handling below will return the desktop to a recoverable state.

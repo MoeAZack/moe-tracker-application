@@ -17,22 +17,41 @@ async function atomicJson(file, value) {
 
 function safeVersion(value) { return String(value || '').replace(/[^0-9A-Za-z._-]/g, '_').slice(0, 64); }
 
+// The NSIS installer leaves a copy of itself here (build/installer.nsh), so
+// the very first update already has the installed version to fall back to.
+const INSTALLED_DIRECTORY = 'installed';
+function installedInstallerName(version) { return `Moe-Tracker-Application-${safeVersion(version)}-Setup.exe`; }
+
 function createUpdateHealth({ directory, launchInstaller = installer => {
   const child = spawn(installer, ['/S'], { detached: true, stdio: 'ignore', windowsHide: true });
   child.unref();
-} }) {
+}, verifyInstaller = async () => 'No installer signature check is configured.' }) {
   const pendingFile = path.join(directory, 'pending-health.json');
   const goodFile = path.join(directory, 'last-known-good.json');
+
+  // The installer this version was set up from: the last update confirmed
+  // healthy, or else the copy the installer left on first install.
+  async function previousInstaller(previousVersion) {
+    const good = await readJson(goodFile);
+    if (good?.version === previousVersion && good?.installer && fs.existsSync(good.installer)) return good.installer;
+    const installed = path.join(directory, INSTALLED_DIRECTORY, installedInstallerName(previousVersion));
+    if (!previousVersion || !fs.existsSync(installed)) return null;
+    // A later install replaces the installed/ copy, so keep this one aside.
+    const kept = path.join(directory, `rollback-${safeVersion(previousVersion)}.exe`);
+    await fsp.copyFile(installed, kept);
+    return kept;
+  }
 
   async function prepareInstall({ previousVersion, targetVersion, downloadedFile }) {
     if (!downloadedFile || !fs.existsSync(downloadedFile)) throw new Error('The downloaded installer is unavailable. Download the update again.');
     await fsp.mkdir(directory, { recursive: true });
     const targetInstaller = path.join(directory, `candidate-${safeVersion(targetVersion)}.exe`);
     await fsp.copyFile(downloadedFile, targetInstaller);
-    const good = await readJson(goodFile);
-    const rollbackInstaller = good?.version === previousVersion && good?.installer && fs.existsSync(good.installer) ? good.installer : null;
+    let rollbackInstaller = await previousInstaller(previousVersion);
+    const rollbackProblem = rollbackInstaller ? await verifyInstaller(rollbackInstaller) : 'No installer for the current version is cached.';
+    if (rollbackProblem) rollbackInstaller = null;
     await atomicJson(pendingFile, { schemaVersion: 1, previousVersion, targetVersion, targetInstaller, rollbackInstaller, attempts: 0, preparedAt: new Date().toISOString() });
-    return { prepared: true, rollbackReady: !!rollbackInstaller };
+    return { prepared: true, rollbackReady: !!rollbackInstaller, ...(rollbackProblem ? { rollbackProblem } : {}) };
   }
 
   async function beginStartup(currentVersion) {
@@ -43,6 +62,9 @@ function createUpdateHealth({ directory, launchInstaller = installer => {
     await atomicJson(pendingFile, pending);
     if (pending.attempts < 2) return { state: 'verifying', attempts: pending.attempts };
     if (!pending.rollbackInstaller || !fs.existsSync(pending.rollbackInstaller)) return { state: 'safe-mode', attempts: pending.attempts, message: 'The update did not pass its startup check and no previous signed installer is cached. Automatic updates are paused.' };
+    // Never run an installer whose signature no longer checks out.
+    const problem = await verifyInstaller(pending.rollbackInstaller);
+    if (problem) return { state: 'safe-mode', attempts: pending.attempts, message: `The update did not pass its startup check and the previous installer failed verification (${problem}). Automatic updates are paused.` };
     launchInstaller(pending.rollbackInstaller);
     return { state: 'rollback-started', attempts: pending.attempts, version: pending.previousVersion };
   }
@@ -60,4 +82,4 @@ function createUpdateHealth({ directory, launchInstaller = installer => {
   return { prepareInstall, beginStartup, confirmHealthy };
 }
 
-module.exports = { createUpdateHealth };
+module.exports = { createUpdateHealth, INSTALLED_DIRECTORY, installedInstallerName };
