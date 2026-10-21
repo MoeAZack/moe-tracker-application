@@ -18,6 +18,11 @@ import { readOfflineSnapshot } from '../lib/offlineSnapshot';
 const COLLECTIONS = ['matches', 'rounds', 'playerStats'] as const;
 // Annotations 0.2.0 may add while upgrading; reported, but kept out of the content hash.
 const UPGRADE_ANNOTATIONS = new Set(['duplicateReview']);
+// Aggregates the server derives from source evidence on every read (lib/publicData.ts):
+// rebuilt by the current builder, or withheld when they cannot be rebuilt. Stored
+// copies are compared exactly; server reads are compared on source fields only and
+// must agree with each other, derived fields included.
+export const DERIVED_FIELDS: Record<string, ReadonlySet<string>> = { matches: new Set(['roundAnalytics']), rounds: new Set(), playerStats: new Set(['screenshotMetrics']) };
 
 const option = (name: string) => { const index = process.argv.indexOf(name); return index >= 0 ? process.argv[index + 1] : undefined; };
 const sha256 = (value: string | Buffer) => crypto.createHash('sha256').update(value).digest('hex');
@@ -27,12 +32,16 @@ export function contentSummary(state: any) {
   const summary: Record<string, any> = {};
   for (const name of COLLECTIONS) {
     const rows = [...(Array.isArray(state?.[name]) ? state[name] : [])].sort((a, b) => String(a?.id).localeCompare(String(b?.id)));
-    const strip = (row: any) => Object.fromEntries(Object.entries(row || {}).filter(([key]) => !UPGRADE_ANNOTATIONS.has(key)));
+    const strip = (row: any, derived = false) => Object.fromEntries(Object.entries(row || {}).filter(([key]) => !UPGRADE_ANNOTATIONS.has(key) && !(derived && DERIVED_FIELDS[name].has(key))));
+    const fields = [...new Set(rows.flatMap(row => Object.keys(row || {})))].sort();
     summary[name] = {
       count: rows.length,
       idsSha256: sha256(JSON.stringify(rows.map(row => String(row?.id)))),
       contentSha256: sha256(JSON.stringify(rows.map(row => stable(strip(row))))),
-      fields: [...new Set(rows.flatMap(row => Object.keys(row || {})))].sort(),
+      sourceContentSha256: sha256(JSON.stringify(rows.map(row => stable(strip(row, true))))),
+      fields,
+      // One hash per field across all rows, so a failure names the field without printing values.
+      fieldSha256: Object.fromEntries(fields.map(field => [field, sha256(JSON.stringify(rows.map(row => [String(row?.id), stable(row?.[field]) ?? null])))])),
     };
   }
   summary.quarantinedMatches = (state?.matches || []).filter((match: any) => match?.duplicateReview?.status === 'quarantined').length;
@@ -72,6 +81,26 @@ async function readThroughServer(dbPath: string) {
   } finally { child.kill(); }
 }
 
+const changedFields = (a: any, b: any) => [...new Set([...Object.keys(a.fieldSha256), ...Object.keys(b.fieldSha256)])].filter(field => a.fieldSha256[field] !== b.fieldSha256[field] && !UPGRADE_ANNOTATIONS.has(field)).sort();
+
+/** Every way the upgraded reads or the migrated file can disagree with the original workspace. */
+export function upgradeFailures({ stored, before, firstRead, secondRead, afterRead, afterFile }: Record<'stored' | 'before' | 'firstRead' | 'secondRead' | 'afterRead' | 'afterFile', any>) {
+  const failures: string[] = [];
+  const compare = (label: string, summary: any, reference: any, fields: readonly string[]) => {
+    for (const name of COLLECTIONS) for (const field of fields) if (summary[name][field] !== reference[name][field]) {
+      const named = field.endsWith('ContentSha256') || field === 'contentSha256' ? changedFields(summary[name], reference[name]).filter(item => field === 'contentSha256' || !DERIVED_FIELDS[name].has(item)) : [];
+      failures.push(`${label}: ${name}.${field} changed${named.length ? ` (fields: ${named.join(', ')})` : ''}`);
+    }
+  };
+  compare('migrated file', afterFile, before, ['count', 'idsSha256', 'contentSha256']);
+  for (const [label, summary] of [['first 0.2.0 read', firstRead], ['second 0.2.0 read', secondRead], ['read after save', afterRead]] as const) compare(label, summary, before, ['count', 'idsSha256', 'sourceContentSha256']);
+  // Derived aggregates must come out the same on every read, before and after the save.
+  compare('second 0.2.0 read vs first', secondRead, firstRead, ['contentSha256']);
+  compare('read after save vs first', afterRead, firstRead, ['contentSha256']);
+  for (const name of COLLECTIONS) for (const field of ['count', 'idsSha256'] as const) if (stored[name][field] !== before[name][field]) failures.push(`hydrated source: ${name}.${field} differs from the stored file`);
+  return failures;
+}
+
 const isMain = process.argv[1] && path.resolve(process.argv[1]).endsWith('workspace-upgrade-check.mts');
 if (isMain) {
   const source = path.resolve(option('--source') || '');
@@ -89,6 +118,7 @@ if (isMain) {
   const stored = contentSummary(original.index);
   const before = contentSummary(original.state);
   const firstRead = contentSummary(await readThroughServer(dbPath));
+  const secondRead = contentSummary(await readThroughServer(dbPath));
   // One save through the store: the write path every change takes in 0.2.0.
   const save = spawnSync(process.execPath, ['--import', 'tsx', '-e', "const { readDB, saveDB } = await import('./lib/store.ts'); await saveDB(await readDB());"], { env: { ...process.env, USE_FIRESTORE: 'false', DB_PATH: dbPath }, encoding: 'utf8' });
   if (save.status !== 0) throw new Error(`Saving the copy failed: ${save.stderr.slice(-400)}`);
@@ -98,16 +128,13 @@ if (isMain) {
   const sourceAfter = await fileHashes(source);
 
   const failures: string[] = [];
-  for (const [label, summary] of [['first 0.2.0 read', firstRead], ['read after save', afterRead], ['migrated file', afterFile]] as const) {
-    for (const name of COLLECTIONS) for (const field of ['count', 'idsSha256', 'contentSha256'] as const) if (summary[name][field] !== before[name][field]) failures.push(`${label}: ${name}.${field} changed`);
-  }
-  for (const name of COLLECTIONS) for (const field of ['count', 'idsSha256'] as const) if (stored[name][field] !== before[name][field]) failures.push(`hydrated source: ${name}.${field} differs from the stored file`);
+  failures.push(...upgradeFailures({ stored, before, firstRead, secondRead, afterRead, afterFile }));
   if (JSON.stringify(sourceBefore) !== JSON.stringify(sourceAfter)) failures.push('the source folder changed');
   const report = {
     schema: 'moetracker.workspace-upgrade-check/v1', generatedAt: new Date().toISOString(),
     storage: { sourceSchemaVersion: Number(original.index?._storage?.schemaVersion || 1), migratedSchemaVersion: Number(migrated.index?._storage?.schemaVersion || 1) },
     sourceDbSha256: sourceBefore['db.json'] || null, sourceFiles: Object.keys(sourceBefore).length, sourceUnchanged: JSON.stringify(sourceBefore) === JSON.stringify(sourceAfter),
-    stored, before, firstRead, afterRead, afterFile, passed: failures.length === 0, failures,
+    stored, before, firstRead, secondRead, afterRead, afterFile, passed: failures.length === 0, failures,
   };
   await fs.writeFile(path.join(work, 'report.json'), `${JSON.stringify(report, null, 2)}\n`);
   console.log(JSON.stringify(report, null, 2));
