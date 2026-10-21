@@ -61,15 +61,6 @@ kept-distinct decision survives a third copy. Synthetic stand-ins for these
 cases live in `tests/fixtures/sameGameRecapture.ts`; owner data is not
 committed.
 
-Deferred (unchanged, not claimed as fixed):
-
-- Frame-difference buckets are still sized over the whole video.
-- `scripts/scrim-capture.ps1` still keeps the round tail by order and has no
-  automatic capture at match end.
-- The VOD scoreboard snapshot still reads K/D/A as the last three numbers of a
-  row, and kill-feed tracking dedupes unresolved opponents by raw OCR name, so
-  a noisy re-read can count twice.
-
 Acceptance evidence:
 
 - Unit and HTTP coverage for stable IDs, stale IDs, removed rounds, full match purge,
@@ -165,11 +156,13 @@ not in the committed ledger and are left in place.
 Fix and prove YouTube/local VOD handoff, cleanup, normalized frame selection,
 controlled OCR learning, capture behavior, spatial coordinates, and the real corpus.
 
-Status: FOLLOW-UP IN REVIEW (21 Oct 2026, Africa/Cairo). The H2 re-audit PR
-(#86) is merged; its code review left four items open, which the follow-up PR
-fixes: learned corrections applied by saved-row index, learned aliases missing
-from single-screenshot imports, leaked VOD work folders, and PRACC events
-removed from the feed. H2 is not passed until the owner accepts that PR.
+Status: PASSED (21 Oct 2026, Africa/Cairo) after the re-audit fixes in #86
+and the follow-up in #87. #87 closed the four items left by #86's code review:
+learned corrections applied by saved-row index, learned aliases missing from
+single-screenshot imports, leaked VOD work folders, and PRACC events removed
+from the feed. Independent verification of #87 (`VERIFY 3e8e930 — PASS`):
+each new behaviour test fails with its fix reverted. The items under
+"Deferred" are known and are not claimed as fixed.
 The re-audit found 2 of 12 items fixed. The corpus regressions were reproduced on the owner's private
 corpus and traced to the scoreboard row offset and tint-normalized portrait
 distance (agents), the team-colour score mask (one session's score) and the
@@ -235,6 +228,22 @@ Contract:
   `node scripts/ocr-row-label-check.mjs <backtest-out-dir>` fails a run that
   fills one wrongly.
 
+Deferred (unchanged, not claimed as fixed):
+
+- Frame-difference buckets are still sized over the whole video.
+- `scripts/scrim-capture.ps1` still keeps the round tail by order and has no
+  automatic capture at match end.
+- The VOD scoreboard snapshot still reads K/D/A as the last three numbers of a
+  row, and kill-feed tracking dedupes unresolved opponents by raw OCR name, so
+  a noisy re-read can count twice.
+- Learned field corrections are not applied on the single-screenshot path
+  (`extractLocalScoreboardDraft` receives no `correctionModel`); only learned
+  aliases are.
+- PRACC feed removal deletes an upcoming row that has coach notes or required
+  players when it has no check-ins, attendance audit or practice block.
+- The orphaned VOD work-folder sweep runs only at startup.
+- A YouTube download interrupted by a crash is cleaned up, not resumed.
+
 Acceptance evidence:
 
 - The supplied 2 h 49 m 40 s, 1280x720 coach VOD
@@ -265,7 +274,18 @@ Acceptance evidence:
 One authority per metric, explicit unknown values, numerator/denominator/coverage,
 enforced sample gates, and experimental isolation for unvalidated composite scores.
 
-Status: READY locally. Exact-head CI is the final merge gate.
+Status: OPEN (21 Oct 2026, Africa/Cairo). The earlier "READY locally" claim
+did not survive the re-audit. Work starts from one publication gate per
+metric. Re-audit blockers:
+
+- KAST has 8 implementations; `metricTrust` has 2 consumers.
+- Unknown becomes 0 in Dashboard, Compositions, MapBestStats, AITacticalHub
+  and `fd || 0`.
+- The Best Map insight recommends from null scores with the experimental
+  toggle off.
+- Tryouts count toward the ten-player rating cohort.
+- Stale v3 ratings are shown as "threshold passed".
+- Coaching signals are dropped on refresh.
 
 Contract:
 
@@ -300,7 +320,15 @@ Acceptance evidence:
 Repair role-specific surfaces, evidence correction, navigation, plain-language
 labels, and coherent coach/player review workflows.
 
-Status: READY locally. Exact-head CI is the final merge gate.
+Status: NOT STARTED (21 Oct 2026, Africa/Cairo); opens after H3 passes. The
+earlier "READY locally" claim did not survive the re-audit. Re-audit blockers:
+
+- Hash routes use `replaceState`, so Back does not work.
+- Replay and Coach Workspace drop the selected round.
+- `#/tryouts` redirects Home.
+- 27 `alert()` and 26 `confirm()` calls remain.
+- The fusion panel shows raw JSON.
+- Accessibility gates cover only the login and summary surfaces.
 
 Contract:
 
@@ -339,8 +367,17 @@ Pin and verify bundled runtimes, exercise desktop IPC journeys, produce a signed
 Windows candidate, and pass clean install, upgrade, rollback, updater, and release
 acceptance on the exact candidate head.
 
-Status: READY as a local 0.2 release candidate. Public distribution remains
-blocked by the external Windows certificate and independent-PC gates below.
+Status: NOT STARTED (21 Oct 2026, Africa/Cairo); opens after H4 passes. The
+earlier "READY as a local 0.2 release candidate" claim did not survive the
+re-audit. 0.2.0 is not tagged or released until H0-H5 all pass, and no public
+installer ships without the owner's explicit permission. Re-audit blockers:
+
+- 15 public releases are unsigned (latest v0.1.71).
+- The updater has no `publisherName` or signature check.
+- There is no rollback on a failed first update.
+- The release-candidate audit fails open off Windows.
+- NSIS install, upgrade and rollback are not exercised in CI.
+- The coach JWT is held in the renderer under `unsafe-inline`.
 
 Contract:
 
