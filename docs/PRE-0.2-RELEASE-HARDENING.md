@@ -465,10 +465,12 @@ Pin and verify bundled runtimes, exercise desktop IPC journeys, produce a signed
 Windows candidate, and pass clean install, upgrade, rollback, updater, and release
 acceptance on the exact candidate head.
 
-Status: OPEN (21 Oct 2026, Africa/Cairo). The
+Status: PASSED (21 Oct 2026, 23:29 Africa/Cairo) on the unsigned local
+candidate at `e623d39` (after #104), under the owner's signing waiver below.
+H0-H5 have all passed. Nothing is tagged, released or uploaded: tagging 0.2.0
+and any public installer still need the owner's explicit permission. The
 earlier "READY as a local 0.2 release candidate" claim did not survive the
-re-audit. 0.2.0 is not tagged or released until H0-H5 all pass, and no public
-installer ships without the owner's explicit permission. Re-audit blockers:
+re-audit; these were its blockers, each resolved below:
 
 - 15 public releases are unsigned (latest v0.1.71).
 - The updater has no `publisherName` or signature check.
@@ -522,6 +524,11 @@ Progress (21 Oct 2026, Africa/Cairo):
   verifying, second failed start rolled back to 0.1.78 with one launch of the
   pinned 0.1.78 installer, and a tampered rollback installer went to safe mode
   with no launch. `failures: []`.
+- Fixed in #104: the release-candidate audit falls back to Windows PowerShell
+  5.1 when PowerShell 7 is not installed, and fails the Authenticode inspection
+  unless it reads exactly one record with a known status per expected file
+  (under 5.1 the old script had produced one malformed record and the unsigned
+  audit passed on it).
 
 Signing waiver (owner, 21 Oct 2026 22:07 Africa/Cairo: "dont sign its ok"):
 0.2.0 ships without a code-signing certificate. The "signed candidate" item
@@ -540,9 +547,24 @@ becomes an unsigned local candidate:
   `desktop/update-trust.json` and the signing secrets to the release
   environment; the existing fail-closed checks then allow a signed release.
 
-H5 stays OPEN until that unsigned candidate is built at the merge head and its
-hashes and audit result are verified. Tagging and any public installer still
-need the owner's explicit permission.
+Candidate evidence (owner's PC, fresh clone, `npm run desktop:installer`,
+`--publish never`, no signing configuration; nothing published or uploaded):
+
+- Head: `e623d39d54f5c7e80e69dc7fad0d8b7bf029ce48`; `git status --porcelain`
+  empty before the build, after it and after the audit.
+- Installer `Moe-Tracker-Application-0.2.0-Setup.exe`, 343,443,901 bytes:
+  SHA-256 `9478260f0ca1892d7171e464213505a463503dd3923211bcf864c7a19e0f6772`,
+  SHA-512 `Q9DRqjINaRFz7I8fqbpgkwnCTCvSTsLxCmVJQWb3Yt74RTtJJdyCOt0GKI1hPXurmAW9nryeRWnbtHmXKLNuEg==`
+  (base64; equal to both `sha512` entries in `latest.yml`).
+- Blockmap, 348,746 bytes: SHA-256
+  `26ef504386d55d647c852dc1c7671b3ebc67cb74986a24d43eec3c2441691442`.
+- `node scripts/release-candidate-audit.mjs` (no flags) exited 0:
+  `exactHead: true`, `dirtyPaths: []`, two Authenticode records (installer and
+  unpacked app) both `NotSigned`, `trustedPublishers: []`, `failures: []`,
+  `localCandidateReady: true`, `publicReady: false`.
+
+Gate result (21 Oct 2026): the independent verifier checked this evidence
+against the waiver contract and passed H5.
 
 Contract:
 
