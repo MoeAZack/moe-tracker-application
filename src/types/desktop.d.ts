@@ -28,7 +28,8 @@ declare global {
 
   interface Window {
     moeDesktop?: {
-      bootstrapSession(force?: boolean): Promise<{ key: string; role: string; username: string; expiresAt?: string }>;
+      /** Who the local session belongs to. The bearer token stays in the main process, which adds it to this window's API requests. */
+      bootstrapSession(force?: boolean): Promise<{ success: boolean; role: string; username: string; expiresAt: string | null }>;
       getStatus(): Promise<DesktopStatus>;
       createRecoveryBackup(): Promise<{ backupId?: string; createdAt?: string; message: string }>;
       checkForUpdates(): Promise<DesktopStatus['update']>;

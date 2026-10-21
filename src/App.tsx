@@ -5,7 +5,7 @@ import { recordOcrCorrections } from './utils/ocrLearningStore';
 import LoginScreen from './components/LoginScreen';
 import Logo from './components/Logo';
 import TeamSyncIndicator from './components/TeamSyncIndicator';
-import { apiFetch } from './utils/api';
+import { apiFetch, DESKTOP_SESSION } from './utils/api';
 import { filterAnalyticsHistory } from './utils/historyFilter';
 import { filterTryoutWorkspace, activeTryoutPhase } from './utils/tryoutWorkspace';
 import { DEFAULT_ANALYTICS_MAP_SCOPE, projectAnalyticsMapScope, type AnalyticsMapScope } from './utils/activeMapPool';
@@ -119,12 +119,14 @@ export default function App() {
     let live = true;
     window.moeDesktop.bootstrapSession().then(session => {
       if (!live) return;
-      localStorage.setItem('team_tracker_key', session.key);
+      // The desktop session token lives in the main process; drop any copy an
+      // older build left in page storage.
+      localStorage.removeItem('team_tracker_key');
       localStorage.setItem('team_tracker_role', session.role);
       localStorage.setItem('team_tracker_username', session.username);
       setRole(session.role);
       setUsername(session.username);
-      setKey(session.key);
+      setKey(DESKTOP_SESSION);
       setLoading(true);
     }).catch(error => {
       if (live) { setError(error.message || 'Desktop session failed.'); setLoading(false); }

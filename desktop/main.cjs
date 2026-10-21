@@ -19,6 +19,7 @@ const { canonical, refreshScreenshotOutboxFromData } = require('./sync-outbox.cj
 const { hasRecentRecoveryBackup } = require('./recovery-backup.cjs');
 const { isTrustedSenderUrl, sessionIsFresh } = require('./session-security.cjs');
 const { loginCredentials } = require('./session-credentials.cjs');
+const { publicSession, apiRequestFilter, createSessionHeaderInjector } = require('./renderer-session.cjs');
 const { analyzeVodTimeline, discoverVodGames, releaseVodSource, createReviewClips, readOwnedVodFrame, sweepOrphanedVodDirectories } = require('./vod-timeline-analyzer.cjs');
 const { launchScrimCapture } = require('./capture-launch.cjs');
 const { createIngestionJob, updateIngestionJob: evolveIngestionJob, recoverInterruptedJobs, publicIngestionJob } = require('./ingestion-jobs.cjs');
@@ -519,6 +520,10 @@ async function createWindow() {
   });
   mainWindow.on('close', event => { if (!quitting) { event.preventDefault(); mainWindow.hide(); } });
   mainWindow.on('closed', () => { mainWindow = null; });
+  // The coach token never enters the page: requests from this window to the
+  // local API get it added here, in the main process.
+  const windowContents = mainWindow.webContents;
+  windowContents.session.webRequest.onBeforeSendHeaders(apiRequestFilter(runtime.port), createSessionHeaderInjector({ port: runtime.port, getSession: () => bootstrapSession(), isTrustedWebContents: id => !windowContents.isDestroyed() && id === windowContents.id }));
   mainWindow.webContents.setWindowOpenHandler(() => ({ action: 'deny' }));
   mainWindow.webContents.on('will-navigate', (event, url) => { if (url !== `http://127.0.0.1:${runtime.port}/?desktop=1` && !url.startsWith(`http://127.0.0.1:${runtime.port}/`)) event.preventDefault(); });
   await mainWindow.loadURL(`http://127.0.0.1:${runtime.port}/?desktop=1`);
@@ -572,7 +577,7 @@ function handleTrusted(channel, listener) {
   ipcMain.handle(channel, (event, ...args) => { requireTrustedSender(event); return listener(event, ...args); });
 }
 
-handleTrusted('desktop:bootstrap-session', (event, force) => { requireTrustedSender(event); return bootstrapSession(force === true); });
+handleTrusted('desktop:bootstrap-session', async (event, force) => { requireTrustedSender(event); return publicSession(await bootstrapSession(force === true)); });
 handleTrusted('desktop:get-status', desktopStatus);
 handleTrusted('desktop:create-recovery-backup', async () => {
   const result = await createRecoveryBackup(true);

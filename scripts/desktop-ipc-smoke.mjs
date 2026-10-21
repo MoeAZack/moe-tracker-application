@@ -28,7 +28,9 @@ try {
     const scoreboards = await bridge.listScoreboards();
     const jobs = await bridge.listIngestionJobs();
     const secrets = await bridge.getIntegrationSecretStatus();
-    const dataResponse = await fetch('/api/data', { headers: { authorization: `Bearer ${session.key}` } });
+    // The page never holds the bearer token; the main process adds it.
+    const dataResponse = await fetch('/api/data');
+    const storedKey = localStorage.getItem('team_tracker_key');
     const data = await dataResponse.json();
     const retention = existing ? { retentionDays: status.retentionDays } : await bridge.setRetentionDays(31);
     const paused = existing ? { paused: status.capture?.paused } : await bridge.setCapturePaused(true);
@@ -40,6 +42,9 @@ try {
       localService: status.localService,
       role: status.role,
       sessionRole: session.role,
+      sessionFields: Object.keys(session).sort(),
+      storedKey,
+      dataStatus: dataResponse.status,
       scoreboards: scoreboards.length,
       jobs: jobs.length,
       encryptionAvailable: secrets.encryptionAvailable,
@@ -56,6 +61,8 @@ try {
   if (result.version !== expectedVersion) failures.push(`version ${result.version} != ${expectedVersion}`);
   if (result.localService !== 'online') failures.push('local service is not online');
   if (result.role !== 'coach' || result.sessionRole !== 'coach') failures.push('fresh local coach session failed');
+  if (result.sessionFields.includes('key') || result.storedKey) failures.push('the coach session token reached the renderer');
+  if (result.dataStatus !== 200) failures.push(`main-process session header was not applied (/api/data HTTP ${result.dataStatus})`);
   if (!existingProfile && (result.retentionDays !== 31 || result.paused !== true || result.resumed !== false || result.captureProfile !== 'windowed')) failures.push('settings IPC round-trip failed');
   if (!result.backupCreated) failures.push('recovery-backup IPC failed');
   console.log(JSON.stringify({ passed: failures.length === 0, executablePath, existingProfile, result, failures }, null, 2));

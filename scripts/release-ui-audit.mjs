@@ -23,13 +23,16 @@ async function axe(page, surface) {
 }
 
 async function desktopBootstrap(context, session) {
+  // Like the installed app: the page learns only who is signed in, and the
+  // bearer token is added to requests outside the page.
+  await context.setExtraHTTPHeaders({ authorization: `Bearer ${session.key}` });
   await context.addInitScript(value => {
     window.moeDesktop = {
       bootstrapSession: async () => value,
       getStatus: async () => ({ appVersion: value.version, mode: 'offline-first', deviceName: 'Release audit', retentionDays: 30, startWithWindows: false, cloudUrl: '', replayCount: 0, pendingScoreboards: 0, latestReplay: null, localService: 'online', update: { state: 'current', version: null, percent: null, message: '' }, folders: {}, collector: {}, sync: { paired: false, server: null, pending: 0, received: 0 } }),
       onStatus: () => () => {}, listScoreboards: async () => [], syncNow: async () => ({}), checkForUpdates: async () => ({}),
     };
-  }, { ...session, version: packageJson.version });
+  }, { success: true, role: session.role, username: session.username, expiresAt: session.expiresAt || null, version: packageJson.version });
 }
 
 try {
