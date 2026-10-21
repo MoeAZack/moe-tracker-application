@@ -1,6 +1,7 @@
 import React, { useEffect, useState } from 'react';
 import { apiFetch } from '../utils/api';
 import { UserPlus, Trash2, ShieldCheck, Users, AlertCircle } from 'lucide-react';
+import { confirmDialog } from '../utils/appDialogs';
 
 interface Allowed { email: string; role: string; name?: string; playerId?: string; addedAt?: string; }
 interface RosterIdentity { id: string; displayName: string; retiredAt?: string | null; }
@@ -58,7 +59,7 @@ export default function AccessControl({ theme, rosterPlayers = [] }: { theme: an
   };
 
   const remove = async (em: string) => {
-    if (!window.confirm(`Remove access for ${em}? They will be signed out immediately.`)) return;
+    if (!(await confirmDialog(`Remove access for ${em}? They will be signed out immediately.`, { destructive: true, confirmLabel: 'Remove' }))) return;
     try {
       const res = await apiFetch('/api/access/remove', {
         method: 'POST',
@@ -117,7 +118,7 @@ export default function AccessControl({ theme, rosterPlayers = [] }: { theme: an
         <button
           type="submit"
           disabled={loading}
-          className="px-4 py-2 bg-[#ff4655] hover:bg-[#ff5e6a] disabled:opacity-50 text-white font-bold text-xs uppercase tracking-widest rounded-lg flex items-center justify-center gap-1.5 cursor-pointer"
+          className="px-4 py-2 bg-[#d12a3a] hover:bg-[#b91c2e] disabled:opacity-50 text-white font-bold text-xs uppercase tracking-widest rounded-lg flex items-center justify-center gap-1.5 cursor-pointer"
         >
           <UserPlus className="w-4 h-4" /> Grant
         </button>

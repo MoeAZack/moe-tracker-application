@@ -9,6 +9,7 @@ import AnalyticsScopeControl from './AnalyticsScopeControl';
 import OcrHealthPanel from './OcrHealthPanel';
 import PraccCalendarIntegration from './PraccCalendarIntegration';
 import type { AnalyticsMapScope, AnalyticsMapScopeContext } from '../utils/activeMapPool';
+import { confirmDialog, notify } from '../utils/appDialogs';
 
 interface ComponentProps {
   data: TrackerData;
@@ -53,11 +54,11 @@ export default function SettingsControl({ data, theme, onSaveSettings, onRefresh
 
   const handleCreateKey = async () => {
     if (!newKeyLabel.trim()) {
-      alert('Please enter a player/coach name or custom label.');
+      notify('Please enter a player/coach name or custom label.');
       return;
     }
     if (newKeyRole === 'player' && !newKeyPlayerId) {
-      alert('Select the roster player who owns this key.');
+      notify('Select the roster player who owns this key.');
       return;
     }
     try {
@@ -78,12 +79,12 @@ export default function SettingsControl({ data, theme, onSaveSettings, onRefresh
       setNewKeyPlayerId('');
       await fetchKeys();
     } catch (err: any) {
-      alert(err.message || 'Key creation failed.');
+      notify(err.message || 'Key creation failed.', 'error');
     }
   };
 
   const handleRevokeKey = async (id: string, label: string) => {
-    if (!window.confirm(`Are you absolutely sure you want to revoke access for "${label}"? They will be immediately disconnected and kicked out of the panel!`)) {
+    if (!(await confirmDialog(`Are you absolutely sure you want to revoke access for "${label}"? They will be immediately disconnected and kicked out of the panel!`, { destructive: true, confirmLabel: 'Revoke access' }))) {
       return;
     }
     try {
@@ -95,7 +96,7 @@ export default function SettingsControl({ data, theme, onSaveSettings, onRefresh
       if (!res.ok) throw new Error('Failed to revoke key.');
       await fetchKeys();
     } catch (err: any) {
-      alert(err.message || 'Revocation failed.');
+      notify(err.message || 'Revocation failed.', 'error');
     }
   };
 
@@ -205,7 +206,7 @@ export default function SettingsControl({ data, theme, onSaveSettings, onRefresh
     const val = newMap.trim();
     if (!val) return;
     if ([...activeMaps, ...inactiveMaps].some(map => map.toLocaleLowerCase('en') === val.toLocaleLowerCase('en'))) {
-      alert('This map is already in the map pools list!');
+      notify('This map is already in the map pools list!');
       return;
     }
     const next = [...activeMaps, val];
@@ -222,7 +223,7 @@ export default function SettingsControl({ data, theme, onSaveSettings, onRefresh
   };
 
   const handleDeleteMap = async (mName: string, isFromActive: boolean) => {
-    if (confirmOnDelete && !window.confirm(`Permanently delete map "${mName}"?`)) return;
+    if (confirmOnDelete && !(await confirmDialog(`Permanently delete map "${mName}"?`, { destructive: true, confirmLabel: 'Delete permanently' }))) return;
     const nextActive = isFromActive ? activeMaps.filter(x => x !== mName) : activeMaps;
     const nextInactive = isFromActive ? inactiveMaps : inactiveMaps.filter(x => x !== mName);
     await persistPools(nextActive, nextInactive, activeAgents, inactiveAgents);
@@ -233,7 +234,7 @@ export default function SettingsControl({ data, theme, onSaveSettings, onRefresh
     const val = newAgent.trim();
     if (!val) return;
     if ([...activeAgents, ...inactiveAgents].some(agent => agent.toLocaleLowerCase('en') === val.toLocaleLowerCase('en'))) {
-      alert('This Agent is already in the list!');
+      notify('This Agent is already in the list!');
       return;
     }
     const next = [...activeAgents, val];
@@ -250,7 +251,7 @@ export default function SettingsControl({ data, theme, onSaveSettings, onRefresh
   };
 
   const handleDeleteAgent = async (aName: string, isFromActive: boolean) => {
-    if (confirmOnDelete && !window.confirm(`Permanently remove agent "${aName}"?`)) return;
+    if (confirmOnDelete && !(await confirmDialog(`Permanently remove agent "${aName}"?`, { destructive: true, confirmLabel: 'Remove' }))) return;
     const nextActive = isFromActive ? activeAgents.filter(x => x !== aName) : activeAgents;
     const nextInactive = isFromActive ? inactiveAgents : inactiveAgents.filter(x => x !== aName);
     await persistPools(activeMaps, inactiveMaps, nextActive, nextInactive);
@@ -1108,7 +1109,7 @@ export default function SettingsControl({ data, theme, onSaveSettings, onRefresh
                   <button
                     type="button"
                     onClick={async () => {
-                      if (!window.confirm("CRITICAL WARNING: Are you absolutely sure you want to wipe all statistics and logs? This will delete all matches, player stats, rounds, schedule, goals, strategies, and solo queue records. This action cannot be undone.")) {
+                      if (!(await confirmDialog("CRITICAL WARNING: Are you absolutely sure you want to wipe all statistics and logs? This will delete all matches, player stats, rounds, schedule, goals, strategies, and solo queue records. This action cannot be undone.", { destructive: true, confirmLabel: 'Wipe everything' }))) {
                         return;
                       }
                       
@@ -1121,10 +1122,10 @@ export default function SettingsControl({ data, theme, onSaveSettings, onRefresh
                           throw new Error('Reset request failed on server.');
                         }
                         
-                        alert('Database metrics successfully reset to fresh status.');
+                        notify('Database metrics successfully reset to fresh status.');
                         window.location.reload();
                       } catch (err: any) {
-                        alert(err.message || 'Wipe operation failed.');
+                        notify(err.message || 'Wipe operation failed.', 'error');
                       }
                     }}
                     className="w-full md:w-auto px-6 py-2.5 bg-[#ff4655] hover:bg-[#ff4655]/90 text-white font-mono font-bold text-xs rounded transition flex items-center justify-center gap-2 cursor-pointer border border-[#ff4655]/30 hover:border-white/10"

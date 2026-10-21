@@ -6,6 +6,7 @@ import { attendancePolicy, attendanceStatus, attendanceSummary, attendanceWindow
 import { confidentMatchesForSession, practiceMatchSuggestions, practiceSessionProgress } from '../../lib/practiceSessionProgress';
 import { coachingGoalVerification } from '../../lib/coachingGoalLink';
 import { linkedReviewSessionOutcome } from '../../lib/linkedReviewSessions';
+import { confirmDialog, promptDialog } from '../utils/appDialogs';
 
 interface ComponentProps {
   data: TrackerData;
@@ -180,7 +181,7 @@ export default function CalendarGoals({ data, theme, role, onUpsert, onRemove, o
     if (!editingSchedule || !editingSchedule.primary) return;
     if (!editingSchedule.allDay && !editingSchedule.startTime) { setAttendanceMessage('Choose a Cairo start time for an hourly event.'); return; }
     if (editingSchedule.attendanceEnabled && !(editingSchedule.requiredPlayerIds?.length)) { setAttendanceMessage('Select at least one player for attendance.'); return; }
-    if (data.settings.confirmOnSave && !window.confirm('Save this schedule item?')) return;
+    if (data.settings.confirmOnSave && !(await confirmDialog('Save this schedule item?', { confirmLabel: 'Save' }))) return;
     setAttendanceBusy('schedule-save'); setAttendanceMessage('');
     try {
       const response = await apiFetch('/api/schedule/mutate', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ action: 'upsert', row: editingSchedule, repeatCount: !editingSchedule.id && !editingSchedule.allDay ? repeatHours : 1, scope: editingSchedule.id && applyToSeries ? 'series' : 'single' }) });
@@ -198,7 +199,7 @@ export default function CalendarGoals({ data, theme, role, onUpsert, onRemove, o
   };
 
   const handleDeleteSchedule = async (id: string, scope: 'single' | 'series' = 'single') => {
-    if (data.settings.confirmOnDelete && !window.confirm(scope === 'series' ? 'Delete every event in this repeated series?' : 'Delete this schedule event?')) return;
+    if (data.settings.confirmOnDelete && !(await confirmDialog(scope === 'series' ? 'Delete every event in this repeated series?' : 'Delete this schedule event?', { destructive: true, confirmLabel: 'Delete' }))) return;
     const response = await apiFetch('/api/schedule/mutate', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ action: 'delete', id, scope }) }); const result = await response.json().catch(() => ({})); if (!response.ok) { setAttendanceMessage(result.error || 'Schedule event could not be deleted.'); return; } await onRefresh(); setAttendanceMessage(`${result.removedIds?.length || 1} schedule event${result.removedIds?.length === 1 ? '' : 's'} deleted.`);
   };
 
@@ -215,7 +216,7 @@ export default function CalendarGoals({ data, theme, role, onUpsert, onRemove, o
   };
 
   const giveGreenDot = async (playerId: string, displayName: string) => {
-    const reason = window.prompt(`Why is ${displayName} receiving a green dot?`, 'Consistent on-time attendance');
+    const reason = (await promptDialog(`Why is ${displayName} receiving a green dot?`, { defaultValue: 'Consistent on-time attendance' }));
     if (!reason?.trim()) return;
     await postAttendance('/api/attendance/green-credit', { playerId, reason: reason.trim() }, `green:${playerId}`);
   };
@@ -223,13 +224,13 @@ export default function CalendarGoals({ data, theme, role, onUpsert, onRemove, o
   const removeGreenDot = async (playerId: string, displayName: string) => {
     const credit = [...(data.attendanceCredits || [])].reverse().find(item => item.playerId === playerId && item.kind === 'green' && !item.revokedAt);
     if (!credit) return;
-    const reason = window.prompt(`Why is ${displayName}'s latest green dot being removed?`, 'Coach adjustment');
+    const reason = (await promptDialog(`Why is ${displayName}'s latest green dot being removed?`, { defaultValue: 'Coach adjustment' }));
     if (!reason?.trim()) return;
     await postAttendance('/api/attendance/green-credit/revoke', { creditId: credit.id, reason: reason.trim() }, `green-remove:${playerId}`);
   };
 
   const correctAttendance = async (scheduleId: string, playerId: string, status: string) => {
-    const reason = window.prompt(`Reason for changing this record to ${status}?`, status === 'excused' ? 'Excused by coach' : 'Coach correction');
+    const reason = (await promptDialog(`Reason for changing this record to ${status}?`, { defaultValue: status === 'excused' ? 'Excused by coach' : 'Coach correction' }));
     if (!reason?.trim()) return;
     await postAttendance('/api/attendance/correct', { scheduleId, playerId, status, reason: reason.trim() }, `correct:${scheduleId}:${playerId}`);
   };
@@ -271,7 +272,7 @@ export default function CalendarGoals({ data, theme, role, onUpsert, onRemove, o
   };
 
   const handleDeleteGoal = async (id: string) => {
-    if (data.settings.confirmOnDelete && !window.confirm('Delete this goal?')) return;
+    if (data.settings.confirmOnDelete && !(await confirmDialog('Delete this goal?', { destructive: true, confirmLabel: 'Delete' }))) return;
     await onRemove('Goals', id);
   };
 
@@ -437,7 +438,7 @@ export default function CalendarGoals({ data, theme, role, onUpsert, onRemove, o
               <h4 className="font-black text-xs uppercase text-gray-500 font-mono">Day Details: {selectedDateStr}</h4>
               {role === 'coach' && <button
                 onClick={() => handleOpenAddSchedule(selectedDateStr)}
-                className={`flex items-center gap-1.5 px-2.5 py-1 text-[10px] font-bold rounded ${theme.primaryBg} text-slate-950 cursor-pointer hover:opacity-90`}
+                className={`flex items-center gap-1.5 px-2.5 py-1 text-[10px] font-bold rounded ${theme.primaryBg} text-white cursor-pointer hover:opacity-90`}
               >
                 <Plus className="w-3.5 h-3.5" /> ADD EVENT
               </button>}

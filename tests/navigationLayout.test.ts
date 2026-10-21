@@ -20,18 +20,10 @@ describe('workspace navigation layout', () => {
     const settings = fs.readFileSync('src/components/SettingsControl.tsx', 'utf8');
     expect(app).toContain('const [showTryoutComparisons, setShowTryoutComparisons] = useState<boolean | null>(null)');
     expect(app).toContain("showTryoutComparisons ?? Boolean((data?.settings as any)?.tryoutsMode)");
-    expect(app).toContain("roleTabs.filter(tab => tab.id !== 'comparisons')");
     expect(app).toContain("if (!visible && activeTab === 'comparisons') setActiveTab('settings')");
     expect(settings).toContain('role="switch" aria-checked={showTryoutComparisons}');
     expect(settings).toContain('onShowTryoutComparisonsChange(enabled)');
     expect(settings).toContain('only affects this app session and does not delete any tryout data');
-  });
-
-  it('hides the coach roster surface from players and provides dismissible notifications', () => {
-    const app = fs.readFileSync('src/App.tsx', 'utf8');
-    expect(app).toContain("['settings', 'livelogger', 'vod', 'aitactical', 'roster']");
-    expect(app).toContain('aria-label="Dismiss notification"');
-    expect(app).toContain('window.alert = message => setAppNotice');
   });
 
   it('uses a readable replay evidence summary instead of exposing raw evidence JSON', () => {

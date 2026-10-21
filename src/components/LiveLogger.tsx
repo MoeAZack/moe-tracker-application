@@ -12,6 +12,7 @@ import {
   CheckCircle2, AlertTriangle, Shield, Award, Sparkles, Trophy, 
   ChevronRight, X, Check, FileText, Sliders, RefreshCw
 } from 'lucide-react';
+import { confirmDialog, notify } from '../utils/appDialogs';
 
 interface ComponentProps {
   data: TrackerData;
@@ -161,11 +162,11 @@ export default function LiveLogger({ data, theme, onSaveMatch, onSaveRounds, onR
   // --- BOOT LIVE MATCH ---
   const handleStartLiveMatch = async () => {
     if (!opponent.trim()) {
-      alert('Please enter an opponent team name.');
+      notify('Please enter an opponent team name.');
       return;
     }
     if (activeRoster.length === 0) {
-      alert('Please select at least 1 player on the roster.');
+      notify('Please select at least 1 player on the roster.');
       return;
     }
 
@@ -217,7 +218,7 @@ export default function LiveLogger({ data, theme, onSaveMatch, onSaveRounds, onR
       }
     } catch (err) {
       console.error(err);
-      alert('Failed to boot live match database entry.');
+      notify('Failed to boot live match database entry.', 'error');
     }
   };
 
@@ -427,14 +428,14 @@ export default function LiveLogger({ data, theme, onSaveMatch, onSaveRounds, onR
       resetRoundInputs();
     } catch (err) {
       console.error(err);
-      alert('Error updating live database during round log.');
+      notify('Error updating live database during round log.', 'error');
     }
   };
 
   // --- DELETE A ROUND FROM TIMELINE ---
   const handleDeleteRound = async (idx: number) => {
     if (!sessionMatch) return;
-    if (!window.confirm(`Delete round ${idx + 1} logging records?`)) return;
+    if (!(await confirmDialog(`Delete round ${idx + 1} logging records?`, { destructive: true, confirmLabel: 'Delete' }))) return;
 
     const filtered = liveRounds.filter((_, i) => i !== idx);
     // Re-index round numbers
@@ -541,11 +542,11 @@ export default function LiveLogger({ data, theme, onSaveMatch, onSaveRounds, onR
       setLiveRounds([]);
       setScoreboardOpen(false);
       
-      alert('Live match finalized successfully and logged to standard database!');
+      notify('Live match finalized successfully and logged to standard database!');
       setActiveTab('matches');
     } catch (err) {
       console.error(err);
-      alert('Failed to finalize final scoreboard records.');
+      notify('Failed to finalize final scoreboard records.', 'error');
     }
   };
 
@@ -602,7 +603,7 @@ export default function LiveLogger({ data, theme, onSaveMatch, onSaveRounds, onR
     <div className="space-y-6">
       {/* Toast Notification */}
       {toastMessage && (
-        <div className="fixed top-5 right-5 z-50 bg-[#ff4655] text-white px-4 py-3 rounded-lg shadow-xl border border-white/10 font-mono text-xs flex items-center gap-2 animate-bounce">
+        <div className="fixed top-5 right-5 z-50 bg-[#d12a3a] text-white px-4 py-3 rounded-lg shadow-xl border border-white/10 font-mono text-xs flex items-center gap-2 animate-bounce">
           <Sparkles className="w-4 h-4 shrink-0" />
           <span>{toastMessage}</span>
         </div>
@@ -812,7 +813,7 @@ export default function LiveLogger({ data, theme, onSaveMatch, onSaveRounds, onR
           <div className="pt-4 border-t border-white/5 flex justify-end">
             <button
               onClick={handleStartLiveMatch}
-              className="px-6 py-3 bg-[#ff4655] text-white font-black uppercase text-sm tracking-wider font-mono rounded-xl hover:bg-[#ff5e6a] transition-all flex items-center gap-2 shadow-lg shadow-red-500/10"
+              className="px-6 py-3 bg-[#d12a3a] text-white font-black uppercase text-sm tracking-wider font-mono rounded-xl hover:bg-[#b91c2e] transition-all flex items-center gap-2 shadow-lg shadow-red-500/10"
             >
               <Play className="w-4.5 h-4.5" />
               <span>BOOT LIVE RECORDER SESSION</span>
@@ -1740,7 +1741,7 @@ export default function LiveLogger({ data, theme, onSaveMatch, onSaveRounds, onR
                 </button>
                 <button
                   type="submit"
-                  className="px-5 py-2 bg-[#ff4655] hover:bg-[#ff5e6a] text-white rounded-xl text-xs font-black uppercase font-mono shadow-md"
+                  className="px-5 py-2 bg-[#d12a3a] hover:bg-[#b91c2e] text-white rounded-xl text-xs font-black uppercase font-mono shadow-md"
                 >
                   SAVE & CLOSE LIVE SESSION
                 </button>

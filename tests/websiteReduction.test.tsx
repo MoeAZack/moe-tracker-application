@@ -6,6 +6,7 @@ import WebsiteMapSummary from '../src/components/WebsiteMapSummary';
 import WebsiteMatchLog from '../src/components/WebsiteMatchLog';
 import { toWebsiteTrackerData } from '../lib/publicData';
 import { buildTryoutComparison } from '../lib/tryoutComparison';
+import { routableWorkspaceTabs } from '../src/utils/workspaceRoute';
 
 const data: any = {
   settings: { teamName: 'RAAD' },
@@ -24,7 +25,7 @@ describe('reduced website surface', () => {
   it('loads the summary API and limits website navigation to retained portal areas', () => {
     const app = fs.readFileSync(new URL('../src/App.tsx', import.meta.url), 'utf8');
     expect(app).toContain("desktopMode ? '/api/data' : '/api/website-summary'");
-    expect(app).toContain("['dashboard', 'calendar', 'matches', 'vodsubmit', 'economy', 'aitactical', 'maps', 'roster', 'playerstats', 'comparisons']");
+    expect(routableWorkspaceTabs({ desktopMode: false, role: 'coach' })).toEqual(['dashboard', 'calendar', 'matches', 'maps', 'roster', 'playerstats', 'aitactical', 'vodsubmit', 'economy', 'comparisons']);
     expect(app).toContain("desktopMode && role === 'coach'");
     expect(app).toContain('desktopMode && scrimOpen');
   });

@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { buildActionCheck, buildAllPracticeBlockSummaries, buildPracticeBlockSummary, COACHING_CHECK_POLICY_VERSION, createCoachingAction, evaluateAction, generateReviewSignalDrafts, migrateLegacyActionChecks, normalizeDashboardView, reconcileReviewSignals, transitionSignal } from '../lib/coachingWorkflow';
+import { buildActionCheck, buildAllPracticeBlockSummaries, buildPracticeBlockSummary, COACHING_CHECK_POLICY_VERSION, createCoachingAction, evaluateAction, generateReviewSignalDrafts, migrateLegacyActionChecks, normalizeDashboardView, reconcileReviewSignals, signalReviewTarget, transitionSignal } from '../lib/coachingWorkflow';
 
 const acceptedMatch = (id: string, date = '2026-10-18') => ({ id, date, type: 'Scrim', opponent: 'PYO', map: 'Ascent', attW: 5, attL: 7, defW: 8, defL: 4, sourceMetadata: { method: 'manual', capturedAt: `${date}T12:00:00Z` } });
 const base = () => ({
@@ -121,5 +121,17 @@ describe('S5 bounded dashboard views', () => {
     expect(view.cards.some(card => card.id === 'made-up')).toBe(false);
     expect(view.cards.find(card => card.id === 'review-queue')?.minimized).toBe(false);
     expect(view.cards.find(card => card.id === 'evidence-health')?.minimized).toBe(false);
+  });
+});
+
+describe('signal review target', () => {
+  const rounds = [{ id: 'r1', matchId: 'm1', roundNo: 6 }, { id: 'r2', matchId: 'm1', roundNo: 7 }, { id: 'r3', matchId: 'm2', roundNo: 2 }];
+  it('carries the round of a round-review signal into the review context', () => {
+    expect(signalReviewTarget({ matchIds: ['m1'], evidence: { matchIds: ['m1'], roundIds: ['r2'], sourceTypes: [], confidence: 'high' } } as any, rounds)).toEqual({ matchId: 'm1', roundNo: 7 });
+  });
+  it('leaves the round to the caller for block-level signals and has no target without a match', () => {
+    expect(signalReviewTarget({ matchIds: ['m1'], evidence: { matchIds: ['m1'], roundIds: ['r1', 'r2'], sourceTypes: [], confidence: 'high' } } as any, rounds)).toEqual({ matchId: 'm1' });
+    expect(signalReviewTarget({ matchIds: ['m1'], evidence: { matchIds: ['m1'], roundIds: ['r3'], sourceTypes: [], confidence: 'high' } } as any, rounds)).toEqual({ matchId: 'm1' });
+    expect(signalReviewTarget({ matchIds: [], evidence: { matchIds: [], roundIds: [], sourceTypes: [], confidence: 'high' } } as any, rounds)).toBeNull();
   });
 });

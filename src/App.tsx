@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useMemo, Suspense, lazy } from 'react';
+import React, { useState, useEffect, useMemo, useRef, Suspense, lazy } from 'react';
 import { TrackerData, Settings, MatchStatsUpdate, ScreenshotReviewDraft } from './types';
 import { correctionSamplesFromAcceptedEdit } from '../lib/ocrLearning';
 import { recordOcrCorrections } from './utils/ocrLearningStore';
@@ -14,7 +14,7 @@ import DesktopReplayAutomation from './components/DesktopReplayAutomation';
 import ReviewContextBar from './components/ReviewContextBar';
 import { projectCurrentPlayerAnalytics } from '../lib/activePlayerAnalytics';
 import { projectReviewContext } from '../lib/reviewContext';
-import { parseWorkspaceRoute, replaceWorkspaceRoute, type WorkspaceTabId } from './utils/workspaceRoute';
+import { focusReviewContext, navWorkspaceTabs, parseWorkspaceRoute, resolveWorkspaceTab, routableWorkspaceTabs, syncWorkspaceRoute, type WorkspaceRoute, type WorkspaceTabId } from './utils/workspaceRoute';
 
 // Heavy route views are code-split so the initial bundle only loads the shell + login.
 const Dashboard = lazy(() => import('./components/Dashboard'));
@@ -45,6 +45,8 @@ import {
   Layers, Users, Settings as SettingsIcon, Image, Activity, Sparkles,
   Film, Crosshair, Coins, FileCheck2, GitCompareArrows, Upload, X
 } from 'lucide-react';
+import { notify } from './utils/appDialogs';
+import AppDialogHost from './components/AppDialogHost';
 
 export default function App() {
   useEffect(() => {
@@ -62,12 +64,6 @@ export default function App() {
   const [data, setData] = useState<TrackerData | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
-  const [appNotice, setAppNotice] = useState<string | null>(null);
-  useEffect(() => {
-    const nativeAlert = window.alert;
-    window.alert = message => setAppNotice(String(message || 'Action completed.'));
-    return () => { window.alert = nativeAlert; };
-  }, []);
   
   // Navigation
   const [activeTab, setActiveTab] = useState<WorkspaceTabId>(() => parseWorkspaceRoute(window.location.hash).tab);
@@ -76,22 +72,32 @@ export default function App() {
   const [manualReplayDraft, setManualReplayDraft] = useState<ScreenshotReviewDraft | null>(null);
   const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
   const [showTryoutComparisons, setShowTryoutComparisons] = useState<boolean | null>(null);
+  const syncedRoute = useRef<WorkspaceRoute | null>(null);
 
   useEffect(() => {
     if (reviewMatchId) sessionStorage.setItem('moetracker-review-match', reviewMatchId); else sessionStorage.removeItem('moetracker-review-match');
     if (reviewRoundNo) sessionStorage.setItem('moetracker-review-round', String(reviewRoundNo)); else sessionStorage.removeItem('moetracker-review-round');
-    replaceWorkspaceRoute({ tab: activeTab, matchId: reviewMatchId, roundNo: reviewRoundNo });
+    const route = { tab: activeTab, matchId: reviewMatchId, roundNo: reviewRoundNo };
+    syncWorkspaceRoute(route, syncedRoute.current);
+    syncedRoute.current = route;
   }, [activeTab, reviewMatchId, reviewRoundNo]);
   useEffect(() => {
+    // Back/Forward and typed links: adopt the URL without writing a new entry.
     const applyRoute = () => {
       const route = parseWorkspaceRoute(window.location.hash);
+      syncedRoute.current = route;
       setActiveTab(route.tab);
       setReviewMatchId(route.matchId);
       setReviewRoundNo(route.roundNo);
     };
+    window.addEventListener('popstate', applyRoute);
     window.addEventListener('hashchange', applyRoute);
-    return () => window.removeEventListener('hashchange', applyRoute);
+    return () => { window.removeEventListener('popstate', applyRoute); window.removeEventListener('hashchange', applyRoute); };
   }, []);
+  const focusReview = (matchId: string | null, roundNo?: number | null) => {
+    const next = focusReviewContext({ matchId: reviewMatchId, roundNo: reviewRoundNo }, matchId, roundNo);
+    setReviewMatchId(next.matchId); setReviewRoundNo(next.roundNo);
+  };
   useEffect(() => {
     if (data && reviewMatchId && !(data.matches || []).some(match => match.id === reviewMatchId)) { setReviewMatchId(null); setReviewRoundNo(null); }
   }, [data, reviewMatchId]);
@@ -211,7 +217,7 @@ export default function App() {
       border: 'border-white/10',
       text: 'text-[#ff4655]',
       textMuted: 'text-gray-400',
-      primaryBg: 'bg-[#ff4655] hover:bg-[#ff5e6a]',
+      primaryBg: 'bg-[#d12a3a] hover:bg-[#b91c2e]',
       primaryHover: 'hover:bg-white/5 shadow-red-500/10',
       accent: '#ff4655',
       cardBg: 'surface-card',
@@ -264,7 +270,7 @@ export default function App() {
       if (key) upsertLocal(key, resJson);
       return resJson;
     } catch (err: any) {
-      alert(err.message || 'Error occurred during upsert.');
+      notify(err.message || 'Error occurred during upsert.', 'error');
       throw err;
     }
   };
@@ -295,7 +301,7 @@ export default function App() {
         return next;
       });
     } catch (err: any) {
-      alert(err.message || 'Error deleting row.');
+      notify(err.message || 'Error deleting row.', 'error');
     }
   };
 
@@ -356,10 +362,10 @@ export default function App() {
         const next = { ...prev, matches, playerStats };
         return resJson.roundsUpdate ? mergeRoundsResult(next, savedMatch.id, resJson.roundsUpdate) : next;
       });
-      if (resJson.duplicateReview?.status === 'quarantined') alert('This match looks like a second capture of a game that is already saved. It was kept but is excluded from analytics until a coach keeps or discards it in Match Log.');
+      if (resJson.duplicateReview?.status === 'quarantined') notify('This match looks like a second capture of a game that is already saved. It was kept but is excluded from analytics until a coach keeps or discards it in Match Log.');
       return resJson;
     } catch (err: any) {
-      alert(err.message || 'Error saving match details.');
+      notify(err.message || 'Error saving match details.', 'error');
       throw err;
     }
   };
@@ -379,9 +385,9 @@ export default function App() {
         const next = mergeRoundsResult(prev, matchId, resJson);
         return { ...next, matches: (next.matches || []).map(item => item.id === matchId ? { ...item, duplicateReview: resJson.duplicateReview || undefined } : item) };
       });
-      if (resJson.duplicateReview?.status === 'quarantined') alert('These rounds match a game that is already saved. The match is excluded from analytics until a coach keeps or discards it in Match Log.');
+      if (resJson.duplicateReview?.status === 'quarantined') notify('These rounds match a game that is already saved. The match is excluded from analytics until a coach keeps or discards it in Match Log.');
     } catch (err: any) {
-      alert(err.message || 'Error saving rounds.');
+      notify(err.message || 'Error saving rounds.', 'error');
       throw err;
     }
   };
@@ -396,7 +402,7 @@ export default function App() {
       if (!res.ok) throw await saveError(res, 'Duplicate review failed.');
       await fetchDatabase();
     } catch (err: any) {
-      alert(err.message || 'Error saving duplicate review.');
+      notify(err.message || 'Error saving duplicate review.', 'error');
       throw err;
     }
   };
@@ -416,7 +422,7 @@ export default function App() {
         vetos: [...(prev.vetos || []).filter((v) => v.matchId !== matchId), ...savedVetos]
       } : prev);
     } catch (err: any) {
-      alert(err.message || 'Error saving veto draft.');
+      notify(err.message || 'Error saving veto draft.', 'error');
       throw err;
     }
   };
@@ -450,7 +456,7 @@ export default function App() {
       setData((prev) => prev ? { ...prev, settings: resJson } : prev);
       return resJson;
     } catch (err: any) {
-      alert(err.message || 'Error saving settings.');
+      notify(err.message || 'Error saving settings.', 'error');
       throw err;
     }
   };
@@ -475,22 +481,23 @@ export default function App() {
   ] as const;
 
   const tryoutComparisonsVisible = showTryoutComparisons ?? Boolean((data?.settings as any)?.tryoutsMode);
+  const routableTabs = useMemo(() => routableWorkspaceTabs({ desktopMode, role }), [desktopMode, role]);
   const visibleTabs = useMemo(() => {
-    const surfaceTabs = desktopMode ? tabsList : tabsList.filter(tab => ['dashboard', 'calendar', 'matches', 'vodsubmit', 'economy', 'aitactical', 'maps', 'roster', 'playerstats', 'comparisons'].includes(tab.id));
-    const roleTabs = role === 'player' ? surfaceTabs.filter(tab => !['settings', 'livelogger', 'vod', 'aitactical', 'roster'].includes(tab.id)) : surfaceTabs;
-    return tryoutComparisonsVisible ? roleTabs : roleTabs.filter(tab => tab.id !== 'comparisons');
-  }, [desktopMode, role, tryoutComparisonsVisible]);
+    const ids = navWorkspaceTabs({ desktopMode, role, showTryoutComparisons: tryoutComparisonsVisible, activeTab });
+    return tabsList.filter(tab => ids.includes(tab.id));
+  }, [desktopMode, role, tryoutComparisonsVisible, activeTab]);
   const groupedTabs = useMemo(() => (['Home', 'Schedule & Goals', 'Performance', 'Review', 'Playbook', 'Team'] as const)
     .map(group => ({ group, tabs: visibleTabs.filter(tab => tab.group === group) })).filter(section => section.tabs.length), [visibleTabs]);
   useEffect(() => {
-    if (!visibleTabs.some(tab => tab.id === activeTab)) setActiveTab('dashboard');
-  }, [activeTab, visibleTabs]);
+    const resolved = resolveWorkspaceTab(activeTab, routableTabs);
+    if (resolved !== activeTab) setActiveTab(resolved);
+  }, [activeTab, routableTabs]);
 
   const appTitle = data?.settings?.teamName || 'MoeAZack Valorant Tracker';
   const themeMode = data?.settings?.theme || 'slate';
 
   if (!key) {
-    return <LoginScreen onLoginSuccess={handleLoginSuccess} />;
+    return <><LoginScreen onLoginSuccess={handleLoginSuccess} /><AppDialogHost /></>;
   }
 
   if (loading) {
@@ -505,7 +512,7 @@ export default function App() {
   return (
     <div data-theme={themeMode} className={`app-shell min-h-screen ${theme.bg} flex flex-col lg:flex-row font-sans relative overflow-x-hidden selection:bg-[#ff4655]/30 selection:text-[#ff4655]`}>
       <a href="#main-content" className="skip-link">Skip to main content</a>
-      {appNotice && <div role="status" className="fixed right-4 top-4 z-[100] flex max-w-md items-start gap-3 rounded-xl border border-cyan-300/20 bg-slate-950/95 px-4 py-3 text-sm text-slate-200 shadow-2xl backdrop-blur"><span className="flex-1">{appNotice}</span><button type="button" aria-label="Dismiss notification" onClick={() => setAppNotice(null)} className="rounded p-1 text-slate-400 hover:bg-white/10 hover:text-white"><X className="h-4 w-4" /></button></div>}
+      <AppDialogHost />
       {/* Background flares */}
       <div className="ambient-orb top-[-12rem] left-[-10rem] h-[28rem] w-[28rem] bg-[#46d8c7]/10"></div>
       <div className="ambient-orb bottom-[-12rem] right-[-10rem] h-[30rem] w-[30rem] bg-[#ff5361]/8"></div>
@@ -742,7 +749,7 @@ export default function App() {
             )}
             {activeTab === 'matches' && workspaceData && !desktopMode && <WebsiteMatchLog data={workspaceData} theme={theme} />}
             {activeTab === 'replays' && data && (
-              <ReplayWorkspace data={workspaceData || data} role={role} preferredMatchId={reviewMatchId} onAccepted={fetchDatabase} onManualFallback={(item) => { setManualReplayDraft(item.draft as ScreenshotReviewDraft); setActiveTab('matches'); }} />
+              <ReplayWorkspace data={workspaceData || data} role={role} preferredMatchId={reviewMatchId} preferredRoundNo={reviewRoundNo} onAccepted={fetchDatabase} onManualFallback={(item) => { setManualReplayDraft(item.draft as ScreenshotReviewDraft); setActiveTab('matches'); }} />
             )}
             {activeTab === 'livelogger' && data && (
               <LiveLogger
@@ -772,7 +779,7 @@ export default function App() {
             )}
             {activeTab === 'aitactical' && analyticsData && (
               <div className="space-y-8">
-                <CoachWorkflow data={analyticsData} role={role} preferredMatchId={reviewMatchId} onRefresh={fetchDatabase} onFocusMatch={(matchId) => { setReviewMatchId(matchId); setReviewRoundNo(null); }} onOpenMatch={(matchId) => { setReviewMatchId(matchId); setActiveTab('vod'); }} />
+                <CoachWorkflow data={analyticsData} role={role} preferredMatchId={reviewMatchId} onRefresh={fetchDatabase} onFocusMatch={focusReview} onOpenMatch={(matchId, roundNo) => { focusReview(matchId, roundNo); setActiveTab('vod'); }} />
                 <AITacticalHub data={coachReviewData || analyticsData} theme={theme} onUpsert={handleUpsert} onRemove={handleRemove} />
               </div>
             )}

@@ -7,6 +7,7 @@ import { DEFAULT_MINIMUM_METRIC_SAMPLES } from '../../lib/metricTrust';
 import { agentProficiency, buildPeriodMetrics, clutchPublication, emptyPeriodMetrics, gatedUntradedRate, kpiRecommendation, type AgentProficiency } from '../../lib/tacticalHubMetrics';
 import { percentageBarClass, percentageSurfaceClass, percentageTextClass } from '../utils/percentageColor';
 import { playerAggregationKey } from '../../lib/identitySnapshot';
+import { notify } from '../utils/appDialogs';
 
 interface ComponentProps {
   data: TrackerData;
@@ -299,7 +300,7 @@ export default function AITacticalHub({ data, theme, onUpsert, onRemove }: Compo
       setEditedNotes(stratData.notes);
     } catch (err) {
       console.error(err);
-      alert('AI Generation timed out or failed. Please ensure your Gemini API key is set in Settings.');
+      notify('AI Generation timed out or failed. Please ensure your Gemini API key is set in Settings.', 'error');
     } finally {
       clearInterval(interval);
       setGenerating(false);
@@ -320,7 +321,7 @@ export default function AITacticalHub({ data, theme, onUpsert, onRemove }: Compo
         active: 'TRUE'
       });
       
-      alert('Strategy successfully saved to your active Team Playbook!');
+      notify('Strategy successfully saved to your active Team Playbook!');
       setGeneratedStrat(null);
       setCustomFocus('');
     } catch (err) {
@@ -435,7 +436,7 @@ export default function AITacticalHub({ data, theme, onUpsert, onRemove }: Compo
       if (simRoster.length < 5) {
         setSimRoster([...simRoster, player]);
       } else {
-        alert('Rosters are limited to exactly 5 active players.');
+        notify('Rosters are limited to exactly 5 active players.');
       }
     }
   };
@@ -528,7 +529,7 @@ export default function AITacticalHub({ data, theme, onUpsert, onRemove }: Compo
           <button
             onClick={() => setSubTab('playbook')}
             className={`flex-1 sm:flex-none py-2 px-4 rounded-lg text-xs font-bold font-mono uppercase transition-all flex items-center justify-center gap-2 ${
-              subTab === 'playbook' ? 'bg-[#ff4655] text-white shadow-lg shadow-[#ff4655]/20' : 'text-gray-400 hover:text-white'
+              subTab === 'playbook' ? 'bg-[#d12a3a] text-white shadow-lg shadow-[#ff4655]/20' : 'text-gray-400 hover:text-white'
             }`}
           >
             <ClipboardList className="w-4 h-4" />
@@ -537,7 +538,7 @@ export default function AITacticalHub({ data, theme, onUpsert, onRemove }: Compo
           <button
             onClick={() => setSubTab('chemistry')}
             className={`flex-1 sm:flex-none py-2 px-4 rounded-lg text-xs font-bold font-mono uppercase transition-all flex items-center justify-center gap-2 ${
-              subTab === 'chemistry' ? 'bg-[#ff4655] text-white shadow-lg shadow-[#ff4655]/20' : 'text-gray-400 hover:text-white'
+              subTab === 'chemistry' ? 'bg-[#d12a3a] text-white shadow-lg shadow-[#ff4655]/20' : 'text-gray-400 hover:text-white'
             }`}
           >
             <Users className="w-4 h-4" />
@@ -546,7 +547,7 @@ export default function AITacticalHub({ data, theme, onUpsert, onRemove }: Compo
           <button
             onClick={() => setSubTab('drafting')}
             className={`flex-1 sm:flex-none py-2 px-4 rounded-lg text-xs font-bold font-mono uppercase transition-all flex items-center justify-center gap-2 ${
-              subTab === 'drafting' ? 'bg-[#ff4655] text-white shadow-lg shadow-[#ff4655]/20' : 'text-gray-400 hover:text-white'
+              subTab === 'drafting' ? 'bg-[#d12a3a] text-white shadow-lg shadow-[#ff4655]/20' : 'text-gray-400 hover:text-white'
             }`}
           >
             <Compass className="w-4 h-4" />
@@ -568,6 +569,7 @@ export default function AITacticalHub({ data, theme, onUpsert, onRemove }: Compo
               <div className="space-y-1.5">
                 <label className="text-[10px] uppercase font-bold tracking-wider text-gray-400 font-mono">Select Map</label>
                 <select
+                  aria-label="Select map"
                   value={selectedMap}
                   onChange={(e) => setSelectedMap(e.target.value)}
                   className="w-full bg-black border border-white/10 text-xs p-3 rounded-lg text-white font-mono"
@@ -599,6 +601,7 @@ export default function AITacticalHub({ data, theme, onUpsert, onRemove }: Compo
               <div className="space-y-1.5">
                 <label className="text-[10px] uppercase font-bold tracking-wider text-gray-400 font-mono">Tactical Style</label>
                 <select
+                  aria-label="Tactical style"
                   value={selectedStyle}
                   onChange={(e) => setSelectedStyle(e.target.value)}
                   className="w-full bg-black border border-white/10 text-xs p-3 rounded-lg text-white font-mono"
@@ -625,7 +628,7 @@ export default function AITacticalHub({ data, theme, onUpsert, onRemove }: Compo
                 type="button"
                 onClick={handleGenerateStrategy}
                 disabled={generating}
-                className="w-full py-3 bg-[#ff4655] hover:bg-[#ff4655]/95 text-white text-xs font-black rounded-lg uppercase font-mono tracking-wider shadow-lg shadow-[#ff4655]/10 flex items-center justify-center gap-2 disabled:opacity-40 cursor-pointer"
+                className="w-full py-3 bg-[#d12a3a] hover:bg-[#b91c2e] text-white text-xs font-black rounded-lg uppercase font-mono tracking-wider shadow-lg shadow-[#ff4655]/10 flex items-center justify-center gap-2 disabled:opacity-40 cursor-pointer"
               >
                 {generating ? (
                   <>
@@ -777,12 +780,12 @@ export default function AITacticalHub({ data, theme, onUpsert, onRemove }: Compo
                   <ClipboardList className="w-4 h-4 text-gray-400" />
                   <h3 className="font-black text-xs uppercase tracking-wider text-gray-200">Active Stratbook ({data.strats.length})</h3>
                 </div>
-                <span className="text-[9px] font-mono text-gray-500 uppercase">Live performance indexed</span>
+                <span className="text-[9px] font-mono text-gray-400 uppercase">Live performance indexed</span>
               </div>
 
               {data.strats.length === 0 ? (
                 <div className="text-center py-8">
-                  <p className="text-xs text-gray-500 italic">No strategies added to the playbook yet. Generate one above or create custom ones in settings!</p>
+                  <p className="text-xs text-gray-400 italic">No strategies added to the playbook yet. Generate one above or create custom ones in settings!</p>
                 </div>
               ) : (
                 <div className="space-y-3.5 max-h-[500px] overflow-y-auto pr-1">
@@ -1149,6 +1152,7 @@ export default function AITacticalHub({ data, theme, onUpsert, onRemove }: Compo
                 <div className="space-y-1">
                   <span className="text-[9px] uppercase font-bold text-gray-400 font-mono">Sim Map</span>
                   <select
+                    aria-label="Sim map"
                     value={simMap}
                     onChange={(e) => setSimMap(e.target.value)}
                     className="w-full bg-black border border-white/10 text-xs p-2 rounded text-white font-mono"
@@ -1159,6 +1163,7 @@ export default function AITacticalHub({ data, theme, onUpsert, onRemove }: Compo
                 <div className="space-y-1">
                   <span className="text-[9px] uppercase font-bold text-gray-400 font-mono">Sim Side</span>
                   <select
+                    aria-label="Sim side"
                     value={simSide}
                     onChange={(e) => setSimSide(e.target.value)}
                     className="w-full bg-black border border-white/10 text-xs p-2 rounded text-white font-mono"

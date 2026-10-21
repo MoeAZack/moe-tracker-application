@@ -312,7 +312,7 @@ export default function ScrimImport({ data, theme, onSaveMatch, onClose }: Props
             <p className="text-xs text-gray-400 leading-relaxed">Moe Tracker reads captured screenshots locally on this PC. Every detected player, score, and round stays a draft until you review and confirm it.</p>
             {fileRow('Scoreboard screenshot', scoreboard, setScoreboard, true)}
             {fileRow('Round timeline screenshot (optional)', timeline, setTimeline)}
-            <button onClick={runImport} disabled={!scoreboard} className="w-full py-3 bg-[#ff4655] hover:bg-[#ff5e6a] disabled:opacity-40 text-white font-bold text-xs uppercase tracking-widest rounded-lg flex items-center justify-center gap-2 cursor-pointer">
+            <button onClick={runImport} disabled={!scoreboard} className="w-full py-3 bg-[#d12a3a] hover:bg-[#b91c2e] disabled:opacity-40 text-white font-bold text-xs uppercase tracking-widest rounded-lg flex items-center justify-center gap-2 cursor-pointer">
               <Upload className="w-4 h-4" /> Read selected screenshots
             </button>
           </div>
@@ -408,7 +408,7 @@ export default function ScrimImport({ data, theme, onSaveMatch, onClose }: Props
 
             <div className="flex gap-2">
               <button onClick={() => setStep('upload')} className="px-4 py-2.5 border border-white/10 text-gray-300 text-xs font-bold uppercase tracking-widest rounded-lg cursor-pointer">Back</button>
-              <button onClick={save} disabled={saving || !roundsComplete || consistencyBlocked || !canCommitScreenshotReview(meta, alliedSideConfirmed)} className="flex-1 py-2.5 bg-[#ff4655] hover:bg-[#ff5e6a] disabled:opacity-40 text-white font-bold text-xs uppercase tracking-widest rounded-lg flex items-center justify-center gap-2 cursor-pointer">
+              <button onClick={save} disabled={saving || !roundsComplete || consistencyBlocked || !canCommitScreenshotReview(meta, alliedSideConfirmed)} className="flex-1 py-2.5 bg-[#d12a3a] hover:bg-[#b91c2e] disabled:opacity-40 text-white font-bold text-xs uppercase tracking-widest rounded-lg flex items-center justify-center gap-2 cursor-pointer">
                 {saving ? <Loader2 className="w-4 h-4 animate-spin" /> : <CheckCircle className="w-4 h-4" />} Save Scrim
               </button>
             </div>

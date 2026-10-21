@@ -12,6 +12,7 @@ import type { TrackerData } from "../types";
 import { apiFetch } from "../utils/api";
 import PlayerPasswordForm from "./PlayerPasswordForm";
 import TryoutModePanel from "./TryoutModePanel";
+import { confirmDialog } from '../utils/appDialogs';
 
 interface Props {
   data: TrackerData;
@@ -169,9 +170,7 @@ export default function RosterManager({ data, theme, onRefresh }: Props) {
 
   const removePlayer = async (playerId: string, name: string) => {
     if (
-      !window.confirm(
-        `Archive “${name}”? They will leave the active roster immediately and can be recovered for 60 days before automatic deletion.`,
-      )
+      !(await confirmDialog(`Archive “${name}”? They will leave the active roster immediately and can be recovered for 60 days before automatic deletion.`, { destructive: true, confirmLabel: 'Archive' }))
     )
       return;
     await mutate("/api/roster/players/remove", { playerId });
@@ -181,9 +180,7 @@ export default function RosterManager({ data, theme, onRefresh }: Props) {
     mutate("/api/roster/players/restore", { playerId });
   const deletePlayer = async (playerId: string, name: string) => {
     if (
-      !window.confirm(
-        `Permanently delete “${name}” and all of their stored player data? This cannot be undone.`,
-      )
+      !(await confirmDialog(`Permanently delete “${name}” and all of their stored player data? This cannot be undone.`, { destructive: true, confirmLabel: 'Delete permanently' }))
     )
       return;
     await mutate("/api/roster/players/delete", { playerId });
@@ -192,9 +189,7 @@ export default function RosterManager({ data, theme, onRefresh }: Props) {
   const archiveSeason = async (event: React.FormEvent) => {
     event.preventDefault();
     if (
-      !window.confirm(
-        "Archive the complete active roster season and start a clean one? The snapshot can be restored later.",
-      )
+      !(await confirmDialog("Archive the complete active roster season and start a clean one? The snapshot can be restored later.", { destructive: true, confirmLabel: 'Archive' }))
     )
       return;
     if (
@@ -210,9 +205,7 @@ export default function RosterManager({ data, theme, onRefresh }: Props) {
 
   const restoreSeason = async (archiveId: string, name: string) => {
     if (
-      !window.confirm(
-        `Restore season archive "${name}"? The active season must be empty.`,
-      )
+      !(await confirmDialog(`Restore season archive "${name}"? The active season must be empty.`, { confirmLabel: 'Restore season' }))
     )
       return;
     await mutate("/api/roster/seasons/restore", { archiveId });
@@ -489,7 +482,7 @@ export default function RosterManager({ data, theme, onRefresh }: Props) {
                 />
                 <button
                   disabled={busy}
-                  className="flex items-center justify-center gap-1 rounded bg-[#ff4655] px-3 py-2 text-xs font-bold text-white disabled:opacity-50 sm:col-span-2"
+                  className="flex items-center justify-center gap-1 rounded bg-[#d12a3a] px-3 py-2 text-xs font-bold text-white disabled:opacity-50 sm:col-span-2"
                 >
                   <UserPlus className="w-4 h-4" aria-hidden="true" />
                   {pendingPasswordPlayer ? "Retry password" : "Add player"}

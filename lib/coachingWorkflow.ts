@@ -143,6 +143,19 @@ export function signalIdentity(item: Pick<CoachingSignal, 'blockId' | 'type' | '
 }
 
 /**
+ * Where "Review" or "Evidence" should land for a signal: its first match, and
+ * the round when the signal's evidence names exactly one round of that match.
+ * A block-level signal leaves the round undefined so the caller keeps its own.
+ */
+export function signalReviewTarget(signal: Pick<CoachingSignal, 'matchIds' | 'evidence'>, rounds: ReadonlyArray<Pick<Round, 'id' | 'matchId' | 'roundNo'>>): { matchId: string; roundNo?: number } | null {
+  const matchId = signal.matchIds[0];
+  if (!matchId) return null;
+  const roundIds = new Set(signal.evidence?.roundIds || []);
+  const named = rounds.filter(round => round.matchId === matchId && roundIds.has(round.id));
+  return named.length === 1 ? { matchId, roundNo: named[0].roundNo } : { matchId };
+}
+
+/**
  * Refresh keeps the coach's review state: a signal whose metric moved is the
  * same signal, and a triaged signal that is no longer generated is kept rather
  * than silently dropped. Only untriaged ('new') signals disappear with their evidence.

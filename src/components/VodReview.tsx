@@ -157,7 +157,7 @@ export default function VodReview({ data, theme, role, onRefresh, initialMatchId
           <h2 className="text-2xl font-black tracking-tight uppercase">VOD Review</h2>
         </div>
         {isCoach && (
-          <button onClick={() => setShowAdd(!showAdd)} className="px-3 py-2 bg-[#ff4655] hover:bg-[#ff5e6a] text-white text-xs font-bold uppercase tracking-widest rounded-lg flex items-center gap-1.5 cursor-pointer">
+          <button onClick={() => setShowAdd(!showAdd)} className="px-3 py-2 bg-[#d12a3a] hover:bg-[#b91c2e] text-white text-xs font-bold uppercase tracking-widest rounded-lg flex items-center gap-1.5 cursor-pointer">
             <Plus className="w-4 h-4" /> New VOD
           </button>
         )}
@@ -177,7 +177,7 @@ export default function VodReview({ data, theme, role, onRefresh, initialMatchId
             <option value="">Link to match (optional)</option>
             {(data.matches || []).map((m) => <option key={m.id} value={m.id}>{m.date} — {m.opponent} ({m.map})</option>)}
           </select>
-          <button type="submit" disabled={busy} className="px-4 py-2 bg-[#ff4655] disabled:opacity-50 text-white text-xs font-bold uppercase tracking-widest rounded-lg cursor-pointer">Save VOD</button>
+          <button type="submit" disabled={busy} className="px-4 py-2 bg-[#d12a3a] disabled:opacity-50 text-white text-xs font-bold uppercase tracking-widest rounded-lg cursor-pointer">Save VOD</button>
         </form>
       )}
 
@@ -195,7 +195,7 @@ export default function VodReview({ data, theme, role, onRefresh, initialMatchId
 
         {/* Selected review */}
         <div className="lg:col-span-2 space-y-4">
-          {!selected && <div className="rounded-xl border border-dashed border-white/10 p-8 text-center"><Film className="mx-auto h-5 w-5 text-gray-600" aria-hidden="true" /><p className="mt-3 text-sm text-gray-400">{focusedMatch ? 'This match has no linked VOD review.' : 'Select a VOD to view coaching context.'}</p><p className="mt-1 text-xs text-gray-600">{isCoach ? 'Manual review remains available; parser drafts are review-only and are never written automatically.' : 'Ask the coach to link a review when it is ready.'}</p>{isCoach && focusedMatch && <button type="button" onClick={() => setShowAdd(true)} className="mt-4 rounded-lg bg-[#ff4655] px-3 py-2 text-xs font-semibold text-white">Link a VOD</button>}</div>}
+          {!selected && <div className="rounded-xl border border-dashed border-white/10 p-8 text-center"><Film className="mx-auto h-5 w-5 text-gray-600" aria-hidden="true" /><p className="mt-3 text-sm text-gray-400">{focusedMatch ? 'This match has no linked VOD review.' : 'Select a VOD to view coaching context.'}</p><p className="mt-1 text-xs text-gray-600">{isCoach ? 'Manual review remains available; parser drafts are review-only and are never written automatically.' : 'Ask the coach to link a review when it is ready.'}</p>{isCoach && focusedMatch && <button type="button" onClick={() => setShowAdd(true)} className="mt-4 rounded-lg bg-[#d12a3a] px-3 py-2 text-xs font-semibold text-white">Link a VOD</button>}</div>}
           {selected && (
             <div id="selected-vod-review" className={`scroll-mt-4 rounded-xl border ${theme.border} ${theme.cardBg} p-5 space-y-4`}>
               <div className="flex items-center justify-between gap-3">
