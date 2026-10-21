@@ -683,6 +683,21 @@ textarea:disabled {
   summary:focus-visible { outline: 3px solid Highlight; }
 
   .ambient-orb { display: none; }
+
+  /* The authored dark-on-teal text would stay dark on the forced background; use system button colours. */
+  .ui-button-primary,
+  .ui-button-primary:hover:not(:disabled) {
+    color: ButtonText;
+    background: ButtonFace;
+    border-color: ButtonText;
+    box-shadow: none;
+  }
+
+  .ui-button-primary:disabled {
+    color: GrayText;
+    background: ButtonFace;
+    border-color: GrayText;
+  }
 }
 
 @media (prefers-reduced-transparency: reduce) {
