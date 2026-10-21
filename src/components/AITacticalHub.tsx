@@ -8,6 +8,7 @@ import { agentProficiency, buildPeriodMetrics, clutchPublication, emptyPeriodMet
 import { percentageBarClass, percentageSurfaceClass, percentageTextClass } from '../utils/percentageColor';
 import { playerAggregationKey } from '../../lib/identitySnapshot';
 import { notify } from '../utils/appDialogs';
+import { CLOUD_AI_OFF_MESSAGE, cloudAiErrorMessage, useCloudAiAvailable } from '../utils/cloudAi';
 
 interface ComponentProps {
   data: TrackerData;
@@ -240,6 +241,7 @@ export default function AITacticalHub({ data, theme, onUpsert, onRemove }: Compo
   const [selectedStyle, setSelectedStyle] = useState('Default / General');
   const [customFocus, setCustomFocus] = useState('');
   const [generating, setGenerating] = useState(false);
+  const cloudAiAvailable = useCloudAiAvailable();
   const [loadingMsg, setLoadingMsg] = useState('');
   const [generatedStrat, setGeneratedStrat] = useState<any | null>(null);
   const [savingStrat, setSavingStrat] = useState(false);
@@ -286,7 +288,7 @@ export default function AITacticalHub({ data, theme, onUpsert, onRemove }: Compo
         })
       });
 
-      if (!res.ok) throw new Error('Strategy generator failed.');
+      if (!res.ok) throw new Error(await cloudAiErrorMessage(res, 'The strategy generator failed. Nothing was saved.'));
       const stratData = await res.json();
       
       setGeneratedStrat(stratData);
@@ -298,9 +300,9 @@ export default function AITacticalHub({ data, theme, onUpsert, onRemove }: Compo
       setEditedPhase3(stratData.phase3);
       setEditedCombo(stratData.combo);
       setEditedNotes(stratData.notes);
-    } catch (err) {
+    } catch (err: any) {
       console.error(err);
-      notify('AI Generation timed out or failed. Please ensure your Gemini API key is set in Settings.', 'error');
+      notify(err?.message || 'The strategy generator failed. Nothing was saved.', 'error');
     } finally {
       clearInterval(interval);
       setGenerating(false);
@@ -627,7 +629,8 @@ export default function AITacticalHub({ data, theme, onUpsert, onRemove }: Compo
               <button
                 type="button"
                 onClick={handleGenerateStrategy}
-                disabled={generating}
+                disabled={generating || cloudAiAvailable !== true}
+                aria-describedby={cloudAiAvailable === false ? 'playbook-cloud-ai-off' : undefined}
                 className="w-full py-3 bg-[#d12a3a] hover:bg-[#b91c2e] text-white text-xs font-black rounded-lg uppercase font-mono tracking-wider shadow-lg shadow-[#ff4655]/10 flex items-center justify-center gap-2 disabled:opacity-40 cursor-pointer"
               >
                 {generating ? (
@@ -642,6 +645,7 @@ export default function AITacticalHub({ data, theme, onUpsert, onRemove }: Compo
                   </>
                 )}
               </button>
+              {cloudAiAvailable === false && <p id="playbook-cloud-ai-off" className="text-[10px] text-gray-400">{CLOUD_AI_OFF_MESSAGE}</p>}
             </div>
           </div>
 
@@ -1018,9 +1022,10 @@ export default function AITacticalHub({ data, theme, onUpsert, onRemove }: Compo
                   <div className="col-span-1 lg:col-span-5 p-5 rounded-xl border border-white/5 bg-white/2 space-y-4 h-full flex flex-col justify-between">
                     <div className="space-y-3">
                       <div className="flex items-center gap-2">
-                        <Sparkles className="w-4 h-4 text-amber-400 animate-pulse" />
-                        <span className="text-[10px] font-mono uppercase tracking-widest text-amber-400 font-black">AI KPI Diagnosis</span>
+                        <Activity className="w-4 h-4 text-amber-400" aria-hidden="true" />
+                        <span className="text-[10px] font-mono uppercase tracking-widest text-amber-400 font-black">KPI Diagnosis</span>
                       </div>
+                      <p className="text-[10px] text-gray-500">Rule-based: fixed thresholds applied to this period's KPIs. No AI is used.</p>
                       
                       <div className="space-y-1">
                         <span className="text-[9px] uppercase font-bold text-gray-400 font-mono">Primary Focus Area</span>

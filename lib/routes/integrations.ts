@@ -77,7 +77,7 @@ export function registerIntegrationRoutes(app: Express) {
       const db = await readDB();
       const has = (v: any) => !!v;
       res.json({
-        gemini: { configured: has(process.env.GEMINI_API_KEY), note: 'AI coach, tactical hub, screenshot OCR (needs active billing)' },
+        gemini: { configured: has(process.env.GEMINI_API_KEY), note: 'Optional cloud AI: AI coach brief, playbook generator and the manual cloud screenshot reader (needs active billing). Capture OCR runs locally without it.' },
         henrik: { configured: false, note: 'Legacy ranked integration disabled; provider eligibility, versioned consent and exact account gating are not persisted' },
         grid: { configured: has(process.env.GRID_API_KEY), note: has(process.env.GRID_API_KEY) ? 'Key available; GRID ingestion remains gated until provider activation and schema acceptance' : 'Add the key locally or as a Cloudflare secret; ingestion still requires provider activation' },
         discord: { configured: has(process.env.DISCORD_WEBHOOK_URL), note: 'Automatic match report broadcasts' },
