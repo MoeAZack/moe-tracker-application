@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { parsePraccCalendar, reconcilePraccSchedule, validatePraccCalendarUrl } from '../lib/praccCalendar';
+import { fetchPraccCalendar, parsePraccCalendar, reconcilePraccSchedule, validatePraccCalendarUrl } from '../lib/praccCalendar';
 
 const feedUrl = 'https://pracc.com/api/matches/example-private-key/calendar.ics';
 const calendar = `BEGIN:VCALENDAR\r
@@ -45,5 +45,25 @@ describe('PRACC calendar integration', () => {
     const second = reconcilePraccSchedule([existing], [changed], feedUrl);
     expect(second.schedule).toHaveLength(1);
     expect(second.schedule[0]).toMatchObject({ id: first.id, primary: 'Practice vs MT Asteria', coachNotes: 'Focus pistol protocols', attendanceEnabled: true, requiredPlayerIds: ['player-1'], attendanceCheckIns: [{ id: 'check-1' }], attendanceAudit: [{ id: 'audit-1' }] });
+  });
+
+  it('resolves non-IANA TZIDs through the feed and keeps all-day dates unshifted', () => {
+    const feed = ['BEGIN:VCALENDAR', 'X-WR-TIMEZONE:Europe/Berlin',
+      'BEGIN:VTIMEZONE', 'TZID:W. Europe Standard Time', 'X-LIC-LOCATION:Europe/Berlin', 'END:VTIMEZONE',
+      'BEGIN:VEVENT', 'UID:windows-zone', 'DTSTART;TZID="W. Europe Standard Time":20261015T180000', 'SUMMARY:Windows zone', 'END:VEVENT',
+      'BEGIN:VEVENT', 'UID:floating', 'DTSTART:20261015T180000', 'SUMMARY:Floating', 'END:VEVENT',
+      'BEGIN:VEVENT', 'UID:all-day', 'DTSTART;VALUE=DATE;TZID=America/Los_Angeles:20261016', 'SUMMARY:All day', 'END:VEVENT',
+      'END:VCALENDAR'].join('\r\n');
+    const events = parsePraccCalendar(feed);
+    expect(events.find(event => event.uid === 'windows-zone')!.startsAt.toISOString()).toBe('2026-10-15T16:00:00.000Z');
+    expect(events.find(event => event.uid === 'floating')!.startsAt.toISOString()).toBe('2026-10-15T16:00:00.000Z');
+    const schedule = reconcilePraccSchedule([], events, feedUrl, new Date('2026-10-01T00:00:00Z')).schedule;
+    expect(schedule.find(row => row.sourceEventId === 'all-day')).toMatchObject({ date: '2026-10-16', allDay: true });
+    expect(() => parsePraccCalendar(feed.replace('X-LIC-LOCATION:Europe/Berlin', 'X-LIC-LOCATION:Nowhere/Zone'))).toThrow(/unsupported calendar timezone/);
+  });
+
+  it('gives up on a PRACC feed that never answers', async () => {
+    const hang = ((_url: string, init: RequestInit) => new Promise((_resolve, reject) => init.signal?.addEventListener('abort', () => reject(init.signal?.reason)))) as unknown as typeof fetch;
+    await expect(fetchPraccCalendar(feedUrl, hang, 20)).rejects.toMatchObject({ status: 504 });
   });
 });

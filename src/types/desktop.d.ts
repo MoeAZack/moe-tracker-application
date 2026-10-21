@@ -9,7 +9,7 @@ type DesktopStatus = {
   startWithWindows: boolean;
   role: string;
   teamName: string | null;
-  capture: { state: 'waiting-for-valorant' | 'match-detected' | 'capture-ready' | 'capturing' | 'review-required' | 'uploading' | 'synchronized' | 'paused' | 'error'; paused: boolean; preferences: { profile: 'fullscreen' | 'fullscreen-windowed' | 'windowed'; display: string; notification: 'open-review' | 'notify-only' | 'silent'; offlineQueue: boolean }; safety: 'post-match-only'; lastError: string | null };
+  capture: { state: 'waiting-for-valorant' | 'match-detected' | 'capture-ready' | 'capturing' | 'review-required' | 'uploading' | 'synchronized' | 'paused' | 'error'; paused: boolean; preferences: { profile: 'fullscreen' | 'fullscreen-windowed' | 'windowed'; display: string; notification: 'open-review' | 'notify-only' | 'silent'; offlineQueue: boolean; elevated?: boolean }; safety: 'post-match-only'; lastError: string | null };
   cloudUrl: string;
   replayCount: number;
   replays: Array<{ name: string; path: string; size: number; modifiedAt: string }>;
@@ -36,7 +36,8 @@ declare global {
       installUpdate(): Promise<{ installing: boolean }>;
       processMatch(): Promise<{ state: string; message: string; items?: any[] }>;
       chooseVodFile(): Promise<{ canceled: boolean; path?: string; name?: string }>;
-      discoverVodGames(input: { vodUrl?: string; localPath?: string; expectedGames?: number; mapNames?: string[] }): Promise<{ cacheId: string; uploadDate: string | null; uploader: string | null; vodUrl: string | null; videoId: string | null; durationMs: number; width: number; height: number; games: Array<{ timestampMs: number; score: number; agentSelectScore: number; mediaType: string; base64: string }>; boundaries: Array<{ timestampMs: number; score: number; agentSelectScore: number; map: string | null; mediaType: string; base64: string }> }>;
+      discoverVodGames(input: { vodUrl?: string; localPath?: string; expectedGames?: number; mapNames?: string[] }): Promise<{ cacheId: string; uploadDate: string | null; uploader: string | null; vodUrl: string | null; videoId: string | null; durationMs: number; width: number; height: number; games: Array<{ timestampMs: number; score: number; agentSelectScore: number; mediaType: string; frame: string }>; boundaries: Array<{ timestampMs: number; score: number; agentSelectScore: number; map: string | null; mediaType: string; frame: string }> }>;
+      readVodFrame(input: { cacheId: string; frame: string }): Promise<{ mediaType: string; base64: string }>;
       listVodJobs(): Promise<Array<{ id: string; status: string; stage: string; percent: number | null; message?: string; source: string; resumable: boolean; retainedSource?: boolean; expectedGames?: number; createdAt: string; updatedAt: string }>>;
       listIngestionJobs(): Promise<Array<{ id: string; status: string; stage: string; percent: number | null; message?: string; source: 'screenshot' | 'replay' | 'youtube-vod' | 'local-vod'; resumable: boolean; retainedSource?: boolean; expectedGames?: number; createdAt: string; updatedAt: string }>>;
       beginIngestionJob(input: { source: 'screenshot' }): Promise<{ id: string; status: string; stage: string; percent: number | null }>;
@@ -57,7 +58,7 @@ declare global {
       setRetentionDays(days: number): Promise<{ retentionDays: number }>;
       setStartWithWindows(enabled: boolean): Promise<{ startWithWindows: boolean }>;
       setCapturePaused(paused: boolean): Promise<{ paused: boolean }>;
-      setCapturePreferences(input: { profile: 'fullscreen' | 'fullscreen-windowed' | 'windowed'; display: string; notification: 'open-review' | 'notify-only' | 'silent'; offlineQueue: boolean }): Promise<DesktopStatus['capture']['preferences']>;
+      setCapturePreferences(input: { profile: 'fullscreen' | 'fullscreen-windowed' | 'windowed'; display: string; notification: 'open-review' | 'notify-only' | 'silent'; offlineQueue: boolean; elevated?: boolean }): Promise<DesktopStatus['capture']['preferences']>;
       disconnectDevice(): Promise<{ disconnected: boolean }>;
       listScoreboards(): Promise<Array<{ id: string; name: string; size: number; modifiedAt: string; mediaType: string; capture?: null | { captureId: string; template: string; requestedRounds: number } }>>;
       readScoreboard(id: string): Promise<{ id: string; imageSha256: string; name: string; mediaType: string; bytes: Uint8Array }>;

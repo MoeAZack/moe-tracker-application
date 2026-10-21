@@ -10,6 +10,7 @@ contextBridge.exposeInMainWorld('moeDesktop', Object.freeze({
   processMatch: () => ipcRenderer.invoke('desktop:process-match'),
   chooseVodFile: () => ipcRenderer.invoke('desktop:choose-vod-file'),
   discoverVodGames: (input) => ipcRenderer.invoke('desktop:discover-vod-games', input),
+  readVodFrame: (input) => ipcRenderer.invoke('desktop:read-vod-frame', input),
   listVodJobs: () => ipcRenderer.invoke('desktop:list-vod-jobs'),
   listIngestionJobs: () => ipcRenderer.invoke('desktop:list-ingestion-jobs'),
   beginIngestionJob: (input) => ipcRenderer.invoke('desktop:begin-ingestion-job', input),

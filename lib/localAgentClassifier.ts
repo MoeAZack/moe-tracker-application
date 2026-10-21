@@ -1,20 +1,17 @@
 export interface AgentTemplateScore { name: string; score: number }
 
-/** Chroma-tolerant portrait distance for row tint and brightness variations. */
-export function agentPortraitDistance(actual: Uint8ClampedArray, expected: Uint8ClampedArray) {
+/**
+ * Plain per-channel mean squared error. The final scoreboard portraits are
+ * rendered over a sampled row tint, so the raw colour difference separates
+ * look-alike portraits (Sova/Chamber, Cypher/Gekko) better than a
+ * luminance-normalized distance, which lost cells on the labelled corpus and
+ * confidently filled cells that should stay unknown.
+ */
+export function rawPortraitDistance(actual: Uint8ClampedArray, expected: Uint8ClampedArray) {
   if (actual.length !== expected.length || actual.length < 4 || actual.length % 4 !== 0) return Number.POSITIVE_INFINITY;
-  const luminance = (pixels: Uint8ClampedArray) => {
-    const values = new Float64Array(pixels.length / 4); let sum = 0;
-    for (let index = 0; index < values.length; index += 1) { const offset = index * 4; const value = (77 * pixels[offset] + 150 * pixels[offset + 1] + 29 * pixels[offset + 2]) / 256; values[index] = value; sum += value; }
-    const mean = sum / values.length; let variance = 0; for (const value of values) variance += (value - mean) ** 2;
-    return { values, mean, deviation: Math.max(8, Math.sqrt(variance / values.length)) };
-  };
-  const left = luminance(actual); const right = luminance(expected); let normalized = 0; let raw = 0;
-  for (let index = 0; index < left.values.length; index += 1) {
-    normalized += ((left.values[index] - left.mean) / left.deviation - (right.values[index] - right.mean) / right.deviation) ** 2;
-    const offset = index * 4; raw += (actual[offset] - expected[offset]) ** 2 + (actual[offset + 1] - expected[offset + 1]) ** 2 + (actual[offset + 2] - expected[offset + 2]) ** 2;
-  }
-  return raw / (left.values.length * 3) * .35 + normalized / left.values.length * 2_500;
+  let error = 0;
+  for (let index = 0; index < actual.length; index += 4) error += (actual[index] - expected[index]) ** 2 + (actual[index + 1] - expected[index + 1]) ** 2 + (actual[index + 2] - expected[index + 2]) ** 2;
+  return error / (actual.length / 4 * 3);
 }
 
 export function chooseAgentMatch(scores: readonly AgentTemplateScore[]): string | null {
@@ -51,7 +48,7 @@ export async function createValorantAgentRegionClassifier(image: CanvasImageSour
       context.fillStyle = `rgb(${background[0]},${background[1]},${background[2]})`; context.fillRect(0, 0, 32, 32);
       context.drawImage(template.image, 0, 0, 32, 32);
       const expected = context.getImageData(0, 0, 32, 32).data;
-      scores.push({ name: template.name, score: agentPortraitDistance(actual, expected) });
+      scores.push({ name: template.name, score: rawPortraitDistance(actual, expected) });
     }
     const strict = chooseAgentMatch(scores);
     if (strict) return strict;
@@ -77,12 +74,13 @@ export async function scoreValorantScoreboardAgents(image: CanvasImageSource & {
   const matches: AgentTemplateScore[][] = [];
   for (let row = 0; row < 10; row += 1) {
     // Portrait column: custom table starts at x=387, competitive at x=348.
+    // The tint is sampled from the same shifted row as the crop.
     const left = Math.round((layout === 'competitive' ? 359 : 398) * sx), top = Math.round((321 + rowOffset + row * 48) * sy), cropWidth = Math.round(40 * sx), cropHeight = Math.round(48 * sy);
     const crop = document.createElement('canvas'); crop.width = crop.height = 32;
     const cropContext = crop.getContext('2d', { willReadFrequently: true }); if (!cropContext) throw new Error('Agent portrait matching is unavailable.');
     cropContext.drawImage(source, left, top, cropWidth, cropHeight, 0, 0, 32, 32);
     const actual = cropContext.getImageData(0, 0, 32, 32).data;
-    const background = sourceContext.getImageData(Math.round(500 * sx), Math.round((340 + row * 48) * sy), 1, 1).data;
+    const background = sourceContext.getImageData(Math.round(500 * sx), Math.round((340 + rowOffset + row * 48) * sy), 1, 1).data;
     const scores: AgentTemplateScore[] = [];
     for (const template of templates) {
       const canvas = document.createElement('canvas'); canvas.width = canvas.height = 32;
@@ -90,7 +88,7 @@ export async function scoreValorantScoreboardAgents(image: CanvasImageSource & {
       context.fillStyle = `rgb(${background[0]},${background[1]},${background[2]})`; context.fillRect(0, 0, 32, 32);
       context.drawImage(template.image, 0, 0, 32, 32);
       const expected = context.getImageData(0, 0, 32, 32).data;
-      scores.push({ name: template.name, score: agentPortraitDistance(actual, expected) });
+      scores.push({ name: template.name, score: rawPortraitDistance(actual, expected) });
     }
     matches.push(scores.sort((a, b) => a.score - b.score));
   }
@@ -98,6 +96,6 @@ export async function scoreValorantScoreboardAgents(image: CanvasImageSource & {
 }
 
 /** Match the ten fixed post-match portrait cells against the bundled agent art. */
-export async function classifyValorantScoreboardAgents(image: CanvasImageSource & { naturalWidth?: number; naturalHeight?: number }, layout: 'custom' | 'competitive' = 'custom', rowOffset = 0) {
-  return (await scoreValorantScoreboardAgents(image, layout, rowOffset)).map(chooseAgentMatch);
+export async function classifyValorantScoreboardAgents(image: CanvasImageSource & { naturalWidth?: number; naturalHeight?: number }, layout: 'custom' | 'competitive' = 'custom') {
+  return (await scoreValorantScoreboardAgents(image, layout)).map(chooseAgentMatch);
 }
