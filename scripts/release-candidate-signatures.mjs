@@ -21,3 +21,21 @@ export function signatureFailures({ requireSigned, platform, expectedFiles, sign
   }
   return failures;
 }
+
+/**
+ * Runs scripts/authenticode-status.ps1 and returns { signatures, inspectionError }.
+ * Prefers PowerShell 7 (pwsh) and falls back to Windows PowerShell 5.1 only when
+ * pwsh is not installed; any other failure of a shell that did start is reported.
+ */
+export function inspectAuthenticode(scriptPath, files, spawn) {
+  const missing = [];
+  for (const shell of ['pwsh', 'powershell.exe']) {
+    const result = spawn(shell, ['-NoProfile', '-NonInteractive', '-ExecutionPolicy', 'Bypass', '-File', scriptPath, '-FilesJson', JSON.stringify(files)], { encoding: 'utf8' });
+    if (result.error?.code === 'ENOENT') { missing.push(shell); continue; }
+    if (result.status !== 0) return { signatures: [], inspectionError: `${shell}: ${(result.stderr || result.error?.message || `exit ${result.status}`).trim()}` };
+    let signatures;
+    try { signatures = JSON.parse(result.stdout || '[]'); } catch { return { signatures: [], inspectionError: `${shell}: unreadable output` }; }
+    return { signatures: Array.isArray(signatures) ? signatures : [signatures], inspectionError: null };
+  }
+  return { signatures: [], inspectionError: `no PowerShell found (${missing.join(', ')})` };
+}
