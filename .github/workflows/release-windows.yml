@@ -5,19 +5,30 @@ on:
     tags: ['v*']
 
 permissions:
-  contents: write
+  contents: read
 
 jobs:
   release:
     runs-on: windows-latest
     environment: release
+    env:
+      # yt-dlp comes only from the pinned, hash-checked release (stage:yt-dlp).
+      YOUTUBE_DL_SKIP_DOWNLOAD: '1'
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v4
         with:
           node-version: 24.18.0
-          cache: npm
+      # Fails before anything is installed or built when the release could
+      # not be signed or trusted: no signing secrets, no trusted publisher in
+      # desktop/update-trust.json, or a tag that is not v<package version>.
+      - name: Release preflight (fails closed)
+        env:
+          CSC_LINK: ${{ secrets.WINDOWS_CSC_LINK }}
+          CSC_KEY_PASSWORD: ${{ secrets.WINDOWS_CSC_KEY_PASSWORD }}
+        run: node scripts/release-preflight.mjs
       - run: npm ci
+      - run: npm run stage:yt-dlp
       - run: npm run check
       - run: npm run test:a11y
       - uses: actions/setup-python@v5
@@ -28,55 +39,70 @@ jobs:
         run: |
           .\scripts\stage-replay-runtime.ps1
           npm run verify:runtime:bundled
-      - name: Require public signing certificate
-        shell: pwsh
-        env:
-          CSC_LINK: ${{ secrets.WINDOWS_CSC_LINK }}
-          CSC_KEY_PASSWORD: ${{ secrets.WINDOWS_CSC_KEY_PASSWORD }}
-        run: |
-          if (-not $env:CSC_LINK -or -not $env:CSC_KEY_PASSWORD) { throw 'Public Windows signing secrets are not configured.' }
       - name: Build and sign without publishing
         shell: pwsh
         env:
           CSC_LINK: ${{ secrets.WINDOWS_CSC_LINK }}
           CSC_KEY_PASSWORD: ${{ secrets.WINDOWS_CSC_KEY_PASSWORD }}
-          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
           npm run build
           npx electron-builder --win nsis --publish never
-      - name: Verify Authenticode signature
+      - name: Verify signatures, publisher and bundled runtimes
         shell: pwsh
         run: |
-          $installer = Get-ChildItem release\Moe-Tracker-Application-*-Setup.exe | Select-Object -First 1
-          if (-not $installer) { throw 'Installer was not created.' }
-          $signature = Get-AuthenticodeSignature $installer.FullName
-          if ($signature.Status -ne 'Valid') { throw "Installer signature is $($signature.Status), expected Valid." }
+          $ErrorActionPreference = 'Stop'; $PSNativeCommandUseErrorActionPreference = $true
           npm run verify:candidate:signed
-      - name: Verify clean Windows installation
+          node scripts/verify-installed-signature.cjs (Get-Item 'release\Moe-Tracker-Application-*-Setup.exe').FullName 'release\win-unpacked\Moe Tracker Application.exe'
+          node scripts/verify-release-runtime.mjs --require-bundled --packaged release/win-unpacked
+      - name: Install, check the installed signature and run the packaged IPC journey
         shell: pwsh
         run: |
+          $ErrorActionPreference = 'Stop'; $PSNativeCommandUseErrorActionPreference = $true
           $installer = Get-ChildItem release\Moe-Tracker-Application-*-Setup.exe | Select-Object -First 1
           $installDir = Join-Path $env:RUNNER_TEMP 'MoeTrackerAcceptance'
           $process = Start-Process -FilePath $installer.FullName -ArgumentList '/S', "/D=$installDir" -Wait -PassThru
           if ($process.ExitCode -ne 0) { throw "Silent install failed with exit code $($process.ExitCode)." }
-          $executable = Get-ChildItem $installDir -Filter '*.exe' | Where-Object Name -NotMatch 'Uninstall' | Select-Object -First 1
-          if (-not $executable) { throw 'Installed application executable was not found.' }
-          $installedSignature = Get-AuthenticodeSignature $executable.FullName
-          if ($installedSignature.Status -ne 'Valid') { throw "Installed application signature is $($installedSignature.Status), expected Valid." }
-          node scripts/desktop-ipc-smoke.mjs $executable.FullName
-      - name: Publish verified release assets
-        shell: pwsh
-        env:
-          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-        run: |
-          $tag = '${{ github.ref_name }}'
-          gh release view $tag 2>$null
-          if ($LASTEXITCODE -ne 0) { gh release create $tag --title $tag --generate-notes --verify-tag }
-          gh release upload $tag release\Moe-Tracker-Application-*-Setup.exe release\Moe-Tracker-Application-*-Setup.exe.blockmap release\latest.yml --clobber
+          $executable = Join-Path $installDir 'Moe Tracker Application.exe'
+          if (-not (Test-Path -LiteralPath $executable)) { throw 'Installed application executable was not found.' }
+          node scripts/verify-installed-signature.cjs $executable
+          if ($LASTEXITCODE -ne 0) { throw 'The installed application is not signed by a trusted publisher.' }
+          node scripts/verify-release-runtime.mjs --packaged $installDir
+          if ($LASTEXITCODE -ne 0) { throw 'The installed application does not carry the pinned runtimes.' }
+          node scripts/desktop-ipc-smoke.mjs $executable
+          if ($LASTEXITCODE -ne 0) { throw 'The packaged IPC journey failed on the installed application.' }
       - uses: actions/upload-artifact@v4
         with:
           name: signed-windows-installer
+          if-no-files-found: error
           path: |
             release/Moe-Tracker-Application-*-Setup.exe
             release/Moe-Tracker-Application-*-Setup.exe.blockmap
             release/latest.yml
+            release/release-evidence/*.json
+
+  # Runs only when every check above passed; this is the only job that can write releases.
+  publish:
+    needs: release
+    runs-on: ubuntu-latest
+    environment: release
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          name: signed-windows-installer
+          path: release
+      - name: Publish verified release assets
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          TAG: ${{ github.ref_name }}
+          REPO: ${{ github.repository }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          installer=$(ls release/Moe-Tracker-Application-*-Setup.exe)
+          expected=$(sed -n 's/^sha512: *//p' release/latest.yml)
+          actual=$(openssl dgst -sha512 -binary "$installer" | base64 -w0)
+          test "$expected" = "$actual" || { echo "latest.yml does not match the verified installer"; exit 1; }
+          gh release view "$TAG" --repo "$REPO" >/dev/null 2>&1 || gh release create "$TAG" --repo "$REPO" --title "$TAG" --generate-notes --verify-tag
+          gh release upload "$TAG" --repo "$REPO" "$installer" "$installer.blockmap" release/latest.yml --clobber
