@@ -16,6 +16,7 @@ import {
   Sparkles, Send, Copy, Loader2, ArrowUpRight
 } from 'lucide-react';
 import { confirmDialog, notify } from '../utils/appDialogs';
+import { CLOUD_AI_OFF_MESSAGE, cloudAiActionBlocked, cloudAiErrorMessage, useCloudAiAvailable } from '../utils/cloudAi';
 
 interface ComponentProps {
   data: TrackerData;
@@ -47,6 +48,7 @@ export default function MatchLogRounds({ data, theme, onSaveMatch, onRemove, onS
 
   // --- AI BRIEF & DISCORD BROADCASTER STATE ---
   const [analyzingMatch, setAnalyzingMatch] = useState(false);
+  const cloudAiAvailable = useCloudAiAvailable();
   const [aiLoadMsg, setAiLoadMsg] = useState('');
   const [discordBroadcasting, setDiscordBroadcasting] = useState(false);
   const [discordCopyPayload, setDiscordCopyPayload] = useState('');
@@ -840,7 +842,8 @@ export default function MatchLogRounds({ data, theme, onSaveMatch, onRemove, onS
                     </span>
                     <div className="flex gap-2 shrink-0">
                       <button
-                        disabled={analyzingMatch}
+                        disabled={cloudAiActionBlocked(cloudAiAvailable, analyzingMatch)}
+                        title={cloudAiAvailable === false ? CLOUD_AI_OFF_MESSAGE : undefined}
                         onClick={async () => {
                           setAnalyzingMatch(true);
                           setDiscordCopyPayload('');
@@ -864,7 +867,7 @@ export default function MatchLogRounds({ data, theme, onSaveMatch, onRemove, onS
                               headers: { 'Content-Type': 'application/json' },
                               body: JSON.stringify({ matchId: selectedMatch.id })
                             });
-                            if (!res.ok) throw new Error('AI analysis failed.');
+                            if (!res.ok) throw new Error(await cloudAiErrorMessage(res, 'The AI analysis failed. Nothing was saved.'));
                             const resJson = await res.json();
                             
                             // Trigger full parent refresh
@@ -994,6 +997,7 @@ export default function MatchLogRounds({ data, theme, onSaveMatch, onRemove, onS
                       <div className="max-w-xs mx-auto space-y-1">
                         <p className="text-xs font-black text-white uppercase tracking-tight">Generate Scrim Report Card</p>
                         <p className="text-[10px] text-gray-500 leading-relaxed font-mono">Dissect round logs, space conversions, economic efficiency, throw triggers, and caller reviews automatically with Gemini.</p>
+                        {cloudAiAvailable === false && <p className="text-[10px] text-amber-300 leading-relaxed">{CLOUD_AI_OFF_MESSAGE}</p>}
                       </div>
                     </div>
                   )}
