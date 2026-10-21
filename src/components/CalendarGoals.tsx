@@ -438,7 +438,7 @@ export default function CalendarGoals({ data, theme, role, onUpsert, onRemove, o
               <h4 className="font-black text-xs uppercase text-gray-500 font-mono">Day Details: {selectedDateStr}</h4>
               {role === 'coach' && <button
                 onClick={() => handleOpenAddSchedule(selectedDateStr)}
-                className={`flex items-center gap-1.5 px-2.5 py-1 text-[10px] font-bold rounded ${theme.primaryBg} text-slate-950 cursor-pointer hover:opacity-90`}
+                className={`flex items-center gap-1.5 px-2.5 py-1 text-[10px] font-bold rounded ${theme.primaryBg} text-white cursor-pointer hover:opacity-90`}
               >
                 <Plus className="w-3.5 h-3.5" /> ADD EVENT
               </button>}

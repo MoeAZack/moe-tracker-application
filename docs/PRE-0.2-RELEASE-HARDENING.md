@@ -396,6 +396,28 @@ Re-audit fixes (awaiting verification):
   fusion panel and Escape-cancels behaviour. `A11Y_BROWSER` selects a local
   Chromium.
 
+Contract items already on main, with their evidence:
+
+- Coach round-fact correction: `POST /api/vod/round-review` with
+  `factCorrection` (`lib/routes/vodLineup.ts`) requires a reason, stores
+  `previousValue`, `value`, `reason`, `at` and `by` on
+  `round.reviewCockpit.factCorrections`, then calls `refreshCoachingWorkflow`.
+  The VOD Review round cockpit (`RoundReviewCockpit.tsx`, "Correct a round
+  fact") is the linked surface. Behaviour coverage:
+  `tests/coachingHttp.test.ts` ("stores round review decisions…") checks the
+  audited correction with its previous value, a 400 for an invalid value, and
+  a 403 for a player session.
+- Identity-bound Player Stats: `tests/playerSoloTrackerArchive.test.tsx`
+  ("shows a player only their identity-bound profile", "does not expose roster
+  mutation to players") and `tests/roleDashboard.test.tsx` ("does not infer an
+  unpaired player identity from a matching display name"). Player sessions are
+  sent off coach-only tabs by `routableWorkspaceTabs`
+  (`tests/workspaceRoute.test.ts`).
+- Release UI gate: `A11Y_BROWSER=/opt/pw-browsers/chromium npm run
+  test:release-ui` reports 0 blocking findings at 100/125/150/200% zoom and in
+  forced colors. Contrast fix: the Calendar quick-status button now uses white
+  text on the primary colour.
+
 Contract:
 
 - Every workspace has a stable human-readable URL. Match and round context are
