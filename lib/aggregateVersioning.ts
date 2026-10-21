@@ -8,6 +8,7 @@ import { buildEvidenceFusionReport, type EvidenceFusionReport, type EvidenceFusi
 import { buildContextualWeaponOutcomes, type ContextualWeaponRow } from './contextualEconomy';
 import { buildSpatialReport, type SpatialReport } from './spatialIntelligence';
 import { buildCalibratedPlayerRatings, type CalibratedPlayerRating } from './calibratedPlayerRatings';
+import { screenshotKastEvidence } from './metricTrust';
 
 export const AGGREGATE_MIGRATION_SCHEMA = 'moetracker.aggregate-migration/v1' as const;
 export const MAP_ROUND_BUILDER = MAP_ROUND_CALCULATION_VERSION;
@@ -153,10 +154,10 @@ function aggregateUnknownReasons(row: MapRoundIntelligence): string[] {
   return [...reasons].sort();
 }
 
-function screenshotUnknownReasons(row: { kast?: { covered: number }; coveredRounds: number }): string[] {
+function screenshotUnknownReasons(row: { kast?: { successful: number; covered: number }; coveredRounds: number }): string[] {
   const reasons = new Set<string>();
   if (!row.coveredRounds) reasons.add('missing-confirmed-screenshot-rounds');
-  if (!row.kast?.covered) reasons.add('missing-complete-kast-evidence');
+  if (!screenshotKastEvidence(row)) reasons.add('missing-complete-kast-evidence');
   return [...reasons].sort();
 }
 

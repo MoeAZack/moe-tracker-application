@@ -2,7 +2,9 @@ import React, { useState, useMemo } from 'react';
 import { TrackerData, Strat } from '../types';
 import { Sparkles, Brain, Zap, UserCheck, Check, Trash2, Loader2, Target, Users, ArrowUpRight, Compass, Swords, ClipboardList, Send, AlertTriangle, Activity } from 'lucide-react';
 import { apiFetch } from '../utils/api';
-import { addPlayerEvidence, emptyPlayerEvidence, headshotRate, untradedRate } from '../../lib/analyticsEvidence';
+import { headshotRate } from '../../lib/analyticsEvidence';
+import { DEFAULT_MINIMUM_METRIC_SAMPLES } from '../../lib/metricTrust';
+import { agentProficiency, buildPeriodMetrics, clutchPublication, emptyPeriodMetrics, gatedUntradedRate, kpiRecommendation, type AgentProficiency } from '../../lib/tacticalHubMetrics';
 import { percentageBarClass, percentageSurfaceClass, percentageTextClass } from '../utils/percentageColor';
 import { playerAggregationKey } from '../../lib/identitySnapshot';
 
@@ -71,117 +73,11 @@ export default function AITacticalHub({ data, theme, onUpsert, onRemove }: Compo
     return new Set(sortedMatches.slice(splitIndex).map(m => m.id));
   }, [sortedMatches, splitIndex]);
 
-  // Helper to compile stats
-  const getPeriodMetrics = (matchIds: Set<string>) => {
-    const stats: Record<string, {
-      kills: number;
-      deaths: number;
-      clutchesWon: number;
-      clutchesAttempted: number;
-      throws: number;
-      firstDeaths: number;
-      roundsCount: number;
-      untradedDeaths: number;
-      tradeKnownDeaths: number;
-      headshots: number;
-      headshotEligibleKills: number;
-      hsPercentWeightedSum: number;
-      hsPercentWeight: number;
-    }> = {};
-
-    activePlayers.forEach(p => {
-      stats[activePlayerKey(p)] = { kills: 0, deaths: 0, clutchesWon: 0, clutchesAttempted: 0, throws: 0, firstDeaths: 0, roundsCount: 0, ...emptyPlayerEvidence() };
-    });
-
-    // Count rounds played in these matches
-    const roundsInPeriod = (data.rounds || []).filter(r => matchIds.has(r.matchId));
-    
-    (data.playerStats || []).forEach(ps => {
-      if (!matchIds.has(ps.matchId)) return;
-      const p = statAggregationKey(ps);
-      if (stats[p]) {
-        stats[p].kills += ps.kills || 0;
-        stats[p].deaths += ps.deaths || 0;
-        addPlayerEvidence(stats[p], ps);
-        stats[p].clutchesWon += ps.cl || 0;
-        stats[p].clutchesAttempted += ps.clAtt || 0;
-      }
-    });
-
-    roundsInPeriod.forEach(r => {
-      // Throws
-      if ((r.isThrow === 'TRUE' || r.isThrow === 'true') && r.thrownBy) {
-        const p = activePlayerKey(r.thrownBy);
-        if (stats[p]) {
-          stats[p].throws++;
-        }
-      }
-
-      // First Deaths
-      if (r.firstDeathBy) {
-        const p = activePlayerKey(r.firstDeathBy);
-        if (stats[p]) {
-          stats[p].firstDeaths++;
-        }
-      }
-    });
-
-    return stats;
-  };
+  const minimumSamples = data.settings.stats?.lowSample || DEFAULT_MINIMUM_METRIC_SAMPLES;
+  const getPeriodMetrics = (matchIds: Set<string>) => buildPeriodMetrics(data.playerStats || [], data.rounds || [], matchIds, activePlayers.map(activePlayerKey), statAggregationKey, activePlayerKey);
 
   const prevPeriodMetrics = useMemo(() => getPeriodMetrics(prevMatchIds), [prevMatchIds, activePlayers, data.playerStats, data.rounds, activePlayerKeyByName]);
   const currPeriodMetrics = useMemo(() => getPeriodMetrics(currMatchIds), [currMatchIds, activePlayers, data.playerStats, data.rounds, activePlayerKeyByName]);
-
-  const getKpiRecommendation = (player: string, curr: any, prev: any) => {
-    const deaths = curr.deaths || 1;
-    const currUntradedRate = untradedRate(curr);
-    const prevUntradedRate = untradedRate(prev);
-
-    const currClutchRate = curr.clutchesAttempted > 0 ? Math.round((curr.clutchesWon / curr.clutchesAttempted) * 100) : 0;
-    const prevClutchRate = prev.clutchesAttempted > 0 ? Math.round((prev.clutchesWon / prev.clutchesAttempted) * 100) : 0;
-
-    const throwsDiff = curr.throws - prev.throws;
-    const untradedDiff = currUntradedRate !== null && prevUntradedRate !== null ? currUntradedRate - prevUntradedRate : null;
-
-    // Build smart diagnostic coaching recommendation
-    if (curr.throws > 1 && currUntradedRate !== null && currUntradedRate > 35) {
-      return {
-        focus: '⚠️ Tactical Discipline & Spacing',
-        text: `${player} is currently showing spacing vulnerabilities with an un-traded death rate of ${currUntradedRate}% and ${curr.throws} critical round throws this period. Focus heavily on discipline drills, avoidance of solo entries without flashing utility, and locking down cross-fires rather than chasing dry kills.`,
-        severity: 'high'
-      };
-    }
-
-    if (currClutchRate < 40 && curr.clutchesAttempted > 2) {
-      return {
-        focus: '🔥 Clutch Efficiency & Calm Play',
-        text: `${player} is struggling to convert active clutch rounds, winning only ${currClutchRate}% (${curr.clutchesWon}/${curr.clutchesAttempted}) of clutches this period (down from ${prevClutchRate}% last period). Work on slow-retake simulated scenarios, timing defuse half-ticks, and isolated 1v1 fights under high pressure.`,
-        severity: 'medium'
-      };
-    }
-
-    if (untradedDiff !== null && untradedDiff > 5) {
-      return {
-        focus: '🛡️ Team Spacing & Trade Spacing',
-        text: `${player}'s un-traded death rate rose by ${untradedDiff}% this period. This indicates they are getting isolated on flanks or during site pushes without team follow-up. Prioritize close spacing during executions and holding passive default angles.`,
-        severity: 'medium'
-      };
-    }
-
-    if (curr.firstDeaths > 4 && curr.kills / deaths < 1.0) {
-      return {
-        focus: '🎯 Entry Pathing & Angles Selection',
-        text: `${player} is logging high first deaths (${curr.firstDeaths}) relative to active fragging power. Refine initial site-entry pathing, coordinate with Initiator scouting flashes, and practice pre-aiming common defensive standard holds.`,
-        severity: 'medium'
-      };
-    }
-
-    return {
-      focus: '🟢 Tactical Mastery & Mechanical Synergy',
-      text: `${player} has displayed solid tactical compliance and stable metrics this period. Their clutch efficiency (${currClutchRate}%) and spacing remain strong. Maintain active calling and continue perfecting agent-specific utility sets in custom drills.`,
-      severity: 'low'
-    };
-  };
 
   // --- DRAFTING MATRIX CALCS ---
   const standardAgents = useMemo(() => [
@@ -192,75 +88,16 @@ export default function AITacticalHub({ data, theme, onUpsert, onRemove }: Compo
   ], []);
 
   const calculatedProficiencies = useMemo(() => {
-    const statsList = data.playerStats || [];
-    const profs: Record<string, Record<string, { rating: number; count: number; gamesWon: number; gamesTotal: number }>> = {};
-
-    activePlayers.forEach((player) => {
-      profs[activePlayerKey(player)] = {};
-    });
-
-    statsList.forEach((stat) => {
-      const player = statAggregationKey(stat);
-      const agent = stat.agent;
-      if (!profs[player]) profs[player] = {};
-      if (!profs[player][agent]) {
-        profs[player][agent] = { rating: 0, count: 0, gamesWon: 0, gamesTotal: 0 };
-      }
-      
-      let currentRating = 1.0; 
-      if (stat.rating !== undefined && stat.rating !== null && stat.rating !== '') {
-        currentRating = typeof stat.rating === 'string' ? parseFloat(stat.rating) : stat.rating;
-      } else if (stat.kills && stat.deaths) {
-        currentRating = stat.deaths > 0 ? stat.kills / stat.deaths : stat.kills;
-      }
-
-      profs[player][agent].rating += currentRating;
-      profs[player][agent].count += 1;
-
-      const m = data.matches?.find((match) => match.id === stat.matchId);
-      if (m) {
-        profs[player][agent].gamesTotal += 1;
-        const isWin = (m.attW + m.defW) > (m.attL + m.defL);
-        if (isWin) {
-          profs[player][agent].gamesWon += 1;
-        }
-      }
-    });
-
-    const matrix: Record<string, Record<string, { grade: 'S' | 'A' | 'B' | 'C' | 'D'; rating: number; count: number; winRate: number }>> = {};
+    const matchesById = new Map((data.matches || []).map(match => [match.id, match]));
+    const rowsByPlayerAgent = new Map<string, NonNullable<TrackerData['playerStats']>>();
+    for (const stat of data.playerStats || []) { const key = `${statAggregationKey(stat)}\u0000${stat.agent}`; rowsByPlayerAgent.set(key, [...(rowsByPlayerAgent.get(key) || []), stat]); }
+    const matrix: Record<string, Record<string, AgentProficiency>> = {};
     activePlayers.forEach((player) => {
       matrix[player] = {};
-      standardAgents.forEach((agent) => {
-        const pStat = profs[activePlayerKey(player)]?.[agent];
-        if (pStat && pStat.count > 0) {
-          const avgRating = pStat.rating / pStat.count;
-          const winRate = pStat.gamesTotal > 0 ? Math.round((pStat.gamesWon / pStat.gamesTotal) * 100) : 0;
-          let grade: 'S' | 'A' | 'B' | 'C' | 'D' = 'B';
-          if (avgRating >= 1.25) grade = 'S';
-          else if (avgRating >= 1.08) grade = 'A';
-          else if (avgRating >= 0.90) grade = 'B';
-          else if (avgRating >= 0.75) grade = 'C';
-          else grade = 'D';
-
-          matrix[player][agent] = {
-            grade,
-            rating: parseFloat(avgRating.toFixed(2)),
-            count: pStat.count,
-            winRate
-          };
-        } else {
-          matrix[player][agent] = {
-            grade: 'B',
-            rating: 1.0,
-            count: 0,
-            winRate: 0
-          };
-        }
-      });
+      standardAgents.forEach((agent) => { matrix[player][agent] = agentProficiency(rowsByPlayerAgent.get(`${activePlayerKey(player)}\u0000${agent}`) || [], matchesById, minimumSamples); });
     });
-
     return matrix;
-  }, [data.playerStats, data.matches, activePlayers, standardAgents, activePlayerKeyByName]);
+  }, [data.playerStats, data.matches, activePlayers, standardAgents, activePlayerKeyByName, minimumSamples]);
 
   const handleCycleOverride = (player: string, agent: string) => {
     const currentOverride = matrixOverrides[player]?.[agent];
@@ -360,21 +197,15 @@ export default function AITacticalHub({ data, theme, onUpsert, onRemove }: Compo
     let duelistCount = 0;
     let totalScore = 0;
     let activeDraftCount = 0;
+    let gradedDraftCount = 0;
 
     draftList.forEach((slot) => {
       if (!slot.player || !slot.agent) return;
       activeDraftCount++;
       const ag = slot.agent.toLowerCase();
-      const grade = finalProficiencies[slot.player]?.[slot.agent]?.grade || 'B';
-      
-      let gradeScore = 75;
-      if (grade === 'S') gradeScore = 95;
-      else if (grade === 'A') gradeScore = 88;
-      else if (grade === 'B') gradeScore = 78;
-      else if (grade === 'C') gradeScore = 68;
-      else gradeScore = 55;
-
-      totalScore += gradeScore;
+      // Only observed (or coach-overridden) grades score; an unplayed pick is unknown, not average.
+      const grade = finalProficiencies[slot.player]?.[slot.agent]?.grade ?? null;
+      if (grade) { totalScore += { S: 95, A: 88, B: 78, C: 68, D: 55 }[grade]; gradedDraftCount++; }
 
       if (['jett', 'raze', 'phoenix', 'neon', 'reyna', 'iso'].includes(ag)) duelistCount++;
       else if (['cypher', 'killjoy', 'deadlock', 'sage', 'vyse'].includes(ag)) sentinelCount++;
@@ -382,7 +213,7 @@ export default function AITacticalHub({ data, theme, onUpsert, onRemove }: Compo
       else initiatorCount++;
     });
 
-    const averageProficiency = activeDraftCount > 0 ? Math.round(totalScore / activeDraftCount) : 0;
+    const averageProficiency = activeDraftCount > 0 && gradedDraftCount === activeDraftCount ? Math.round(totalScore / activeDraftCount) : null;
     
     const warnings: string[] = [];
     if (activeDraftCount > 0) {
@@ -1036,24 +867,23 @@ export default function AITacticalHub({ data, theme, onUpsert, onRemove }: Compo
               const p = selectedKpiPlayer || activePlayers[0];
               if (!p) return <div className="text-xs text-gray-500 font-mono text-center">No active players to analyze.</div>;
               
-              const emptyMetrics = () => ({ kills: 0, deaths: 0, clutchesWon: 0, clutchesAttempted: 0, throws: 0, firstDeaths: 0, roundsCount: 0, ...emptyPlayerEvidence() });
-              const curr = currPeriodMetrics[activePlayerKey(p)] || emptyMetrics();
-              const prev = prevPeriodMetrics[activePlayerKey(p)] || emptyMetrics();
+              const curr = currPeriodMetrics[activePlayerKey(p)] || emptyPeriodMetrics();
+              const prev = prevPeriodMetrics[activePlayerKey(p)] || emptyPeriodMetrics();
 
-              const currKd = curr.deaths > 0 ? (curr.kills / curr.deaths).toFixed(2) : curr.kills.toFixed(2);
-              const prevKd = prev.deaths > 0 ? (prev.kills / prev.deaths).toFixed(2) : prev.kills.toFixed(2);
+              const kdText = (m: typeof curr) => m.kills !== null && m.deaths !== null && m.deaths > 0 ? (m.kills / m.deaths).toFixed(2) : null;
+              const currKd = kdText(curr); const prevKd = kdText(prev);
 
-              const currClutchRate = curr.clutchesAttempted > 0 ? Math.round((curr.clutchesWon / curr.clutchesAttempted) * 100) : 0;
-              const prevClutchRate = prev.clutchesAttempted > 0 ? Math.round((prev.clutchesWon / prev.clutchesAttempted) * 100) : 0;
+              const clutchRate = (m: typeof curr) => { const value = clutchPublication(m, minimumSamples).value; return value === null ? null : Math.round(value); };
+              const currClutchRate = clutchRate(curr); const prevClutchRate = clutchRate(prev);
 
-              const currUntradedRate = untradedRate(curr);
-              const prevUntradedRate = untradedRate(prev);
+              const currUntradedRate = gatedUntradedRate(curr, minimumSamples);
+              const prevUntradedRate = gatedUntradedRate(prev, minimumSamples);
 
               const currHs = headshotRate(curr);
               const prevHs = headshotRate(prev);
 
-              const rec = getKpiRecommendation(p, curr, prev);
-              const throwsDiff = curr.throws - prev.throws;
+              const rec = kpiRecommendation(p, curr, prev, minimumSamples);
+              const throwsDiff = curr.throws !== null && prev.throws !== null ? curr.throws - prev.throws : null;
 
               return (
                 <div className="grid grid-cols-1 lg:grid-cols-12 gap-6 items-start">
@@ -1068,15 +898,17 @@ export default function AITacticalHub({ data, theme, onUpsert, onRemove }: Compo
                       <div className="flex justify-between items-end">
                         <div className="space-y-0.5">
                           <span className="text-[9px] text-gray-500 font-mono block">Previous Period</span>
-                          <span className={`text-sm font-black font-mono ${percentageTextClass(prev.clutchesAttempted > 0 ? prevClutchRate : null)}`}>{prevClutchRate}% <span className="text-[10px] text-gray-500">({prev.clutchesWon}/{prev.clutchesAttempted})</span></span>
+                          <span className={`text-sm font-black font-mono ${percentageTextClass(prevClutchRate)}`}>{prevClutchRate === null ? 'N/A' : `${prevClutchRate}%`} <span className="text-[10px] text-gray-500">({prev.clutchesWon ?? '—'}/{prev.clutchesAttempted ?? '—'})</span></span>
                         </div>
                         <div className="text-right space-y-0.5">
                           <span className="text-[9px] text-[#ff4655] font-mono block font-black">Current Period</span>
-                          <span className={`text-xl font-black font-mono ${percentageTextClass(curr.clutchesAttempted > 0 ? currClutchRate : null)}`}>{currClutchRate}% <span className="text-[10px] text-gray-400">({curr.clutchesWon}/{curr.clutchesAttempted})</span></span>
+                          <span className={`text-xl font-black font-mono ${percentageTextClass(currClutchRate)}`}>{currClutchRate === null ? 'N/A' : `${currClutchRate}%`} <span className="text-[10px] text-gray-400">({curr.clutchesWon ?? '—'}/{curr.clutchesAttempted ?? '—'})</span></span>
                         </div>
                       </div>
                       <div className="flex items-center gap-1.5 text-[10px] font-mono mt-1">
-                        {currClutchRate >= prevClutchRate ? (
+                        {currClutchRate === null || prevClutchRate === null ? (
+                          <span className="text-gray-500 font-bold">Needs {minimumSamples} complete clutch attempts in both periods</span>
+                        ) : currClutchRate >= prevClutchRate ? (
                           <span className="text-green-400 flex items-center gap-1 font-bold">↗ +{currClutchRate - prevClutchRate}% winrate growth</span>
                         ) : (
                           <span className="text-red-400 flex items-center gap-1 font-bold">Layout trend: ↘ -{prevClutchRate - currClutchRate}% lower efficiency</span>
@@ -1120,15 +952,17 @@ export default function AITacticalHub({ data, theme, onUpsert, onRemove }: Compo
                       <div className="flex justify-between items-end">
                         <div className="space-y-0.5">
                           <span className="text-[9px] text-gray-500 font-mono block">Previous Period</span>
-                          <span className="text-sm font-black font-mono text-gray-400">{prev.throws} thrown rounds</span>
+                          <span className="text-sm font-black font-mono text-gray-400">{prev.throws ?? 'Unknown'} thrown rounds</span>
                         </div>
                         <div className="text-right space-y-0.5">
                           <span className="text-[9px] text-[#ff4655] font-mono block font-black">Current Period</span>
-                          <span className="text-xl font-black font-mono text-white">{curr.throws} thrown rounds</span>
+                          <span className="text-xl font-black font-mono text-white">{curr.throws ?? 'Unknown'} thrown rounds</span>
                         </div>
                       </div>
                       <div className="flex items-center gap-1.5 text-[10px] font-mono mt-1">
-                        {throwsDiff <= 0 ? (
+                        {throwsDiff === null ? (
+                          <span className="text-gray-500 font-bold">Round logs needed in both periods</span>
+                        ) : throwsDiff <= 0 ? (
                           <span className="text-green-400 flex items-center gap-1 font-bold">↗ Disciplined: {throwsDiff === 0 ? 'No change' : `${throwsDiff} fewer throws`}</span>
                         ) : (
                           <span className="text-red-400 flex items-center gap-1 font-bold">Risk trend: +{throwsDiff} critical round throws</span>
@@ -1145,15 +979,17 @@ export default function AITacticalHub({ data, theme, onUpsert, onRemove }: Compo
                       <div className="flex justify-between items-end">
                         <div className="space-y-0.5">
                           <span className="text-[9px] text-gray-500 font-mono block">Previous Period</span>
-                          <span className="text-sm font-black font-mono text-gray-400">{prevKd} K/D <span className="text-[10px] text-gray-500">({prev.kills} K)</span></span>
+                          <span className="text-sm font-black font-mono text-gray-400">{prevKd ?? 'N/A'} K/D <span className="text-[10px] text-gray-500">({prev.kills ?? '—'} K)</span></span>
                         </div>
                         <div className="text-right space-y-0.5">
                           <span className="text-[9px] text-[#ff4655] font-mono block font-black">Current Period</span>
-                          <span className="text-xl font-black font-mono text-white">{currKd} K/D <span className="text-[10px] text-gray-400">({curr.kills} K)</span></span>
+                          <span className="text-xl font-black font-mono text-white">{currKd ?? 'N/A'} K/D <span className="text-[10px] text-gray-400">({curr.kills ?? '—'} K)</span></span>
                         </div>
                       </div>
                       <div className="flex items-center gap-1.5 text-[10px] font-mono mt-1">
-                        {parseFloat(currKd) >= parseFloat(prevKd) ? (
+                        {currKd === null || prevKd === null ? (
+                          <span className="text-gray-500 font-bold">Complete K/D needed in both periods</span>
+                        ) : parseFloat(currKd) >= parseFloat(prevKd) ? (
                           <span className="text-green-400 flex items-center gap-1 font-bold">↗ +{Math.round((parseFloat(currKd) - parseFloat(prevKd)) * 100) / 100} mechanical increase</span>
                         ) : (
                           <span className="text-red-400 flex items-center gap-1 font-bold">↘ -{Math.round((parseFloat(prevKd) - parseFloat(currKd)) * 100) / 100} lower efficiency</span>
@@ -1194,7 +1030,7 @@ export default function AITacticalHub({ data, theme, onUpsert, onRemove }: Compo
                     </div>
 
                     <div className="text-[9px] font-mono text-gray-500 border-t border-white/5 pt-3 mt-3 flex items-center justify-between">
-                      <span>Status: {rec.severity === 'high' ? '🚨 CRITICAL' : rec.severity === 'medium' ? '⚠️ MONITOR' : '🟢 STABLE'}</span>
+                      <span>Status: {rec.severity === 'high' ? '🚨 CRITICAL' : rec.severity === 'medium' ? '⚠️ MONITOR' : rec.severity === 'unavailable' ? 'NOT ENOUGH EVIDENCE' : '🟢 STABLE'}</span>
                       <span>Target: Scrim Season</span>
                     </div>
                   </div>
@@ -1445,7 +1281,7 @@ export default function AITacticalHub({ data, theme, onUpsert, onRemove }: Compo
                       {standardAgents.map((agent) => {
                         const prof = finalProficiencies[player]?.[agent];
                         const isOverride = matrixOverrides[player]?.[agent] !== undefined;
-                        const grade = prof?.grade || 'B';
+                        const grade = prof?.grade ?? null;
                         const count = prof?.count || 0;
 
                         let gradeColor = 'bg-gray-500/10 text-gray-400 border-white/5';
@@ -1463,9 +1299,9 @@ export default function AITacticalHub({ data, theme, onUpsert, onRemove }: Compo
                               className={`w-11 py-1 rounded text-[10px] font-black border transition-all cursor-pointer ${gradeColor} ${
                                 isOverride ? 'ring-1 ring-violet-400 animate-pulse' : ''
                               }`}
-                              title={`${player} on ${agent}: Grade ${grade} (${count} games logged) ${isOverride ? '(Overridden)' : '(Auto)'}`}
+                              title={`${player} on ${agent}: Grade ${grade ?? 'unknown'} (${count} games logged) ${isOverride ? '(Overridden)' : '(Auto)'}`}
                             >
-                              {grade}
+                              {grade ?? '—'}
                               {isOverride && <span className="text-[7px] block leading-none font-bold text-violet-400">OVR</span>}
                             </button>
                           </td>
@@ -1489,7 +1325,7 @@ export default function AITacticalHub({ data, theme, onUpsert, onRemove }: Compo
               <div className="space-y-4">
                 {draftList.map((slot, idx) => {
                   const selectedPlayerProf = slot.agent && finalProficiencies[slot.player]?.[slot.agent];
-                  const grade = selectedPlayerProf?.grade || 'B';
+                  const grade = selectedPlayerProf ? selectedPlayerProf.grade : null;
                   const count = selectedPlayerProf?.count || 0;
 
                   return (
@@ -1503,7 +1339,7 @@ export default function AITacticalHub({ data, theme, onUpsert, onRemove }: Compo
                             grade === 'B' ? 'text-yellow-400 border-yellow-500/25 bg-yellow-500/5' :
                             'text-gray-400 border-white/10'
                           }`}>
-                            Proficiency: {grade} ({count} Scrims)
+                            Proficiency: {grade ?? 'unknown'} ({count} Scrims)
                           </span>
                         )}
                       </div>
@@ -1587,10 +1423,10 @@ export default function AITacticalHub({ data, theme, onUpsert, onRemove }: Compo
                   <div className="p-3.5 rounded-xl border border-white/5 bg-black/25 text-center">
                     <span className="text-[9px] uppercase font-bold text-gray-400 font-mono block mb-1">Draft Synergy Rating</span>
                     <span className="text-2xl font-black font-mono text-white">
-                      {draftAnalytics.averageProficiency > 0 ? `${draftAnalytics.averageProficiency}%` : '--'}
+                      {draftAnalytics.averageProficiency !== null ? `${draftAnalytics.averageProficiency}%` : '--'}
                     </span>
                     <span className="text-[8px] font-mono text-gray-500 block mt-0.5">
-                      {draftAnalytics.averageProficiency >= 88 ? '🟢 TIER-1 OPTIMIZED' : draftAnalytics.averageProficiency >= 78 ? '🟡 COMPETENT' : '🔴 NEEDS COMP REBUILD'}
+                      {draftAnalytics.averageProficiency === null ? 'Every pick needs agent evidence' : draftAnalytics.averageProficiency >= 88 ? '🟢 TIER-1 OPTIMIZED' : draftAnalytics.averageProficiency >= 78 ? '🟡 COMPETENT' : '🔴 NEEDS COMP REBUILD'}
                     </span>
                   </div>
 

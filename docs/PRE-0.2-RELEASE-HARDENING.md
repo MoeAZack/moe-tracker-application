@@ -274,46 +274,86 @@ Acceptance evidence:
 One authority per metric, explicit unknown values, numerator/denominator/coverage,
 enforced sample gates, and experimental isolation for unvalidated composite scores.
 
-Status: OPEN (21 Oct 2026, Africa/Cairo). The earlier "READY locally" claim
-did not survive the re-audit. Work starts from one publication gate per
-metric. Re-audit blockers:
+Status: IN REVIEW (21 Oct 2026, Africa/Cairo) in PR #89. The earlier
+"READY locally" claim did not survive the re-audit. All seven re-audit
+blockers have fixes with behaviour tests:
 
-- KAST has 8 implementations; `metricTrust` has 2 consumers.
-- Unknown becomes 0 in Dashboard, Compositions, MapBestStats, AITacticalHub
-  and `fd || 0`.
-- The Best Map insight recommends from null scores with the experimental
-  toggle off.
-- Tryouts count toward the ten-player rating cohort.
-- Stale v3 ratings are shown as "threshold passed".
-- Coaching signals are dropped on refresh.
+- KAST had 8 implementations and `metricTrust` had 2 consumers. KAST now has
+  one implementation (`publishKast`, `playerRowKastEvidence`,
+  `screenshotKastEvidence`), and 15 files read from `metricTrust`.
+- Unknown became 0 in Dashboard, Compositions, MapBestStats, AITacticalHub,
+  `fd || 0` and the AI coach prompt. All of these now keep unknown values
+  unknown.
+- The Best Map insight recommended from null scores with the experimental
+  toggle off. It now appears only for an enabled score that was computed.
+- Tryouts counted toward the ten-player rating cohort. They no longer do.
+- Stale v3 ratings were shown as "threshold passed". Ratings are now v5,
+  older stored rows are recomputed, and "threshold passed" needs a published
+  rating.
+- Coaching signals were dropped on refresh. Review state now survives a
+  metric change.
 
 Contract:
 
-- Coach-facing rates use one shared publication gate and preserve numerator,
-  denominator, coverage, confidence, and the reason a value is withheld.
-- Missing match rows never become zero and partial rows never produce complete
-  K/D/A, opening, objective, side, split, or win-rate totals.
-- Screenshot KAST requires complete survival, event, and assist coverage; a
-  successful subset cannot silently replace failed rounds in the denominator.
+- Coach-facing rates come from one gate, `publishRate` in `lib/metricTrust.ts`.
+  It carries numerator, denominator, coverage (observed/expected sources),
+  confidence, and the withheld reason (`no-evidence`, `incomplete-coverage`,
+  `no-samples`, `insufficient-samples`).
+- Missing match rows never become zero (`knownTotal`), and partial rows never
+  produce complete totals. This covers K/D/A, openings, objectives, side
+  splits, team K/D, clutches, throws and first deaths, and win rates. Draws
+  are undecided, not losses.
+- KAST has one implementation. Screenshot KAST counts only when every
+  confirmed round has survival, event and assist coverage (`kast.covered ===
+  coveredRounds`). A match or row without complete KAST withholds the total;
+  a covered subset never stands in for it.
 - Advantage totals count one round once even when it passed through several
   exact advantages; the exact-state breakdown remains available separately.
-- The configured minimum sample setting gates coaching signals and map/player
-  publications instead of serving as a visual warning only.
+- The configured minimum sample setting (`stats.lowSample`, default 15) gates
+  KAST, opening, agent, composition, team and map win rates, best-map score
+  inputs and intervals, AI hub clutch and trade rates, and coaching signals.
 - Bandit remains a pistol for economy classification.
 - Best-map and player composite scores are disabled by default, explicitly
-  experimental when enabled, omit unknown or undersampled inputs, and publish
-  no fabricated neutral values, uncertainty bands, or trends.
-- The experimental player score requires a complete ten-player cohort with ten
-  matches per player; otherwise it remains visibly unrated.
+  experimental when enabled, and omit unknown or undersampled inputs. They
+  publish no fabricated neutral values, uncertainty bands, recommendations or
+  trends. An agent with no observed rows has no proficiency grade, and an
+  ungraded pick blocks the draft synergy score.
+- The experimental player score's cohort is the non-tryout players (by roster
+  status, active tryout batch, row appearance or tryout match) who have ten
+  matches and every component observed. Fewer than ten such players leaves
+  every player visibly unrated. Stored ratings from another calculation
+  version are recomputed.
+- A coaching signal keeps its id and review state when its metric moves.
+  A triaged signal that is no longer generated is kept, and only untriaged
+  ones disappear with their evidence. A deleted signal stays deleted.
 
 Acceptance evidence:
 
-- Behavior coverage proves incomplete aggregate rows stay unknown, screenshot
-  KAST fails closed, multi-state advantages do not triple count, sample gates
-  publish only at threshold, and experimental scores reject insufficient data.
-- Full local gate (20 Oct 2026): 132 test files / 864 tests, production build,
-  six accessibility surfaces with no blocking violations, and both 24- and
-  28-round capture layouts passed.
+- Behaviour coverage is in `tests/metricPublication.test.ts` (22 tests) and
+  `tests/mapBestRosterIdentity.test.tsx`. It proves that incomplete rows stay
+  unknown and that screenshot and tryout KAST fail closed. It also proves
+  that sample gates publish only at threshold, that the insight and interval
+  are off with the toggle, and that tryouts and undersampled players do not
+  complete the cohort. Further cases cover stale ratings, review state across
+  refresh, and unknown values in the AI coach prompt and AI hub. The
+  map-ledger source-grep test was replaced by behaviour tests.
+- Fail-without-fix: reverting each fixed library file to `main` fails its new
+  tests. The independent verifier caught 13 of 14 mutations on a373ed3; the
+  one survivor is equivalent.
+- Local gate on the PR head: lint, typecheck, full `vitest run` and the
+  production build pass, and CI `verify` and `windows-lifecycle` are green.
+  `test:a11y` was not re-run for H3. It runs in the release workflow.
+
+Deferred (recorded, not fixed in H3):
+
+- AI hub proficiency grade bands and draft synergy points are uncalibrated
+  heuristics, shown only from observed rows.
+- Round-review coaching signals are per-round coach decisions (one sample
+  each), so the sample gate does not apply to them.
+- Triaged coaching signals that are no longer generated are kept
+  indefinitely; there is no auto-archive.
+- The per-player headshot rate in the AI hub still averages covered rows
+  (`headshotRate`), with its basis shown.
 
 ## H4 — Product coherence
 

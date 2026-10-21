@@ -2,6 +2,7 @@ import type { CoachingAction, CoachingSignal, DashboardView, Match, PlayerStats,
 import { resolvePracticeBlocks } from './practiceBlocks';
 import { summarizeRoundAdvantages, summarizeRoundAdvantageTotals } from './roundAdvantage';
 import { buildRoundReviewCards } from './roundReviewCockpit';
+import { DEFAULT_MINIMUM_METRIC_SAMPLES, knownTotal, publishRowKast } from './metricTrust';
 
 export const COACHING_WORKFLOW_VERSION = 'moetracker.coaching-workflow/v1' as const;
 export const DASHBOARD_LAYOUT_VERSION = 1 as const;
@@ -32,9 +33,8 @@ function side(round: Round) { return /^att/i.test(round.side || '') ? 'ATT' : /^
 function buy(round: Round) { return String(round.buy || '').toLowerCase(); }
 function enemyBuy(round: Round) { return String(round.enemyBuy || '').toLowerCase(); }
 function rate(wins: number, samples: number) { return samples ? Math.round(wins / samples * 1000) / 10 : null; }
-function total(rows: PlayerStats[], key: keyof PlayerStats) { return rows.reduce((sum, row) => sum + (typeof row[key] === 'number' ? Number(row[key]) : 0), 0); }
 function completeTotal(rows: PlayerStats[], key: keyof PlayerStats) { return rows.length && rows.every(row => typeof row[key] === 'number' && Number.isFinite(row[key])) ? rows.reduce((sum, row) => sum + Number(row[key]), 0) : null; }
-function average(rows: PlayerStats[], key: keyof PlayerStats) { const values = rows.map(row => row[key]).filter((value): value is number => typeof value === 'number'); return values.length ? Math.round(values.reduce((sum, value) => sum + value, 0) / values.length * 10) / 10 : null; }
+function average(rows: PlayerStats[], key: keyof PlayerStats) { const values = rows.map(row => row[key]).filter((value): value is number => typeof value === 'number'); return values.length && values.length === rows.length ? Math.round(values.reduce((sum, value) => sum + value, 0) / values.length * 10) / 10 : null; }
 
 export interface PracticeBlockSummary {
   schema: typeof COACHING_WORKFLOW_VERSION;
@@ -46,7 +46,7 @@ export interface PracticeBlockSummary {
   practiceEndAt: string | null;
   coverage: { matches: number; acceptedMatches: number; acceptedMatchRate: number | null; rounds: number; knownRounds: number; roundCompletenessRate: number | null; playerRows: number; evidenceHealth: 'complete' | 'partial' | 'empty' };
   header: { opponents: string[]; maps: string[]; result: { wins: number; losses: number; undecided: number }; sources: string[]; rosterStatuses: string[] };
-  openings: { pistols: Record<'ATT' | 'DEF', { wins: number; samples: number; rate: number | null }>; firstThree: Record<'ATT' | 'DEF', { wins: number; samples: number; rate: number | null }>; firstKills: number; firstDeaths: number; recoveriesAfterFirstDeath: number | null; firstDeathSamples: number };
+  openings: { pistols: Record<'ATT' | 'DEF', { wins: number; samples: number; rate: number | null }>; firstThree: Record<'ATT' | 'DEF', { wins: number; samples: number; rate: number | null }>; firstKills: number | null; firstDeaths: number | null; recoveriesAfterFirstDeath: number | null; firstDeathSamples: number };
   economy: { lowBuyWins: number; lowBuyRounds: number; fullBuyLosses: number; fullBuyRounds: number; antiEcoLosses: number; antiEcoRounds: number; knownBuyRounds: number; totalRounds: number; weaponObservations: number };
   advantages: { opportunities: number; converted: number; lost: number; unknown: number; conversionRate: number | null; byState: ReturnType<typeof summarizeRoundAdvantages> };
   roster: Array<{ playerId: string | null; player: string; agents: string[]; matches: number; kills: number | null; deaths: number | null; assists: number | null; kd: number | null; acs: number | null; adr: number | null; hs: number | null; fk: number | null; fd: number | null; kast: number | null; plants: number | null; defuses: number | null; multikills: number | null }>;
@@ -55,7 +55,7 @@ export interface PracticeBlockSummary {
 }
 
 export function buildPracticeBlockSummary(data: WorkflowData, block: Pick<PracticeBlock, 'id' | 'name' | 'matchIds'>, now = new Date().toISOString()): PracticeBlockSummary {
-  const selected = new Set(block.matchIds);
+  const selected = new Set(block.matchIds); const minimumSamples = data.settings?.stats?.lowSample || DEFAULT_MINIMUM_METRIC_SAMPLES;
   const matches = (data.matches || []).filter(match => selected.has(match.id));
   const acceptedMatches = matches.filter(accepted); const acceptedIds = new Set(acceptedMatches.map(match => match.id));
   const rounds = (data.rounds || []).filter(round => acceptedIds.has(round.matchId));
@@ -66,11 +66,11 @@ export function buildPracticeBlockSummary(data: WorkflowData, block: Pick<Practi
   const grouped = new Map<string, PlayerStats[]>();
   for (const row of stats) { const key = row.playerId || `name:${String(row.player || '').toLowerCase()}`; grouped.set(key, [...(grouped.get(key) || []), row]); }
   const roster = [...grouped.entries()].map(([key, rows]) => {
-    const kills = completeTotal(rows, 'kills'); const deaths = completeTotal(rows, 'deaths'); const assists = completeTotal(rows, 'assists'); const fk = completeTotal(rows, 'fk'); const fd = completeTotal(rows, 'fd'); const covered = completeTotal(rows, 'kastCovered'); const successful = completeTotal(rows, 'kastSuccessful');
+    const kills = completeTotal(rows, 'kills'); const deaths = completeTotal(rows, 'deaths'); const assists = completeTotal(rows, 'assists'); const fk = completeTotal(rows, 'fk'); const fd = completeTotal(rows, 'fd'); const kast = publishRowKast(rows, minimumSamples).value;
     const multikills = rows.every(row => !!row.screenshotMetrics) ? rows.reduce((sum, row) => sum + Number(row.screenshotMetrics?.multikills?.two || 0) + Number(row.screenshotMetrics?.multikills?.three || 0) + Number(row.screenshotMetrics?.multikills?.four || 0) + Number(row.screenshotMetrics?.multikills?.ace || 0), 0) : null;
     return { playerId: key.startsWith('name:') ? null : key, player: rows[0].displayNameSnapshot || rows[0].player || 'Unknown', agents: [...new Set(rows.map(row => row.agent).filter(Boolean))].sort(), matches: new Set(rows.map(row => row.matchId)).size,
       kills, deaths, assists, kd: kills !== null && deaths !== null && deaths > 0 ? Math.round(kills / deaths * 100) / 100 : null,
-      acs: average(rows, 'acs'), adr: average(rows, 'adr'), hs: average(rows, 'hs'), fk, fd, kast: covered && successful !== null ? Math.round(successful / covered * 1000) / 10 : null, plants: completeTotal(rows, 'plants'), defuses: completeTotal(rows, 'defuses'), multikills };
+      acs: average(rows, 'acs'), adr: average(rows, 'adr'), hs: average(rows, 'hs'), fk, fd, kast: kast === null ? null : Math.round(kast * 10) / 10, plants: completeTotal(rows, 'plants'), defuses: completeTotal(rows, 'defuses'), multikills };
   }).sort((a, b) => (b.kills ?? -1) - (a.kills ?? -1) || a.player.localeCompare(b.player));
   const compositionGroups = new Map<string, { agents: string[]; matches: number; wins: number; losses: number }>();
   for (const match of acceptedMatches) { const agents = [...new Set(stats.filter(row => row.matchId === match.id).map(row => row.agent).filter(Boolean))].sort(); if (!agents.length) continue; const key = agents.join('|'); const current = compositionGroups.get(key) || { agents, matches: 0, wins: 0, losses: 0 }; current.matches += 1; const result = score(match); if (result && result.ours > result.theirs) current.wins += 1; else if (result && result.ours < result.theirs) current.losses += 1; compositionGroups.set(key, current); }
@@ -85,7 +85,7 @@ export function buildPracticeBlockSummary(data: WorkflowData, block: Pick<Practi
     practiceEndAt: practiceTimes.length ? new Date(practiceTimes.at(-1)!).toISOString() : null,
     coverage: { matches: matches.length, acceptedMatches: acceptedMatches.length, acceptedMatchRate: rate(acceptedMatches.length, matches.length), rounds: rounds.length, knownRounds: knownRounds.length, roundCompletenessRate: rate(knownRounds.length, rounds.length), playerRows: stats.length, evidenceHealth: !acceptedMatches.length ? 'empty' : acceptedMatches.length === matches.length && rounds.length > 0 && knownRounds.length === rounds.length ? 'complete' : 'partial' },
     header: { opponents: [...new Set(acceptedMatches.map(match => match.opponent).filter(Boolean))].sort(), maps: [...new Set(acceptedMatches.map(match => match.map).filter(Boolean))].sort(), result: { wins: decided.filter(item => item.score.ours > item.score.theirs).length, losses: decided.filter(item => item.score.ours < item.score.theirs).length, undecided: acceptedMatches.length - decided.length }, sources: [...new Set(acceptedMatches.map(match => match.sourceMetadata?.method || match.source || 'unknown'))].sort(), rosterStatuses: [...new Set(stats.map(row => row.appearanceType || 'unclassified'))].sort() },
-    openings: { pistols: { ATT: pistol('ATT'), DEF: pistol('DEF') }, firstThree: { ATT: firstThree('ATT'), DEF: firstThree('DEF') }, firstKills: total(stats, 'fk'), firstDeaths: total(stats, 'fd'), recoveriesAfterFirstDeath: fdRounds.length ? fdRounds.filter(won).length : null, firstDeathSamples: fdRounds.length },
+    openings: { pistols: { ATT: pistol('ATT'), DEF: pistol('DEF') }, firstThree: { ATT: firstThree('ATT'), DEF: firstThree('DEF') }, firstKills: knownTotal(stats, row => row.fk), firstDeaths: knownTotal(stats, row => row.fd), recoveriesAfterFirstDeath: fdRounds.length ? fdRounds.filter(won).length : null, firstDeathSamples: fdRounds.length },
     economy: { lowBuyWins: rounds.filter(round => ['eco', 'low', 'half', 'force'].includes(buy(round)) && won(round)).length, lowBuyRounds: rounds.filter(round => ['eco', 'low', 'half', 'force'].includes(buy(round)) && knownResult(round)).length, fullBuyLosses: rounds.filter(round => buy(round) === 'full' && !won(round) && knownResult(round)).length, fullBuyRounds: rounds.filter(round => buy(round) === 'full' && knownResult(round)).length, antiEcoLosses: rounds.filter(round => enemyBuy(round) === 'eco' && !won(round) && knownResult(round)).length, antiEcoRounds: rounds.filter(round => enemyBuy(round) === 'eco' && knownResult(round)).length, knownBuyRounds: rounds.filter(round => !!round.buy).length, totalRounds: rounds.length, weaponObservations: stats.reduce((sum, row) => sum + (row.screenshotMetrics?.weapons?.length || 0), 0) },
     advantages: { ...advantageTotals, conversionRate: advantageTotals.converted + advantageTotals.lost ? rate(advantageTotals.converted, advantageTotals.converted + advantageTotals.lost) : null, byState: advantageRows },
     roster, compositions: [...compositionGroups.values()].sort((a, b) => b.matches - a.matches), mapResults: [...mapGroups.values()].sort((a, b) => b.matches - a.matches || a.map.localeCompare(b.map)),
@@ -135,11 +135,23 @@ export function generateRoundReviewSignalDrafts(data: WorkflowData, summaries: r
   return drafts;
 }
 
+/** What a signal is about (block, original type and context), independent of the metric value it currently shows. */
+export function signalIdentity(item: Pick<CoachingSignal, 'blockId' | 'type' | 'context'> & Partial<Pick<CoachingSignal, 'classificationCorrections' | 'evidence'>>) {
+  const original = item.classificationCorrections?.[0]?.original;
+  // Round-review signals are about one round, so the round stays part of their identity.
+  return stableId(['signal-identity', item.blockId, original?.type ?? item.type, original?.context ?? item.context, item.evidence?.roundIds || []]);
+}
+
+/**
+ * Refresh keeps the coach's review state: a signal whose metric moved is the
+ * same signal, and a triaged signal that is no longer generated is kept rather
+ * than silently dropped. Only untriaged ('new') signals disappear with their evidence.
+ */
 export function reconcileReviewSignals(existing: readonly CoachingSignal[], drafts: readonly SignalDraft[], actor = 'system') {
-  const byFingerprint = new Map(existing.map(item => [item.fingerprint, item])); const now = new Date().toISOString();
-  const next = drafts.map(draft => { const prior = byFingerprint.get(draft.fingerprint); if (prior) { const correction = prior.classificationCorrections?.at(-1); return { ...prior, ...draft, id: prior.id, type: correction?.corrected.type || draft.type, context: correction?.corrected.context || draft.context, status: prior.status, audit: prior.audit, updatedAt: now }; } return { ...draft, id: stableId(['signal', draft.fingerprint]), status: 'new' as const, audit: [{ at: now, by: actor, from: null, to: 'new' as const }] }; });
-  const fingerprints = new Set(drafts.map(item => item.fingerprint));
-  return [...next, ...existing.filter(item => !fingerprints.has(item.fingerprint) && item.status === 'converted-to-action')];
+  const byFingerprint = new Map(existing.map(item => [item.fingerprint, item])); const byIdentity = new Map(existing.map(item => [signalIdentity(item), item])); const now = new Date().toISOString();
+  const used = new Set<string>();
+  const next = drafts.map(draft => { const candidate = byFingerprint.get(draft.fingerprint) || byIdentity.get(signalIdentity(draft)); const prior = candidate && !used.has(candidate.id) ? candidate : undefined; if (prior) { used.add(prior.id); const correction = prior.classificationCorrections?.at(-1); return { ...prior, ...draft, id: prior.id, type: correction?.corrected.type || draft.type, context: correction?.corrected.context || draft.context, status: prior.status, audit: prior.audit, updatedAt: now }; } return { ...draft, id: stableId(['signal', draft.fingerprint]), status: 'new' as const, audit: [{ at: now, by: actor, from: null, to: 'new' as const }] }; });
+  return [...next, ...existing.filter(item => !used.has(item.id) && item.status !== 'new')];
 }
 
 export function transitionSignal(signalRecord: CoachingSignal, status: CoachingSignal['status'], actor: string, reason?: string, now = new Date().toISOString()) {

@@ -1,7 +1,9 @@
 import type { TrackerData } from '../src/types';
+import { publishRowKast } from './metricTrust';
 
 export const MINIMUM_RATING_MATCHES = 10;
 export const MINIMUM_RATING_COHORT = 10;
+export const CALIBRATED_RATING_VERSION = 'calibrated-player-rating/v5' as const;
 
 export interface RatingContextSplit { context: string; matches: number; rating: number | null; killsPerDeath: number | null; kast: number | null }
 export interface CalibratedPlayerRating {
@@ -12,7 +14,7 @@ export interface CalibratedPlayerRating {
   components: { combat: number | null; survival: number | null; teamplay: number | null; openings: number | null };
   calibration: { status: 'experimental-team-context' | 'insufficient-evidence'; cohortSize: number; baseline: 'median-mad'; shrinkageTarget: number; minimumReliableMatches: number; minimumCohortSize: number };
   publicationStatus: 'experimental-only' | 'insufficient-evidence'; unknownReasons: string[];
-  validationStatus: 'experimental-unvalidated'; method: string; calculationVersion: 'calibrated-player-rating/v4';
+  validationStatus: 'experimental-unvalidated'; method: string; calculationVersion: typeof CALIBRATED_RATING_VERSION;
 }
 
 const clamp = (value: number, min = 0, max = 100) => Math.max(min, Math.min(max, value));
@@ -25,17 +27,23 @@ const totalIfComplete = (rows: readonly any[], field: string) => rows.length && 
 function rawComponents(rows: readonly any[]) {
   const kills = totalIfComplete(rows, 'kills'); const deaths = totalIfComplete(rows, 'deaths'); const assists = totalIfComplete(rows, 'assists');
   const fk = totalIfComplete(rows, 'fk'); const fd = totalIfComplete(rows, 'fd');
-  const kastCovered = rows.length && rows.every(row => known(row.kastCovered) && known(row.kastSuccessful) && row.kastCovered > 0) ? rows.reduce((sum, row) => sum + row.kastCovered, 0) : null;
-  const kastSuccessful = kastCovered === null ? null : rows.reduce((sum, row) => sum + row.kastSuccessful, 0);
+  const kast = publishRowKast(rows);
   return {
     combat: kills !== null && deaths !== null && deaths > 0 ? kills / deaths : null,
-    survival: kastCovered && kastSuccessful !== null ? kastSuccessful / kastCovered : null,
+    survival: kast.value === null ? null : kast.value / 100,
     teamplay: kills !== null && deaths !== null && assists !== null && kills + deaths > 0 ? assists / (kills + deaths) : null,
     openings: fk !== null && fd !== null && fk + fd > 0 ? (fk - fd) / (fk + fd) : null,
   };
 }
 
-export function buildCalibratedPlayerRatings(data: Pick<TrackerData, 'playerStats' | 'matches' | 'rosterPlayers'>): CalibratedPlayerRating[] {
+/** Tryouts are described but never calibrate the team cohort: by roster status, active batch, row appearance or tryout match. */
+function tryoutMarkers(data: Pick<TrackerData, 'matches' | 'rosterPlayers'> & Partial<Pick<TrackerData, 'tryoutBatches'>>) {
+  const players = new Set([...(data.rosterPlayers || []).filter(player => player.rosterStatus === 'tryout').map(player => player.id), ...(data.tryoutBatches || []).filter(batch => batch.status === 'active').flatMap(batch => batch.candidatePlayerIds)]);
+  const matches = new Set((data.matches || []).filter(match => match.rosterContext?.kind === 'tryout').map(match => match.id));
+  return { players, row: (row: any) => row.appearanceType === 'tryout' || matches.has(row.matchId) };
+}
+
+export function buildCalibratedPlayerRatings(data: Pick<TrackerData, 'playerStats' | 'matches' | 'rosterPlayers'> & Partial<Pick<TrackerData, 'tryoutBatches'>>): CalibratedPlayerRating[] {
   const matchRows = new Map((data.matches || []).filter(match => match.duplicateReview?.status !== 'quarantined').map(match => [match.id, match])); const activeMatches = new Set(matchRows.keys());
   const archived = new Set((data.rosterPlayers || []).filter(player => player.retiredAt).map(player => player.id));
   const groups = new Map<string, typeof data.playerStats>();
@@ -43,23 +51,30 @@ export function buildCalibratedPlayerRatings(data: Pick<TrackerData, 'playerStat
     if (!activeMatches.has(row.matchId) || (row.playerId && archived.has(row.playerId))) continue;
     const key = row.playerId || `name:${String(row.player || '').toLocaleLowerCase()}`; groups.set(key, [...(groups.get(key) || []), row]);
   }
-  const base = [...groups.entries()].map(([id, rows]) => ({ id, rows, player: rows[0].displayNameSnapshot || rows[0].player || id, matches: new Set(rows.map(row => row.matchId)).size, raw: rawComponents(rows) }));
-  const keys = ['combat', 'survival', 'teamplay', 'openings'] as const;
-  const cohort = Object.fromEntries(keys.map(key => { const values = base.map(row => row.raw[key]).filter((value): value is number => value !== null); const center = median(values); return [key, { values, center, spread: spread(values, center) }]; })) as Record<typeof keys[number], { values: number[]; center: number; spread: number }>;
-  const scoreComponent = (key: typeof keys[number], value: number | null) => value === null || cohort[key].values.length < MINIMUM_RATING_COHORT ? null : clamp(50 + Math.max(-3, Math.min(3, (value - cohort[key].center) / cohort[key].spread)) * 12);
-  const splitRows = (rows: any[], kind: 'maps' | 'agents' | 'roles'): RatingContextSplit[] => {
+  const tryouts = tryoutMarkers(data); const keys = ['combat', 'survival', 'teamplay', 'openings'] as const;
+  const base = [...groups.entries()].map(([id, allRows]) => {
+    const tryout = tryouts.players.has(id) || allRows.every(tryouts.row); const rows = tryout ? allRows : allRows.filter(row => !tryouts.row(row));
+    const raw = rawComponents(rows); const matches = new Set(rows.map(row => row.matchId)).size;
+    return { id, rows, tryout, player: allRows[0].displayNameSnapshot || allRows[0].player || id, matches, raw, eligible: !tryout && matches >= MINIMUM_RATING_MATCHES && keys.every(key => raw[key] !== null) };
+  });
+  // The cohort is the complete set of non-tryout players with ten matches and every component observed.
+  const eligible = base.filter(row => row.eligible); const cohortComplete = eligible.length >= MINIMUM_RATING_COHORT;
+  const cohort = Object.fromEntries(keys.map(key => { const values = eligible.map(row => row.raw[key]!); const center = median(values); return [key, { values, center, spread: spread(values, center) }]; })) as Record<typeof keys[number], { values: number[]; center: number; spread: number }>;
+  const scoreComponent = (key: typeof keys[number], value: number | null) => value === null || !cohortComplete ? null : clamp(50 + Math.max(-3, Math.min(3, (value - cohort[key].center) / cohort[key].spread)) * 12);
+  const splitRows = (rows: any[], kind: 'maps' | 'agents' | 'roles', tryoutContext: boolean): RatingContextSplit[] => {
     const grouped = new Map<string, any[]>();
     for (const row of rows) { const context = kind === 'maps' ? (matchRows.get(row.matchId)?.map || 'Unknown') : kind === 'agents' ? (row.agent || 'Unknown') : (row.roleSnapshot || 'Unknown'); grouped.set(context, [...(grouped.get(context) || []), row]); }
     return [...grouped.entries()].map(([context, values]) => {
       const matches = new Set(values.map(row => row.matchId)).size; const kills = totalIfComplete(values, 'kills'); const deaths = totalIfComplete(values, 'deaths');
-      const covered = totalIfComplete(values, 'kastCovered'); const successful = totalIfComplete(values, 'kastSuccessful'); const kd = kills !== null && deaths !== null && deaths > 0 ? kills / deaths : null;
-      return { context, matches, killsPerDeath: kd === null ? null : Math.round(kd * 100) / 100, kast: covered && successful !== null ? Math.round(successful / covered * 1000) / 10 : null, rating: matches >= MINIMUM_RATING_MATCHES && kd !== null && cohort.combat.values.length >= MINIMUM_RATING_COHORT ? Math.round(clamp(50 + (kd - cohort.combat.center) / cohort.combat.spread * 10) * 10) / 10 : null };
+      const kast = publishRowKast(values).value; const kd = kills !== null && deaths !== null && deaths > 0 ? kills / deaths : null;
+      return { context, matches, killsPerDeath: kd === null ? null : Math.round(kd * 100) / 100, kast: kast === null ? null : Math.round(kast * 10) / 10, rating: matches >= MINIMUM_RATING_MATCHES && kd !== null && cohortComplete && !tryoutContext ? Math.round(clamp(50 + (kd - cohort.combat.center) / cohort.combat.spread * 10) * 10) / 10 : null };
     }).sort((left, right) => right.matches - left.matches || (right.rating ?? -1) - (left.rating ?? -1));
   };
   return base.map(row => {
     const components = Object.fromEntries(keys.map(key => { const score = scoreComponent(key, row.raw[key]); return [key, score === null ? null : Math.round(score * 10) / 10]; })) as CalibratedPlayerRating['components'];
     const unknownReasons: string[] = [];
-    if (base.length < MINIMUM_RATING_COHORT) unknownReasons.push(`minimum-${MINIMUM_RATING_COHORT}-player-cohort-required`);
+    if (row.tryout) unknownReasons.push('tryout-not-in-rating-cohort');
+    if (!cohortComplete) unknownReasons.push(`minimum-${MINIMUM_RATING_COHORT}-player-cohort-required`);
     if (row.matches < MINIMUM_RATING_MATCHES) unknownReasons.push(`minimum-${MINIMUM_RATING_MATCHES}-matches-required`);
     for (const key of keys) if (row.raw[key] === null) unknownReasons.push(`${key}-evidence-incomplete`);
     const complete = unknownReasons.length === 0 && keys.every(key => components[key] !== null);
@@ -69,11 +84,19 @@ export function buildCalibratedPlayerRatings(data: Pick<TrackerData, 'playerStat
       playerId: row.id, player: row.player, rating, rawScore: rawScore === null ? null : Math.round(rawScore * 10) / 10, reliability, matches: row.matches,
       confidence: rating === null ? 'unavailable' as const : row.matches >= 20 ? 'high' as const : 'medium' as const,
       interval: { low: null, high: null }, trend: { previous: null, recent: null, delta: null },
-      contexts: { maps: splitRows(row.rows, 'maps'), agents: splitRows(row.rows, 'agents'), roles: splitRows(row.rows, 'roles') }, components,
-      calibration: { status: complete ? 'experimental-team-context' as const : 'insufficient-evidence' as const, cohortSize: base.length, baseline: 'median-mad' as const, shrinkageTarget: 50, minimumReliableMatches: MINIMUM_RATING_MATCHES, minimumCohortSize: MINIMUM_RATING_COHORT },
+      contexts: { maps: splitRows(row.rows, 'maps', row.tryout), agents: splitRows(row.rows, 'agents', row.tryout), roles: splitRows(row.rows, 'roles', row.tryout) }, components,
+      calibration: { status: complete ? 'experimental-team-context' as const : 'insufficient-evidence' as const, cohortSize: eligible.length, baseline: 'median-mad' as const, shrinkageTarget: 50, minimumReliableMatches: MINIMUM_RATING_MATCHES, minimumCohortSize: MINIMUM_RATING_COHORT },
       publicationStatus: complete ? 'experimental-only' as const : 'insufficient-evidence' as const, unknownReasons,
       validationStatus: 'experimental-unvalidated' as const,
-      method: 'Experimental team-context description; not an authoritative or outcome-predictive player rating', calculationVersion: 'calibrated-player-rating/v4' as const,
+      method: 'Experimental team-context description; not an authoritative or outcome-predictive player rating', calculationVersion: CALIBRATED_RATING_VERSION,
     };
   }).sort((left, right) => (right.rating ?? -1) - (left.rating ?? -1));
 }
+
+/** Stored ratings are reused only when every row comes from the current calculation. */
+export function currentCalibratedRatings(stored: readonly CalibratedPlayerRating[] | undefined, calculate: () => CalibratedPlayerRating[]): CalibratedPlayerRating[] {
+  return stored?.length && stored.every(rating => rating.calculationVersion === CALIBRATED_RATING_VERSION) ? [...stored] : calculate();
+}
+
+/** A rating has passed the experimental threshold only when it is actually published. */
+export const ratingThresholdPassed = (rating: Pick<CalibratedPlayerRating, 'rating' | 'publicationStatus' | 'calculationVersion'>) => rating.calculationVersion === CALIBRATED_RATING_VERSION && rating.publicationStatus === 'experimental-only' && typeof rating.rating === 'number';
