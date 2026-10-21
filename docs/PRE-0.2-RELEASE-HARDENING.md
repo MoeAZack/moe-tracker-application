@@ -414,9 +414,13 @@ Contract items already on main, with their evidence:
   sent off coach-only tabs by `routableWorkspaceTabs`
   (`tests/workspaceRoute.test.ts`).
 - Release UI gate: `A11Y_BROWSER=/opt/pw-browsers/chromium npm run
-  test:release-ui` reports 0 blocking findings at 100/125/150/200% zoom and in
-  forced colors. Contrast fix: the Calendar quick-status button now uses white
-  text on the primary colour.
+  test:release-ui` reports 0 blocking findings at 100/125/150/200% zoom (the
+  Calendar quick-status button now uses white text on the primary colour). On
+  927e2d1 the forced-colors pass still had 1 blocking finding, pre-existing on
+  main: `.ui-button-primary` at 1.18:1 (#031c19 on #000). `.ui-button-primary`
+  now uses ButtonText/ButtonFace (GrayText when disabled) under
+  `@media (forced-colors: active)`; the forced-colors result is recorded by
+  the verifier's run.
 
 Contract:
 
