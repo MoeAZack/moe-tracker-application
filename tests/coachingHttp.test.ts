@@ -6,6 +6,7 @@ import type { Server } from 'http';
 import type { AddressInfo } from 'net';
 import { afterAll, beforeAll, beforeEach, describe, expect, it, vi } from 'vitest';
 import { createSeed } from '../lib/seed';
+import { recomputeAcceptedMatchAggregates } from '../lib/aggregateVersioning';
 
 const adminKey = 'coaching-master-secret-at-least-24-characters'; const playerKey = 'coaching-player-key'; const playerId = '00000000-0000-4000-8000-000000000011';
 let tempDir: string; let dbPath: string; let server: Server; let origin: string;
@@ -87,6 +88,19 @@ describe('coaching workflow HTTP contract', () => {
     const body = await saved.json();
     expect(body.playerStats[0]).not.toHaveProperty('screenshotMetrics'); expect(body.screenshotSummary?.playerStats || []).toEqual([]);
     expect(JSON.parse(await fs.readFile(dbPath, 'utf8')).playerStats[0].screenshotMetrics).toEqual(stale);
+  });
+  it('returns practice-session progress with a stale stored metric as unknown and a current one as a number', async () => {
+    const coach = await login(adminKey); const body = { scheduleId: '00000000-0000-4000-8000-000000000020', matchIds: ['m1'] };
+    const linkedRow = async (db: any) => { await fs.writeFile(dbPath, JSON.stringify(db)); const response = await request(coach, '/api/practice-sessions/link', body); expect(response.status).toBe(200); return (await response.json()).progress.summary.roster[0]; };
+    const stale = fixture(); stale.playerStats[0].screenshotMetrics = { schemaVersion: 1, calculationVersion: 'player-screenshot/v0', coveredRounds: 1, kast: { successful: 1, covered: 1 }, multikills: { two: 1, three: 0, four: 0, ace: 0 }, weapons: [{ weapon: 'Vandal', kills: 2 }] };
+    expect(await linkedRow(stale)).toMatchObject({ multikills: null, kast: null });
+    // The same row with a metric 0.2.0 rebuilt from id-linked round evidence.
+    const current = fixture(); current.rounds[0].screenshotEvidence = { schemaVersion: 1, reviewStatus: 'confirmed', confidence: 'confirmed', eventsComplete: true,
+      players: [{ playerId, displayName: 'caelia', team: 'ours', assists: 0, survived: true }],
+      events: [{ sequence: 1, killerPlayerId: playerId, victimPlayerId: 'enemy-1' }, { sequence: 2, killerPlayerId: playerId, victimPlayerId: 'enemy-2' }] };
+    recomputeAcceptedMatchAggregates(current, 'm1');
+    expect(current.playerStats[0].screenshotMetrics).toBeTruthy();
+    expect((await linkedRow(current)).multikills).toBe(1);
   });
 });
 
