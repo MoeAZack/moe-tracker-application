@@ -7,10 +7,23 @@
   "ffmpegStatic": "5.3.0",
   "ffprobeStatic": "3.1.0",
   "youtubeDlExec": "3.1.17",
+  "ytDlpRelease": "2026.08.19",
+  "npmIntegrity": {
+    "electron": "sha512-AqIiefddlf5i+HYCGatr8VlBuEbWJpad4/yloBFYcMB2r57j7xhW1ogiJ+BfA5kxQyfmSs5yjwy54Me+wJn1jw==",
+    "electron-builder": "sha512-a1KM5heqS3gQCZzizXEI8RjJy3QVogULPdeSknt76uLDpBIW/HDGsMg/XgP0riP6PI9COsRvFITKKGDqA8fJxA==",
+    "app-builder-lib": "sha512-2VnyWkqsP5v5XbBhL3tD5Syx8iNPBYsoU7kY4S2fz7wg8Rj/nztWKCUzGKaFRTv0Xwf3/H058CR1Kvtd/3lRow==",
+    "electron-updater": "sha512-ZhVxM9iGONUpZGI1FxdMRgJjUFXi7AYGVa5PwKlO1tV1/4zDxQmfKpXOHVztKrd6L9rLcFjERvi1Mf2vxyTkig==",
+    "sharp": "sha512-Ywn4OnzGukp7CDMrp08RQ50YKmuwG47brZgIVPTvBaaAfQlRlygrRqSrxdCiL9M+LlzLBiJ68IR1QqvzHyjC7g==",
+    "@img/sharp-win32-x64": "sha512-x76eH0vEiHlcMQu8Y8IenntaACtddpT6W0wmXtWrnKcnKI7ME5DdgqhAD6SEWOEl1v2zDvkZDhFA9KnURwpfqg==",
+    "ffmpeg-static": "sha512-H+K6sW6TiIX6VGend0KQwthe+kaceeH/luE8dIZyOP35ik7ahYojDuqlTV1bOrtEwl01sy2HFNGQfi5IDJvotg==",
+    "ffprobe-static": "sha512-Dvpa9uhVMOYivhHKWLGDoa512J751qN1WZAIO+Xw4L/mrUSPxS4DApzSUDbCFE/LUq2+xYnznEahTd63AqBSpA==",
+    "youtube-dl-exec": "sha512-fpvmg/S52UktiY8NJsaj6lhidhU5tot3ZLnQI03denIr47Nn+ebWZr5FfIJTk2XCP+LEz7HZ8Ux6yU7yhPu1AA=="
+  },
   "windowsX64": {
     "ffmpegSha256": "04e1307997530f9cf2fe35cba2ca7e8875ca91da02f89d6c7243df819c94ad00",
     "ffprobeSha256": "4303ec85855340689b1f8aa5d9c1dc06ef3e3090682de3034edc3fca2b0798d5",
     "ytDlpSha256": "66674953fe251b89f4d08c5f0e35e0728679bd67ab3d7d05c0562af101dd3e7a",
-    "sharpSha256": "971048779f9c8598df14641dfc03c625885c93f473a788e65ca2deb50d0b083e"
+    "sharpSha256": "971048779f9c8598df14641dfc03c625885c93f473a788e65ca2deb50d0b083e",
+    "electronZipSha256": "43f2f823a263ee7d3ac71282e26c417c9e4417bbefdfa97ede3fde15daf5a46d"
   }
 }

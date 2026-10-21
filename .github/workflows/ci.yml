@@ -13,6 +13,8 @@ jobs:
     runs-on: ubuntu-latest
     env:
       GH_TOKEN: ${{ github.token }}
+      # yt-dlp is never fetched as "latest"; Windows jobs stage the pinned release.
+      YOUTUBE_DL_SKIP_DOWNLOAD: '1'
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v4
@@ -22,10 +24,20 @@ jobs:
       - run: npm ci
       - run: npm run check
       - run: npm audit --omit=dev --audit-level=high
+      - name: Release preflight refuses an unsigned release (no tag, nothing published)
+        shell: bash
+        env:
+          GITHUB_REF_NAME: v0.0.0-preflight-proof
+        run: |
+          if node scripts/release-preflight.mjs > preflight.json; then echo "Release preflight passed without signing secrets"; exit 1; fi
+          cat preflight.json
+          grep -q 'CSC_LINK is not configured' preflight.json
+          grep -q 'names no trusted publisher' preflight.json
   windows-lifecycle:
     runs-on: windows-latest
     env:
       GH_TOKEN: ${{ github.token }}
+      YOUTUBE_DL_SKIP_DOWNLOAD: '1'
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v4
@@ -33,6 +45,7 @@ jobs:
           node-version: 24.18.0
           cache: npm
       - run: npm ci
+      - run: npm run stage:yt-dlp
       - name: Validate capture and complete product journeys
         shell: pwsh
         run: |
@@ -49,6 +62,8 @@ jobs:
           npm run build
           $env:CSC_IDENTITY_AUTO_DISCOVERY='false'
           npx electron-builder --win --dir
+          node scripts/verify-release-runtime.mjs --require-bundled --packaged release/win-unpacked
+          if ($LASTEXITCODE -ne 0) { throw 'The packaged build does not carry the pinned runtimes.' }
           npm run test:desktop-ipc
       - name: Install, upgrade and roll back with real NSIS installers (never published)
         shell: pwsh
@@ -60,10 +75,10 @@ jobs:
           npx electron-builder --win nsis --publish never --config.extraMetadata.version=$env:MOETRACKER_PREVIOUS_VERSION
           npx electron-builder --win nsis --publish never
           npm run test:release-update -- --install
-      - name: Keep the rollback drill evidence
+      - name: Keep the rollback drill and runtime evidence
         if: always()
         uses: actions/upload-artifact@v4
         with:
-          name: update-rollback-evidence
-          path: release/release-evidence/update-rollback-*.json
+          name: release-evidence
+          path: release/release-evidence/*.json
           if-no-files-found: ignore
