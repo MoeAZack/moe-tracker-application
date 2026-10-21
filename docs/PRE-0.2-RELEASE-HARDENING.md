@@ -523,9 +523,26 @@ Progress (21 Oct 2026, Africa/Cairo):
   pinned 0.1.78 installer, and a tampered rollback installer went to safe mode
   with no launch. `failures: []`.
 
-H5 stays OPEN. The remaining item is a signed candidate: it waits on the
-owner's code-signing certificate decision, and `desktop/update-trust.json`
-names no publisher until then, so the tag workflow fails closed.
+Signing waiver (owner, 21 Oct 2026 21:07 Africa/Cairo: "dont sign its ok"):
+0.2.0 ships without a code-signing certificate. The "signed candidate" item
+becomes an unsigned local candidate:
+
+- The candidate is built with `--publish never` at the merge head, and its
+  installer SHA-256 and update-manifest SHA-512 are recorded as evidence.
+- `desktop/update-trust.json` stays empty, so installed apps keep automatic
+  updates blocked; each new version is installed by hand.
+- The tag workflow and `scripts/release-preflight.mjs` stay unchanged and fail
+  closed (no signing secrets, no trusted publisher), so nothing can publish.
+- Windows SmartScreen warns on install ("unknown publisher").
+- The release-candidate audit and the `windows-lifecycle` CI job (real NSIS
+  install → upgrade → rollback) remain the install and rollback evidence.
+- Deferred path: buy a code-signing certificate, add its publisher to
+  `desktop/update-trust.json` and the signing secrets to the release
+  environment; the existing fail-closed checks then allow a signed release.
+
+H5 stays OPEN until that unsigned candidate is built at the merge head and its
+hashes and audit result are verified. Tagging and any public installer still
+need the owner's explicit permission.
 
 Contract:
 
