@@ -161,8 +161,8 @@ found 2 of 12 items fixed. The code-only items below are fixed on the H2
 re-audit PR. The corpus regressions were reproduced on the owner's private
 corpus and traced to the scoreboard row offset and tint-normalized portrait
 distance (agents), the team-colour score mask (one session's score) and the
-removed K/D/A confidence floor (three assist cells). H2 passes once the final
-head's harness run matches 0.1.15 with no wrong cells.
+removed K/D/A confidence floor (three assist cells). The corpus run now matches
+0.1.15 with no wrong cells; H2 passes on owner review of the re-audit PR.
 
 Contract:
 
@@ -231,7 +231,11 @@ Acceptance evidence:
   fixed by the K/D/A confidence floor. At `8a4bdd9` agents, scores, rounds and
   every K/D/A cell matched 0.1.15; FD was filled in 8 sessions that 0.1.15
   left unknown with sums of 8-14 against 18-32 rounds, fixed by the
-  attribution rule above. Final-head run: pending.
+  attribution rule above. At `4349259` (VERIFY PASS, 21 Oct 2026): agents
+  141/150, every score, round and K/D/A cell identical to 0.1.15, and the
+  labelled cells unknown. FD filled in 8 sessions with ΣFD = ΣFK = round
+  count, identical across re-captures of the same game; FD stays unknown in
+  the other 7. The OCR side of H2 has no wrong cells on this corpus.
 
 ## H3 — Metric trust
 
