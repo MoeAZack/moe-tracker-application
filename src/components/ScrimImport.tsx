@@ -1,6 +1,7 @@
 import React, { useEffect, useMemo, useRef, useState } from 'react';
 import { EntrySourceMetadata, MatchStatsUpdate, TrackerData } from '../types';
 import { apiFetch } from '../utils/api';
+import { CLOUD_AI_OFF_MESSAGE, useCloudAiAvailable } from '../utils/cloudAi';
 import { Sparkles, Upload, X, Loader2, CheckCircle, Image as ImageIcon } from 'lucide-react';
 import { canCommitScreenshotReview, matchExtractedRosterName } from '../../lib/entryEngine';
 import { reportDesktopDiagnostic } from '../utils/desktopDiagnostics';
@@ -54,6 +55,7 @@ export default function ScrimImport({ data, theme, onSaveMatch, onClose }: Props
   const [step, setStep] = useState<'upload' | 'processing' | 'review'>('upload');
   const [error, setError] = useState<string | null>(null);
   const [saving, setSaving] = useState(false);
+  const cloudAiAvailable = useCloudAiAvailable();
   const [captureProgress, setCaptureProgress] = useState('');
   const [pendingCaptureId, setPendingCaptureId] = useState<string | null>(null);
   const [ocrBaseline, setOcrBaseline] = useState<{ match: any; stats: any[] } | null>(null);
@@ -309,12 +311,13 @@ export default function ScrimImport({ data, theme, onSaveMatch, onClose }: Props
         {step === 'upload' && (
           <div className="space-y-4">
             {window.moeDesktop && <button type="button" onClick={() => void loadLatestCapture()} className="ui-button ui-button-primary min-h-12 w-full justify-center px-4 text-sm"><Sparkles className="h-4 w-4" />Load latest one-button capture</button>}
-            <p className="text-xs text-gray-400 leading-relaxed">Moe Tracker reads captured screenshots locally on this PC. Every detected player, score, and round stays a draft until you review and confirm it.</p>
+            <p className="text-xs text-gray-400 leading-relaxed">{window.moeDesktop ? 'Load latest one-button capture reads the screenshots locally on this PC. ' : ''}Read selected screenshots sends the images you choose to Gemini, a cloud AI service, and needs a Gemini API key. Every detected player, score, and round stays a draft until you review and confirm it.</p>
             {fileRow('Scoreboard screenshot', scoreboard, setScoreboard, true)}
             {fileRow('Round timeline screenshot (optional)', timeline, setTimeline)}
-            <button onClick={runImport} disabled={!scoreboard} className="w-full py-3 bg-[#d12a3a] hover:bg-[#b91c2e] disabled:opacity-40 text-white font-bold text-xs uppercase tracking-widest rounded-lg flex items-center justify-center gap-2 cursor-pointer">
-              <Upload className="w-4 h-4" /> Read selected screenshots
+            <button onClick={runImport} disabled={!scoreboard || cloudAiAvailable !== true} className="w-full py-3 bg-[#d12a3a] hover:bg-[#b91c2e] disabled:opacity-40 text-white font-bold text-xs uppercase tracking-widest rounded-lg flex items-center justify-center gap-2 cursor-pointer">
+              <Upload className="w-4 h-4" /> Read selected screenshots with cloud AI
             </button>
+            {cloudAiAvailable === false && <p className="text-[10px] text-gray-400">{CLOUD_AI_OFF_MESSAGE}</p>}
           </div>
         )}
 
