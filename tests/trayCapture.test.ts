@@ -23,7 +23,7 @@ describe('S6 tray-first capture contract', () => {
 
   it('passes the bounded window/display profile into the post-match helper and records it in the manifest', () => {
     const main = read('desktop/main.cjs'); const script = read('scripts/scrim-capture.ps1');
-    expect(main).toContain('MOE_CAPTURE_PROFILE'); expect(main).toContain('MOE_CAPTURE_DISPLAY');
+    const launch = read('desktop/capture-launch.cjs'); expect(main).toContain('launchScrimCapture'); expect(launch).toContain('MOE_CAPTURE_PROFILE'); expect(launch).toContain('MOE_CAPTURE_DISPLAY');
     expect(script).toContain("[ValidateSet('fullscreen', 'fullscreen-windowed', 'windowed')]");
     expect(script).toContain("[ValidatePattern('^(primary|display:\\d{1,2})$')]");
     expect(script).toContain('captureProfile = $CaptureProfile'); expect(script).toContain('detected = "display:$screenIndex"');

@@ -221,9 +221,44 @@ function frameDifference(left, right) {
   return count ? total / count / 255 : 0;
 }
 
+/** Serve a discovered frame only to the window that ran the discovery. */
+async function readOwnedVodFrame(sources, senderId, input) {
+  const cached = sources.get(String(input?.cacheId || ''));
+  if (!cached || cached.owner !== senderId) throw new Error('The detected VOD session expired. Detect the games again.');
+  return readVodFrame(cached.directory, input?.frame);
+}
+
+const insideDirectory = (directory, target) => { const relative = path.relative(directory, target); return relative === '' || (!!relative && !relative.startsWith('..') && !path.isAbsolute(relative)); };
+
 async function releaseVodSource(cached, completed) {
-  if (completed && cached?.downloaded && cached?.directory) await fsp.rm(path.resolve(cached.directory), { recursive: true, force: true });
+  if (completed && cached?.directory) {
+    const directory = path.resolve(cached.directory);
+    // A completed job's work directory holds its download and candidate frames.
+    // A coach's own local VOD is never deleted, even if it lives inside it.
+    if (cached.downloaded || !cached.file || !insideDirectory(directory, path.resolve(cached.file))) await fsp.rm(directory, { recursive: true, force: true });
+  }
   return Boolean(cached?.file && fs.existsSync(path.resolve(cached.file)));
+}
+
+/**
+ * Remove `source-*` work directories that no restartable job references: frame
+ * folders from finished local-VOD jobs before cleanup existed, and partial
+ * downloads left by a crash, whose job recovery marks failed.
+ */
+async function sweepOrphanedVodDirectories(workRoot, jobs) {
+  const root = path.resolve(workRoot); const keep = new Set();
+  for (const job of jobs || []) {
+    if (!(job?.resumable === true || ['running', 'paused', 'ready', 'queued'].includes(job?.status))) continue;
+    for (const cacheId of [job.cacheId, job.checkpoint?.cacheId]) if (/^[0-9a-f-]{36}$/i.test(String(cacheId || ''))) keep.add(path.join(root, `source-${cacheId}`));
+    if (job.sourcePath) { const parent = path.dirname(path.resolve(String(job.sourcePath))); if (path.dirname(parent) === root) keep.add(parent); }
+  }
+  const removed = [];
+  for (const entry of await fsp.readdir(root, { withFileTypes: true }).catch(() => [])) {
+    if (!entry.isDirectory() || !/^source-[0-9a-f-]{36}$/i.test(entry.name)) continue;
+    const directory = path.join(root, entry.name); if (keep.has(directory)) continue;
+    await fsp.rm(directory, { recursive: true, force: true }); removed.push(entry.name);
+  }
+  return removed;
 }
 
 function visualSignature(frame) {
@@ -367,4 +402,4 @@ async function readVodFrame(directory, frame) {
   return { mediaType: 'image/png', base64: (await fsp.readFile(path.join(path.resolve(directory), name))).toString('base64') };
 }
 
-module.exports = { readVodFrame, normalizeYoutubeUrl, youtubeVideoId, probeVideo, analyzeVodTimeline, discoverVodGames, releaseVodSource, createReviewClips, changedFrames, frameDifference, visualSignature, ensureDiskSpace, scoreboardGeometryScore, agentSelectGeometryScore, chooseGameBoundaries, inferPovPlayer };
+module.exports = { sweepOrphanedVodDirectories, readOwnedVodFrame, readVodFrame, normalizeYoutubeUrl, youtubeVideoId, probeVideo, analyzeVodTimeline, discoverVodGames, releaseVodSource, createReviewClips, changedFrames, frameDifference, visualSignature, ensureDiskSpace, scoreboardGeometryScore, agentSelectGeometryScore, chooseGameBoundaries, inferPovPlayer };
