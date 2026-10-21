@@ -14,6 +14,7 @@ import net from 'node:net';
 import path from 'node:path';
 import { spawn, spawnSync } from 'node:child_process';
 import { readOfflineSnapshot } from '../lib/offlineSnapshot';
+import { buildAcceptedMatchAggregatePlan, PLAYER_SCREENSHOT_BUILDER } from '../lib/aggregateVersioning';
 
 const COLLECTIONS = ['matches', 'rounds', 'playerStats'] as const;
 // Annotations 0.2.0 may add while upgrading; reported, but kept out of the content hash.
@@ -81,6 +82,23 @@ async function readThroughServer(dbPath: string) {
   } finally { child.kill(); }
 }
 
+/** Why derived aggregates are rebuilt or withheld, as counts only: build status per match, and per player row. */
+export function aggregateBuildSummary(state: any) {
+  const count = (into: Record<string, number>, key: string) => { into[key] = (into[key] || 0) + 1; };
+  const matchBuilds: Record<string, number> = {}; const screenshotMetrics: Record<string, number> = {};
+  for (const match of state?.matches || []) {
+    const plan = buildAcceptedMatchAggregatePlan(state, match.id);
+    count(matchBuilds, plan.build.unknownReason ? `${plan.build.status}:${plan.build.unknownReason}` : plan.build.status);
+    for (const stat of (state.playerStats || []).filter((row: any) => row.matchId === match.id)) {
+      const planned = plan.playerStats.find((row: any) => row.id === stat.id)?.screenshotMetrics;
+      count(screenshotMetrics, plan.build.status !== 'recomputed' ? `withheld:match-${plan.build.status}`
+        : !stat.playerId ? 'withheld:no-stable-player-link'
+          : planned?.calculationVersion === PLAYER_SCREENSHOT_BUILDER ? 'rebuilt' : 'withheld:no-round-evidence-for-player');
+    }
+  }
+  return { matchBuilds, screenshotMetrics, storedScreenshotMetrics: (state?.playerStats || []).filter((row: any) => row.screenshotMetrics).length };
+}
+
 const changedFields = (a: any, b: any) => [...new Set([...Object.keys(a.fieldSha256), ...Object.keys(b.fieldSha256)])].filter(field => a.fieldSha256[field] !== b.fieldSha256[field] && !UPGRADE_ANNOTATIONS.has(field)).sort();
 
 /** Every way the upgraded reads or the migrated file can disagree with the original workspace. */
@@ -134,6 +152,7 @@ if (isMain) {
     schema: 'moetracker.workspace-upgrade-check/v1', generatedAt: new Date().toISOString(),
     storage: { sourceSchemaVersion: Number(original.index?._storage?.schemaVersion || 1), migratedSchemaVersion: Number(migrated.index?._storage?.schemaVersion || 1) },
     sourceDbSha256: sourceBefore['db.json'] || null, sourceFiles: Object.keys(sourceBefore).length, sourceUnchanged: JSON.stringify(sourceBefore) === JSON.stringify(sourceAfter),
+    aggregates: aggregateBuildSummary(original.state),
     stored, before, firstRead, secondRead, afterRead, afterFile, passed: failures.length === 0, failures,
   };
   await fs.writeFile(path.join(work, 'report.json'), `${JSON.stringify(report, null, 2)}\n`);

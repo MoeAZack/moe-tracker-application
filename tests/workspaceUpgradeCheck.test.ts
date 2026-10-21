@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { contentSummary, upgradeFailures } from '../scripts/workspace-upgrade-check.mts';
+import { aggregateBuildSummary, contentSummary, DERIVED_FIELDS, upgradeFailures } from '../scripts/workspace-upgrade-check.mts';
 
 const state = () => ({
   matches: [{ id: 'm2', map: 'Bind', opponent: 'Synthetic B' }, { id: 'm1', map: 'Ascent', opponent: 'Synthetic A' }],
@@ -65,5 +65,18 @@ describe('workspace upgrade check', () => {
     const base = snapshots(copy => copy);
     const migrated = structuredClone(state()); (migrated.matches[1] as any).roundAnalytics = { stale: false }; (migrated.playerStats[0] as any).screenshotMetrics = { calculationVersion: 'old' };
     expect(upgradeFailures({ ...base, afterFile: contentSummary(migrated) })).toEqual(['migrated file: matches.contentSha256 changed (fields: roundAnalytics)']);
+  });
+
+  it('treats exactly the two server-rebuilt aggregates as derived', () => {
+    expect(Object.fromEntries(Object.entries(DERIVED_FIELDS).map(([name, fields]) => [name, [...fields].sort()]))).toEqual({ matches: ['roundAnalytics'], rounds: [], playerStats: ['screenshotMetrics'] });
+    // Any other field a read changes is a source change.
+    const drifted = snapshots(copy => { copy.playerStats[0].kills = 99; return copy; });
+    expect(upgradeFailures(drifted)).toContain('first 0.2.0 read: playerStats.sourceContentSha256 changed (fields: kills)');
+  });
+
+  it('explains withheld screenshot metrics with counts only', () => {
+    const summary = aggregateBuildSummary({ matches: [{ id: 'm1', date: '2026-10-14', type: 'Scrim', map: 'Ascent', source: 'manual' }], rounds: [], playerStats: [{ id: 's1', matchId: 'm1', player: 'Synthetic A', screenshotMetrics: { schemaVersion: 1 } }] });
+    expect(summary).toEqual({ matchBuilds: { 'source-unavailable:missing-round-evidence': 1 }, screenshotMetrics: { 'withheld:match-source-unavailable': 1 }, storedScreenshotMetrics: 1 });
+    expect(JSON.stringify(summary)).not.toMatch(/Synthetic|Ascent/);
   });
 });

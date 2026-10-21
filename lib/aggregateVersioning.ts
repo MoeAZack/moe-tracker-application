@@ -69,7 +69,11 @@ function sourceRows(container: AggregateContainer, match: Match) {
 }
 
 function sourceHash(match: Match, rounds: readonly Round[], stats: readonly PlayerStats[], resolutions: readonly EvidenceFusionResolution[] = []) {
-  const { roundAnalytics: _derived, ...sourceMatch } = match;
+  const { roundAnalytics: _derived, ...sourceMatch }: Record<string, any> = match;
+  // The quarantine decision is source; when it was first detected is not. A
+  // schema migration on read stamps detectedAt with the read time until the
+  // first save, which would otherwise give every read a new hash.
+  if (sourceMatch.duplicateReview) { const { detectedAt: _detectedAt, ...review } = sourceMatch.duplicateReview; sourceMatch.duplicateReview = review; }
   const playerFacts = stats.map((stat: any) => ({
     id: stat.id, playerId: stat.playerId || null, displayNameSnapshot: stat.displayNameSnapshot ?? null, player: stat.player,
     sourceMetadata: stat.sourceMetadata || null, evidenceReconciliation: stat.evidenceReconciliation || null,
