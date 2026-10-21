@@ -19,7 +19,8 @@ const { canonical, refreshScreenshotOutboxFromData } = require('./sync-outbox.cj
 const { hasRecentRecoveryBackup } = require('./recovery-backup.cjs');
 const { isTrustedSenderUrl, sessionIsFresh } = require('./session-security.cjs');
 const { loginCredentials } = require('./session-credentials.cjs');
-const { analyzeVodTimeline, discoverVodGames, releaseVodSource, createReviewClips, readVodFrame } = require('./vod-timeline-analyzer.cjs');
+const { analyzeVodTimeline, discoverVodGames, releaseVodSource, createReviewClips, readOwnedVodFrame, sweepOrphanedVodDirectories } = require('./vod-timeline-analyzer.cjs');
+const { launchScrimCapture } = require('./capture-launch.cjs');
 const { createIngestionJob, updateIngestionJob: evolveIngestionJob, recoverInterruptedJobs, publicIngestionJob } = require('./ingestion-jobs.cjs');
 
 let mainWindow;
@@ -621,7 +622,7 @@ function legacyVodJobFile() { return path.join(runtime.paths.local, 'Vod Analysi
 async function readIngestionJobs() { try { const value = JSON.parse(await fsp.readFile(ingestionJobFile(), 'utf8')); return Array.isArray(value) ? value : []; } catch { try { const legacy = JSON.parse(await fsp.readFile(legacyVodJobFile(), 'utf8')); return Array.isArray(legacy) ? legacy : []; } catch { return []; } } }
 let ingestionJobMutation = Promise.resolve();
 function updateIngestionJob(id, patch) { const task = ingestionJobMutation.then(async () => { const jobs = await readIngestionJobs(); const index = jobs.findIndex(item => item.id === id); const base = index >= 0 ? jobs[index] : createIngestionJob({ id, source: patch.source, kind: patch.kind, retainedSource: patch.retainedSource, expectedGames: patch.expectedGames }); const next = evolveIngestionJob(base, patch); if (index >= 0) jobs[index] = next; else jobs.unshift(next); await atomicJson(ingestionJobFile(), jobs.slice(0, 200)); return next; }); ingestionJobMutation = task.catch(() => {}); return task; }
-async function recoverIngestionJobsOnStartup() { const jobs = await readIngestionJobs(); if (!jobs.length) return; await atomicJson(ingestionJobFile(), recoverInterruptedJobs(jobs).slice(0, 200)); }
+async function recoverIngestionJobsOnStartup() { const jobs = await readIngestionJobs(); const recovered = recoverInterruptedJobs(jobs).slice(0, 200); if (jobs.length) await atomicJson(ingestionJobFile(), recovered); await sweepOrphanedVodDirectories(path.join(runtime.paths.local, 'Vod Analysis'), recovered).catch(() => []); }
 const isVodJob = job => ['youtube', 'local-file', 'youtube-vod', 'local-vod'].includes(job.source);
 handleTrusted('desktop:list-ingestion-jobs', async () => (await readIngestionJobs()).map(publicIngestionJob));
 handleTrusted('desktop:list-vod-jobs', async () => (await readIngestionJobs()).filter(isVodJob).map(publicIngestionJob));
@@ -665,9 +666,7 @@ handleTrusted('desktop:discover-vod-games', async (event, input = {}) => {
   } catch (error) { await updateIngestionJob(jobId, { status: controller.signal.aborted ? 'cancelled' : 'failed', stage: 'failed', message: String(error?.message || error) }); throw error; } finally { activeVodAnalyses.delete(jobKey); activeIngestionControllers.delete(jobId); }
 });
 handleTrusted('desktop:read-vod-frame', async (event, input = {}) => {
-  const cached = discoveredVodSources.get(String(input?.cacheId || ''));
-  if (!cached || cached.owner !== event.sender.id) throw new Error('The detected VOD session expired. Detect the games again.');
-  return readVodFrame(cached.directory, input?.frame);
+  return readOwnedVodFrame(discoveredVodSources, event.sender.id, input);
 });
 handleTrusted('desktop:analyze-vod', async (event, input = {}) => {
   const players = Array.isArray(input.players) ? input.players.slice(0, 10).map(item => ({ name: String(item?.name || '').trim().slice(0, 100), team: item?.team === 'theirs' ? 'theirs' : 'ours', expectedKills: Number.isInteger(item?.expectedKills) && item.expectedKills >= 0 ? item.expectedKills : null, expectedDeaths: Number.isInteger(item?.expectedDeaths) && item.expectedDeaths >= 0 ? item.expectedDeaths : null })).filter(item => item.name) : [];
@@ -762,23 +761,9 @@ handleTrusted('desktop:start-scrim-capture', async (_event, input = {}) => {
   const launcher = path.join(applicationRoot(), 'scripts', 'start-scrim-capture.cmd');
   if (!path.isAbsolute(launcher) || !fs.existsSync(launcher)) throw new Error('The built-in capture helper is missing. Reinstall Moe Tracker.');
   captureActivity = { state: 'capturing', startedAt: Date.now() };
-  // Ordinary rights by default: a UAC prompt on every capture is only needed
-  // when VALORANT itself runs as administrator, which the coach opts into.
   const elevated = runtime.config.capturePreferences.elevated === true;
-  const command = elevated
-    ? "$process = Start-Process -FilePath $env:MOE_CAPTURE_LAUNCHER -Verb RunAs -ArgumentList @($env:MOE_CAPTURE_ROUNDS, 'elevated', $env:MOE_CAPTURE_PROFILE, $env:MOE_CAPTURE_DISPLAY) -PassThru; if (-not $process) { exit 1 }"
-    : "$process = Start-Process -FilePath $env:MOE_CAPTURE_LAUNCHER -ArgumentList @($env:MOE_CAPTURE_ROUNDS, 'standard', $env:MOE_CAPTURE_PROFILE, $env:MOE_CAPTURE_DISPLAY) -PassThru; if (-not $process) { exit 1 }";
-  await new Promise((resolve, reject) => {
-    const child = spawn('powershell.exe', ['-NoProfile', '-NonInteractive', '-ExecutionPolicy', 'Bypass', '-Command', command], {
-      windowsHide: true,
-      env: { ...process.env, MOE_CAPTURE_LAUNCHER: launcher, MOE_CAPTURE_ROUNDS: String(roundCount), MOE_CAPTURE_PROFILE: runtime.config.capturePreferences.profile, MOE_CAPTURE_DISPLAY: runtime.config.capturePreferences.display },
-      stdio: ['ignore', 'ignore', 'pipe'],
-    });
-    let stderr = '';
-    child.stderr.on('data', value => { stderr += String(value); });
-    child.on('error', error => { captureActivity = null; reject(error); });
-    child.on('exit', code => { if (code === 0) resolve(); else { captureActivity = null; reject(new Error(stderr.trim() || 'Windows did not start the capture helper.')); } });
-  });
+  try { await launchScrimCapture({ launcher, roundCount, preferences: runtime.config.capturePreferences }, spawn); }
+  catch (error) { captureActivity = null; throw error; }
   return { started: true, message: `Capture started${roundCount ? ` for ${roundCount} rounds` : ' with automatic round detection'}. ${elevated ? 'Approve Windows elevation, then return' : 'Return'} to VALORANT before the countdown ends.` };
 });
 handleTrusted('desktop:delete-replay', async (event, replayPath) => {

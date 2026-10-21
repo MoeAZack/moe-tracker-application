@@ -1,5 +1,6 @@
 import type { ScoreboardSelection } from '../../lib/localOcrEngine';
 import { LOCAL_SCOREBOARD_CACHE_VERSION, localScoreboardCacheKey, pruneOcrResultCache } from '../../lib/ocrResultCache';
+import { learnedExtractionRoster } from './ocrLearningStore';
 
 const CACHE_STORAGE_KEY = 'moetracker.local-scoreboard-cache/v2';
 const memoryCache = new Map<string, any>();
@@ -9,7 +10,10 @@ const remember = (key: string, draft: any) => {
   try { const entries = storedCache(); entries[key] = { version: LOCAL_SCOREBOARD_CACHE_VERSION, usedAt: new Date().toISOString(), draft }; localStorage.setItem(CACHE_STORAGE_KEY, JSON.stringify(pruneOcrResultCache(entries))); } catch { /* Private storage or quota limits only disable persistence. */ }
 };
 
-export async function extractScoreboardLocally(file: File, rosterPlayers: Array<{ id?: string; displayName: string }>, selection?: ScoreboardSelection, options: { trackJob?: boolean } = {}) {
+export async function extractScoreboardLocally(file: File, roster: Array<{ id?: string; displayName: string; aliases?: string[] }>, selection?: ScoreboardSelection, options: { trackJob?: boolean } = {}) {
+  // Learned aliases are part of the cache key, so a newly learned alias
+  // re-reads the screenshot instead of reusing the stale extraction.
+  const rosterPlayers = await learnedExtractionRoster(roster);
   const ingestionJobId = options.trackJob === false ? '' : (await window.moeDesktop?.beginIngestionJob({ source: 'screenshot' }).catch(() => null))?.id || '';
   const updateJob = (status: 'running' | 'ready' | 'failed', stage: string, percent: number | null, message: string) => ingestionJobId ? window.moeDesktop?.updateIngestionJob({ id: ingestionJobId, status, stage, percent, message }).catch(() => null) : null;
   try {

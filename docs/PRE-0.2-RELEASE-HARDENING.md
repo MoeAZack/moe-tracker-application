@@ -61,6 +61,15 @@ kept-distinct decision survives a third copy. Synthetic stand-ins for these
 cases live in `tests/fixtures/sameGameRecapture.ts`; owner data is not
 committed.
 
+Deferred (unchanged, not claimed as fixed):
+
+- Frame-difference buckets are still sized over the whole video.
+- `scripts/scrim-capture.ps1` still keeps the round tail by order and has no
+  automatic capture at match end.
+- The VOD scoreboard snapshot still reads K/D/A as the last three numbers of a
+  row, and kill-feed tracking dedupes unresolved opponents by raw OCR name, so
+  a noisy re-read can count twice.
+
 Acceptance evidence:
 
 - Unit and HTTP coverage for stable IDs, stale IDs, removed rounds, full match purge,
@@ -156,13 +165,16 @@ not in the committed ledger and are left in place.
 Fix and prove YouTube/local VOD handoff, cleanup, normalized frame selection,
 controlled OCR learning, capture behavior, spatial coordinates, and the real corpus.
 
-Status: RE-AUDIT FIXES IN REVIEW (20 Oct 2026, Africa/Cairo). The re-audit
-found 2 of 12 items fixed. The code-only items below are fixed on the H2
-re-audit PR. The corpus regressions were reproduced on the owner's private
+Status: FOLLOW-UP IN REVIEW (21 Oct 2026, Africa/Cairo). The H2 re-audit PR
+(#86) is merged; its code review left four items open, which the follow-up PR
+fixes: learned corrections applied by saved-row index, learned aliases missing
+from single-screenshot imports, leaked VOD work folders, and PRACC events
+removed from the feed. H2 is not passed until the owner accepts that PR.
+The re-audit found 2 of 12 items fixed. The corpus regressions were reproduced on the owner's private
 corpus and traced to the scoreboard row offset and tint-normalized portrait
 distance (agents), the team-colour score mask (one session's score) and the
 removed K/D/A confidence floor (three assist cells). The corpus run now matches
-0.1.15 with no wrong cells; H2 passes on owner review of the re-audit PR.
+0.1.15 with no wrong cells.
 
 Contract:
 
@@ -182,20 +194,31 @@ Contract:
 - Capture runs with ordinary Windows rights; elevation is requested only when
   the coach marks VALORANT as running as administrator. The standalone
   launcher defaults to automatic round detection.
-- A resumed VOD job continues its original job, work directory and checkpoints,
-  and a resumed download is still deleted once integrated. A failed resume
-  never deletes the retained source.
+- A resumed VOD job continues its original job and work directory (frames are
+  re-extracted, not reused), and a resumed download is still deleted once
+  integrated. A failed resume never deletes the retained source.
+- A completed job's work folder is removed, including a local VOD's candidate
+  frames; the coach's own video is never deleted. At startup, `source-*`
+  folders that no restartable job references are swept, so a download
+  interrupted by a crash (its job is marked failed) does not stay on disk.
+- `desktop:read-vod-frame` serves frames only to the window that ran the
+  discovery.
 - Discovery replies name candidate frames instead of inlining every 1080p PNG;
   the renderer reads them one at a time.
 - Without a linked scoreboard, kill-feed rows with one of our players count as
   eliminations against an unresolved opponent (never a roster identity).
   Timeline reconciliation is complete only when every player row was checked.
-- OCR learning accepts captures saved through the review path, and cached
-  extractions are invalidated when a learned alias changes the roster.
+- OCR learning accepts captures saved through the review path. A learned
+  correction is tied to the scoreboard row it was read from (0-9), not the
+  saved row's position, and edits of an already saved match are never tied to
+  a screen region. Single-screenshot imports use the learned aliases, and
+  cached extractions are invalidated when a learned alias changes the roster.
 - Name-only roster entries match screenshot names again.
 - PRACC feeds resolve TZIDs through their VTIMEZONE and X-WR-TIMEZONE data,
   keep all-day dates unshifted, time out after 15 s, and concurrent syncs share
-  one run that writes once to a fresh read.
+  one run that writes once to a fresh read. An upcoming event removed from the
+  feed is removed from the schedule unless it has attendance or a practice
+  block; past rows stay, and an empty feed removes nothing.
 - Two rifles beside pistols classify as a half buy; the Bandit is a pistol.
 - Normalized map coordinates remain bounded to 0..1. Raw VALORANT world-space
   coordinates may be negative and are calibrated before spatial analysis.
