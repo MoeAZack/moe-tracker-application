@@ -603,7 +603,7 @@ export default function LiveLogger({ data, theme, onSaveMatch, onSaveRounds, onR
     <div className="space-y-6">
       {/* Toast Notification */}
       {toastMessage && (
-        <div className="fixed top-5 right-5 z-50 bg-[#ff4655] text-white px-4 py-3 rounded-lg shadow-xl border border-white/10 font-mono text-xs flex items-center gap-2 animate-bounce">
+        <div className="fixed top-5 right-5 z-50 bg-[#d12a3a] text-white px-4 py-3 rounded-lg shadow-xl border border-white/10 font-mono text-xs flex items-center gap-2 animate-bounce">
           <Sparkles className="w-4 h-4 shrink-0" />
           <span>{toastMessage}</span>
         </div>
@@ -813,7 +813,7 @@ export default function LiveLogger({ data, theme, onSaveMatch, onSaveRounds, onR
           <div className="pt-4 border-t border-white/5 flex justify-end">
             <button
               onClick={handleStartLiveMatch}
-              className="px-6 py-3 bg-[#ff4655] text-white font-black uppercase text-sm tracking-wider font-mono rounded-xl hover:bg-[#ff5e6a] transition-all flex items-center gap-2 shadow-lg shadow-red-500/10"
+              className="px-6 py-3 bg-[#d12a3a] text-white font-black uppercase text-sm tracking-wider font-mono rounded-xl hover:bg-[#b91c2e] transition-all flex items-center gap-2 shadow-lg shadow-red-500/10"
             >
               <Play className="w-4.5 h-4.5" />
               <span>BOOT LIVE RECORDER SESSION</span>
@@ -1741,7 +1741,7 @@ export default function LiveLogger({ data, theme, onSaveMatch, onSaveRounds, onR
                 </button>
                 <button
                   type="submit"
-                  className="px-5 py-2 bg-[#ff4655] hover:bg-[#ff5e6a] text-white rounded-xl text-xs font-black uppercase font-mono shadow-md"
+                  className="px-5 py-2 bg-[#d12a3a] hover:bg-[#b91c2e] text-white rounded-xl text-xs font-black uppercase font-mono shadow-md"
                 >
                   SAVE & CLOSE LIVE SESSION
                 </button>

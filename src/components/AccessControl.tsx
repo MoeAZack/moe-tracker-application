@@ -118,7 +118,7 @@ export default function AccessControl({ theme, rosterPlayers = [] }: { theme: an
         <button
           type="submit"
           disabled={loading}
-          className="px-4 py-2 bg-[#ff4655] hover:bg-[#ff5e6a] disabled:opacity-50 text-white font-bold text-xs uppercase tracking-widest rounded-lg flex items-center justify-center gap-1.5 cursor-pointer"
+          className="px-4 py-2 bg-[#d12a3a] hover:bg-[#b91c2e] disabled:opacity-50 text-white font-bold text-xs uppercase tracking-widest rounded-lg flex items-center justify-center gap-1.5 cursor-pointer"
         >
           <UserPlus className="w-4 h-4" /> Grant
         </button>

@@ -67,7 +67,7 @@ export default function LineupLibrary({ data, theme, role, onRefresh }: Props) {
           <h2 className="text-2xl font-black tracking-tight uppercase">Lineup Library</h2>
         </div>
         {isCoach && (
-          <button onClick={() => setShowAdd(!showAdd)} className="px-3 py-2 bg-[#ff4655] hover:bg-[#ff5e6a] text-white text-xs font-bold uppercase tracking-widest rounded-lg flex items-center gap-1.5 cursor-pointer">
+          <button onClick={() => setShowAdd(!showAdd)} className="px-3 py-2 bg-[#d12a3a] hover:bg-[#b91c2e] text-white text-xs font-bold uppercase tracking-widest rounded-lg flex items-center gap-1.5 cursor-pointer">
             <Plus className="w-4 h-4" /> New Lineup
           </button>
         )}
@@ -91,7 +91,7 @@ export default function LineupLibrary({ data, theme, role, onRefresh }: Props) {
           <input value={form.imageUrl} onChange={(e) => setForm({ ...form, imageUrl: e.target.value })} placeholder="Image URL (screenshot)" className={`${inputCls} font-mono`} />
           <input value={form.videoUrl} onChange={(e) => setForm({ ...form, videoUrl: e.target.value })} placeholder="Clip URL (optional)" className={`${inputCls} font-mono`} />
           <textarea value={form.description} onChange={(e) => setForm({ ...form, description: e.target.value })} placeholder="How to line it up…" className={`${inputCls} sm:col-span-2`} rows={2} />
-          <button type="submit" disabled={busy} className="px-4 py-2 bg-[#ff4655] disabled:opacity-50 text-white text-xs font-bold uppercase tracking-widest rounded-lg cursor-pointer sm:col-span-2">Save Lineup</button>
+          <button type="submit" disabled={busy} className="px-4 py-2 bg-[#d12a3a] disabled:opacity-50 text-white text-xs font-bold uppercase tracking-widest rounded-lg cursor-pointer sm:col-span-2">Save Lineup</button>
         </form>
       )}
 

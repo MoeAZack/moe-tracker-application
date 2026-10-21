@@ -482,7 +482,7 @@ export default function RosterManager({ data, theme, onRefresh }: Props) {
                 />
                 <button
                   disabled={busy}
-                  className="flex items-center justify-center gap-1 rounded bg-[#ff4655] px-3 py-2 text-xs font-bold text-white disabled:opacity-50 sm:col-span-2"
+                  className="flex items-center justify-center gap-1 rounded bg-[#d12a3a] px-3 py-2 text-xs font-bold text-white disabled:opacity-50 sm:col-span-2"
                 >
                   <UserPlus className="w-4 h-4" aria-hidden="true" />
                   {pendingPasswordPlayer ? "Retry password" : "Add player"}

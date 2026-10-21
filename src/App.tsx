@@ -217,7 +217,7 @@ export default function App() {
       border: 'border-white/10',
       text: 'text-[#ff4655]',
       textMuted: 'text-gray-400',
-      primaryBg: 'bg-[#ff4655] hover:bg-[#ff5e6a]',
+      primaryBg: 'bg-[#d12a3a] hover:bg-[#b91c2e]',
       primaryHover: 'hover:bg-white/5 shadow-red-500/10',
       accent: '#ff4655',
       cardBg: 'surface-card',
