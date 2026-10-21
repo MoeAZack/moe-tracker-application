@@ -484,6 +484,49 @@ the first 0.1.x → 0.2.0 automatic update cannot roll back; if 0.2.0 fails its
 startup check twice, updates pause in safe mode instead. Every later update
 can roll back.
 
+Known limitation (screenshot metrics on unlinked rows): 0.2.0 rebuilds a
+player row's screenshot metrics only from round evidence that names the player
+by stable roster id; it never joins by observed name. A 0.1.x workspace whose
+round evidence is name-only keeps every stored metric untouched (#100), but
+each one reads as unknown everywhere, in the coach payload and in every
+server-side summary, rating, round-save response and sync (#101). Relinking the
+row to a roster player (Player Stats → player → Identity correction) keeps the
+stored value and does not bring the metric back, because the round evidence
+still carries no id. On the owner's workspace this affects the 5 of 40 player
+rows that carried stored metrics; all 900 of our player entries in round
+evidence are name-only.
+
+Progress (21 Oct 2026, Africa/Cairo):
+
+- Fixed in #94: the coach JWT stays in the main process, the production CSP has
+  no `unsafe-inline`, the updater fails closed without a trusted publisher,
+  0.2.0 installers keep a rollback copy, the candidate audit fails closed off
+  Windows, and CI runs a real NSIS install → upgrade → rollback.
+- Fixed in #96: runtime pins (npm integrity, Electron checksum, yt-dlp
+  2026.08.19), a fail-closed tag workflow with a separate publish job, and
+  `scripts/workspace-upgrade-check.mts`.
+- Fixed in #99–#101: the upgrade check compares reads on source fields and
+  requires derived aggregates to agree across reads; a quarantined copy's
+  aggregates no longer change on every read of an unsaved workspace; stored
+  screenshot metrics that cannot be rebuilt are never deleted and read as
+  unknown on every surface.
+- Upgrade evidence (owner's retained 0.1.78 workspace, read-only copy, #99 at
+  1412334): 8 matches, 180 rounds and 40 player stats in all five snapshots
+  (stored, two reads, save, re-read); 1 quarantined duplicate; storage schema
+  14 → 15; source content hashes identical across every read; source folder
+  byte-identical afterwards; `failures: []`. All 8 matches rebuild; 40 of 40
+  player rows have no stable roster link.
+- Rollback evidence (owner's PC, simulated, nothing installed): the real
+  0.1.78 installer and a local `--publish never` 0.2.0 build. First update with
+  no earlier healthy update: prepared with rollback ready, first start
+  verifying, second failed start rolled back to 0.1.78 with one launch of the
+  pinned 0.1.78 installer, and a tampered rollback installer went to safe mode
+  with no launch. `failures: []`.
+
+H5 stays OPEN. The remaining item is a signed candidate: it waits on the
+owner's code-signing certificate decision, and `desktop/update-trust.json`
+names no publisher until then, so the tag workflow fails closed.
+
 Contract:
 
 - The application version is 0.2.0. Electron, Electron Builder, Sharp, FFmpeg,
