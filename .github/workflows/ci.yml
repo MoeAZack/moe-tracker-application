@@ -50,3 +50,20 @@ jobs:
           $env:CSC_IDENTITY_AUTO_DISCOVERY='false'
           npx electron-builder --win --dir
           npm run test:desktop-ipc
+      - name: Install, upgrade and roll back with real NSIS installers (never published)
+        shell: pwsh
+        env:
+          CSC_IDENTITY_AUTO_DISCOVERY: 'false'
+          MOETRACKER_PREVIOUS_VERSION: 0.0.1
+        run: |
+          # Two unsigned installers built here only: an older one and this commit's.
+          npx electron-builder --win nsis --publish never --config.extraMetadata.version=$env:MOETRACKER_PREVIOUS_VERSION
+          npx electron-builder --win nsis --publish never
+          npm run test:release-update -- --install
+      - name: Keep the rollback drill evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: update-rollback-evidence
+          path: release/release-evidence/update-rollback-*.json
+          if-no-files-found: ignore

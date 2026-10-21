@@ -41,6 +41,13 @@ function runInstaller(installer, directory) {
   if (result.status !== 0) throw new Error(`${path.basename(installer)} exited with ${result.status}.`);
 }
 
+/** The four-part form electron-builder writes into the exe's ProductVersion. */
+function windowsVersion(version) {
+  const parts = String(version).split('-')[0].split('.').map(part => String(Number(part) || 0));
+  while (parts.length < 4) parts.push('0');
+  return parts.slice(0, 4).join('.');
+}
+
 function installedVersion(directory) {
   const exe = path.join(directory, 'Moe Tracker Application.exe');
   if (!fs.existsSync(exe)) return null;
@@ -99,7 +106,7 @@ async function installedDrill(verifier, failures) {
   const steps = {};
   runInstaller(previousInstaller, installDirectory);
   steps.installed = { version: installedVersion(installDirectory), installerCopies: installedCopies(updates) };
-  if (steps.installed.version !== previousVersion) failures.push(`fresh install reports ${steps.installed.version}, expected ${previousVersion}`);
+  if (steps.installed.version !== windowsVersion(previousVersion)) failures.push(`fresh install reports ${steps.installed.version}, expected ${previousVersion}`);
   if (!steps.installed.installerCopies.includes(installedInstallerName(previousVersion))) failures.push('the installer did not leave a copy of itself for rollback');
 
   const launched = [];
@@ -108,14 +115,14 @@ async function installedDrill(verifier, failures) {
   if (!steps.prepared.rollbackReady) failures.push(`first update had no rollback installer (${steps.prepared.rollbackProblem || 'unknown'})`);
   runInstaller(currentInstaller, installDirectory);
   steps.upgraded = { version: installedVersion(installDirectory), installerCopies: installedCopies(updates) };
-  if (steps.upgraded.version !== currentVersion) failures.push(`upgrade reports ${steps.upgraded.version}, expected ${currentVersion}`);
+  if (steps.upgraded.version !== windowsVersion(currentVersion)) failures.push(`upgrade reports ${steps.upgraded.version}, expected ${currentVersion}`);
   if (steps.upgraded.installerCopies.join() !== installedInstallerName(currentVersion)) failures.push(`after upgrade the installer copies are ${steps.upgraded.installerCopies.join(', ') || 'missing'}`);
 
   steps.firstStartup = await health.beginStartup(currentVersion);
   steps.rollback = await health.beginStartup(currentVersion);
   steps.rolledBack = { version: installedVersion(installDirectory), launches: launched.length };
   if (steps.rollback.state !== 'rollback-started' || launched.length !== 1) failures.push('second failed startup did not launch exactly one rollback installer');
-  if (steps.rolledBack.version !== previousVersion) failures.push(`rollback left ${steps.rolledBack.version} installed, expected ${previousVersion}`);
+  if (steps.rolledBack.version !== windowsVersion(previousVersion)) failures.push(`rollback left ${steps.rolledBack.version} installed, expected ${previousVersion}`);
   const uninstaller = path.join(installDirectory, `Uninstall Moe Tracker Application.exe`);
   if (fs.existsSync(uninstaller)) spawnSync(uninstaller, ['/S'], { stdio: 'inherit', windowsHide: true, timeout: 5 * 60 * 1000 });
   return steps;
