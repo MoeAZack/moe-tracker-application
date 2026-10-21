@@ -47,6 +47,20 @@ describe('PRACC calendar integration', () => {
     expect(second.schedule[0]).toMatchObject({ id: first.id, primary: 'Practice vs MT Asteria', coachNotes: 'Focus pistol protocols', attendanceEnabled: true, requiredPlayerIds: ['player-1'], attendanceCheckIns: [{ id: 'check-1' }], attendanceAudit: [{ id: 'audit-1' }] });
   });
 
+  it('removes upcoming PRACC rows whose event left the feed and keeps the rest', () => {
+    const [practice, goal] = parsePraccCalendar(calendar);
+    const now = new Date('2026-10-01T00:00:00Z');
+    const both = reconcilePraccSchedule([], [practice, goal], feedUrl, now).schedule;
+    const past = { ...both[0], id: 'past', sourceEventId: 'old@pracc.com', date: '2026-09-20' };
+    const attended = { ...both[0], id: 'attended', sourceEventId: 'gone-attended@pracc.com', attendanceCheckIns: [{ id: 'check-1' }] };
+    const otherFeed = { ...both[1], id: 'other', sourceEventId: 'elsewhere@pracc.com', sourceCalendarHash: 'another-feed' };
+    const manual = { id: 'manual', date: '2026-10-20', primary: 'Team review' };
+    const result = reconcilePraccSchedule([...both, past, attended, otherFeed, manual], [practice], feedUrl, now);
+    expect(result.removed).toBe(1);
+    expect(result.schedule.map((row: any) => row.sourceEventId ?? row.id)).toEqual([practice.uid, 'old@pracc.com', 'gone-attended@pracc.com', 'elsewhere@pracc.com', 'manual']);
+    expect(reconcilePraccSchedule(both, [], feedUrl, now).schedule).toHaveLength(2);
+  });
+
   it('resolves non-IANA TZIDs through the feed and keeps all-day dates unshifted', () => {
     const feed = ['BEGIN:VCALENDAR', 'X-WR-TIMEZONE:Europe/Berlin',
       'BEGIN:VTIMEZONE', 'TZID:W. Europe Standard Time', 'X-LIC-LOCATION:Europe/Berlin', 'END:VTIMEZONE',
