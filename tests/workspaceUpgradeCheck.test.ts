@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { contentSummary } from '../scripts/workspace-upgrade-check.mts';
+import { aggregateBuildSummary, contentSummary, DERIVED_FIELDS, upgradeFailures } from '../scripts/workspace-upgrade-check.mts';
 
 const state = () => ({
   matches: [{ id: 'm2', map: 'Bind', opponent: 'Synthetic B' }, { id: 'm1', map: 'Ascent', opponent: 'Synthetic A' }],
@@ -32,5 +32,51 @@ describe('workspace upgrade check', () => {
 
   it('prints no row values', () => {
     expect(JSON.stringify(contentSummary(state()))).not.toMatch(/Synthetic|Ascent|Bind/);
+  });
+
+  const snapshots = (read: (state: any) => any) => {
+    const base = state(); (base.matches[1] as any).roundAnalytics = { stale: true }; (base.playerStats[0] as any).screenshotMetrics = { calculationVersion: 'old' };
+    const summary = contentSummary(base);
+    return { stored: summary, before: summary, afterFile: summary, firstRead: contentSummary(read(structuredClone(base))), secondRead: contentSummary(read(structuredClone(base))), afterRead: contentSummary(read(structuredClone(base))) };
+  };
+
+  it('accepts server reads that rebuild or withhold derived aggregates consistently', () => {
+    const rebuilt = snapshots(copy => { copy.matches[1].roundAnalytics = { rebuilt: 1 }; delete copy.playerStats[0].screenshotMetrics; return copy; });
+    expect(upgradeFailures(rebuilt)).toEqual([]);
+  });
+
+  it('fails when derived aggregates differ between reads, naming the field', () => {
+    let call = 0;
+    const unstable = snapshots(copy => { copy.matches[1].roundAnalytics = { rebuilt: call++ }; return copy; });
+    expect(upgradeFailures(unstable)).toEqual([
+      'second 0.2.0 read vs first: matches.contentSha256 changed (fields: roundAnalytics)',
+      'read after save vs first: matches.contentSha256 changed (fields: roundAnalytics)',
+    ]);
+  });
+
+  it('fails when a read changes a source field, naming only that field', () => {
+    const drifted = snapshots(copy => { copy.matches[1].roundAnalytics = { rebuilt: 1 }; copy.matches[0].map = 'Haven'; return copy; });
+    const failures = upgradeFailures(drifted);
+    expect(failures).toContain('first 0.2.0 read: matches.sourceContentSha256 changed (fields: map)');
+    expect(JSON.stringify(failures)).not.toMatch(/Haven|Bind|Synthetic/);
+  });
+
+  it('compares the migrated file exactly, derived aggregates included', () => {
+    const base = snapshots(copy => copy);
+    const migrated = structuredClone(state()); (migrated.matches[1] as any).roundAnalytics = { stale: false }; (migrated.playerStats[0] as any).screenshotMetrics = { calculationVersion: 'old' };
+    expect(upgradeFailures({ ...base, afterFile: contentSummary(migrated) })).toEqual(['migrated file: matches.contentSha256 changed (fields: roundAnalytics)']);
+  });
+
+  it('treats exactly the two server-rebuilt aggregates as derived', () => {
+    expect(Object.fromEntries(Object.entries(DERIVED_FIELDS).map(([name, fields]) => [name, [...fields].sort()]))).toEqual({ matches: ['roundAnalytics'], rounds: [], playerStats: ['screenshotMetrics'] });
+    // Any other field a read changes is a source change.
+    const drifted = snapshots(copy => { copy.playerStats[0].kills = 99; return copy; });
+    expect(upgradeFailures(drifted)).toContain('first 0.2.0 read: playerStats.sourceContentSha256 changed (fields: kills)');
+  });
+
+  it('explains withheld screenshot metrics with counts only', () => {
+    const summary = aggregateBuildSummary({ matches: [{ id: 'm1', date: '2026-10-14', type: 'Scrim', map: 'Ascent', source: 'manual' }], rounds: [], playerStats: [{ id: 's1', matchId: 'm1', player: 'Synthetic A', screenshotMetrics: { schemaVersion: 1 } }] });
+    expect(summary).toEqual({ matchBuilds: { 'source-unavailable:missing-round-evidence': 1 }, screenshotMetrics: { 'withheld:match-source-unavailable': 1 }, storedScreenshotMetrics: 1 });
+    expect(JSON.stringify(summary)).not.toMatch(/Synthetic|Ascent/);
   });
 });
