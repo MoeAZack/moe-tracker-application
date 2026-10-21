@@ -362,8 +362,14 @@ Deferred (recorded, not fixed in H3):
 Repair role-specific surfaces, evidence correction, navigation, plain-language
 labels, and coherent coach/player review workflows.
 
-Status: OPEN (21 Oct 2026, Africa/Cairo). The earlier "READY locally" claim
-did not survive the re-audit. Re-audit blockers:
+Status: PASSED (21 Oct 2026, Africa/Cairo) after #91 (merged as `57b40f0`;
+`VERIFY 927e2d1 — PASS`) and #92 (merged as `c70c800`; `VERIFY fb014d7 —
+PASS`). Independent verification: 973/973 tests, 8 of 8 mutations caught,
+`test:a11y` 12/12 surfaces with 0 blocking, and `test:release-ui` with 0
+blocking at 100/125/150/200% zoom and in forced colors (3 of 3 runs; 1 on
+`main` before #92). The new audit fails on a `main` build at the Back check.
+The earlier "READY locally" claim did not survive the re-audit. Re-audit
+blockers (all fixed):
 
 - Hash routes use `replaceState`, so Back does not work.
 - Replay and Coach Workspace drop the selected round.
@@ -372,7 +378,7 @@ did not survive the re-audit. Re-audit blockers:
 - The fusion panel shows raw JSON.
 - Accessibility gates cover only the login and summary surfaces.
 
-Re-audit fixes (awaiting verification):
+Re-audit fixes (verified):
 
 - Tab and match changes push a history entry; round steps replace. Back and
   Forward are read from `popstate`/`hashchange` without writing a new entry
@@ -459,7 +465,7 @@ Pin and verify bundled runtimes, exercise desktop IPC journeys, produce a signed
 Windows candidate, and pass clean install, upgrade, rollback, updater, and release
 acceptance on the exact candidate head.
 
-Status: NOT STARTED (21 Oct 2026, Africa/Cairo); opens after H4 passes. The
+Status: OPEN (21 Oct 2026, Africa/Cairo). The
 earlier "READY as a local 0.2 release candidate" claim did not survive the
 re-audit. 0.2.0 is not tagged or released until H0-H5 all pass, and no public
 installer ships without the owner's explicit permission. Re-audit blockers:
