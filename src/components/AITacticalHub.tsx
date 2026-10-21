@@ -883,7 +883,7 @@ export default function AITacticalHub({ data, theme, onUpsert, onRemove }: Compo
               const prevHs = headshotRate(prev);
 
               const rec = kpiRecommendation(p, curr, prev, minimumSamples);
-              const throwsDiff = curr.throws - prev.throws;
+              const throwsDiff = curr.throws !== null && prev.throws !== null ? curr.throws - prev.throws : null;
 
               return (
                 <div className="grid grid-cols-1 lg:grid-cols-12 gap-6 items-start">
@@ -952,15 +952,17 @@ export default function AITacticalHub({ data, theme, onUpsert, onRemove }: Compo
                       <div className="flex justify-between items-end">
                         <div className="space-y-0.5">
                           <span className="text-[9px] text-gray-500 font-mono block">Previous Period</span>
-                          <span className="text-sm font-black font-mono text-gray-400">{prev.throws} thrown rounds</span>
+                          <span className="text-sm font-black font-mono text-gray-400">{prev.throws ?? 'Unknown'} thrown rounds</span>
                         </div>
                         <div className="text-right space-y-0.5">
                           <span className="text-[9px] text-[#ff4655] font-mono block font-black">Current Period</span>
-                          <span className="text-xl font-black font-mono text-white">{curr.throws} thrown rounds</span>
+                          <span className="text-xl font-black font-mono text-white">{curr.throws ?? 'Unknown'} thrown rounds</span>
                         </div>
                       </div>
                       <div className="flex items-center gap-1.5 text-[10px] font-mono mt-1">
-                        {throwsDiff <= 0 ? (
+                        {throwsDiff === null ? (
+                          <span className="text-gray-500 font-bold">Round logs needed in both periods</span>
+                        ) : throwsDiff <= 0 ? (
                           <span className="text-green-400 flex items-center gap-1 font-bold">↗ Disciplined: {throwsDiff === 0 ? 'No change' : `${throwsDiff} fewer throws`}</span>
                         ) : (
                           <span className="text-red-400 flex items-center gap-1 font-bold">Risk trend: +{throwsDiff} critical round throws</span>

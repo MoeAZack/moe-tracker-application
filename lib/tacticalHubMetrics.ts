@@ -4,10 +4,12 @@ import { knownTotal, publishRate, type MetricPublication } from './metricTrust';
 
 /** One player's period totals. A count is null unless every row in the period carries it. */
 export interface PeriodMetrics extends PlayerEvidenceAccumulator {
-  rows: number; kills: number | null; deaths: number | null; clutchesWon: number | null; clutchesAttempted: number | null; throws: number; firstDeaths: number;
+  rows: number; kills: number | null; deaths: number | null; clutchesWon: number | null; clutchesAttempted: number | null;
+  /** Round-log counts: null when the period has no round evidence at all. */
+  throws: number | null; firstDeaths: number | null;
 }
 
-export const emptyPeriodMetrics = (): PeriodMetrics => ({ rows: 0, kills: null, deaths: null, clutchesWon: null, clutchesAttempted: null, throws: 0, firstDeaths: 0, ...emptyPlayerEvidence() });
+export const emptyPeriodMetrics = (): PeriodMetrics => ({ rows: 0, kills: null, deaths: null, clutchesWon: null, clutchesAttempted: null, throws: null, firstDeaths: null, ...emptyPlayerEvidence() });
 
 export function buildPeriodMetrics(rows: readonly PlayerStats[], rounds: readonly Round[], matchIds: ReadonlySet<string>, keys: Iterable<string>, rowKey: (row: PlayerStats) => string, nameKey: (name: string) => string): Record<string, PeriodMetrics> {
   const grouped = new Map<string, PlayerStats[]>([...keys].map(key => [key, []]));
@@ -20,10 +22,11 @@ export function buildPeriodMetrics(rows: readonly PlayerStats[], rounds: readonl
     for (const row of playerRows) addPlayerEvidence(item, row);
     metrics[key] = item;
   }
-  for (const round of rounds) {
-    if (!matchIds.has(round.matchId)) continue;
-    if ((round.isThrow === 'TRUE' || round.isThrow === 'true') && round.thrownBy) { const item = metrics[nameKey(round.thrownBy)]; if (item) item.throws += 1; }
-    if (round.firstDeathBy) { const item = metrics[nameKey(round.firstDeathBy)]; if (item) item.firstDeaths += 1; }
+  const periodRounds = rounds.filter(round => matchIds.has(round.matchId));
+  if (periodRounds.length) for (const item of Object.values(metrics)) { item.throws = 0; item.firstDeaths = 0; }
+  for (const round of periodRounds) {
+    if ((round.isThrow === 'TRUE' || round.isThrow === 'true') && round.thrownBy) { const item = metrics[nameKey(round.thrownBy)]; if (item) item.throws! += 1; }
+    if (round.firstDeathBy) { const item = metrics[nameKey(round.firstDeathBy)]; if (item) item.firstDeaths! += 1; }
   }
   return metrics;
 }
@@ -47,10 +50,10 @@ export function kpiRecommendation(player: string, curr: PeriodMetrics, prev: Per
   const currUntraded = gatedUntradedRate(curr, minimumSamples); const prevUntraded = gatedUntradedRate(prev, minimumSamples);
   const currClutch = rounded(clutchPublication(curr, minimumSamples)); const prevClutch = rounded(clutchPublication(prev, minimumSamples));
   const untradedDiff = currUntraded !== null && prevUntraded !== null ? currUntraded - prevUntraded : null;
-  if (curr.throws > 1 && currUntraded !== null && currUntraded > 35) return { focus: '⚠️ Tactical Discipline & Spacing', text: `${player} is currently showing spacing vulnerabilities with an un-traded death rate of ${currUntraded}% and ${curr.throws} critical round throws this period. Focus heavily on discipline drills, avoidance of solo entries without flashing utility, and locking down cross-fires rather than chasing dry kills.`, severity: 'high' };
+  if (curr.throws !== null && curr.throws > 1 && currUntraded !== null && currUntraded > 35) return { focus: '⚠️ Tactical Discipline & Spacing', text: `${player} is currently showing spacing vulnerabilities with an un-traded death rate of ${currUntraded}% and ${curr.throws} critical round throws this period. Focus heavily on discipline drills, avoidance of solo entries without flashing utility, and locking down cross-fires rather than chasing dry kills.`, severity: 'high' };
   if (currClutch !== null && currClutch < 40) return { focus: '🔥 Clutch Efficiency & Calm Play', text: `${player} is struggling to convert active clutch rounds, winning only ${currClutch}% (${curr.clutchesWon}/${curr.clutchesAttempted}) of clutches this period${prevClutch === null ? '' : ` (${prevClutch}% last period)`}. Work on slow-retake simulated scenarios, timing defuse half-ticks, and isolated 1v1 fights under high pressure.`, severity: 'medium' };
   if (untradedDiff !== null && untradedDiff > 5) return { focus: '🛡️ Team Spacing & Trade Spacing', text: `${player}'s un-traded death rate rose by ${untradedDiff}% this period. This indicates they are getting isolated on flanks or during site pushes without team follow-up. Prioritize close spacing during executions and holding passive default angles.`, severity: 'medium' };
-  if (curr.firstDeaths > 4 && curr.kills !== null && curr.deaths !== null && curr.deaths > 0 && curr.kills / curr.deaths < 1.0) return { focus: '🎯 Entry Pathing & Angles Selection', text: `${player} is logging high first deaths (${curr.firstDeaths}) relative to active fragging power. Refine initial site-entry pathing, coordinate with Initiator scouting flashes, and practice pre-aiming common defensive standard holds.`, severity: 'medium' };
+  if (curr.firstDeaths !== null && curr.firstDeaths > 4 && curr.kills !== null && curr.deaths !== null && curr.deaths > 0 && curr.kills / curr.deaths < 1.0) return { focus: '🎯 Entry Pathing & Angles Selection', text: `${player} is logging high first deaths (${curr.firstDeaths}) relative to active fragging power. Refine initial site-entry pathing, coordinate with Initiator scouting flashes, and practice pre-aiming common defensive standard holds.`, severity: 'medium' };
   if (currClutch === null || currUntraded === null) return { focus: 'Not enough evidence', text: `${player} does not yet have ${minimumSamples} complete samples for clutch and trade evidence this period, so no coaching focus is published.`, severity: 'unavailable' };
   return { focus: '🟢 Tactical Mastery & Mechanical Synergy', text: `${player} has displayed solid tactical compliance and stable metrics this period. Their clutch efficiency (${currClutch}%) and spacing remain strong. Maintain active calling and continue perfecting agent-specific utility sets in custom drills.`, severity: 'low' };
 }

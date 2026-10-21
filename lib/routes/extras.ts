@@ -20,6 +20,20 @@ export function prepareShareableImport(current: Record<string, any>, payload: Re
 
 // Backup/restore, AI coach match analysis + setup generation, and Discord broadcast.
 // Protected routes registered after the auth middleware.
+/** A value the AI coach sees: a known count, or "unknown" — never a fabricated 0. */
+const promptValue = (value: unknown, suffix = '') => typeof value === 'number' && Number.isFinite(value) ? `${value}${suffix}` : 'unknown';
+
+export function coachPromptPlayerLine(s: Record<string, any>) {
+  return `- ${s.player} (Agent: ${s.agent || 'unknown'}): ${promptValue(s.kills)}K / ${promptValue(s.deaths)}D / ${promptValue(s.assists)}A. ACS: ${promptValue(s.acs)}, ADR: ${promptValue(s.adr)}, HS%: ${promptValue(s.hs, '%')}, First Bloods: ${promptValue(s.fk)}, First Deaths: ${promptValue(s.fd)}, Clutches: ${promptValue(s.cl)}, Traded Deaths: ${promptValue(s.dTraded)}`;
+}
+
+export function coachPromptResultLine(match: Record<string, any>) {
+  const sides = [match.attW, match.attL, match.defW, match.defL];
+  const known = sides.every(value => typeof value === 'number' && Number.isFinite(value));
+  const score = typeof match.ourScore === 'number' && typeof match.theirScore === 'number' ? `${match.ourScore} - Their Score ${match.theirScore}` : known ? `${match.attW + match.defW} - Their Score ${match.attL + match.defL}` : 'unknown - Their Score unknown';
+  return `Result: Our Score ${score} (Attack Wins: ${promptValue(match.attW)}, Attack Losses: ${promptValue(match.attL)}, Defense Wins: ${promptValue(match.defW)}, Defense Losses: ${promptValue(match.defL)})`;
+}
+
 export function registerExtraRoutes(app: Express) {
   // Shareable export only. Private recovery backups use the cron/internal backup
   // service and are never serialized by this route.
@@ -88,13 +102,13 @@ Map: ${match.map}
 Opponent: ${match.opponent}
 Type: ${match.type}
 Date: ${match.date}
-Result: Our Score ${match.attW + match.defW} - Their Score ${match.attL + match.defL} (Attack Wins: ${match.attW}, Attack Losses: ${match.attL}, Defense Wins: ${match.defW}, Defense Losses: ${match.defL})
+${coachPromptResultLine(match)}
 Pistols: Attack Pistol: ${match.pistolAtt || 'N/A'}, Defense Pistol: ${match.pistolDef || 'N/A'}
 Ecos: Attack Eco: ${match.ecoAtt || 'N/A'}, Defense Eco: ${match.ecoDef || 'N/A'}
 Bonus: Attack Bonus: ${match.bonusAtt || 'N/A'}, Defense Bonus: ${match.bonusDef || 'N/A'}
 
 [PLAYER STATS]
-${stats.map((s: any) => `- ${s.player} (Agent: ${s.agent}): ${s.kills}K / ${s.deaths}D / ${s.assists}A. ACS: ${s.acs || 'N/A'}, ADR: ${s.adr || 'N/A'}, HS%: ${s.hs || 'N/A'}%, First Bloods: ${s.fk || 0}, First Deaths: ${s.fd || 0}, Clutches: ${s.cl || 0}, Traded Deaths: ${s.dTraded || 0}`).join('\n')}
+${stats.map(coachPromptPlayerLine).join('\n')}
 
 [ROUND BY ROUND LOG]
 ${rounds.map((r: any) => `Round ${r.roundNo} (${r.side}): Result: ${r.result}, Win Reason: ${r.winBy || 'N/A'}, Planted: ${r.plant === true || String(r.plant).toUpperCase() === 'TRUE' ? 'Yes' : r.plant === false || String(r.plant).toUpperCase() === 'FALSE' ? 'No' : 'Unknown'} (Site: ${r.site || 'N/A'}). Economy: Our Buy: ${r.buy || 'N/A'} vs Enemy Buy: ${r.enemyBuy || 'N/A'}. First Kill: ${r.firstKillBy || 'N/A'}, First Death: ${r.firstDeathBy || 'N/A'}. Throw? ${r.isThrow === 'TRUE' || r.isThrow === true ? `YES (by ${r.thrownBy || 'N/A'}, Reason: ${r.throwReason || 'N/A'})` : r.isThrow === 'FALSE' || r.isThrow === false ? 'No' : 'Unknown'}. IGL Caller: ${r.iglPlayer || 'N/A'} (${r.iglRole || 'Caller'}). Mid-round calling change: ${r.midRoundIglChange === true || r.midRoundIglChange === 'TRUE' ? 'Yes' : r.midRoundIglChange === false || r.midRoundIglChange === 'FALSE' ? 'No' : 'Unknown'}. Strategies Run: ${r.strategies || 'None'}. Notes: ${r.notes || 'None'}`).join('\n')}

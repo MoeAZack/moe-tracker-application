@@ -10,6 +10,7 @@ import { personalTotals } from '../src/components/Dashboard';
 import { agentProficiency, buildPeriodMetrics, kpiRecommendation } from '../lib/tacticalHubMetrics';
 import { buildTryoutComparison } from '../lib/tryoutComparison';
 import { refreshCoachingWorkflow } from '../lib/routes/coaching';
+import { coachPromptPlayerLine, coachPromptResultLine } from '../lib/routes/extras';
 
 // Synthetic rows only.
 const match = (id: string, extra: Record<string, unknown> = {}) => ({ id, date: '2026-10-10', map: 'Ascent', ourScore: 13, theirScore: 9, ...extra });
@@ -198,5 +199,22 @@ describe('unknown never becomes zero in coach surfaces', () => {
     db.rounds[2].result = 'L';
     refreshCoachingWorkflow(db, 'coach', '2026-10-18T16:00:00Z');
     expect(db.coachingSignals.some((item: any) => item.type === 'full-buy-loss')).toBe(false);
+  });
+
+  it('tells the AI coach a missing count is unknown, not 0', () => {
+    const line = coachPromptPlayerLine({ player: 'Alpha', agent: 'Sova', kills: 20, deaths: 10, assists: 5 });
+    expect(line).toContain('First Bloods: unknown, First Deaths: unknown, Clutches: unknown, Traded Deaths: unknown');
+    expect(line).not.toMatch(/: 0\b/);
+    expect(coachPromptPlayerLine({ player: 'Alpha', agent: 'Sova', kills: 20, deaths: 10, assists: 5, fk: 0, fd: 2, cl: 1, dTraded: 3 })).toContain('First Bloods: 0, First Deaths: 2, Clutches: 1, Traded Deaths: 3');
+    expect(coachPromptResultLine({ ourScore: 13, theirScore: 9 })).toContain('Our Score 13 - Their Score 9 (Attack Wins: unknown');
+    expect(coachPromptResultLine({})).not.toContain('NaN');
+  });
+
+  it('keeps AI hub throws and first deaths unknown when the period has no round logs', () => {
+    const rows: any[] = [{ id: 'a', matchId: 'm1', playerId: 'p1', kills: 20, deaths: 10 }];
+    const none = buildPeriodMetrics(rows, [], new Set(['m1']), ['player:p1'], row => `player:${row.playerId}`, name => name)['player:p1'];
+    expect(none).toMatchObject({ throws: null, firstDeaths: null });
+    const logged = buildPeriodMetrics(rows, [{ id: 'r1', matchId: 'm1', roundNo: 1 } as any], new Set(['m1']), ['player:p1'], row => `player:${row.playerId}`, name => name)['player:p1'];
+    expect(logged).toMatchObject({ throws: 0, firstDeaths: 0 });
   });
 });
