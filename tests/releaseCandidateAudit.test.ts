@@ -47,11 +47,12 @@ describe('release candidate signature policy', () => {
 
   it('falls back to Windows PowerShell only when pwsh is not installed', () => {
     const enoent = { status: null, stdout: '', stderr: '', error: Object.assign(new Error('spawnSync pwsh ENOENT'), { code: 'ENOENT' }) };
-    const ok = { status: 0, stdout: JSON.stringify({ path: files[0], status: 'NotSigned', subject: null }), stderr: '' };
+    const records = files.map(file => ({ path: file, status: 'NotSigned', subject: null }));
+    const ok = { status: 0, stdout: JSON.stringify(records), stderr: '' };
     const calls: string[] = [];
     const spawn = (responses: Record<string, object>) => (shell: string) => { calls.push(shell); return responses[shell]; };
 
-    expect(inspectAuthenticode('a.ps1', files, spawn({ pwsh: enoent, 'powershell.exe': ok }))).toEqual({ signatures: [{ path: files[0], status: 'NotSigned', subject: null }], inspectionError: null });
+    expect(inspectAuthenticode('a.ps1', files, spawn({ pwsh: enoent, 'powershell.exe': ok }))).toEqual({ signatures: records, inspectionError: null });
     expect(calls).toEqual(['pwsh', 'powershell.exe']);
 
     // A pwsh that starts and fails is reported, never retried with another shell.
@@ -61,6 +62,17 @@ describe('release candidate signature policy', () => {
 
     expect(inspectAuthenticode('a.ps1', files, spawn({ pwsh: enoent, 'powershell.exe': enoent }))).toEqual({ signatures: [], inspectionError: 'no PowerShell found (pwsh, powershell.exe)' });
     expect(inspectAuthenticode('a.ps1', files, spawn({ pwsh: { status: 0, stdout: 'not json', stderr: '' } })).inspectionError).toBe('pwsh: unreadable output');
+  });
+
+  it('fails the inspection on output that is not one known-status record per file', () => {
+    const run = (stdout: unknown) => inspectAuthenticode('a.ps1', files, () => ({ status: 0, stdout: JSON.stringify(stdout), stderr: '' })).inspectionError;
+    const records = files.map(file => ({ path: file, status: 'NotSigned', subject: null }));
+    expect(run(records)).toBeNull();
+    // What Windows PowerShell 5.1 printed for the old script: one record holding both paths.
+    expect(run([{ path: { value: files, Count: 2 }, status: 'System.Object[]', subject: null }])).toBe('pwsh: expected 2 signature records, got 1');
+    expect(run([records[0], { ...records[1], path: { value: [files[1]], Count: 1 } }])).toMatch(/expected one signature record for .*Moe Tracker Application\.exe, got 0/);
+    expect(run([records[0], records[0]])).toMatch(/got 2/);
+    expect(run([records[0], { ...records[1], status: 'System.Object[]' }])).toMatch(/unknown signature status/);
   });
 
   it.skipIf(process.platform === 'win32')('fails the signed audit run off Windows instead of passing it', () => {
