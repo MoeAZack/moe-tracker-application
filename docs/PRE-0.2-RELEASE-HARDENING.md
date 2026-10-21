@@ -83,9 +83,11 @@ Re-audit gate result (20 Oct 2026): #84 head `a4d8bb7` passed 138 test files /
 Move large replay/VOD/analytics evidence out of the active aggregate payload, add
 retention and capacity telemetry, and prove a 100-match season plus archive/restore.
 
-Status: RE-AUDIT FIXES IN REVIEW (20 Oct 2026, Africa/Cairo). The re-audit
-reopened six H1 items; all six are fixed on the H1 re-audit PR and wait on
-exact-head CI and owner verification.
+Status: PASSED (20 Oct 2026, Africa/Cairo) after the re-audit fixes in #85.
+The owner verified e1f0c11 against the installed database (round trip, a
+124 KB active index, crafted-reference rejection, externalized
+`roundAnalytics`, remote GC and D1 batching, restore over a lost artifact,
+and index-only backup restore) and both CI jobs passed on that head.
 
 Contract:
 
@@ -154,7 +156,13 @@ not in the committed ledger and are left in place.
 Fix and prove YouTube/local VOD handoff, cleanup, normalized frame selection,
 controlled OCR learning, capture behavior, spatial coordinates, and the real corpus.
 
-Status: READY locally. Exact-head CI is the final merge gate.
+Status: RE-AUDIT FIXES IN REVIEW (20 Oct 2026, Africa/Cairo). The re-audit
+found 2 of 12 items fixed. The code-only items below are fixed on the H2
+re-audit PR. The corpus regressions were reproduced on the owner's private
+corpus and traced to the scoreboard row offset and tint-normalized portrait
+distance (agents), the team-colour score mask (one session's score) and the
+removed K/D/A confidence floor (three assist cells). The corpus run now matches
+0.1.15 with no wrong cells; H2 passes on owner review of the re-audit PR.
 
 Contract:
 
@@ -171,8 +179,38 @@ Contract:
 - Automatic capture may collect a small overtime tail, but printed round numbers
   reconcile duplicate tiles before acceptance. Explicit round-count captures
   still require the exact requested count.
+- Capture runs with ordinary Windows rights; elevation is requested only when
+  the coach marks VALORANT as running as administrator. The standalone
+  launcher defaults to automatic round detection.
+- A resumed VOD job continues its original job, work directory and checkpoints,
+  and a resumed download is still deleted once integrated. A failed resume
+  never deletes the retained source.
+- Discovery replies name candidate frames instead of inlining every 1080p PNG;
+  the renderer reads them one at a time.
+- Without a linked scoreboard, kill-feed rows with one of our players count as
+  eliminations against an unresolved opponent (never a roster identity).
+  Timeline reconciliation is complete only when every player row was checked.
+- OCR learning accepts captures saved through the review path, and cached
+  extractions are invalidated when a learned alias changes the roster.
+- Name-only roster entries match screenshot names again.
+- PRACC feeds resolve TZIDs through their VTIMEZONE and X-WR-TIMEZONE data,
+  keep all-day dates unshifted, time out after 15 s, and concurrent syncs share
+  one run that writes once to a fresh read.
+- Two rifles beside pistols classify as a half buy; the Bandit is a pistol.
 - Normalized map coordinates remain bounded to 0..1. Raw VALORANT world-space
   coordinates may be negative and are calibrated before spatial analysis.
+- Final scoreboard portraits are matched on the calibrated grid with plain
+  colour error; the separator row offset never moves the portrait crop. The
+  final score cells use the plain threshold, and a joined K/D/A line below
+  confidence 70 leaves kills, deaths and assists unknown.
+- Capture FD comes from each round's opening kill on either team and is kept
+  only when every round's first death is attributed to exactly one of the ten
+  scoreboard rows, so it sums to the round count; otherwise every row's FD
+  stays unknown.
+- `tests/fixtures/capture-ground-truth.json` `rowLabels` lists cells that must
+  stay unknown unless the true value is read;
+  `node scripts/ocr-row-label-check.mjs <backtest-out-dir>` fails a run that
+  fills one wrongly.
 
 Acceptance evidence:
 
@@ -184,6 +222,20 @@ Acceptance evidence:
   frame normalization, three-game boundary selection, controlled OCR learning,
   negative world coordinates, automatic capture deduplication, and capture
   ground truth have behavior coverage.
+- Private 15-session corpus (`Scrim-20261014-*`, headless harness, no roster,
+  no learning store), run on the owner's PC; screenshots never leave it.
+  Baseline 0.1.15 (`d685d56`): 141/150 agents. Before the fix (`b6f964d`):
+  130/150, one score half unknown, three wrong assist cells. At `4c63469`:
+  141/150, every agent, score and round identical to 0.1.15, the three
+  labelled portraits unknown; the three assist cells were still wrong and are
+  fixed by the K/D/A confidence floor. At `8a4bdd9` agents, scores, rounds and
+  every K/D/A cell matched 0.1.15; FD was filled in 8 sessions that 0.1.15
+  left unknown with sums of 8-14 against 18-32 rounds, fixed by the
+  attribution rule above. At `4349259` (VERIFY PASS, 21 Oct 2026): agents
+  141/150, every score, round and K/D/A cell identical to 0.1.15, and the
+  labelled cells unknown. FD filled in 8 sessions with ΣFD = ΣFK = round
+  count, identical across re-captures of the same game; FD stays unknown in
+  the other 7. The OCR side of H2 has no wrong cells on this corpus.
 
 ## H3 — Metric trust
 

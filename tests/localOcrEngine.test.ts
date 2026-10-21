@@ -301,6 +301,18 @@ describe('local screenshot OCR engine foundation', () => {
     expect(draft.stats[1]).toMatchObject({ kills: null, deaths: null, assists: null, rawMetrics: { kda: '12 8 4' } });
   });
 
+  it('leaves K/D/A unknown when the joined line is below the confidence floor', () => {
+    // Corpus case: a 16 / 19 / 1 cell read at confidence 0 as 16/19/9.
+    const recognitions = Array.from({ length: 10 }, (_, row) => [
+      { regionId: `player.${row}.name`, text: `Player ${row}`, confidence: 90 },
+      { regionId: `player.${row}.kda`, text: row === 5 ? '16/19/9' : row === 6 ? '14/18/8' : '10/10/1', confidence: row === 5 ? 0 : row === 6 ? 58 : 90 },
+    ]).flat();
+    const draft = parseLocalScoreboardRecognitions(recognitions, { capturedAt: '2026-10-14T13:33:31.000Z', rosterPlayers: [] });
+    expect(draft.stats[5]).toMatchObject({ kills: null, deaths: null, assists: null, rawMetrics: { kda: '16/19/9' } });
+    expect(draft.stats[6]).toMatchObject({ kills: null, deaths: null, assists: null });
+    expect(draft.stats[0]).toMatchObject({ kills: 10, deaths: 10, assists: 1 });
+  });
+
   it('builds the accepted standard post-match scoreboard geometry at the supplied resolution', () => {
     const profile = createValorantEndScreenProfile(1839, 821);
     expect(profile).toMatchObject({ id: 'valorant-post-match-scoreboard-v1', status: 'accepted', dimensions: { width: 1839, height: 821 } });

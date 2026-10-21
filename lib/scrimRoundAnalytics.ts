@@ -48,6 +48,9 @@ export function classifyTeamEquipment(players: ReadonlyArray<{ team?: string; eq
   const pistols = weapons.filter(weapon => PISTOLS.some(name => weapon.includes(name))).length;
   if (full >= 3) return 'full';
   if (full + low >= 3) return full ? 'half' : 'low';
+  // Two rifles beside pistols is a split buy, not a low one: the band follows
+  // what the team actually bought, with the Bandit counted as the pistol it is.
+  if (full >= 2) return 'half';
   if (pistols >= 3) return pistols === weapons.length ? 'eco' : 'low';
   return 'unknown';
 }

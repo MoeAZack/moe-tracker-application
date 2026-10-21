@@ -19,7 +19,7 @@ const { canonical, refreshScreenshotOutboxFromData } = require('./sync-outbox.cj
 const { hasRecentRecoveryBackup } = require('./recovery-backup.cjs');
 const { isTrustedSenderUrl, sessionIsFresh } = require('./session-security.cjs');
 const { loginCredentials } = require('./session-credentials.cjs');
-const { analyzeVodTimeline, discoverVodGames, releaseVodSource, createReviewClips } = require('./vod-timeline-analyzer.cjs');
+const { analyzeVodTimeline, discoverVodGames, releaseVodSource, createReviewClips, readVodFrame } = require('./vod-timeline-analyzer.cjs');
 const { createIngestionJob, updateIngestionJob: evolveIngestionJob, recoverInterruptedJobs, publicIngestionJob } = require('./ingestion-jobs.cjs');
 
 let mainWindow;
@@ -39,6 +39,9 @@ let runtime;
 let updateController;
 let quitting = false;
 const approvedVodPaths = new Set();
+// Retained sources reopened by desktop:resume-vod-job, keyed by path, so the next
+// discovery continues the same job, directory and cleanup policy.
+const resumedVodJobs = new Map();
 
 // Keep Windows taskbar/notification identity aligned with the owl-branded
 // executable instead of inheriting an older Electron/VALORANT-style cache.
@@ -117,13 +120,13 @@ async function ensureRuntime() {
       cloudUrl: 'https://moetracker-site.pages.dev',
       extraReplayFolders: [],
       capturePaused: false,
-      capturePreferences: { profile: 'fullscreen-windowed', display: 'primary', notification: 'open-review', offlineQueue: true },
+      capturePreferences: { profile: 'fullscreen-windowed', display: 'primary', notification: 'open-review', offlineQueue: true, elevated: false },
       createdAt: new Date().toISOString(),
     };
   }
   protectConfigSecrets(config);
   config.capturePaused = config.capturePaused === true;
-  config.capturePreferences = { profile: 'fullscreen-windowed', display: 'primary', notification: 'open-review', offlineQueue: true, ...(config.capturePreferences || {}) };
+  config.capturePreferences = { profile: 'fullscreen-windowed', display: 'primary', notification: 'open-review', offlineQueue: true, elevated: false, ...(config.capturePreferences || {}) };
   if (!config.deviceId) {
     config.deviceId = `desktop-${crypto.randomUUID()}`;
   }
@@ -635,18 +638,24 @@ handleTrusted('desktop:resume-vod-job', async (_event, jobId) => {
   const job = (await readIngestionJobs()).find(item => item.id === String(jobId || ''));
   if (!job || !job.resumable || !job.sourcePath) throw new Error('This VOD job has no retained source to restart from.');
   const sourcePath = path.resolve(job.sourcePath); const stat = await fsp.stat(sourcePath).catch(() => null); if (!stat?.isFile()) { await updateIngestionJob(job.id, { status: 'failed', resumable: false, retainedSource: false, message: 'The retained video is no longer available.' }); throw new Error('The retained video is no longer available on this PC.'); }
-  approvedVodPaths.add(sourcePath); await updateIngestionJob(job.id, { status: 'ready', stage: 'restart-ready', percent: 0, message: 'Retained source reopened from its checkpoint.' });
+  approvedVodPaths.add(sourcePath); const resumeCacheId = job.cacheId || job.checkpoint?.cacheId || null; const downloadedSource = job.source === 'youtube-vod';
+  // A download lives inside its own work directory; a coach's local VOD never
+  // does, so its frames go back to the job's work directory beside the others.
+  resumedVodJobs.set(sourcePath, { jobId: job.id, cacheId: resumeCacheId, downloaded: downloadedSource, directory: downloadedSource ? path.dirname(sourcePath) : resumeCacheId ? path.join(runtime.paths.local, 'Vod Analysis', `source-${resumeCacheId}`) : null });
+  await updateIngestionJob(job.id, { status: 'ready', stage: 'restart-ready', percent: 0, message: 'Retained source reopened from its checkpoint.' });
   return { path: sourcePath, name: path.basename(sourcePath), expectedGames: Number(job.expectedGames) || 1, vodUrl: String(job.vodUrl || '') };
 });
 handleTrusted('desktop:discover-vod-games', async (event, input = {}) => {
   const localPath = input.localPath ? path.resolve(String(input.localPath)) : null;
   if (localPath && !approvedVodPaths.has(localPath)) throw new Error('Choose the local VOD through Moe Tracker before analyzing it.');
-  const jobId = crypto.randomUUID(); await updateIngestionJob(jobId, { kind: 'discover-and-import', status: 'running', stage: 'preparing', percent: 0, source: localPath ? 'local-vod' : 'youtube-vod', sourcePath: localPath || undefined, vodUrl: String(input.vodUrl || '').trim(), expectedGames: input.expectedGames, mapNames: Array.isArray(input.mapNames) ? input.mapNames.slice(0, 50) : [], retainedSource: Boolean(localPath), resumable: false, checkpoint: localPath ? { stage: 'source-ready' } : null });
-  const progress = payload => { const update = { ...payload, jobId, source: localPath ? 'local-vod' : 'youtube-vod', status: 'running' }; if (!event.sender.isDestroyed()) { event.sender.send('desktop:vod-analysis-progress', update); event.sender.send('desktop:ingestion-progress', update); } void updateIngestionJob(jobId, { status: 'running', stage: payload.stage, percent: payload.percent, message: payload.message, checkpoint: { stage: payload.stage, percent: payload.percent } }).catch(() => {}); };
+  const resumed = localPath ? resumedVodJobs.get(localPath) || null : null; if (resumed) resumedVodJobs.delete(localPath);
+  const source = resumed?.downloaded || !localPath ? 'youtube-vod' : 'local-vod';
+  const jobId = resumed?.jobId || crypto.randomUUID(); await updateIngestionJob(jobId, { kind: 'discover-and-import', status: 'running', stage: 'preparing', percent: 0, source, sourcePath: localPath || undefined, vodUrl: String(input.vodUrl || '').trim(), expectedGames: input.expectedGames, mapNames: Array.isArray(input.mapNames) ? input.mapNames.slice(0, 50) : [], retainedSource: Boolean(localPath), resumable: Boolean(resumed), checkpoint: localPath ? { stage: 'source-ready' } : null });
+  const progress = payload => { const update = { ...payload, jobId, source, status: 'running' }; if (!event.sender.isDestroyed()) { event.sender.send('desktop:vod-analysis-progress', update); event.sender.send('desktop:ingestion-progress', update); } void updateIngestionJob(jobId, { status: 'running', stage: payload.stage, percent: payload.percent, message: payload.message, checkpoint: { stage: payload.stage, percent: payload.percent } }).catch(() => {}); };
   const jobKey = event.sender.id; if (activeVodAnalyses.has(jobKey)) throw new Error('A VOD analysis is already running in this window.');
   const controller = new AbortController(); activeVodAnalyses.set(jobKey, controller); activeIngestionControllers.set(jobId, controller);
   try {
-    const result = await discoverVodGames({ vodUrl: String(input.vodUrl || '').trim(), localPath, expectedGames: input.expectedGames, mapNames: Array.isArray(input.mapNames) ? input.mapNames.slice(0, 50).map(item => String(item || '').slice(0, 100)) : [] }, { progress, signal: controller.signal, workRoot: path.join(runtime.paths.local, 'Vod Analysis') });
+    const result = await discoverVodGames({ vodUrl: String(input.vodUrl || '').trim(), localPath, expectedGames: input.expectedGames, mapNames: Array.isArray(input.mapNames) ? input.mapNames.slice(0, 50).map(item => String(item || '').slice(0, 100)) : [] }, { progress, signal: controller.signal, workRoot: path.join(runtime.paths.local, 'Vod Analysis'), resume: resumed?.directory ? resumed : null });
     approvedVodPaths.add(path.resolve(result.file));
     discoveredVodSources.set(result.cacheId, { directory: result.directory, file: result.file, downloaded: result.downloaded, videoId: result.videoId, durationMs: result.durationMs, sourceSha256: result.sourceSha256, owner: event.sender.id, createdAt: Date.now(), jobId });
     // Candidate frames are intentionally numerous so OCR has several chances to
@@ -654,6 +663,11 @@ handleTrusted('desktop:discover-vod-games', async (event, input = {}) => {
     await updateIngestionJob(jobId, { status: 'ready', stage: 'detected', percent: 100, cacheId: result.cacheId, videoId: result.videoId, sourcePath: result.file, retainedSource: true, resumable: true, checkpoint: { stage: 'detected', cacheId: result.cacheId }, expectedGames: input.expectedGames, detectedGames: result.boundaries?.length || 0 });
     const { directory: _directory, file: _file, downloaded: _downloaded, sourceSha256: _sourceSha256, ...publicResult } = result; return { ...publicResult, jobId };
   } catch (error) { await updateIngestionJob(jobId, { status: controller.signal.aborted ? 'cancelled' : 'failed', stage: 'failed', message: String(error?.message || error) }); throw error; } finally { activeVodAnalyses.delete(jobKey); activeIngestionControllers.delete(jobId); }
+});
+handleTrusted('desktop:read-vod-frame', async (event, input = {}) => {
+  const cached = discoveredVodSources.get(String(input?.cacheId || ''));
+  if (!cached || cached.owner !== event.sender.id) throw new Error('The detected VOD session expired. Detect the games again.');
+  return readVodFrame(cached.directory, input?.frame);
 });
 handleTrusted('desktop:analyze-vod', async (event, input = {}) => {
   const players = Array.isArray(input.players) ? input.players.slice(0, 10).map(item => ({ name: String(item?.name || '').trim().slice(0, 100), team: item?.team === 'theirs' ? 'theirs' : 'ours', expectedKills: Number.isInteger(item?.expectedKills) && item.expectedKills >= 0 ? item.expectedKills : null, expectedDeaths: Number.isInteger(item?.expectedDeaths) && item.expectedDeaths >= 0 ? item.expectedDeaths : null })).filter(item => item.name) : [];
@@ -709,7 +723,7 @@ handleTrusted('desktop:set-capture-preferences', async (_event, input = {}) => {
   const profile = ['fullscreen', 'fullscreen-windowed', 'windowed'].includes(input.profile) ? input.profile : runtime.config.capturePreferences.profile;
   const display = /^(primary|display:\d{1,2})$/.test(String(input.display || '')) ? String(input.display) : runtime.config.capturePreferences.display;
   const notification = ['open-review', 'notify-only', 'silent'].includes(input.notification) ? input.notification : runtime.config.capturePreferences.notification;
-  runtime.config.capturePreferences = { profile, display, notification, offlineQueue: input.offlineQueue !== false }; await saveRuntimeConfig(); return runtime.config.capturePreferences;
+  runtime.config.capturePreferences = { profile, display, notification, offlineQueue: input.offlineQueue !== false, elevated: input.elevated === true }; await saveRuntimeConfig(); return runtime.config.capturePreferences;
 });
 handleTrusted('desktop:disconnect-device', async () => { delete runtime.config.cloudPairing; delete runtime.config.identity; runtime.config.mode = 'offline-first'; runtime.config.role = 'coach'; runtime.session = null; runtime.coachSession = null; await saveRuntimeConfig(); return { disconnected: true }; });
 handleTrusted('desktop:list-scoreboards', async () => (await allPendingScoreboards()).map(({ file: _privatePath, capture: privateCapture, ...record }) => ({ ...record, capture: privateCapture ? { captureId: privateCapture.captureId, template: privateCapture.template, requestedRounds: privateCapture.requestedRounds } : null })));
@@ -748,7 +762,12 @@ handleTrusted('desktop:start-scrim-capture', async (_event, input = {}) => {
   const launcher = path.join(applicationRoot(), 'scripts', 'start-scrim-capture.cmd');
   if (!path.isAbsolute(launcher) || !fs.existsSync(launcher)) throw new Error('The built-in capture helper is missing. Reinstall Moe Tracker.');
   captureActivity = { state: 'capturing', startedAt: Date.now() };
-  const command = "$process = Start-Process -FilePath $env:MOE_CAPTURE_LAUNCHER -Verb RunAs -ArgumentList @($env:MOE_CAPTURE_ROUNDS, 'elevated', $env:MOE_CAPTURE_PROFILE, $env:MOE_CAPTURE_DISPLAY) -PassThru; if (-not $process) { exit 1 }";
+  // Ordinary rights by default: a UAC prompt on every capture is only needed
+  // when VALORANT itself runs as administrator, which the coach opts into.
+  const elevated = runtime.config.capturePreferences.elevated === true;
+  const command = elevated
+    ? "$process = Start-Process -FilePath $env:MOE_CAPTURE_LAUNCHER -Verb RunAs -ArgumentList @($env:MOE_CAPTURE_ROUNDS, 'elevated', $env:MOE_CAPTURE_PROFILE, $env:MOE_CAPTURE_DISPLAY) -PassThru; if (-not $process) { exit 1 }"
+    : "$process = Start-Process -FilePath $env:MOE_CAPTURE_LAUNCHER -ArgumentList @($env:MOE_CAPTURE_ROUNDS, 'standard', $env:MOE_CAPTURE_PROFILE, $env:MOE_CAPTURE_DISPLAY) -PassThru; if (-not $process) { exit 1 }";
   await new Promise((resolve, reject) => {
     const child = spawn('powershell.exe', ['-NoProfile', '-NonInteractive', '-ExecutionPolicy', 'Bypass', '-Command', command], {
       windowsHide: true,
@@ -760,7 +779,7 @@ handleTrusted('desktop:start-scrim-capture', async (_event, input = {}) => {
     child.on('error', error => { captureActivity = null; reject(error); });
     child.on('exit', code => { if (code === 0) resolve(); else { captureActivity = null; reject(new Error(stderr.trim() || 'Windows did not start the capture helper.')); } });
   });
-  return { started: true, message: `Capture started${roundCount ? ` for ${roundCount} rounds` : ' with automatic round detection'}. Approve Windows elevation, then return to VALORANT before the countdown ends.` };
+  return { started: true, message: `Capture started${roundCount ? ` for ${roundCount} rounds` : ' with automatic round detection'}. ${elevated ? 'Approve Windows elevation, then return' : 'Return'} to VALORANT before the countdown ends.` };
 });
 handleTrusted('desktop:delete-replay', async (event, replayPath) => {
   requireTrustedSender(event);

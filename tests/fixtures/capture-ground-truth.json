@@ -29,5 +29,13 @@
       ],
       "notes": "Manually labelled against all 22 timeline tiles. Displayed-round verification guards against stale/repeated clicks."
     }
+  ],
+  "rowLabels": [
+    { "captureId": "Scrim-20261014-101834", "row": 0, "field": "agent", "acceptable": [null, "Jett"], "notes": "Same portrait as row 3. The tint-normalized portrait distance read Deadlock." },
+    { "captureId": "Scrim-20261014-101834", "row": 1, "field": "agent", "acceptable": [null, "Sova"], "notes": "The tint-normalized portrait distance read Neon." },
+    { "captureId": "Scrim-20261014-103350", "row": 9, "field": "agent", "acceptable": [null, "KAY/O", "Iso"], "notes": "Helmeted agent, not Sage. The tint-normalized portrait distance read Sage." },
+    { "captureId": "Scrim-20261014-153331", "row": 5, "field": "kills", "acceptable": [null, 16], "notes": "Cell reads 16 / 19 / 1; the joined K/D/A recognition had confidence 0." },
+    { "captureId": "Scrim-20261014-153331", "row": 5, "field": "deaths", "acceptable": [null, 19], "notes": "Cell reads 16 / 19 / 1; the joined K/D/A recognition had confidence 0." },
+    { "captureId": "Scrim-20261014-153331", "row": 5, "field": "assists", "acceptable": [null, 1], "notes": "The confidence-0 joined line parsed as 16/19/9. Never 9." }
   ]
 }

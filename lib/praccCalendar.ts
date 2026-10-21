@@ -8,6 +8,8 @@ export type PraccCalendarEvent = {
   startsAt: Date;
   endsAt?: Date;
   allDay: boolean;
+  /** Calendar date (YYYY-MM-DD) of an all-day event, never shifted by a timezone. */
+  allDayDate?: string;
   cancelled: boolean;
 };
 
@@ -51,31 +53,56 @@ function zonedWallClock(parts: number[], timeZone: string) {
   return new Date(guess);
 }
 
-function parseIcsDate(property: string, value: string) {
+function validTimeZone(value: string) {
+  try { new Intl.DateTimeFormat('en-US', { timeZone: value }); return true; } catch { return false; }
+}
+
+/** Resolves an event TZID through the feed's own VTIMEZONE definitions and
+ * X-WR-TIMEZONE, so non-IANA ids (for example Windows names) still convert. */
+function resolveTimeZone(tzid: string | undefined, zones: Map<string, string>, calendarZone: string | undefined) {
+  const candidates = [tzid, tzid ? zones.get(tzid) : undefined, tzid?.replace(/^\//, ''), tzid ? undefined : calendarZone, tzid ? undefined : 'Africa/Cairo'];
+  return candidates.find((value): value is string => !!value && validTimeZone(value)) || null;
+}
+
+function parseIcsDate(property: string, value: string, zones: Map<string, string> = new Map(), calendarZone?: string) {
   const dateOnly = /^\d{8}$/.test(value);
   const match = /^(\d{4})(\d{2})(\d{2})(?:T(\d{2})(\d{2})(\d{2})?(Z)?)?$/.exec(value);
   if (!match) throw calendarError(`PRACC returned an unsupported calendar date: ${value}`, 422);
   const parts = match.slice(1, 7).map(part => Number(part || 0));
   if (match[7]) return { date: new Date(Date.UTC(parts[0], parts[1] - 1, parts[2], parts[3], parts[4], parts[5])), allDay: false };
-  const tzid = /(?:^|;)TZID=([^;:]+)/i.exec(property)?.[1]?.replace(/^"|"$/g, '') || 'Africa/Cairo';
-  try { return { date: zonedWallClock(parts, tzid), allDay: dateOnly || /VALUE=DATE/i.test(property) }; }
-  catch { throw calendarError(`PRACC returned an unsupported calendar timezone: ${tzid}`, 422); }
+  const allDay = dateOnly || /VALUE=DATE(?:;|:|$)/i.test(property);
+  if (allDay) return { date: new Date(Date.UTC(parts[0], parts[1] - 1, parts[2], 12)), allDay: true, allDayDate: `${match[1]}-${match[2]}-${match[3]}` };
+  const tzid = /(?:^|;)TZID=("[^"]+"|[^;:]+)/i.exec(property)?.[1]?.replace(/^"|"$/g, '');
+  const timeZone = resolveTimeZone(tzid, zones, calendarZone);
+  if (!timeZone) throw calendarError(`PRACC returned an unsupported calendar timezone: ${tzid}`, 422);
+  return { date: zonedWallClock(parts, timeZone), allDay: false };
 }
 
 export function parsePraccCalendar(text: string): PraccCalendarEvent[] {
   if (typeof text !== 'string' || !text.includes('BEGIN:VCALENDAR')) throw calendarError('PRACC did not return an iCalendar feed.', 422);
+  const lines = unfoldIcs(text);
+  // VTIMEZONE blocks map a feed-local TZID to an IANA location when they carry one.
+  const zones = new Map<string, string>(); let zoneId = ''; let inZone = false;
+  for (const line of lines) {
+    if (line === 'BEGIN:VTIMEZONE') { inZone = true; zoneId = ''; continue; }
+    if (line === 'END:VTIMEZONE') { inZone = false; continue; }
+    if (!inZone) continue;
+    if (/^TZID[:;]/i.test(line)) zoneId = line.slice(line.indexOf(':') + 1).trim();
+    else if (/^X-LIC-LOCATION[:;]/i.test(line) && zoneId) zones.set(zoneId, line.slice(line.indexOf(':') + 1).trim());
+  }
+  const calendarZone = lines.find(line => /^X-WR-TIMEZONE[:;]/i.test(line))?.replace(/^[^:]*:/, '').trim() || undefined;
   const events: PraccCalendarEvent[] = [];
   let current: Record<string, Array<{ property: string; value: string }>> | null = null;
-  for (const line of unfoldIcs(text)) {
+  for (const line of lines) {
     if (line === 'BEGIN:VEVENT') { current = {}; continue; }
     if (line === 'END:VEVENT') {
       if (!current) continue;
       const first = (key: string) => current?.[key]?.[0];
       const uid = unescapeIcs(first('UID')?.value || ''); const summary = unescapeIcs(first('SUMMARY')?.value || 'PRACC practice'); const start = first('DTSTART');
       if (uid && start) {
-        const parsedStart = parseIcsDate(start.property, start.value);
+        const parsedStart = parseIcsDate(start.property, start.value, zones, calendarZone);
         const end = first('DTEND');
-        events.push({ uid, title: summary.slice(0, 200), description: unescapeIcs(first('DESCRIPTION')?.value || '').slice(0, 5000) || undefined, location: unescapeIcs(first('LOCATION')?.value || '').slice(0, 500) || undefined, startsAt: parsedStart.date, endsAt: end ? parseIcsDate(end.property, end.value).date : undefined, allDay: parsedStart.allDay, cancelled: String(first('STATUS')?.value || '').toUpperCase() === 'CANCELLED' });
+        events.push({ uid, title: summary.slice(0, 200), description: unescapeIcs(first('DESCRIPTION')?.value || '').slice(0, 5000) || undefined, location: unescapeIcs(first('LOCATION')?.value || '').slice(0, 500) || undefined, startsAt: parsedStart.date, endsAt: end ? parseIcsDate(end.property, end.value, zones, calendarZone).date : undefined, allDay: parsedStart.allDay, ...(parsedStart.allDayDate ? { allDayDate: parsedStart.allDayDate } : {}), cancelled: String(first('STATUS')?.value || '').toUpperCase() === 'CANCELLED' });
       }
       current = null; continue;
     }
@@ -98,17 +125,27 @@ export function reconcilePraccSchedule(schedule: any[], events: PraccCalendarEve
       continue;
     }
     const start = cairoParts(event.startsAt); const endMs = event.endsAt?.getTime(); const durationMinutes = endMs && endMs > event.startsAt.getTime() ? Math.max(15, Math.min(720, Math.round((endMs - event.startsAt.getTime()) / 60_000))) : 60;
-    const importedFields = { date: `${start.year}-${start.month}-${start.day}`, primary: event.title || 'PRACC practice', secondary: event.location || '', notes: event.description || '', startTime: event.allDay ? '' : `${start.hour}:${start.minute}`, allDay: event.allDay, durationMinutes: event.allDay ? undefined : durationMinutes, source: 'pracc' as const, sourceEventId: event.uid, sourceCalendarHash: feedHash, calendarKey: 'practice' };
+    const importedFields = { date: event.allDayDate || `${start.year}-${start.month}-${start.day}`, primary: event.title || 'PRACC practice', secondary: event.location || '', notes: event.description || '', startTime: event.allDay ? '' : `${start.hour}:${start.minute}`, allDay: event.allDay, durationMinutes: event.allDay ? undefined : durationMinutes, source: 'pracc' as const, sourceEventId: event.uid, sourceCalendarHash: feedHash, calendarKey: 'practice' };
     if (index >= 0) { rows[index] = { ...rows[index], ...importedFields }; updated += 1; }
     else { rows.push({ id: crypto.randomUUID(), ...importedFields, attendance: {}, attendanceEnabled: false, requiredPlayerIds: [], attendanceCheckIns: [] }); imported += 1; }
   }
   return { schedule: rows, imported, updated, cancelled, total: events.filter(event => !event.cancelled).length };
 }
 
-export async function fetchPraccCalendar(feedUrl: string, fetchImpl: typeof fetch = fetch) {
+export const PRACC_FETCH_TIMEOUT_MS = 15_000;
+
+export async function fetchPraccCalendar(feedUrl: string, fetchImpl: typeof fetch = fetch, timeoutMs = PRACC_FETCH_TIMEOUT_MS) {
+  try { return await fetchPraccCalendarOnce(feedUrl, fetchImpl, AbortSignal.timeout(timeoutMs)); }
+  catch (error: any) {
+    if (error?.name === 'TimeoutError' || error?.name === 'AbortError') throw calendarError('PRACC did not answer in time. Try the sync again later.', 504);
+    throw error;
+  }
+}
+
+async function fetchPraccCalendarOnce(feedUrl: string, fetchImpl: typeof fetch, signal: AbortSignal) {
   let current = validatePraccCalendarUrl(feedUrl);
   for (let redirect = 0; redirect <= 3; redirect += 1) {
-    const response = await fetchImpl(current, { redirect: 'manual', headers: { accept: 'text/calendar, text/plain;q=0.9', 'user-agent': 'MoeTracker/0.1' } });
+    const response = await fetchImpl(current, { redirect: 'manual', signal, headers: { accept: 'text/calendar, text/plain;q=0.9', 'user-agent': 'MoeTracker/0.1' } });
     if (response.status >= 300 && response.status < 400) {
       const location = response.headers.get('location'); if (!location || redirect === 3) throw calendarError('PRACC redirected the calendar feed unexpectedly.', 502);
       current = validatePraccCalendarUrl(new URL(location, current).toString()); continue;

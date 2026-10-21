@@ -72,7 +72,7 @@ export function correctionSamplesFromAcceptedEdit(input: {
   if (!input.beforeMatch || !sourceIsOcr(input.beforeMatch)) return [];
   const recordedAt = input.recordedAt || new Date().toISOString();
   const captureId = input.beforeMatch.screenshotEvidence?.captureId || null;
-  const modelVersion = String(input.beforeMatch.sourceMetadata?.model || OCR_LEARNING_VERSION).replace(/\+(?:autonomous|review)-v\d+$/i, '');
+  const modelVersion = String(input.beforeMatch.sourceMetadata?.model || OCR_LEARNING_VERSION).replace(/\+(?:autonomous|review)(?:-v\d+)?$/i, '');
   const vodSource = input.beforeMatch.sourceMetadata?.method === 'vod-submission' || input.beforeMatch.source === 'vod-submission';
   const layout = input.beforeMatch.screenshotEvidence?.diagnostics?.layout || (vodSource ? 'vod-scoreboard' : 'unknown');
   const resolution = input.beforeMatch.screenshotEvidence?.diagnostics?.resolution || (vodSource ? 'video-source' : 'unknown');

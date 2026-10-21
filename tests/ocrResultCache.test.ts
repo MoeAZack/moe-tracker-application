@@ -17,6 +17,11 @@ describe('incremental OCR result cache', () => {
     expect(localScoreboardCacheKey({ ...base, extractorVersion: 'scoreboard-result/v3' })).not.toBe(key);
   });
 
+  it('re-runs extraction after a learned alias changes the roster projection', () => {
+    const base = { imageSha256: 'abc', rosterPlayers: [{ id: '1', displayName: 'Alpha' }] };
+    expect(localScoreboardCacheKey({ ...base, rosterPlayers: [{ id: '1', displayName: 'Alpha', aliases: ['A1pha'] }] })).not.toBe(localScoreboardCacheKey(base));
+  });
+
   it('keeps only the most recently used bounded entries', () => {
     const result = pruneOcrResultCache({ a: { usedAt: '2026-01-01T00:00:00Z' }, b: { usedAt: '2026-01-03T00:00:00Z' }, c: { usedAt: '2026-01-02T00:00:00Z' } }, 2);
     expect(Object.keys(result)).toEqual(['b', 'c']);
