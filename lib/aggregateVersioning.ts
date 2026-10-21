@@ -87,21 +87,53 @@ function record(matchId: string, status: AggregateBuildStatus, source: string | 
   return { schema: AGGREGATE_MIGRATION_SCHEMA, matchId, status, sourceHash: source, builders: [MAP_ROUND_BUILDER, PLAYER_SCREENSHOT_BUILDER], unknownReason };
 }
 
+/** The retained source a match's aggregates are built from, and its hash. Cheap: builds nothing. */
+function aggregateSource(container: AggregateContainer, matchId: string) {
+  const matches = (container.matches || []).filter(match => match.id === matchId);
+  if (matches.length !== 1) return { ok: false as const, build: record(matchId, 'duplicate-match-id', null, 'contradictory-match-identity') };
+  const match = matches[0];
+  if (!acceptedMatch(container, match)) return { ok: false as const, build: record(matchId, 'draft-excluded', null, 'unaccepted-evidence') };
+  const rounds = sourceRows(container, match);
+  if (!rounds.length) return { ok: false as const, build: record(matchId, 'source-unavailable', null, 'missing-round-evidence') };
+  const stats = (container.playerStats || []).filter(row => row.matchId === matchId); const resolutions = (container.evidenceFusionResolutions || []).filter(item => item.matchId === matchId);
+  return { ok: true as const, match, rounds, stats, digest: sourceHash(match, rounds, stats, resolutions) };
+}
+
+/**
+ * The publication rule for stored screenshot metrics, for every server-side
+ * reader of the store: a metric counts only when the current builder made it
+ * from the match's current accepted source. Anything else (a 0.1.x value, a
+ * value kept because its name-only evidence cannot be rebuilt, a value whose
+ * source changed since) is left in storage but reads as unknown.
+ */
+export function withCurrentScreenshotMetrics<T extends AggregateContainer>(container: T): T {
+  const digests = new Map<string, string | null>();
+  const current = (matchId: string) => {
+    if (!digests.has(matchId)) { const source = aggregateSource(container, matchId); digests.set(matchId, source.ok ? source.digest : null); }
+    return digests.get(matchId);
+  };
+  return {
+    ...container,
+    playerStats: (container.playerStats || []).map(stat => {
+      const metric = stat.screenshotMetrics as (PlayerStats['screenshotMetrics'] & { sourceHash?: string }) | undefined;
+      if (!metric) return stat;
+      if (metric.calculationVersion === PLAYER_SCREENSHOT_BUILDER && metric.sourceHash && metric.sourceHash === current(stat.matchId)) return stat;
+      const { screenshotMetrics: _withheld, ...sourceOnly } = stat;
+      return sourceOnly as typeof stat;
+    }),
+  };
+}
+
 /**
  * Rebuild one accepted match only from retained source rows. Stored aggregates
  * are never used as input. Unlinked identities are deliberately not matched by
  * name during migration.
  */
 export function recomputeAcceptedMatchAggregates(container: AggregateContainer, matchId: string): AggregateBuildRecord {
-  const matches = (container.matches || []).filter(match => match.id === matchId);
-  if (matches.length !== 1) return record(matchId, 'duplicate-match-id', null, 'contradictory-match-identity');
-  const match = matches[0];
-  if (!acceptedMatch(container, match)) return record(matchId, 'draft-excluded', null, 'unaccepted-evidence');
-  const rounds = sourceRows(container, match);
-  if (!rounds.length) return record(matchId, 'source-unavailable', null, 'missing-round-evidence');
-
-  const stats = (container.playerStats || []).filter(row => row.matchId === matchId); const resolutions = (container.evidenceFusionResolutions || []).filter(item => item.matchId === matchId);
-  const digest = sourceHash(match, rounds, stats, resolutions); const replayRecord = container.engineAdapters?.replay?.[matchId]; const fusion = buildEvidenceFusionReport(container as any, matchId, replayRecord);
+  const source = aggregateSource(container, matchId);
+  if (!source.ok) return source.build;
+  const { match, rounds, stats, digest } = source;
+  const replayRecord = container.engineAdapters?.replay?.[matchId]; const fusion = buildEvidenceFusionReport(container as any, matchId, replayRecord);
   const resolvedRounds = structuredClone(rounds); const mutableFields = new Set(['result', 'side', 'buy', 'enemyBuy', 'plant', 'site', 'firstKillBy', 'firstDeathBy']);
   for (const fusedRound of fusion.rounds) { const target = resolvedRounds.find(round => round.id === fusedRound.roundId) as any; if (!target) continue; for (const fact of fusedRound.facts) if (fact.resolved && mutableFields.has(fact.field)) target[fact.field] = structuredClone(fact.value); }
   const cleanMatch = { ...match, roundAnalytics: undefined };
@@ -137,7 +169,7 @@ export function recomputeAcceptedMatchAggregates(container: AggregateContainer, 
   }
   const build = record(matchId, 'recomputed', digest, null);
   build.intelligence = { schema: 'moetracker.match-intelligence/v1', fusion, economy: buildContextualWeaponOutcomes({ ...(container as any), rounds: resolvedRounds }, new Set([matchId])), spatial: buildSpatialReport(replayRecord, container.settings?.mapCalibrations), calculatedAtSourceHash: digest };
-  container.calibratedPlayerRatings = buildCalibratedPlayerRatings(container as any);
+  container.calibratedPlayerRatings = buildCalibratedPlayerRatings(withCurrentScreenshotMetrics(container) as any);
   return build;
 }
 

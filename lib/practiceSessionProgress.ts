@@ -36,7 +36,8 @@ export function confidentMatchesForSession(session: Pick<Schedule, 'date' | 'pri
   return practiceMatchSuggestions(session, matches).filter(item => item.confidence === 'confident').map(item => item.match);
 }
 
-export function linkPracticeSession(db: any, input: { scheduleId: string; matchIds: string[]; goalIds?: string[]; name?: string }, actor: string, now = new Date().toISOString()) {
+/** `progressView` lets the server read progress through its screenshot-metric publication gate. */
+export function linkPracticeSession(db: any, input: { scheduleId: string; matchIds: string[]; goalIds?: string[]; name?: string }, actor: string, now = new Date().toISOString(), progressView: (data: any) => any = data => data) {
   const session = (db.schedule || []).find((item: any) => item.id === input.scheduleId);
   if (!session) throw Object.assign(new Error('Practice session was not found.'), { status: 404 });
   const matchIds = [...new Set(input.matchIds || [])];
@@ -46,7 +47,7 @@ export function linkPracticeSession(db: any, input: { scheduleId: string; matchI
   if (goalIds.some(id => !knownGoals.has(id))) throw Object.assign(new Error('Practice session contains an unknown goal.'), { status: 400 });
   const block = savePracticeBlock(db, { ...(session.practiceBlockId ? { id: session.practiceBlockId } : {}), name: input.name?.trim() || session.primary || `Practice · ${session.date}`, matchIds }, actor, now);
   Object.assign(session, { practiceBlockId: block.id, linkedGoalIds: goalIds, progressLinkedAt: now, progressLinkedBy: actor });
-  return { session, block, progress: practiceSessionProgress(db, session.id, now) };
+  return { session, block, progress: practiceSessionProgress(progressView(db), session.id, now) };
 }
 
 export function practiceSessionProgress(data: Pick<TrackerData, 'schedule' | 'practiceBlocks' | 'matches' | 'playerStats' | 'rounds' | 'rosterPlayers' | 'settings' | 'goals' | 'coachingSignals'>, scheduleId: string, now = new Date().toISOString()) {

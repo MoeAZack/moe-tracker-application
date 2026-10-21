@@ -23,7 +23,7 @@ import { historicalPlayerLabel, mergeAcceptedPlayerStat, preserveIdentitySnapsho
 import { replayScreenshotReconciliation } from '../ocrLearning';
 import { buildIdentityResolver, identityOcrKey } from '../identityResolver';
 import { deriveRoundAdvantage } from '../roundAdvantage';
-import { recomputeAcceptedMatchAggregates } from '../aggregateVersioning';
+import { recomputeAcceptedMatchAggregates, withCurrentScreenshotMetrics } from '../aggregateVersioning';
 import { refreshCoachingWorkflow } from './coaching';
 
 const REPLAY_TYPE = 'application/vnd.valorant.replay';
@@ -782,9 +782,9 @@ export function registerReplayDeviceUploadRoute(app: Express) {
       // Cursor is "<updatedAt>|<itemId>" (a bare timestamp from older clients
       // is accepted). Ordering by (updatedAt, id) means items that share a
       // timestamp are neither skipped nor re-sent across pages.
-      const sinceRaw = String(req.query.since || ''); const [sinceStamp, sinceId = ''] = sinceRaw.split('|'); const since = sinceStamp && Number.isFinite(Date.parse(sinceStamp)) ? Date.parse(sinceStamp) : 0; const db = authenticated.db;
+      const sinceRaw = String(req.query.since || ''); const [sinceStamp, sinceId = ''] = sinceRaw.split('|'); const since = sinceStamp && Number.isFinite(Date.parse(sinceStamp)) ? Date.parse(sinceStamp) : 0; const db = authenticated.db; const publishedStats = withCurrentScreenshotMetrics(db).playerStats || [];
       const accepted = Object.values(db.engineAdapters?.replay || {}).filter((record: any) => record?.status === 'accepted' && Date.parse(record.updatedAt || record.acceptedAt || 0) >= since).map((record: any) => { const matchId = String(record.matchId); const updatedAt = String(record.updatedAt || record.acceptedAt); return { id: `accepted:${matchId}:${record.revision || 1}`, kind: 'accepted-match', updatedAt, revision: Number(record.revision || 1), replaySha256: record.provenance?.replaySha256 || null, match: (db.matches || []).find((item: any) => item.id === matchId) || null, playerStats: (db.playerStats || []).filter((item: any) => item.matchId === matchId), rounds: (db.rounds || []).filter((item: any) => item.matchId === matchId), replay: record }; });
-      const screenshotItems = Object.values(db.engineAdapters?.screenshot || {}).filter((record: any) => record?.status === 'accepted' && Date.parse(record.updatedAt || 0) >= since).map((record: any) => { const matchId = String(record.matchId); return { id: `accepted-screenshot:${matchId}:${record.revision || 1}`, kind: 'accepted-screenshot-summary', updatedAt: String(record.updatedAt), revision: Number(record.revision || 1), match: (db.matches || []).find((item: any) => item.id === matchId) || null, playerStats: (db.playerStats || []).filter((item: any) => item.matchId === matchId && item.screenshotMetrics), screenshot: record }; });
+      const screenshotItems = Object.values(db.engineAdapters?.screenshot || {}).filter((record: any) => record?.status === 'accepted' && Date.parse(record.updatedAt || 0) >= since).map((record: any) => { const matchId = String(record.matchId); return { id: `accepted-screenshot:${matchId}:${record.revision || 1}`, kind: 'accepted-screenshot-summary', updatedAt: String(record.updatedAt), revision: Number(record.revision || 1), match: (db.matches || []).find((item: any) => item.id === matchId) || null, playerStats: publishedStats.filter((item: any) => item.matchId === matchId && item.screenshotMetrics), screenshot: record }; });
       // Inclusive cursor (items sharing the cursor timestamp are re-sent and
       // de-duplicated by id on the device), so equal timestamps are never lost.
       const after = (item: any) => !sinceRaw || Date.parse(item.updatedAt) > since || (Date.parse(item.updatedAt) === since && String(item.id) > sinceId && sinceId !== '');
