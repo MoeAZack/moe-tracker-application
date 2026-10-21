@@ -1,6 +1,6 @@
 import crypto from 'crypto';
 import { assertWorkspaceIdentityShape } from './evidenceReference';
-import { migrateAcceptedMatchAggregates } from './aggregateVersioning';
+import { migrateAcceptedMatchAggregates, withCurrentScreenshotMetrics } from './aggregateVersioning';
 import { materializeFirstDeathsFromRoundEvidence, materializeRoundOpeningsFromScreenshotEvidence, materializeRoundPlantsFromScreenshotEvidence } from './scrimRoundAnalytics';
 import { ensureScheduleCalendars } from './schedule';
 import { buildAllPracticeBlockSummaries, migrateLegacyActionChecks } from './coachingWorkflow';
@@ -98,7 +98,7 @@ export function ensureStorageSchema(input: any, now = new Date().toISOString()) 
     if (!Array.isArray(input.attendanceCredits)) input.attendanceCredits = [];
     if (!Array.isArray(input.coachingSignals)) input.coachingSignals = [];
     if (!Array.isArray(input.coachingActions)) input.coachingActions = [];
-    input.coachingActions = migrateLegacyActionChecks(input.coachingActions, input.coachingSignals, 'storage-migration', now, buildAllPracticeBlockSummaries(input, now));
+    input.coachingActions = migrateLegacyActionChecks(input.coachingActions, input.coachingSignals, 'storage-migration', now, buildAllPracticeBlockSummaries(withCurrentScreenshotMetrics(input), now));
     if (!Array.isArray(input.vodSubmissions)) input.vodSubmissions = [];
     if (!Array.isArray(input.dashboardViews)) input.dashboardViews = [];
     if (!Array.isArray(input.evidenceFusionResolutions)) input.evidenceFusionResolutions = [];

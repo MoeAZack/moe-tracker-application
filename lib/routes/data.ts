@@ -8,7 +8,7 @@ import { preserveExistingRosterContext, validateAndNormalizeLineup } from '../ma
 import { parseIdentitySnapshotCorrection, preserveIdentitySnapshot } from '../identitySnapshot';
 import { applyImmutableEntryMetadata, applyScreenshotReviewConfirmation, reconcileStatTotals } from '../entryEngine';
 import { materializeFirstDeathsFromRoundEvidence, materializeRoundOpeningsFromScreenshotEvidence, materializeRoundPlantsFromScreenshotEvidence } from '../scrimRoundAnalytics';
-import { recomputeAcceptedMatchAggregates } from '../aggregateVersioning';
+import { recomputeAcceptedMatchAggregates, withCurrentScreenshotMetrics } from '../aggregateVersioning';
 import { attendancePolicy, attendanceStatus, attendanceSummary, attendanceWindow } from '../attendance';
 import { refreshCoachingWorkflow } from './coaching';
 import { purgeExpiredRosterPlayers } from '../roster';
@@ -56,7 +56,8 @@ export function registerDataRoutes(app: Express, options: { websiteSummaryOnly?:
   };
 
   const roundSaveResult = (db: any, matchId: string, replacement: any[], match: any) => {
-    const matchStats = db.playerStats.filter((item: any) => item.matchId === matchId);
+    // Stored metrics that are not current read as unknown here as everywhere else.
+    const matchStats = (withCurrentScreenshotMetrics(db).playerStats || []).filter((item: any) => item.matchId === matchId);
     const summarizedStats = matchStats.filter((item: any) => item.screenshotMetrics);
     return {
       matchId, rows: replacement, count: replacement.length,
@@ -361,7 +362,7 @@ export function registerDataRoutes(app: Express, options: { websiteSummaryOnly?:
       }
 
       if (sheet === 'Matches') {
-        db.calibratedPlayerRatings = buildCalibratedPlayerRatings(db);
+        db.calibratedPlayerRatings = buildCalibratedPlayerRatings(withCurrentScreenshotMetrics(db));
         refreshCoachingWorkflow(db, (req as any).user?.username || 'Unknown coach');
       }
       await saveDB(db);

@@ -3,7 +3,7 @@ import type { CoachingAction, CoachingSignal } from '../../src/types';
 import { buildAllPracticeBlockSummaries, coachingContextMatches, createCoachingAction, evaluateAction, generateReviewSignalDrafts, generateRoundReviewSignalDrafts, migrateLegacyActionChecks, normalizeDashboardView, reconcileReviewSignals, signalIdentity, transitionSignal } from '../coachingWorkflow';
 import { readDB, saveDB } from '../store';
 import { buildEvidenceFusionReport, upsertEvidenceResolution, type EvidenceSource } from '../evidenceFusion';
-import { recomputeAcceptedMatchAggregates } from '../aggregateVersioning';
+import { recomputeAcceptedMatchAggregates, withCurrentScreenshotMetrics } from '../aggregateVersioning';
 import { buildCoachingGoal } from '../coachingGoalLink';
 
 const actor = (req: Request) => String((req as any).user?.actorId || (req as any).user?.username || 'coach').slice(0, 120);
@@ -11,7 +11,7 @@ function requireCoach(req: Request, res: Response) { if ((req as any).user?.role
 function text(value: unknown, max = 160) { return typeof value === 'string' ? value.trim().slice(0, max) : ''; }
 
 export function refreshCoachingWorkflow(db: any, who = 'system', now = new Date().toISOString()) {
-  const summaries = buildAllPracticeBlockSummaries(db, now);
+  const summaries = buildAllPracticeBlockSummaries(withCurrentScreenshotMetrics(db), now);
   const deletedFingerprints = new Set<string>(db.settings?.deletedCoachingSignalFingerprints || []);
   const thresholds = { minimumSamples: db.settings?.stats?.lowSample || 15, ...(db.settings?.coachingThresholds || {}) };
   const drafts = [...summaries.flatMap(summary => generateReviewSignalDrafts(summary, thresholds)), ...generateRoundReviewSignalDrafts(db, summaries, now)].filter(draft => !deletedFingerprints.has(draft.fingerprint) && !deletedFingerprints.has(signalIdentity(draft)));
@@ -39,7 +39,7 @@ export function registerCoachingRoutes(app: Express) {
 
   app.get('/api/coaching', async (req, res) => {
     try {
-      const db = await readDB(); const summaries = buildAllPracticeBlockSummaries(db);
+      const db = await readDB(); const summaries = buildAllPracticeBlockSummaries(withCurrentScreenshotMetrics(db));
       const playerId = (req as any).user?.playerId || null; const coach = (req as any).user?.role === 'coach';
       const actions = (db.coachingActions || []).filter((item: CoachingAction) => coach || (item.visibility === 'team' && (!item.ownerIds.length || item.ownerIds.includes(playerId))));
       res.json({ summaries, signals: coach ? db.coachingSignals || [] : [], actions, views: coach ? db.dashboardViews || [] : [] });
@@ -119,7 +119,7 @@ export function registerCoachingRoutes(app: Express) {
 
   app.get('/api/coaching/blocks/:id/export', async (req, res) => {
     if (!requireCoach(req, res)) return;
-    try { const db = await readDB(); const summary = buildAllPracticeBlockSummaries(db).find(item => item.blockId === req.params.id); if (!summary) return res.status(404).json({ error: 'Practice block not found.' }); res.setHeader('Content-Disposition', `attachment; filename="${summary.blockId.replace(/[^a-z0-9_-]/gi, '-')}.json"`); res.json(summary); }
+    try { const db = await readDB(); const summary = buildAllPracticeBlockSummaries(withCurrentScreenshotMetrics(db)).find(item => item.blockId === req.params.id); if (!summary) return res.status(404).json({ error: 'Practice block not found.' }); res.setHeader('Content-Disposition', `attachment; filename="${summary.blockId.replace(/[^a-z0-9_-]/gi, '-')}.json"`); res.json(summary); }
     catch (error: any) { res.status(error.status || 500).json({ error: error.message }); }
   });
 }

@@ -76,5 +76,17 @@ describe('coaching workflow HTTP contract', () => {
     const player = await login(playerKey); const listing = await request(player, '/api/coaching'); expect((await listing.json()).actions).toEqual([]);
     const response = await request(player, `/api/coaching/actions/${action.id}/status`, { state: 'acknowledged' }); expect(response.status).toBe(403); expect(await response.json()).toEqual({ error: 'Players may acknowledge or start only their own team-visible actions.' });
   });
+  it('reads a stored 0.1.x screenshot metric as unknown in coaching summaries and round saves, and keeps it stored', async () => {
+    const db = fixture(); const stale = { schemaVersion: 1, calculationVersion: 'player-screenshot/v0', coveredRounds: 1, kast: { successful: 1, covered: 1 }, multikills: { two: 1, three: 0, four: 0, ace: 0 }, weapons: [] };
+    db.playerStats[0].screenshotMetrics = stale; await fs.writeFile(dbPath, JSON.stringify(db));
+    const coach = await login(adminKey);
+    const summaries = (await (await request(coach, '/api/coaching')).json()).summaries;
+    expect(summaries[0].roster[0]).toMatchObject({ multikills: null });
+    const saved = await request(coach, '/api/save-rounds', { matchId: 'm1', rows: db.rounds.filter((round: any) => round.matchId === 'm1') });
+    expect(saved.status).toBe(200);
+    const body = await saved.json();
+    expect(body.playerStats[0]).not.toHaveProperty('screenshotMetrics'); expect(body.screenshotSummary?.playerStats || []).toEqual([]);
+    expect(JSON.parse(await fs.readFile(dbPath, 'utf8')).playerStats[0].screenshotMetrics).toEqual(stale);
+  });
 });
 
