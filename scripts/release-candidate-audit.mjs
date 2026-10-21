@@ -3,7 +3,7 @@ import fs from 'node:fs';
 import path from 'node:path';
 import { execFileSync, spawnSync } from 'node:child_process';
 import { createRequire } from 'node:module';
-import { signatureFailures } from './release-candidate-signatures.mjs';
+import { inspectAuthenticode, signatureFailures } from './release-candidate-signatures.mjs';
 
 const { loadTrustedPublishers } = createRequire(import.meta.url)('../desktop/update-trust.cjs');
 
@@ -35,10 +35,7 @@ let inspectionError = null;
 const signatureFiles = [installer, path.join(root, 'release/win-unpacked/Moe Tracker Application.exe')];
 const publisherNames = loadTrustedPublishers();
 if (process.platform === 'win32' && signatureFiles.every(file => fs.existsSync(file))) {
-  const result = spawnSync('pwsh', ['-NoProfile', '-NonInteractive', '-File', path.join(root, 'scripts/authenticode-status.ps1'), '-FilesJson', JSON.stringify(signatureFiles)], { encoding: 'utf8' });
-  if (result.status !== 0) inspectionError = (result.stderr || result.error?.message || `exit ${result.status}`).trim();
-  else { try { signatures = JSON.parse(result.stdout || '[]'); } catch { inspectionError = 'unreadable output'; } }
-  if (!Array.isArray(signatures)) signatures = [signatures];
+  ({ signatures, inspectionError } = inspectAuthenticode(path.join(root, 'scripts/authenticode-status.ps1'), signatureFiles, spawnSync));
 } else if (process.platform === 'win32') inspectionError = 'candidate files are missing';
 const signingFailures = signatureFailures({ requireSigned, platform: process.platform, expectedFiles: signatureFiles, signatures, publisherNames, inspectionError });
 failures.push(...signingFailures);
