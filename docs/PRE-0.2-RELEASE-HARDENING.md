@@ -274,9 +274,11 @@ Acceptance evidence:
 One authority per metric, explicit unknown values, numerator/denominator/coverage,
 enforced sample gates, and experimental isolation for unvalidated composite scores.
 
-Status: IN REVIEW (21 Oct 2026, Africa/Cairo) in PR #89. The earlier
-"READY locally" claim did not survive the re-audit. All seven re-audit
-blockers have fixes with behaviour tests:
+Status: PASSED (21 Oct 2026, Africa/Cairo) after #89 (merged as `eaf3d22`;
+independent `VERIFY 64045e5 — PASS`: 954/954 tests, 15 of 16 mutations caught
+with the one survivor equivalent, 6/6 accessibility surfaces with no blocking
+violations). The earlier "READY locally" claim did not survive the re-audit.
+All seven re-audit blockers are fixed with behaviour tests:
 
 - KAST had 8 implementations and `metricTrust` had 2 consumers. KAST now has
   one implementation (`publishKast`, `playerRowKastEvidence`,
@@ -360,8 +362,8 @@ Deferred (recorded, not fixed in H3):
 Repair role-specific surfaces, evidence correction, navigation, plain-language
 labels, and coherent coach/player review workflows.
 
-Status: NOT STARTED (21 Oct 2026, Africa/Cairo); opens after H3 passes. The
-earlier "READY locally" claim did not survive the re-audit. Re-audit blockers:
+Status: OPEN (21 Oct 2026, Africa/Cairo). The earlier "READY locally" claim
+did not survive the re-audit. Re-audit blockers:
 
 - Hash routes use `replaceState`, so Back does not work.
 - Replay and Coach Workspace drop the selected round.
