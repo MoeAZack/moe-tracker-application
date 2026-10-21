@@ -67,6 +67,12 @@ export function correctionSamplesFromAcceptedEdit(input: {
   beforeStats: any[];
   nextMatch: any;
   nextStats: any[];
+  /**
+   * Scoreboard row (0-9) of each next row in beforeStats, when beforeStats is
+   * the OCR draft in scoreboard order. Only then are corrections tied to a
+   * screen region; a saved match's rows are not in scoreboard order.
+   */
+  nextScoreboardRows?: ReadonlyArray<number | null>;
   recordedAt?: string;
 }): OcrCorrectionSample[] {
   if (!input.beforeMatch || !sourceIsOcr(input.beforeMatch)) return [];
@@ -88,10 +94,14 @@ export function correctionSamplesFromAcceptedEdit(input: {
   const beforeByPlayer = new Map(input.beforeStats.filter(row => row?.playerId).map(row => [String(row.playerId), row]));
   input.nextStats.forEach((next, index) => {
     const playerId = next?.playerId ? String(next.playerId) : null;
-    const before = (playerId && beforeByPlayer.get(playerId)) || beforeByKey.get(rowKey(next, index)) || input.beforeStats[index];
+    const scoreboardRow = input.nextScoreboardRows?.[index];
+    const rowIndex = Number.isInteger(scoreboardRow) && scoreboardRow! >= 0 && scoreboardRow! < input.beforeStats.length ? scoreboardRow! : null;
+    const before = rowIndex !== null
+      ? input.beforeStats[rowIndex]
+      : (playerId && beforeByPlayer.get(playerId)) || beforeByKey.get(rowKey(next, index)) || input.beforeStats[index];
     if (!before) return;
-    add('name', before.displayNameSnapshot || before.player, next.displayNameSnapshot || next.player, playerId, index);
-    for (const field of ['agent', 'kills', 'deaths', 'assists', 'fk', 'fd', 'plants', 'defuses', 'trades'] as OcrLearningField[]) add(field, before[field], next[field], playerId, index);
+    add('name', before.displayNameSnapshot || before.player || before.extractedName, next.displayNameSnapshot || next.player, playerId, rowIndex);
+    for (const field of ['agent', 'kills', 'deaths', 'assists', 'fk', 'fd', 'plants', 'defuses', 'trades'] as OcrLearningField[]) add(field, before[field], next[field], playerId, rowIndex);
   });
   return samples;
 }

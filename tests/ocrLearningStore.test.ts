@@ -38,4 +38,19 @@ describe('OCR learning controls', () => {
     await store.resetOcrLearning();
     expect((await store.getOcrLearningState([{ id: 'p1', displayName: 'bellatrix' }])).corrections).toEqual([]);
   });
+
+  it('attaches learned aliases to the roster used for single-screenshot extraction', async () => {
+    vi.resetModules();
+    const store = await import('../src/utils/ocrLearningStore');
+    const sample = (id: string, captureId: string) => ({
+      id, captureId, matchId: captureId, playerId: 'p1', field: 'name' as const,
+      predicted: 'be11atrix', corrected: 'bellatrix', modelVersion: 'local-v1',
+      recordedAt: `2026-10-20T10:00:0${id}.000Z`, sourceRegion: 'player.0.name',
+    });
+    await store.recordOcrCorrections([sample('1', 'cap-1'), sample('2', 'cap-2')]);
+    const roster = await store.learnedExtractionRoster([{ id: 'p1', displayName: 'bellatrix' }, { displayName: 'no-id' }]);
+    expect(roster).toEqual([{ id: 'p1', displayName: 'bellatrix', aliases: ['be11atrix'] }, { displayName: 'no-id', aliases: [] }]);
+    store.setOcrLearningEnabled(false);
+    expect((await store.learnedExtractionRoster([{ id: 'p1', displayName: 'bellatrix' }]))[0].aliases).toEqual([]);
+  });
 });

@@ -129,7 +129,20 @@ export function reconcilePraccSchedule(schedule: any[], events: PraccCalendarEve
     if (index >= 0) { rows[index] = { ...rows[index], ...importedFields }; updated += 1; }
     else { rows.push({ id: crypto.randomUUID(), ...importedFields, attendance: {}, attendanceEnabled: false, requiredPlayerIds: [], attendanceCheckIns: [] }); imported += 1; }
   }
-  return { schedule: rows, imported, updated, cancelled, total: events.filter(event => !event.cancelled).length };
+  // An upcoming event that vanished from this feed was deleted in PRACC. Past
+  // rows stay (feeds drop history), as do rows with attendance or a practice
+  // block, and an empty feed removes nothing because it may be a bad fetch.
+  let removed = 0;
+  if (events.length) {
+    const uids = new Set(events.map(event => event.uid)); const today = cairoParts(now); const todayKey = `${today.year}-${today.month}-${today.day}`;
+    for (let index = rows.length - 1; index >= 0; index -= 1) {
+      const row = rows[index];
+      if (row?.source !== 'pracc' || row.sourceCalendarHash !== feedHash || uids.has(row.sourceEventId) || String(row.date || '') < todayKey) continue;
+      if ((row.attendanceCheckIns || []).length || (row.attendanceAudit || []).length || row.practiceBlockId) continue;
+      rows.splice(index, 1); removed += 1;
+    }
+  }
+  return { schedule: rows, imported, updated, cancelled: cancelled + removed, removed, total: events.filter(event => !event.cancelled).length };
 }
 
 export const PRACC_FETCH_TIMEOUT_MS = 15_000;

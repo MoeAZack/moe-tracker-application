@@ -7,7 +7,7 @@ import analyzerModule from '../desktop/vod-timeline-analyzer.cjs';
 import { boundaryTimelinePlayers } from '../src/components/VodSubmission';
 
 const { aggregateVideoEvidence, parseKillFeedSnapshot, parseUltimateSnapshots, parseRoundStateSnapshot, buildRoundTimeline, buildObserverSegments, applyVisualTemplates, fuseVodEvidence } = evidenceModule;
-const { normalizeYoutubeUrl, youtubeVideoId, frameDifference, visualSignature, scoreboardGeometryScore, agentSelectGeometryScore, chooseGameBoundaries, inferPovPlayer, analyzeVodTimeline, releaseVodSource, discoverVodGames, readVodFrame } = analyzerModule;
+const { sweepOrphanedVodDirectories, normalizeYoutubeUrl, youtubeVideoId, frameDifference, visualSignature, scoreboardGeometryScore, agentSelectGeometryScore, chooseGameBoundaries, inferPovPlayer, analyzeVodTimeline, releaseVodSource, discoverVodGames, readVodFrame, readOwnedVodFrame } = analyzerModule;
 const players = [
   { name: 'Alpha', team: 'ours' }, { name: 'Bravo', team: 'ours' }, { name: 'Charlie', team: 'ours' }, { name: 'Delta', team: 'ours' }, { name: 'Echo', team: 'ours' },
   { name: 'EnemyOne', team: 'theirs' }, { name: 'EnemyTwo', team: 'theirs' }, { name: 'EnemyThree', team: 'theirs' }, { name: 'EnemyFour', team: 'theirs' }, { name: 'EnemyFive', team: 'theirs' },
@@ -171,6 +171,32 @@ describe('VOD timeline evidence', () => {
     const localFile = path.join(root, 'coach.mp4'); await fs.writeFile(localFile, 'video'); await expect(releaseVodSource({ downloaded: false, directory: root, file: localFile }, true)).resolves.toBe(true); expect(await fs.readFile(localFile, 'utf8')).toBe('video'); await fs.rm(root, { recursive: true, force: true });
   });
 
+  it('removes a completed local VOD job frame folder but keeps the coach file', async () => {
+    const root = await fs.mkdtemp(path.join(os.tmpdir(), 'moe-vod-frames-')); const frames = path.join(root, 'source-frames'); await fs.mkdir(frames);
+    await fs.writeFile(path.join(frames, 'scoreboard-01.png'), 'png'); const localFile = path.join(root, 'coach.mp4'); await fs.writeFile(localFile, 'video');
+    await expect(releaseVodSource({ downloaded: false, directory: frames, file: localFile }, true)).resolves.toBe(true);
+    await expect(fs.stat(frames)).rejects.toThrow(); expect(await fs.readFile(localFile, 'utf8')).toBe('video');
+    const paused = path.join(root, 'source-paused'); await fs.mkdir(paused);
+    await expect(releaseVodSource({ downloaded: false, directory: paused, file: localFile }, false)).resolves.toBe(true); expect((await fs.stat(paused)).isDirectory()).toBe(true);
+    await fs.rm(root, { recursive: true, force: true });
+  });
+
+  it('sweeps work folders no restartable job references, including crashed downloads', async () => {
+    const root = await fs.mkdtemp(path.join(os.tmpdir(), 'moe-vod-sweep-'));
+    const id = (n: number) => `00000000-0000-4000-8000-00000000000${n}`;
+    for (const n of [1, 2, 3, 4]) await fs.mkdir(path.join(root, `source-${id(n)}`));
+    await fs.writeFile(path.join(root, 'jobs.json'), '[]'); await fs.mkdir(path.join(root, 'unrelated'));
+    const jobs = [
+      { status: 'paused', resumable: true, checkpoint: { stage: 'import-paused', cacheId: id(1) } },
+      { status: 'ready', cacheId: id(2), sourcePath: path.join(root, `source-${id(2)}`, 'vod.mp4') },
+      { status: 'failed', resumable: false, stage: 'source-unavailable', cacheId: id(3) },
+      { status: 'completed', cacheId: id(4) },
+    ];
+    expect((await sweepOrphanedVodDirectories(root, jobs)).sort()).toEqual([`source-${id(3)}`, `source-${id(4)}`]);
+    expect((await fs.readdir(root)).sort()).toEqual(['jobs.json', `source-${id(1)}`, `source-${id(2)}`, 'unrelated']);
+    await fs.rm(root, { recursive: true, force: true });
+  });
+
   it('reconciles as complete only when every player row was checked', () => {
     const scoreboard = (names: readonly string[]) => [{ timestampMs: 5_000, text: names.map(name => `${name} 0 0 0`).join('\n'), confidence: .9 }];
     const fiveRows = aggregateVideoEvidence({ players, scoreboardSnapshots: scoreboard(players.slice(0, 5).map(player => player.name)) });
@@ -198,6 +224,11 @@ describe('VOD timeline evidence', () => {
     const directory = await fs.mkdtemp(path.join(os.tmpdir(), 'moe-vod-frames-')); await fs.writeFile(path.join(directory, 'scoreboard-01.png'), 'png-bytes');
     await expect(readVodFrame(directory, 'scoreboard-01.png')).resolves.toEqual({ mediaType: 'image/png', base64: Buffer.from('png-bytes').toString('base64') });
     for (const frame of ['../scoreboard-01.png', 'vod.mp4', 'scoreboard-1.png']) await expect(readVodFrame(directory, frame)).rejects.toThrow('Unknown VOD frame.');
+    // Only the window that ran the discovery can read its frames.
+    const sources = new Map([['cache-1', { directory, owner: 7 }]]);
+    await expect(readOwnedVodFrame(sources, 7, { cacheId: 'cache-1', frame: 'scoreboard-01.png' })).resolves.toMatchObject({ mediaType: 'image/png' });
+    await expect(readOwnedVodFrame(sources, 8, { cacheId: 'cache-1', frame: 'scoreboard-01.png' })).rejects.toThrow('expired');
+    await expect(readOwnedVodFrame(sources, 7, { cacheId: 'cache-2', frame: 'scoreboard-01.png' })).rejects.toThrow('expired');
     await fs.rm(directory, { recursive: true, force: true });
   });
 

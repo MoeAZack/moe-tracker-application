@@ -243,8 +243,8 @@ export default function ScrimImport({ data, theme, onSaveMatch, onClose }: Props
         },
       };
 
-      const stats = players
-        .filter((p) => p.include && (p.matchedPlayerName || p.extractedName))
+      const savedRows = players.map((p, row) => ({ p, row })).filter(({ p }) => p.include && (p.matchedPlayerName || p.extractedName));
+      const stats = savedRows.map(({ p }) => p)
         .map((p) => {
           const linked = p.matchedPlayerId ? rosterPlayers.find(player => player.id === p.matchedPlayerId) : undefined;
           const activeCore = linked && (data.coreMemberships || []).some(member => member.playerId === linked.id && !member.endedAt);
@@ -271,7 +271,7 @@ export default function ScrimImport({ data, theme, onSaveMatch, onClose }: Props
       // Match, scoreboard and rounds are one server write: a rejected round set saves nothing.
       const result = await onSaveMatch(match, { operation: 'replace', stats }, roundRows);
       const saved = result?.match || result;
-      if (saved?.id && ocrBaseline) await recordOcrCorrections(correctionSamplesFromAcceptedEdit({ beforeMatch: { ...ocrBaseline.match, id: saved.id }, beforeStats: ocrBaseline.stats, nextMatch: { ...match, id: saved.id }, nextStats: stats }));
+      if (saved?.id && ocrBaseline) await recordOcrCorrections(correctionSamplesFromAcceptedEdit({ beforeMatch: { ...ocrBaseline.match, id: saved.id }, beforeStats: ocrBaseline.stats, nextMatch: { ...match, id: saved.id }, nextStats: stats, nextScoreboardRows: savedRows.map(({ row }) => row) }));
       if (pendingCaptureId && window.moeDesktop) await window.moeDesktop.completeScoreboard(pendingCaptureId);
       onClose();
     } catch (err: any) {
