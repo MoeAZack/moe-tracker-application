@@ -33,11 +33,34 @@ describe('private OCR learning', () => {
     const reviewMatch = (index: number) => ({ id: `m${index}`, source: 'scrim-import', sourceMetadata: { method: 'screenshot', model: 'tesseract-local+review' }, screenshotEvidence: { captureId: `cap-${index}`, diagnostics: { layout: 'standard', resolution: '1920x1080' } } });
     const samples = [0, 1, 2].flatMap(index => correctionSamplesFromAcceptedEdit({
       beforeMatch: reviewMatch(index), beforeStats: [{ playerId: 'p1', player: 'Alpha', agent: '0men' }],
-      nextMatch: reviewMatch(index), nextStats: [{ playerId: 'p1', player: 'Alpha', agent: 'Omen' }], recordedAt: `2026-10-18T10:00:0${index}.000Z`,
+      nextMatch: reviewMatch(index), nextStats: [{ playerId: 'p1', player: 'Alpha', agent: 'Omen' }], nextScoreboardRows: [0], recordedAt: `2026-10-18T10:00:0${index}.000Z`,
     }));
     expect(samples.every(sample => sample.modelVersion === 'tesseract-local')).toBe(true);
     const model = buildLocalCorrectionModel(samples);
     expect(applyLocalCorrection(model, 'agent', '0men', { sourceModel: 'tesseract-local', layout: 'standard', resolution: '1920x1080', sourceRegion: 'player.0.agent' })).toBe('Omen');
+  });
+
+  it('ties a correction to the scoreboard row it was read from, not its saved position', () => {
+    const reviewMatch = (index: number) => ({ id: `m${index}`, source: 'scrim-import', sourceMetadata: { method: 'screenshot', model: 'tesseract-local+review' }, screenshotEvidence: { captureId: `cap-${index}`, diagnostics: { layout: 'standard', resolution: '1920x1080' } } });
+    // Ten draft rows; the coach saves rows 3 and 7, so row 7 is saved second.
+    const draft = Array.from({ length: 10 }, (_, row) => ({ extractedName: `Row ${row}`, kills: row === 7 ? 4 : 10 + row }));
+    const samples = [0, 1, 2].flatMap(index => correctionSamplesFromAcceptedEdit({
+      beforeMatch: reviewMatch(index), beforeStats: draft, nextMatch: reviewMatch(index),
+      nextStats: [{ player: 'Row 3', kills: 13 }, { player: 'Row 7', kills: 14 }], nextScoreboardRows: [3, 7],
+      recordedAt: `2026-10-18T10:00:0${index}.000Z`,
+    }));
+    expect(samples.map(sample => sample.sourceRegion)).toEqual(['player.7.kills', 'player.7.kills', 'player.7.kills']);
+    const model = buildLocalCorrectionModel(samples);
+    const context = { sourceModel: 'tesseract-local', layout: 'standard', resolution: '1920x1080' };
+    expect(applyLocalCorrection(model, 'kills', 4, { ...context, sourceRegion: 'player.7.kills' })).toBe(14);
+    expect(applyLocalCorrection(model, 'kills', 4, { ...context, sourceRegion: 'player.1.kills' })).toBe(4);
+  });
+
+  it('does not tie edits of a saved match to a scoreboard region', () => {
+    const match = { id: 'm1', source: 'scrim-import', sourceMetadata: { method: 'screenshot', model: 'tesseract-local' }, screenshotEvidence: { captureId: 'cap-1' } };
+    const samples = correctionSamplesFromAcceptedEdit({ beforeMatch: match, beforeStats: [{ playerId: 'p1', player: 'Alpha', kills: 4 }], nextMatch: match, nextStats: [{ playerId: 'p1', player: 'Alpha', kills: 14 }] });
+    expect(samples).toHaveLength(1);
+    expect(samples[0]).toMatchObject({ rowIndex: null, sourceRegion: 'kills' });
   });
 
   it('does not learn from repeated edits to one capture or apply a rule to another row', () => {
