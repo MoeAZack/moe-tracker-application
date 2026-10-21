@@ -20,6 +20,7 @@ import {
   DASHBOARD_CARDS,
   DASHBOARD_PRESETS,
   normalizeDashboardView,
+  signalReviewTarget,
   type PracticeBlockSummary,
 } from "../../lib/coachingWorkflow";
 import { apiFetch } from "../utils/api";
@@ -46,8 +47,8 @@ export default function CoachWorkflow({
 }: {
   data: TrackerData;
   role: string | null;
-  onOpenMatch: (matchId: string) => void;
-  onFocusMatch?: (matchId: string) => void;
+  onOpenMatch: (matchId: string, roundNo?: number | null) => void;
+  onFocusMatch?: (matchId: string, roundNo?: number | null) => void;
   preferredMatchId?: string | null;
   onRefresh?: () => Promise<void>;
 }) {
@@ -813,6 +814,7 @@ export default function CoachWorkflow({
                     activeActions,
                     onOpenMatch,
                     onFocusMatch || onOpenMatch,
+                    data.rounds || [],
                     mutateSignal,
                     deleteSignal,
                     correctSignal,
@@ -849,8 +851,9 @@ function renderCard(
   latest: PracticeBlockSummary | null,
   signals: CoachingSignal[],
   actions: CoachingAction[],
-  onOpenMatch: (id: string) => void,
-  onFocusMatch: (id: string) => void,
+  onOpenMatch: (id: string, roundNo?: number | null) => void,
+  onFocusMatch: (id: string, roundNo?: number | null) => void,
+  rounds: TrackerData["rounds"],
   mutate: (signal: CoachingSignal, status: CoachingSignal["status"]) => Promise<boolean>,
   remove: (signal: CoachingSignal) => void,
   correct: (signal: CoachingSignal) => void,
@@ -906,7 +909,8 @@ function renderCard(
                     className={`ui-button min-h-9 px-3 text-[11px] disabled:opacity-60 ${signal.status === "reviewing" ? "ui-button-primary" : ""}`}
                     onClick={async () => {
                       const saved = await mutate(signal, "reviewing");
-                      if (saved && signal.matchIds[0]) onFocusMatch(signal.matchIds[0]);
+                      const target = signalReviewTarget(signal, rounds);
+                      if (saved && target) onFocusMatch(target.matchId, target.roundNo);
                     }}
                   >
                     Review
@@ -950,7 +954,10 @@ function renderCard(
               {signal.matchIds[0] && (
                 <button
                   className="ui-button min-h-9 px-3 text-[11px]"
-                  onClick={() => onOpenMatch(signal.matchIds[0])}
+                  onClick={() => {
+                    const target = signalReviewTarget(signal, rounds);
+                    if (target) onOpenMatch(target.matchId, target.roundNo);
+                  }}
                 >
                   Evidence
                 </button>

@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useMemo, Suspense, lazy } from 'react';
+import React, { useState, useEffect, useMemo, useRef, Suspense, lazy } from 'react';
 import { TrackerData, Settings, MatchStatsUpdate, ScreenshotReviewDraft } from './types';
 import { correctionSamplesFromAcceptedEdit } from '../lib/ocrLearning';
 import { recordOcrCorrections } from './utils/ocrLearningStore';
@@ -14,7 +14,7 @@ import DesktopReplayAutomation from './components/DesktopReplayAutomation';
 import ReviewContextBar from './components/ReviewContextBar';
 import { projectCurrentPlayerAnalytics } from '../lib/activePlayerAnalytics';
 import { projectReviewContext } from '../lib/reviewContext';
-import { parseWorkspaceRoute, replaceWorkspaceRoute, type WorkspaceTabId } from './utils/workspaceRoute';
+import { focusReviewContext, navWorkspaceTabs, parseWorkspaceRoute, resolveWorkspaceTab, routableWorkspaceTabs, syncWorkspaceRoute, type WorkspaceRoute, type WorkspaceTabId } from './utils/workspaceRoute';
 
 // Heavy route views are code-split so the initial bundle only loads the shell + login.
 const Dashboard = lazy(() => import('./components/Dashboard'));
@@ -76,22 +76,32 @@ export default function App() {
   const [manualReplayDraft, setManualReplayDraft] = useState<ScreenshotReviewDraft | null>(null);
   const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
   const [showTryoutComparisons, setShowTryoutComparisons] = useState<boolean | null>(null);
+  const syncedRoute = useRef<WorkspaceRoute | null>(null);
 
   useEffect(() => {
     if (reviewMatchId) sessionStorage.setItem('moetracker-review-match', reviewMatchId); else sessionStorage.removeItem('moetracker-review-match');
     if (reviewRoundNo) sessionStorage.setItem('moetracker-review-round', String(reviewRoundNo)); else sessionStorage.removeItem('moetracker-review-round');
-    replaceWorkspaceRoute({ tab: activeTab, matchId: reviewMatchId, roundNo: reviewRoundNo });
+    const route = { tab: activeTab, matchId: reviewMatchId, roundNo: reviewRoundNo };
+    syncWorkspaceRoute(route, syncedRoute.current);
+    syncedRoute.current = route;
   }, [activeTab, reviewMatchId, reviewRoundNo]);
   useEffect(() => {
+    // Back/Forward and typed links: adopt the URL without writing a new entry.
     const applyRoute = () => {
       const route = parseWorkspaceRoute(window.location.hash);
+      syncedRoute.current = route;
       setActiveTab(route.tab);
       setReviewMatchId(route.matchId);
       setReviewRoundNo(route.roundNo);
     };
+    window.addEventListener('popstate', applyRoute);
     window.addEventListener('hashchange', applyRoute);
-    return () => window.removeEventListener('hashchange', applyRoute);
+    return () => { window.removeEventListener('popstate', applyRoute); window.removeEventListener('hashchange', applyRoute); };
   }, []);
+  const focusReview = (matchId: string | null, roundNo?: number | null) => {
+    const next = focusReviewContext({ matchId: reviewMatchId, roundNo: reviewRoundNo }, matchId, roundNo);
+    setReviewMatchId(next.matchId); setReviewRoundNo(next.roundNo);
+  };
   useEffect(() => {
     if (data && reviewMatchId && !(data.matches || []).some(match => match.id === reviewMatchId)) { setReviewMatchId(null); setReviewRoundNo(null); }
   }, [data, reviewMatchId]);
@@ -475,16 +485,17 @@ export default function App() {
   ] as const;
 
   const tryoutComparisonsVisible = showTryoutComparisons ?? Boolean((data?.settings as any)?.tryoutsMode);
+  const routableTabs = useMemo(() => routableWorkspaceTabs({ desktopMode, role }), [desktopMode, role]);
   const visibleTabs = useMemo(() => {
-    const surfaceTabs = desktopMode ? tabsList : tabsList.filter(tab => ['dashboard', 'calendar', 'matches', 'vodsubmit', 'economy', 'aitactical', 'maps', 'roster', 'playerstats', 'comparisons'].includes(tab.id));
-    const roleTabs = role === 'player' ? surfaceTabs.filter(tab => !['settings', 'livelogger', 'vod', 'aitactical', 'roster'].includes(tab.id)) : surfaceTabs;
-    return tryoutComparisonsVisible ? roleTabs : roleTabs.filter(tab => tab.id !== 'comparisons');
-  }, [desktopMode, role, tryoutComparisonsVisible]);
+    const ids = navWorkspaceTabs({ desktopMode, role, showTryoutComparisons: tryoutComparisonsVisible, activeTab });
+    return tabsList.filter(tab => ids.includes(tab.id));
+  }, [desktopMode, role, tryoutComparisonsVisible, activeTab]);
   const groupedTabs = useMemo(() => (['Home', 'Schedule & Goals', 'Performance', 'Review', 'Playbook', 'Team'] as const)
     .map(group => ({ group, tabs: visibleTabs.filter(tab => tab.group === group) })).filter(section => section.tabs.length), [visibleTabs]);
   useEffect(() => {
-    if (!visibleTabs.some(tab => tab.id === activeTab)) setActiveTab('dashboard');
-  }, [activeTab, visibleTabs]);
+    const resolved = resolveWorkspaceTab(activeTab, routableTabs);
+    if (resolved !== activeTab) setActiveTab(resolved);
+  }, [activeTab, routableTabs]);
 
   const appTitle = data?.settings?.teamName || 'MoeAZack Valorant Tracker';
   const themeMode = data?.settings?.theme || 'slate';
@@ -742,7 +753,7 @@ export default function App() {
             )}
             {activeTab === 'matches' && workspaceData && !desktopMode && <WebsiteMatchLog data={workspaceData} theme={theme} />}
             {activeTab === 'replays' && data && (
-              <ReplayWorkspace data={workspaceData || data} role={role} preferredMatchId={reviewMatchId} onAccepted={fetchDatabase} onManualFallback={(item) => { setManualReplayDraft(item.draft as ScreenshotReviewDraft); setActiveTab('matches'); }} />
+              <ReplayWorkspace data={workspaceData || data} role={role} preferredMatchId={reviewMatchId} preferredRoundNo={reviewRoundNo} onAccepted={fetchDatabase} onManualFallback={(item) => { setManualReplayDraft(item.draft as ScreenshotReviewDraft); setActiveTab('matches'); }} />
             )}
             {activeTab === 'livelogger' && data && (
               <LiveLogger
@@ -772,7 +783,7 @@ export default function App() {
             )}
             {activeTab === 'aitactical' && analyticsData && (
               <div className="space-y-8">
-                <CoachWorkflow data={analyticsData} role={role} preferredMatchId={reviewMatchId} onRefresh={fetchDatabase} onFocusMatch={(matchId) => { setReviewMatchId(matchId); setReviewRoundNo(null); }} onOpenMatch={(matchId) => { setReviewMatchId(matchId); setActiveTab('vod'); }} />
+                <CoachWorkflow data={analyticsData} role={role} preferredMatchId={reviewMatchId} onRefresh={fetchDatabase} onFocusMatch={focusReview} onOpenMatch={(matchId, roundNo) => { focusReview(matchId, roundNo); setActiveTab('vod'); }} />
                 <AITacticalHub data={coachReviewData || analyticsData} theme={theme} onUpsert={handleUpsert} onRemove={handleRemove} />
               </div>
             )}

@@ -245,6 +245,11 @@ export function matchScoreboardNames(
   }
   return { proposed, ambiguous };
 }
+/** The review-context round applies to a replay only when the replay is assigned to that match. */
+export function replayFocusedRound(preferredMatchId: string | null | undefined, replayMatchId: string, roundNo: number | null | undefined) {
+  return preferredMatchId && replayMatchId === preferredMatchId && roundNo ? roundNo : null;
+}
+
 export function createLatestRequestGuard() {
   let latest = 0;
   return {
@@ -273,12 +278,15 @@ export default function ReplayWorkspace({
   onAccepted,
   onManualFallback,
   preferredMatchId,
+  preferredRoundNo,
 }: {
   data: TrackerData;
   role: string | null;
   onAccepted: () => Promise<void> | void;
   onManualFallback?: (draft: ScreenshotPairing) => void;
   preferredMatchId?: string | null;
+  /** The review round selected elsewhere; highlighted when this replay is for that match. */
+  preferredRoundNo?: number | null;
 }) {
   const [devices, setDevices] = useState<Device[]>([]);
   const [cropFile, setCropFile] = useState<File | null>(null);
@@ -1307,6 +1315,7 @@ export default function ReplayWorkspace({
                   setConfirmed={setConfirmed}
                   saveReview={saveReview}
                   accept={accept}
+                  focusedRoundNo={replayFocusedRound(preferredMatchId, matchId, preferredRoundNo)}
                 />
               </div>
             )}
@@ -1335,7 +1344,10 @@ export function ReplayReviewEvidence({
   setConfirmed,
   saveReview,
   accept,
+  focusedRoundNo = null,
 }: any) {
+  const focusedRow = useRef<HTMLTableRowElement>(null);
+  useEffect(() => { focusedRow.current?.scrollIntoView?.({ block: "nearest" }); }, [focusedRoundNo]);
   const scoreboard = detail.result.scoreboard;
   const draft = detail.result.reviewDraft;
   const review: Review | null = detail.review || null;
@@ -1615,6 +1627,13 @@ export function ReplayReviewEvidence({
         >
           3 · Round evidence
         </h3>
+        {focusedRoundNo !== null && (
+          <p className="mt-1 text-[11px] text-cyan-200">
+            {draft.evidence.rounds.some((round: any) => round.roundNumber === focusedRoundNo)
+              ? `Round ${focusedRoundNo} is selected in the review context.`
+              : `Round ${focusedRoundNo} is selected in the review context but is not in this replay.`}
+          </p>
+        )}
         <div className="ui-table-shell mt-2 max-h-64 overflow-x-auto overflow-y-auto">
           <table className="w-full min-w-[640px] text-left text-xs">
             <thead className="sticky top-0 text-slate-500">
@@ -1631,8 +1650,14 @@ export function ReplayReviewEvidence({
                 const opening = draft.rounds.find(
                   (item: any) => item.roundNumber === round.roundNumber,
                 );
+                const focused = focusedRoundNo !== null && round.roundNumber === focusedRoundNo;
                 return (
-                  <tr key={round.roundNumber}>
+                  <tr
+                    key={round.roundNumber}
+                    ref={focused ? focusedRow : undefined}
+                    aria-current={focused ? "true" : undefined}
+                    className={focused ? "bg-cyan-400/10 outline outline-1 outline-cyan-300/40" : undefined}
+                  >
                     <td className="px-3 py-2 font-mono text-slate-300">
                       {round.roundNumber}
                     </td>
