@@ -1,6 +1,6 @@
 import type { Express, Request, Response } from 'express';
 import type { CoachingAction, CoachingSignal } from '../../src/types';
-import { buildAllPracticeBlockSummaries, coachingContextMatches, createCoachingAction, evaluateAction, generateReviewSignalDrafts, generateRoundReviewSignalDrafts, migrateLegacyActionChecks, normalizeDashboardView, reconcileReviewSignals, transitionSignal } from '../coachingWorkflow';
+import { buildAllPracticeBlockSummaries, coachingContextMatches, createCoachingAction, evaluateAction, generateReviewSignalDrafts, generateRoundReviewSignalDrafts, migrateLegacyActionChecks, normalizeDashboardView, reconcileReviewSignals, signalIdentity, transitionSignal } from '../coachingWorkflow';
 import { readDB, saveDB } from '../store';
 import { buildEvidenceFusionReport, upsertEvidenceResolution, type EvidenceSource } from '../evidenceFusion';
 import { recomputeAcceptedMatchAggregates } from '../aggregateVersioning';
@@ -14,7 +14,7 @@ export function refreshCoachingWorkflow(db: any, who = 'system', now = new Date(
   const summaries = buildAllPracticeBlockSummaries(db, now);
   const deletedFingerprints = new Set<string>(db.settings?.deletedCoachingSignalFingerprints || []);
   const thresholds = { minimumSamples: db.settings?.stats?.lowSample || 15, ...(db.settings?.coachingThresholds || {}) };
-  const drafts = [...summaries.flatMap(summary => generateReviewSignalDrafts(summary, thresholds)), ...generateRoundReviewSignalDrafts(db, summaries, now)].filter(draft => !deletedFingerprints.has(draft.fingerprint));
+  const drafts = [...summaries.flatMap(summary => generateReviewSignalDrafts(summary, thresholds)), ...generateRoundReviewSignalDrafts(db, summaries, now)].filter(draft => !deletedFingerprints.has(draft.fingerprint) && !deletedFingerprints.has(signalIdentity(draft)));
   db.coachingSignals = reconcileReviewSignals(db.coachingSignals || [], drafts, who);
   for (const signal of db.coachingSignals as CoachingSignal[]) {
     const related = (db.coachingActions || []).find((action: CoachingAction) => !['resolved', 'cancelled'].includes(action.state) && action.check?.signalType === signal.type && coachingContextMatches(action.check.context, signal.context) && action.sourceSignalId !== signal.id && Date.parse(action.createdAt) < Date.parse(signal.createdAt));
@@ -82,7 +82,7 @@ export function registerCoachingRoutes(app: Express) {
       if (index < 0) return res.status(404).json({ error: 'Review signal not found.' });
       const signal = db.coachingSignals[index] as CoachingSignal;
       if (signal.status !== 'dismissed') return res.status(409).json({ error: 'Dismiss the review item before deleting it.' });
-      db.settings ||= {}; db.settings.deletedCoachingSignalFingerprints = [...new Set([...(db.settings.deletedCoachingSignalFingerprints || []), signal.fingerprint])].slice(-1000);
+      db.settings ||= {}; db.settings.deletedCoachingSignalFingerprints = [...new Set([...(db.settings.deletedCoachingSignalFingerprints || []), signal.fingerprint, signalIdentity(signal)])].slice(-1000);
       db.coachingSignals.splice(index, 1); await saveDB(db); res.json({ deleted: true, id: signal.id });
     } catch (error: any) { res.status(error.status || 500).json({ error: error.message }); }
   });
