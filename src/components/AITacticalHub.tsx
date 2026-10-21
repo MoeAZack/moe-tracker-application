@@ -8,7 +8,7 @@ import { agentProficiency, buildPeriodMetrics, clutchPublication, emptyPeriodMet
 import { percentageBarClass, percentageSurfaceClass, percentageTextClass } from '../utils/percentageColor';
 import { playerAggregationKey } from '../../lib/identitySnapshot';
 import { notify } from '../utils/appDialogs';
-import { CLOUD_AI_OFF_MESSAGE, cloudAiErrorMessage, useCloudAiAvailable } from '../utils/cloudAi';
+import { CLOUD_AI_OFF_MESSAGE, cloudAiActionBlocked, cloudAiErrorMessage, useCloudAiAvailable } from '../utils/cloudAi';
 
 interface ComponentProps {
   data: TrackerData;
@@ -629,7 +629,7 @@ export default function AITacticalHub({ data, theme, onUpsert, onRemove }: Compo
               <button
                 type="button"
                 onClick={handleGenerateStrategy}
-                disabled={generating || cloudAiAvailable !== true}
+                disabled={cloudAiActionBlocked(cloudAiAvailable, generating)}
                 aria-describedby={cloudAiAvailable === false ? 'playbook-cloud-ai-off' : undefined}
                 className="w-full py-3 bg-[#d12a3a] hover:bg-[#b91c2e] text-white text-xs font-black rounded-lg uppercase font-mono tracking-wider shadow-lg shadow-[#ff4655]/10 flex items-center justify-center gap-2 disabled:opacity-40 cursor-pointer"
               >
