@@ -523,7 +523,7 @@ Progress (21 Oct 2026, Africa/Cairo):
   pinned 0.1.78 installer, and a tampered rollback installer went to safe mode
   with no launch. `failures: []`.
 
-Signing waiver (owner, 21 Oct 2026 21:07 Africa/Cairo: "dont sign its ok"):
+Signing waiver (owner, 21 Oct 2026 22:07 Africa/Cairo: "dont sign its ok"):
 0.2.0 ships without a code-signing certificate. The "signed candidate" item
 becomes an unsigned local candidate:
 
