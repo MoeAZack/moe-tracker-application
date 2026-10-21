@@ -477,6 +477,13 @@ installer ships without the owner's explicit permission. Re-audit blockers:
 - NSIS install, upgrade and rollback are not exercised in CI.
 - The coach JWT is held in the renderer under `unsafe-inline`.
 
+Known limitation (not fixable from 0.2.0): only installers built from 0.2.0 on
+leave a copy of themselves in `Local Workspace\Updates\installed`
+(`desktop/installer.nsh`). An existing 0.1.x installation has no such copy, so
+the first 0.1.x → 0.2.0 automatic update cannot roll back; if 0.2.0 fails its
+startup check twice, updates pause in safe mode instead. Every later update
+can roll back.
+
 Contract:
 
 - The application version is 0.2.0. Electron, Electron Builder, Sharp, FFmpeg,
