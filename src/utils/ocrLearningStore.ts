@@ -1,5 +1,5 @@
 import type { OcrCorrectionSample, OcrSessionOutcome } from '../../lib/ocrLearning';
-import { buildLocalCorrectionModel, learnedAliasesFromCorrections, ocrHealthSummary } from '../../lib/ocrLearning';
+import { buildLocalCorrectionModel, learnedAliasesFromCorrections, ocrHealthSummary, rosterWithLearnedAliases } from '../../lib/ocrLearning';
 
 const DB_NAME = 'moetracker-ocr-learning';
 const DB_VERSION = 1;
@@ -77,6 +77,14 @@ export async function getOcrLearningState(roster: readonly { id: string; display
   const enabled = learningEnabled(); const activeCorrections = enabled ? corrections : [];
   const aliases = learnedAliasesFromCorrections(activeCorrections, roster);
   return { enabled, corrections, outcomes, aliases, model: buildLocalCorrectionModel(activeCorrections), health: ocrHealthSummary(outcomes, corrections, aliases) };
+}
+
+/** Roster for an OCR extraction with every learned alias attached; learning failures fall back to the plain roster. */
+export async function learnedExtractionRoster<T extends { id?: string; displayName: string; aliases?: string[] }>(roster: readonly T[]) {
+  try {
+    const { aliases } = await getOcrLearningState(roster.filter((player): player is T & { id: string } => !!player.id));
+    return rosterWithLearnedAliases(roster, aliases);
+  } catch { return rosterWithLearnedAliases(roster, []); }
 }
 
 export function setOcrLearningEnabled(enabled: boolean) { try { globalThis.localStorage?.setItem(ENABLED_KEY, String(enabled)); } catch { /* browser storage unavailable */ } }
