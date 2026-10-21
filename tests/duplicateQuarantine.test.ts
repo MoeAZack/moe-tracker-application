@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import { exactRoundEvidenceFingerprint, isDuplicateQuarantined, refreshDuplicateQuarantine, sameGameEvidence, stableMatchEvidenceFingerprint } from '../lib/matchIntegrity';
 import { ensureStorageSchema } from '../lib/storageSchema';
+import { buildAcceptedMatchAggregatePlan } from '../lib/aggregateVersioning';
 import { filterAnalyticsHistory } from '../src/utils/historyFilter';
 import { buildCalibratedPlayerRatings } from '../lib/calibratedPlayerRatings';
 import { recaptureMatch, recaptureRounds, recaptureStats, withUnreadScoreboardRows } from './fixtures/sameGameRecapture';
@@ -95,5 +96,18 @@ describe('H0 same-game duplicate quarantine', () => {
     ensureStorageSchema(db, '2026-10-20T12:00:00.000Z');
     expect(db.matches.map((match: any) => match.duplicateReview?.status || null)).toEqual([null, 'quarantined']);
     expect(db.rounds).toHaveLength(48); expect(db.playerStats).toHaveLength(10);
+  });
+
+  it('gives a quarantined copy the same derived aggregates whenever the quarantine was detected', () => {
+    // An unsaved schema-14 workspace is migrated on every read, each time with a new detectedAt.
+    const first: any = pair(); const later: any = pair();
+    refreshDuplicateQuarantine(first, '2026-10-20T12:00:00.000Z'); refreshDuplicateQuarantine(later, '2026-10-21T17:00:00.000Z');
+    const [a, b] = [buildAcceptedMatchAggregatePlan(first, 'b'), buildAcceptedMatchAggregatePlan(later, 'b')];
+    expect(a.build.status).toBe('recomputed');
+    expect(b.build.sourceHash).toBe(a.build.sourceHash);
+    expect(b.match!.roundAnalytics).toEqual(a.match!.roundAnalytics);
+    // The decision itself is still source: keeping the copy changes the hash.
+    later.matches[1].duplicateReview = { ...later.matches[1].duplicateReview, status: 'kept-distinct' };
+    expect(buildAcceptedMatchAggregatePlan(later, 'b').build.sourceHash).not.toBe(a.build.sourceHash);
   });
 });
