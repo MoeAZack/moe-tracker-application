@@ -123,10 +123,10 @@ export function recomputeAcceptedMatchAggregates(container: AggregateContainer, 
     // name remains evidence, never an implicit identity key.
     if (!stat.playerId) continue;
     const metric = built.get(screenshotPlayerIdentity(stat.playerId, ''));
-    if (!metric) {
-      delete stat.screenshotMetrics;
-      continue;
-    }
+    // Nothing to rebuild from: keep whatever is stored. Readers already withhold
+    // a metric whose builder or source hash is not current (publicData.ts), so
+    // keeping it hides nothing wrong and loses nothing a coach cannot rebuild.
+    if (!metric) continue;
     const { identity: _identity, displayName: _displayName, ...values } = metric;
     stat.screenshotMetrics = {
       ...values,
