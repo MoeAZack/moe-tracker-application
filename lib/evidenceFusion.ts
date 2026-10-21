@@ -11,7 +11,8 @@ export interface EvidenceFusionReport { schema: 'moetracker.evidence-fusion/v3';
 
 const priority: EvidenceSource[] = ['coach', 'replay', 'screenshot', 'vod', 'manual'];
 const present = (value: unknown) => value !== null && value !== undefined && value !== '' && value !== 'Unknown';
-const same = (a: unknown, b: unknown) => JSON.stringify(a) === JSON.stringify(b);
+export const sameEvidenceValue = (a: unknown, b: unknown) => JSON.stringify(a) === JSON.stringify(b);
+const same = sameEvidenceValue;
 function candidate(rows: EvidenceCandidate[], source: EvidenceSource, value: unknown, reference?: string) { if (present(value)) rows.push({ source, value, ...(reference ? { reference } : {}) }); }
 const observationRound = (observation: any) => Number(observation?.roundNumber || observation?.attributes?.roundNumber || 0);
 
@@ -73,4 +74,43 @@ export function upsertEvidenceResolution(rows: EvidenceFusionResolution[], input
   const index = rows.findIndex(item => item.matchId === input.matchId && item.roundId === input.roundId && item.field === input.field); const current = index >= 0 ? rows[index] : null; const revision = (current?.revision || 0) + 1; const audit = { at: now, by, source: input.selectedSource, value: structuredClone(input.selectedValue), reason: input.reason, revision };
   const stableId = `${input.matchId}:${input.roundId}:${input.field}`.replace(/[^a-z0-9:_-]/gi, '-').slice(0, 180);
   const next: EvidenceFusionResolution = { id: current?.id || `fusion:${stableId}`, ...input, revision, updatedAt: now, updatedBy: by, history: [...(current?.history || []), audit] }; if (index >= 0) rows[index] = next; else rows.push(next); return next;
+}
+
+const FIELD_LABELS: Record<string, string> = {
+  result: 'Round result', side: 'Side', buy: 'Our buy', enemyBuy: 'Enemy buy', plant: 'Spike plant', site: 'Site',
+  firstKillBy: 'First kill', firstDeathBy: 'First death', events: 'Kill-feed events', tradeOpportunities: 'Trade opportunities',
+  successfulTrades: 'Successful trades', advantageStates: 'Man-advantage sequence', ultimateUses: 'Ultimates used', orbCaptures: 'Orbs captured',
+  coachNote: 'Coach note', kills: 'Kills', deaths: 'Deaths', assists: 'Assists', acs: 'ACS', adr: 'ADR', hs: 'Headshot %', headshots: 'Headshots',
+  orbPoints: 'Orb points', kastSuccessful: 'KAST rounds', kastCovered: 'KAST rounds covered', fk: 'First kills', fd: 'First deaths',
+  plants: 'Plants', defuses: 'Defuses', trades: 'Trades',
+};
+const SOURCE_LABELS: Record<EvidenceSource, string> = { coach: 'Coach', replay: 'Replay', screenshot: 'Screenshot', vod: 'VOD', manual: 'Manual log' };
+
+/** Plain-language name for a fused field; unknown internal keys are split into words. */
+export function fusionFieldLabel(field: string) {
+  if (FIELD_LABELS[field]) return FIELD_LABELS[field];
+  const words = field.replace(/([a-z0-9])([A-Z])/g, '$1 $2').replace(/[_-]+/g, ' ').trim().toLowerCase();
+  return words ? words[0].toUpperCase() + words.slice(1) : 'Field';
+}
+
+export const fusionSourceLabel = (source: EvidenceSource | string) => SOURCE_LABELS[source as EvidenceSource] || String(source);
+
+/**
+ * Readable candidate value for the conflict ledger. Structured values are
+ * summarised (an advantage sequence reads "5v5 → 5v4"); the stored record
+ * keeps the exact value, so nothing here is ever raw JSON.
+ */
+export function fusionValueLabel(value: unknown): string {
+  if (value === null || value === undefined || value === '') return 'Unknown';
+  if (typeof value === 'boolean') return value ? 'Yes' : 'No';
+  if (typeof value === 'number') return Number.isFinite(value) ? String(Math.round(value * 100) / 100) : 'Unknown';
+  if (typeof value === 'string') return value.length > 60 ? `${value.slice(0, 57)}…` : value;
+  if (Array.isArray(value)) {
+    if (!value.length) return 'None';
+    const labels = value.map(item => item && typeof item === 'object' && typeof (item as any).label === 'string' ? (item as any).label : null);
+    if (labels.every((label): label is string => label !== null)) { const text = labels.join(' → '); return text.length > 60 ? `${labels.length} states, ending ${labels.at(-1)}` : text; }
+    return `${value.length} ${value.length === 1 ? 'entry' : 'entries'}`;
+  }
+  if (typeof value === 'object' && typeof (value as any).label === 'string') return (value as any).label;
+  return 'Structured value (kept in the audit record)';
 }

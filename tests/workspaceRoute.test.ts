@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { parseWorkspaceRoute, workspaceRouteHash } from '../src/utils/workspaceRoute';
+import { focusReviewContext, navWorkspaceTabs, parseWorkspaceRoute, resolveWorkspaceTab, routableWorkspaceTabs, syncWorkspaceRoute, workspaceHistoryMode, workspaceRouteHash } from '../src/utils/workspaceRoute';
 
 describe('workspace deep links', () => {
   it('round-trips a review route with match and round context', () => {
@@ -10,5 +10,78 @@ describe('workspace deep links', () => {
 
   it('falls back safely for unknown routes and invalid rounds', () => {
     expect(parseWorkspaceRoute('#/missing?round=zero')).toEqual({ tab: 'dashboard', matchId: null, roundNo: null });
+  });
+});
+
+/** A browser-like history: pushState adds an entry, replaceState rewrites the current one, back() moves to the previous. */
+function fakeHistory(initialHash: string) {
+  const entries = [initialHash]; let index = 0;
+  const location = { hash: initialHash };
+  return {
+    location,
+    entries,
+    history: {
+      pushState: (_state: unknown, _title: string, url?: string | URL | null) => { entries.splice(index + 1); entries.push(String(url)); index += 1; location.hash = String(url); },
+      replaceState: (_state: unknown, _title: string, url?: string | URL | null) => { entries[index] = String(url); location.hash = String(url); },
+    },
+    back: () => { if (index > 0) index -= 1; location.hash = entries[index]; return parseWorkspaceRoute(location.hash); },
+  };
+}
+
+describe('workspace history', () => {
+  it('Back returns to the previous workspace after opening a match', () => {
+    const browser = fakeHistory('#/home');
+    const home = parseWorkspaceRoute(browser.location.hash);
+    expect(syncWorkspaceRoute(home, null, browser.history, browser.location)).toBeNull();
+    const review = { tab: 'vod' as const, matchId: 'match-1', roundNo: null };
+    expect(syncWorkspaceRoute(review, home, browser.history, browser.location)).toBe('push');
+    const round = { ...review, roundNo: 7 };
+    expect(syncWorkspaceRoute(round, review, browser.history, browser.location)).toBe('replace');
+    expect(browser.entries).toEqual(['#/home', '#/vod-review?match=match-1&round=7']);
+    expect(browser.back()).toEqual(home);
+  });
+
+  it('pushes a new entry when only the match changes, and replaces when only the round changes', () => {
+    const a = { tab: 'replays' as const, matchId: 'a', roundNo: 3 };
+    expect(workspaceHistoryMode(a, { ...a, matchId: 'b' })).toBe('push');
+    expect(workspaceHistoryMode(a, { ...a, roundNo: 4 })).toBe('replace');
+    expect(workspaceHistoryMode(null, a)).toBe('replace');
+  });
+});
+
+describe('workspace tab resolution', () => {
+  it('opens #/tryouts even when the Tryout comparisons nav entry is hidden', () => {
+    const requested = parseWorkspaceRoute('#/tryouts').tab;
+    for (const desktopMode of [true, false]) {
+      expect(resolveWorkspaceTab(requested, routableWorkspaceTabs({ desktopMode, role: 'coach' }))).toBe('comparisons');
+      expect(resolveWorkspaceTab(requested, routableWorkspaceTabs({ desktopMode, role: null }))).toBe('comparisons');
+    }
+  });
+
+  it('lists Tryout comparisons in the nav only when shown or open', () => {
+    const base = { desktopMode: true, role: 'coach', activeTab: 'dashboard' as const };
+    expect(navWorkspaceTabs({ ...base, showTryoutComparisons: false })).not.toContain('comparisons');
+    expect(navWorkspaceTabs({ ...base, showTryoutComparisons: true })).toContain('comparisons');
+    expect(navWorkspaceTabs({ ...base, showTryoutComparisons: false, activeTab: 'comparisons' })).toContain('comparisons');
+  });
+
+  it('still sends a player off coach-only workspaces and the web off desktop-only ones', () => {
+    expect(resolveWorkspaceTab('roster', routableWorkspaceTabs({ desktopMode: true, role: 'player' }))).toBe('dashboard');
+    expect(resolveWorkspaceTab('aitactical', routableWorkspaceTabs({ desktopMode: true, role: 'player' }))).toBe('dashboard');
+    expect(resolveWorkspaceTab('playerstats', routableWorkspaceTabs({ desktopMode: true, role: 'player' }))).toBe('playerstats');
+    expect(resolveWorkspaceTab('livelogger', routableWorkspaceTabs({ desktopMode: false, role: 'coach' }))).toBe('dashboard');
+    expect(resolveWorkspaceTab('aitactical', routableWorkspaceTabs({ desktopMode: false, role: 'coach' }))).toBe('aitactical');
+  });
+});
+
+describe('review context focus', () => {
+  it('keeps the selected round when another surface focuses the same match', () => {
+    expect(focusReviewContext({ matchId: 'm1', roundNo: 9 }, 'm1')).toEqual({ matchId: 'm1', roundNo: 9 });
+  });
+
+  it('takes the target round, and clears a round that belonged to another match', () => {
+    expect(focusReviewContext({ matchId: 'm1', roundNo: 9 }, 'm2', 4)).toEqual({ matchId: 'm2', roundNo: 4 });
+    expect(focusReviewContext({ matchId: 'm1', roundNo: 9 }, 'm2')).toEqual({ matchId: 'm2', roundNo: null });
+    expect(focusReviewContext({ matchId: 'm1', roundNo: 9 }, null, 3)).toEqual({ matchId: null, roundNo: null });
   });
 });

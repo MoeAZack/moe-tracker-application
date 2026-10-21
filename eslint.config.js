@@ -18,5 +18,10 @@ export default [
       '@typescript-eslint/no-explicit-any': 'off',
       '@typescript-eslint/no-unused-vars': 'off'
     }
+  },
+  {
+    // Blocking browser dialogs are replaced by src/utils/appDialogs (notify, confirmDialog, promptDialog).
+    files: ['src/**/*.{ts,tsx}'],
+    rules: { 'no-alert': 'error' }
   }
 ];

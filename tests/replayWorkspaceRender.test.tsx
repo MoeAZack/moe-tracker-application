@@ -2,7 +2,7 @@ import React from 'react';
 import { renderToStaticMarkup } from 'react-dom/server';
 import fs from 'fs';
 import { describe, expect, it } from 'vitest';
-import ReplayWorkspace, { ReplayReviewEvidence, createLatestRequestGuard, matchScoreboardNames, refreshReplayWorkspace, reviewEditorSnapshot, visibleCollectionDevices } from '../src/components/ReplayWorkspace';
+import ReplayWorkspace, { ReplayReviewEvidence, createLatestRequestGuard, matchScoreboardNames, refreshReplayWorkspace, replayFocusedRound, reviewEditorSnapshot, visibleCollectionDevices } from '../src/components/ReplayWorkspace';
 
 const available = (value: number | string) => ({ value, status: 'available', source: 'redacted fixture', confidence: 1 });
 const players = [
@@ -98,5 +98,23 @@ describe('replay review workspace semantics', () => {
     const app = fs.readFileSync('src/App.tsx', 'utf8');
     expect(app).toContain("aria-label={mobileMenuOpen ? 'Close navigation' : 'Open navigation'}"); expect(app).toContain('aria-expanded={mobileMenuOpen}'); expect(app).toContain('aria-controls="mobile-navigation"'); expect(app).toContain('<nav id="mobile-navigation"');
     expect(app).toMatch(/aria-label="Import scoreboard"[\s\S]*?<Image className="w-4 h-4"/); expect((app.match(/className="w-11 h-11 inline-flex items-center justify-center/g) || [])).toHaveLength(2);
+  });
+});
+
+describe('replay round focus from the review context', () => {
+  it('highlights the selected round when the replay is for the review match', () => {
+    const focused = replayFocusedRound('m1', 'm1', 1);
+    expect(focused).toBe(1);
+    const html = renderToStaticMarkup(<ReplayReviewEvidence detail={detail} data={data} matchId="m1" setMatchId={() => {}} teamId="team-us" setTeamId={() => {}} mappings={mappings} setMapping={() => {}} teams={['team-us', 'team-them']} busy="" dirty={false} confirmed={false} setConfirmed={() => {}} saveReview={() => {}} accept={() => {}} focusedRoundNo={focused} />);
+    expect(html).toMatch(/<tr[^>]*aria-current="true"[^>]*><td[^>]*>1<\/td>/);
+    expect(html).toContain('Round 1 is selected in the review context.');
+  });
+
+  it('says when the selected round is not in this replay, and ignores rounds from another match', () => {
+    const html = renderToStaticMarkup(<ReplayReviewEvidence detail={detail} data={data} matchId="m1" setMatchId={() => {}} teamId="team-us" setTeamId={() => {}} mappings={mappings} setMapping={() => {}} teams={['team-us', 'team-them']} busy="" dirty={false} confirmed={false} setConfirmed={() => {}} saveReview={() => {}} accept={() => {}} focusedRoundNo={14} />);
+    expect(html).toContain('Round 14 is selected in the review context but is not in this replay.');
+    expect(html).not.toContain('aria-current');
+    expect(replayFocusedRound('m2', 'm1', 5)).toBeNull();
+    expect(replayFocusedRound(null, 'm1', 5)).toBeNull();
   });
 });

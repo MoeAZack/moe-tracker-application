@@ -372,6 +372,52 @@ did not survive the re-audit. Re-audit blockers:
 - The fusion panel shows raw JSON.
 - Accessibility gates cover only the login and summary surfaces.
 
+Re-audit fixes (awaiting verification):
+
+- Tab and match changes push a history entry; round steps replace. Back and
+  Forward are read from `popstate`/`hashchange` without writing a new entry
+  (`syncWorkspaceRoute`, `src/utils/workspaceRoute.ts`).
+- A link opens any tab its surface and role allow (`routableWorkspaceTabs`).
+  Hiding Tryout comparisons in Settings hides only the nav entry, so
+  `#/tryouts` opens. Players are still sent off coach-only tabs.
+- Coach Workspace Review/Evidence carry the signal's round
+  (`signalReviewTarget`) and keep the selected round on the same match
+  (`focusReviewContext`); Replay highlights the selected round.
+- All 30 `alert()`, 27 `confirm()` and 7 `prompt()` calls go through
+  `src/utils/appDialogs` (dismissible notices; labelled modal confirmations
+  and prompts; destructive ones name the action and start on Cancel). ESLint
+  `no-alert` fails any new browser dialog in `src`.
+- The fusion conflict ledger names fields, sources and values in plain
+  language; structured values are summarised and never printed as JSON.
+- `scripts/accessibility-audit.mjs` adds six installed-app surfaces on
+  synthetic data (Coach Workspace, Replay Evidence and Coach Workspace with a
+  selected round, Tryout comparisons, VOD Review with evidence fusion open, a
+  destructive confirmation) and checks Back, the round link, `#/tryouts`, the
+  fusion panel and Escape-cancels behaviour. `A11Y_BROWSER` selects a local
+  Chromium.
+
+Contract items already on main, with their evidence:
+
+- Coach round-fact correction: `POST /api/vod/round-review` with
+  `factCorrection` (`lib/routes/vodLineup.ts`) requires a reason, stores
+  `previousValue`, `value`, `reason`, `at` and `by` on
+  `round.reviewCockpit.factCorrections`, then calls `refreshCoachingWorkflow`.
+  The VOD Review round cockpit (`RoundReviewCockpit.tsx`, "Correct a round
+  fact") is the linked surface. Behaviour coverage:
+  `tests/coachingHttp.test.ts` ("stores round review decisions…") checks the
+  audited correction with its previous value, a 400 for an invalid value, and
+  a 403 for a player session.
+- Identity-bound Player Stats: `tests/playerSoloTrackerArchive.test.tsx`
+  ("shows a player only their identity-bound profile", "does not expose roster
+  mutation to players") and `tests/roleDashboard.test.tsx` ("does not infer an
+  unpaired player identity from a matching display name"). Player sessions are
+  sent off coach-only tabs by `routableWorkspaceTabs`
+  (`tests/workspaceRoute.test.ts`).
+- Release UI gate: `A11Y_BROWSER=/opt/pw-browsers/chromium npm run
+  test:release-ui` reports 0 blocking findings at 100/125/150/200% zoom and in
+  forced colors. Contrast fix: the Calendar quick-status button now uses white
+  text on the primary colour.
+
 Contract:
 
 - Every workspace has a stable human-readable URL. Match and round context are

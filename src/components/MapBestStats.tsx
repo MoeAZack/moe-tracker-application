@@ -9,6 +9,7 @@ import { buildMapRoundIntelligence } from '../../lib/mapRoundAnalytics';
 import { percentageTextClass } from '../utils/percentageColor';
 import { activeResourceNames, buildResourceCatalog, canonicalResourceName } from '../../lib/resourceCatalog';
 import { bestMapInsight, buildBestMaps, buildMapStatsTable, sideRoundsComplete, teamKdComplete } from '../../lib/mapBestScores';
+import { confirmDialog } from '../utils/appDialogs';
 
 interface ComponentProps {
   data: TrackerData;
@@ -279,7 +280,7 @@ export default function MapBestStats({ data, evidenceData = data, theme, onUpser
   };
 
   const handleDeleteStrat = async (id: string) => {
-    if (data.settings.confirmOnDelete && !window.confirm('Delete this strategy and its execution runs history?')) return;
+    if (data.settings.confirmOnDelete && !(await confirmDialog('Delete this strategy and its execution runs history?', { destructive: true, confirmLabel: 'Delete' }))) return;
     await onRemove('Strats', id);
     if (selectedStratForRuns?.id === id) {
       setSelectedStratForRuns(null);
@@ -315,7 +316,7 @@ export default function MapBestStats({ data, evidenceData = data, theme, onUpser
   };
 
   const handleDeleteRunLog = async (id: string) => {
-    if (data.settings.confirmOnDelete && !window.confirm('Delete this run log record?')) return;
+    if (data.settings.confirmOnDelete && !(await confirmDialog('Delete this run log record?', { destructive: true, confirmLabel: 'Delete' }))) return;
     await onRemove('StratRuns', id);
   };
 
