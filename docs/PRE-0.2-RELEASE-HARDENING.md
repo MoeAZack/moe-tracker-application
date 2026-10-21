@@ -203,6 +203,10 @@ Contract:
   colour error; the separator row offset never moves the portrait crop. The
   final score cells use the plain threshold, and a joined K/D/A line below
   confidence 70 leaves kills, deaths and assists unknown.
+- Capture FD comes from each round's opening kill on either team and is kept
+  only when every round's first death is attributed to exactly one of the ten
+  scoreboard rows, so it sums to the round count; otherwise every row's FD
+  stays unknown.
 - `tests/fixtures/capture-ground-truth.json` `rowLabels` lists cells that must
   stay unknown unless the true value is read;
   `node scripts/ocr-row-label-check.mjs <backtest-out-dir>` fails a run that
@@ -224,7 +228,10 @@ Acceptance evidence:
   130/150, one score half unknown, three wrong assist cells. At `4c63469`:
   141/150, every agent, score and round identical to 0.1.15, the three
   labelled portraits unknown; the three assist cells were still wrong and are
-  fixed by the K/D/A confidence floor. Final-head run: pending.
+  fixed by the K/D/A confidence floor. At `8a4bdd9` agents, scores, rounds and
+  every K/D/A cell matched 0.1.15; FD was filled in 8 sessions that 0.1.15
+  left unknown with sums of 8-14 against 18-32 rounds, fixed by the
+  attribution rule above. Final-head run: pending.
 
 ## H3 — Metric trust
 

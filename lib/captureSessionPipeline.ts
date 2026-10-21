@@ -31,6 +31,28 @@ export const INFORMATIONAL_ROUND_ISSUES = new Set(['round-rekeyed-from-header'])
 export interface CaptureImage { kind: string; round?: number | null; name?: string; base64: string; mediaType: string }
 type LoadedImage = HTMLImageElement & { naturalWidth: number; naturalHeight: number };
 
+/**
+ * First deaths per scoreboard row from each round's opening kill. Every round
+ * must have a complete opening whose victim is one of the ten rows (either
+ * team), so the counts sum to the round count; otherwise every row stays
+ * unknown rather than an undercount read as exact zeros.
+ */
+export function attributedFirstDeaths(
+  rounds: ReadonlyArray<{ screenshotEvidence?: { openingEventComplete?: boolean; events?: ReadonlyArray<{ victimPlayerId?: string | null }> } | null }>,
+  identities: ReadonlyArray<string | null | undefined>,
+): number[] | null {
+  if (!rounds.length) return null;
+  const counts = identities.map(() => 0);
+  for (const round of rounds) {
+    if (round.screenshotEvidence?.openingEventComplete !== true) return null;
+    const victim = round.screenshotEvidence.events?.[0]?.victimPlayerId;
+    const rows = victim ? identities.flatMap((identity, index) => identity === victim ? [index] : []) : [];
+    if (rows.length !== 1) return null;
+    counts[rows[0]] += 1;
+  }
+  return counts;
+}
+
 export async function extractCaptureSession(input: {
   captures: readonly CaptureImage[];
   rosterPlayers: Array<{ id?: string; displayName: string; aliases?: string[] }>;
@@ -188,18 +210,9 @@ export async function extractCaptureSession(input: {
       ? 'confirmed'
       : 'review-required';
   }
-  const firstDeaths = new Map<string, number>();
-  // FK/FD only needs the earliest kill row. Do not throw away a valid opening
-  // because a later trade or cleanup kill was unreadable.
-  const firstDeathCoverageComplete = extractedRounds.length > 0 && extractedRounds.every(round => round.screenshotEvidence?.openingEventComplete === true);
-  for (const round of extractedRounds) {
-    const first = round.screenshotEvidence?.events?.[0];
-    if (first?.victimTeam === 'ours' && first.victimPlayerId) firstDeaths.set(first.victimPlayerId, (firstDeaths.get(first.victimPlayerId) || 0) + 1);
-  }
-  for (const player of resolvedPlayers) {
-    const identity = canonicalIdentity(player.extractedName).playerId;
-    player.fd = firstDeathCoverageComplete ? (firstDeaths.get(identity) || 0) : null;
-  }
+  const identities = resolvedPlayers.map(player => canonicalIdentity(player.extractedName).playerId);
+  const firstDeaths = attributedFirstDeaths(extractedRounds, identities);
+  resolvedPlayers.forEach((player, index) => { player.fd = firstDeaths ? firstDeaths[index] : null; });
   const startingSide = inferStartingSide(extractedRounds);
   return {
     draft, meta, startingSide, players: resolvedPlayers, rounds: extractedRounds, performance, headToHead, reconciled, scoreboardLayout, sourceMetadata: draft.sourceMetadata,
