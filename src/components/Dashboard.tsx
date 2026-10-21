@@ -5,6 +5,7 @@ import { activeRosterCount, canOpenPrivateMatchReview, matchDateWindow, normaliz
 import DesktopCommandCenter from './DesktopCommandCenter';
 import { percentageTextClass } from '../utils/percentageColor';
 import CoachWorkflow from './CoachWorkflow';
+import { DEFAULT_MINIMUM_METRIC_SAMPLES, knownTotal, publishRate } from '../../lib/metricTrust';
 
 interface Props {
   data: TrackerData; theme: any; role: string | null; username: string | null;
@@ -25,6 +26,15 @@ export function selectDashboardPersonalRows(data: Pick<TrackerData, 'authenticat
   return { viewer: viewer || null, rows: (data.playerStats || []).filter(row => !!viewer && row.playerId === playerId) };
 }
 
+/** Personal totals publish only from complete rows; a missing value never becomes zero. */
+export function personalTotals(rows: ReadonlyArray<Pick<TrackerData['playerStats'][number], 'kills' | 'deaths' | 'assists' | 'fk' | 'fd'>>, minimumSamples: number) {
+  const kills = knownTotal(rows, row => row.kills); const deaths = knownTotal(rows, row => row.deaths); const assists = knownTotal(rows, row => row.assists);
+  const firstKills = knownTotal(rows, row => row.fk); const firstDeaths = knownTotal(rows, row => row.fd);
+  const openings = firstKills !== null && firstDeaths !== null ? firstKills + firstDeaths : null;
+  const opening = publishRate({ numerator: firstKills, denominator: openings, observed: openings === null ? 0 : rows.length, expected: rows.length, minimumSamples });
+  return { kills, deaths, assists, firstKills, firstDeaths, openingRate: opening.value === null ? null : Math.round(opening.value) };
+}
+
 export default function Dashboard({ data, theme, role, username, onOpenMatch, onOpenReplay, onOpenCapture, onOpenSchedule, onOpenCoachWorkspace, summaryMode = false }: Props) {
   const light = data.settings.theme === 'daylight';
   const muted = light ? 'text-slate-600' : 'text-gray-400';
@@ -34,6 +44,7 @@ export default function Dashboard({ data, theme, role, username, onOpenMatch, on
   const window = useMemo(() => matchDateWindow(matches), [matches]);
   const decided = matches.map(score).filter((value): value is { ours: number; theirs: number } => !!value && value.ours !== value.theirs);
   const wins = decided.filter(value => value.ours > value.theirs).length;
+  const minimumSamples = data.settings.stats?.lowSample || DEFAULT_MINIMUM_METRIC_SAMPLES;
   const currentPlayers = activeRosterCount(data);
   const todayCairo = new Intl.DateTimeFormat('en-CA', { timeZone: 'Africa/Cairo', year: 'numeric', month: '2-digit', day: '2-digit' }).format(new Date());
   const nextSession = [...(data.schedule || [])].filter(item => normalizedMatchDate(item.date)).sort((a, b) => normalizedMatchDate(a.date)!.localeCompare(normalizedMatchDate(b.date)!)).find(item => normalizedMatchDate(item.date)! >= todayCairo);
@@ -43,8 +54,9 @@ export default function Dashboard({ data, theme, role, username, onOpenMatch, on
   const { viewer, rows: personalRows } = selectDashboardPersonalRows(data);
   const personalMatchIds = new Set(personalRows.map(row => row.matchId));
   const personalMatches = matches.filter(match => personalMatchIds.has(match.id));
-  const total = (field: keyof (typeof personalRows)[number]) => personalRows.reduce((sum, row) => sum + (typeof row[field] === 'number' ? Number(row[field]) : 0), 0);
-  const kills = total('kills'); const deaths = total('deaths'); const assists = total('assists'); const firstKills = total('fk'); const firstDeaths = total('fd');
+  const { kills, deaths, assists, firstKills, firstDeaths, openingRate } = personalTotals(personalRows, minimumSamples);
+  const teamWinRate = publishRate({ numerator: wins, denominator: decided.length, observed: decided.length, expected: decided.length, minimumSamples });
+  const teamWinPercent = teamWinRate.value === null ? null : Math.round(teamWinRate.value);
   const knownAdr = personalRows.map(row => row.adr).filter((value): value is number => typeof value === 'number');
   const knownHs = personalRows.map(row => row.hs).filter((value): value is number => typeof value === 'number');
   const knownPerformance = personalRows.map(row => row.performanceScore).filter((value): value is number => typeof value === 'number');
@@ -73,9 +85,9 @@ export default function Dashboard({ data, theme, role, username, onOpenMatch, on
       </button>
     </section>
 
-    {role === 'player' && <section className={`rounded-2xl border p-5 ${surface}`} aria-labelledby="personal-performance-title"><div className="flex flex-wrap items-end justify-between gap-3"><div><p className={`text-[10px] font-semibold uppercase tracking-[0.18em] ${subtle}`}>My performance</p><h2 id="personal-performance-title" className="mt-1 text-lg font-semibold">{personalMatches.length} recorded match{personalMatches.length === 1 ? '' : 'es'}</h2></div><span className="rounded-full border border-cyan-300/20 bg-cyan-300/10 px-3 py-1 text-xs text-cyan-200">{viewer?.displayName || username || 'Unpaired player'}</span></div><div className="mt-4 grid gap-3 sm:grid-cols-2 xl:grid-cols-5"><Metric surface={surface} muted={subtle} icon={Swords} label="K / D / A" value={personalRows.length ? `${kills} / ${deaths} / ${assists}` : '—'} detail={deaths > 0 ? `${(kills / deaths).toFixed(2)} K/D` : 'No death sample'} /><Metric surface={surface} muted={subtle} icon={Target} label="Headshots" value={average(knownHs) === null ? '—' : `${average(knownHs)!.toFixed(1)}%`} detail={`${knownHs.length} supported rows`} /><Metric surface={surface} muted={subtle} icon={Activity} label="Performance" value={average(knownPerformance) === null ? '—' : average(knownPerformance)!.toFixed(0)} detail={`${knownPerformance.length} supported rows`} /><Metric surface={surface} muted={subtle} icon={Activity} label="Damage" value={average(knownAdr) === null ? '—' : average(knownAdr)!.toFixed(1)} detail="Average ADR" /><Metric surface={surface} muted={subtle} icon={TrendingUp} label="Openings" value={personalRows.length ? `${firstKills}–${firstDeaths}` : '—'} detail={firstKills + firstDeaths ? `${Math.round(firstKills / (firstKills + firstDeaths) * 100)}% won` : 'No opening evidence'} detailClass={percentageTextClass(firstKills + firstDeaths ? Math.round(firstKills / (firstKills + firstDeaths) * 100) : null)} /></div>{!viewer && <p className="mt-4 rounded-lg border border-amber-500/20 bg-amber-500/10 px-3 py-2 text-xs text-amber-200">This login is not paired to a roster identity.</p>}</section>}
+    {role === 'player' && <section className={`rounded-2xl border p-5 ${surface}`} aria-labelledby="personal-performance-title"><div className="flex flex-wrap items-end justify-between gap-3"><div><p className={`text-[10px] font-semibold uppercase tracking-[0.18em] ${subtle}`}>My performance</p><h2 id="personal-performance-title" className="mt-1 text-lg font-semibold">{personalMatches.length} recorded match{personalMatches.length === 1 ? '' : 'es'}</h2></div><span className="rounded-full border border-cyan-300/20 bg-cyan-300/10 px-3 py-1 text-xs text-cyan-200">{viewer?.displayName || username || 'Unpaired player'}</span></div><div className="mt-4 grid gap-3 sm:grid-cols-2 xl:grid-cols-5"><Metric surface={surface} muted={subtle} icon={Swords} label="K / D / A" value={personalRows.length ? `${kills ?? '—'} / ${deaths ?? '—'} / ${assists ?? '—'}` : '—'} detail={kills !== null && deaths !== null && deaths > 0 ? `${(kills / deaths).toFixed(2)} K/D` : 'No complete K/D sample'} /><Metric surface={surface} muted={subtle} icon={Target} label="Headshots" value={average(knownHs) === null ? '—' : `${average(knownHs)!.toFixed(1)}%`} detail={`${knownHs.length} supported rows`} /><Metric surface={surface} muted={subtle} icon={Activity} label="Performance" value={average(knownPerformance) === null ? '—' : average(knownPerformance)!.toFixed(0)} detail={`${knownPerformance.length} supported rows`} /><Metric surface={surface} muted={subtle} icon={Activity} label="Damage" value={average(knownAdr) === null ? '—' : average(knownAdr)!.toFixed(1)} detail="Average ADR" /><Metric surface={surface} muted={subtle} icon={TrendingUp} label="Openings" value={personalRows.length ? `${firstKills ?? '—'}–${firstDeaths ?? '—'}` : '—'} detail={openingRate === null ? 'No complete opening evidence' : `${openingRate}% won`} detailClass={percentageTextClass(openingRate)} /></div>{!viewer && <p className="mt-4 rounded-lg border border-amber-500/20 bg-amber-500/10 px-3 py-2 text-xs text-amber-200">This login is not paired to a roster identity.</p>}</section>}
 
-    <section className="grid gap-3 sm:grid-cols-3" aria-label="Team essentials"><Metric surface={surface} muted={subtle} icon={Swords} label="Recorded matches" value={String(matches.length)} detail={window ? `${window.start} — ${window.end}` : 'No match history'} /><Metric surface={surface} muted={subtle} icon={Activity} label="Team record" value={decided.length ? `${wins}–${decided.length - wins}` : '—'} detail={decided.length ? `${Math.round(wins / decided.length * 100)}% win rate` : 'Scores unavailable'} detailClass={percentageTextClass(decided.length ? Math.round(wins / decided.length * 100) : null)} /><Metric surface={surface} muted={subtle} icon={Users} label="Active roster" value={String(currentPlayers.count)} detail="Current players" /></section>
+    <section className="grid gap-3 sm:grid-cols-3" aria-label="Team essentials"><Metric surface={surface} muted={subtle} icon={Swords} label="Recorded matches" value={String(matches.length)} detail={window ? `${window.start} — ${window.end}` : 'No match history'} /><Metric surface={surface} muted={subtle} icon={Activity} label="Team record" value={decided.length ? `${wins}–${decided.length - wins}` : '—'} detail={teamWinPercent !== null ? `${teamWinPercent}% win rate` : decided.length ? `Win rate needs ${teamWinRate.minimumSamples} decided matches` : 'Scores unavailable'} detailClass={percentageTextClass(teamWinPercent)} /><Metric surface={surface} muted={subtle} icon={Users} label="Active roster" value={String(currentPlayers.count)} detail="Current players" /></section>
 
     <section className={`overflow-hidden rounded-xl border ${surface}`} aria-labelledby="recent-matches-title"><div className={`flex items-center justify-between border-b px-5 py-4 ${theme.border}`}><div><h2 id="recent-matches-title" className="font-semibold">Recent results</h2><p className={`mt-0.5 text-xs ${subtle}`}>The last three recorded matches</p></div><Film className={`h-4 w-4 ${subtle}`} /></div>{matches.slice(0, 3).map(match => <MatchRow key={match.id} match={match} coach={canReview} onOpen={() => onOpenMatch(match.id)} muted={subtle} border={theme.border} />)}{!matches.length && <div className={`px-5 py-10 text-center text-sm ${subtle}`}>No matches recorded yet.</div>}</section>
   </div>;

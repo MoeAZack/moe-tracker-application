@@ -1,3 +1,5 @@
+import { publishKast } from './metricTrust';
+
 export type ReplayUnknownReason =
   | 'unsupported-file'
   | 'incomplete-file'
@@ -735,7 +737,7 @@ function buildEvidence(
     orbCaptures: countMetric('orb-capture', playerId),
     kastSuccessful,
     kastCovered,
-    kastRate: kastSuccessful === null || !kastCovered ? null : kastSuccessful / kastCovered,
+    kastRate: kastSuccessful === null || !kastCovered ? null : publishKast([{ successful: kastSuccessful, covered: kastCovered }]).value! / 100,
     headshotKills,
     eligibleHeadshotKills: eligibleKills?.length ?? null,
     headshotPercentage: eligibleKills === null || eligibleKills.length === 0 ? null

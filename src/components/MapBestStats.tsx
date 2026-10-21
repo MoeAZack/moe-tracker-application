@@ -1,15 +1,14 @@
 import React, { useState, useMemo } from 'react';
 import { TrackerData, Strat, StratRun } from '../types';
 import { Compass, Calculator, BookOpen, Plus, Edit2, Trash2, CheckCircle2, XCircle, TrendingUp, HelpCircle, ShieldAlert, AlertTriangle, UserMinus, Skull, Sparkles, Users } from 'lucide-react';
-import { knownResult, matchOutcome } from '../../lib/analyticsEvidence';
+import { knownResult } from '../../lib/analyticsEvidence';
 import { classifyAverageLoadout, classifyTeamEquipment } from '../../lib/scrimRoundAnalytics';
 import ReplayMatchLog from './ReplayMatchLog';
 import MapRoundIntelligencePanel from './MapRoundIntelligencePanel';
 import { buildMapRoundIntelligence } from '../../lib/mapRoundAnalytics';
 import { percentageTextClass } from '../utils/percentageColor';
-import { reconcileObservedPlayerRows } from '../../lib/uiIntegration';
 import { activeResourceNames, buildResourceCatalog, canonicalResourceName } from '../../lib/resourceCatalog';
-import { buildMapScoreLedger } from '../../lib/mapScoreLedger';
+import { bestMapInsight, buildBestMaps, buildMapStatsTable, sideRoundsComplete, teamKdComplete } from '../../lib/mapBestScores';
 
 interface ComponentProps {
   data: TrackerData;
@@ -58,194 +57,11 @@ export default function MapBestStats({ data, evidenceData = data, theme, onUpser
   const conversionPercentage = (value?: { won: number; total: number }) => value?.total ? Math.round(value.won / value.total * 100) : null;
 
   // --- MAP STATS CALCULATOR ---
-  const mapStatsTable = useMemo(() => {
-    const statsConfig = data.settings.stats || { shrinkK: 10, lowSample: 15, decayEnabled: false, halfLifeDays: 120, rollingWindow: 10 };
-    const table: Record<string, {
-      played: number; won: number; lost: number; drawn: number;
-      attW: number; attL: number; defW: number; defL: number;
-      pistolW: number; pistolL: number;
-      ecoW: number; ecoL: number;
-      bonusW: number; bonusL: number;
-      kills: number; deaths: number;
-      actualPlayed: number; actualWon: number; actualLost: number; actualDrawn: number;
-    }> = {};
-
-    maps.forEach(m => {
-      table[m] = {
-        played: 0, won: 0, lost: 0, drawn: 0,
-        attW: 0, attL: 0, defW: 0, defL: 0,
-        pistolW: 0, pistolL: 0,
-        ecoW: 0, ecoL: 0,
-        bonusW: 0, bonusL: 0,
-        kills: 0, deaths: 0,
-        actualPlayed: 0, actualWon: 0, actualLost: 0, actualDrawn: 0
-      };
-    });
-
-    maps.forEach(mapName => {
-      // 1. Get all matches for this map
-      const mapMatches = matches.filter(m => canonicalResourceName(data, 'map', m.map) === mapName);
-      
-      // 2. Sort them chronologically (oldest first, newest last)
-      mapMatches.sort((a, b) => new Date(a.date).getTime() - new Date(b.date).getTime());
-      
-      // 3. Apply rolling window if enabled
-      let activeMatches = [...mapMatches];
-      const rollingWindow = statsConfig.rollingWindow;
-      if (rollingWindow && rollingWindow > 0 && activeMatches.length > rollingWindow) {
-        activeMatches = activeMatches.slice(-rollingWindow);
-      }
-
-      const s = table[mapName];
-      if (!s) return;
-
-      // 4. Aggregate match data with exponential time-decay weight
-      activeMatches.forEach(m => {
-        let weight = 1.0;
-        if (statsConfig.decayEnabled) {
-          const diffMs = Math.max(0, new Date().getTime() - new Date(m.date).getTime());
-          const diffDays = diffMs / (1000 * 60 * 60 * 24);
-          const halfLife = statsConfig.halfLifeDays || 120;
-          weight = Math.pow(0.5, diffDays / halfLife);
-        }
-
-        const outcome = matchOutcome(m);
-        if (outcome !== null) {
-          s.played += weight;
-          s.actualPlayed++;
-        }
-        if (outcome === 'win') {
-          s.won += weight;
-          s.actualWon++;
-        } else if (outcome === 'loss') {
-          s.lost += weight;
-          s.actualLost++;
-        } else if (outcome === 'draw') {
-          s.drawn += weight;
-          s.actualDrawn++;
-        }
-
-        s.attW += m.attW * weight;
-        s.attL += m.attL * weight;
-        s.defW += m.defW * weight;
-        s.defL += m.defL * weight;
-
-        // The same round-backed conversions power Economy, Map Analysis and
-        // exports. Legacy match labels without retained rounds stay unknown.
-        const canonical = buildMapRoundIntelligence([{ ...m, roundAnalytics: undefined }], (data.rounds || []).filter(round => round.matchId === m.id))[0];
-        if (canonical) {
-          s.pistolW += canonical.pistol.won * weight;
-          s.pistolL += (canonical.pistol.total - canonical.pistol.won) * weight;
-          s.ecoW += canonical.postPistol.won * weight;
-          s.ecoL += (canonical.postPistol.total - canonical.postPistol.won) * weight;
-          s.bonusW += canonical.earnedBonus.won * weight;
-          s.bonusL += (canonical.earnedBonus.total - canonical.earnedBonus.won) * weight;
-        }
-
-        // Sum player kills/deaths on this match
-        playerStats.forEach(ps => {
-          if (ps.matchId === m.id) {
-            s.kills += (ps.kills || 0) * weight;
-            s.deaths += (ps.deaths || 0) * weight;
-          }
-        });
-      });
-    });
-
-    return table;
-  }, [data, maps, matches, playerStats]);
+  const mapStatsTable = useMemo(() => buildMapStatsTable(data, maps), [data, maps]);
 
   // --- BEST MAP CALCULATOR WEIGHTED ---
-  const calculatedBestMaps = useMemo(() => {
-    const weights = data.settings.weights || { mapWin: 25, attWin: 12.5, defWin: 12.5, pistol: 20, eco: 10, bonus: 10, kd: 10 };
-    const statsConfig = data.settings.stats || { shrinkK: 10, lowSample: 15 };
-    const experimentalScoresEnabled = statsConfig.experimentalCompositeScores === true;
-
-    return (Object.entries(mapStatsTable) as [string, any][]).map(([mapName, s]) => {
-      const n = s.actualPlayed;
-      const weightedPlayed = s.played;
-      const rawWr = weightedPlayed > 0 ? (s.won / weightedPlayed) : null;
-
-      // Low sample shrinkage / regression to the mean (0.5)
-      const shrinkK = statsConfig.shrinkK || 10;
-      const wr = weightedPlayed > 0 ? (s.won + shrinkK * 0.5) / (weightedPlayed + shrinkK) : null;
-
-      const attWr = (s.attW + s.attL) > 0 ? (s.attW / (s.attW + s.attL)) : null;
-      const defWr = (s.defW + s.defL) > 0 ? (s.defW / (s.defW + s.defL)) : null;
-
-      const pistolTotal = s.pistolW + s.pistolL;
-      const pistolWr = pistolTotal > 0 ? (s.pistolW / pistolTotal) : null;
-
-      const ecoTotal = s.ecoW + s.ecoL;
-      const ecoWr = ecoTotal > 0 ? (s.ecoW / ecoTotal) : null;
-
-      const bonusTotal = s.bonusW + s.bonusL;
-      const bonusWr = bonusTotal > 0 ? (s.bonusW / bonusTotal) : null;
-
-      const kdRatio = s.deaths > 0 ? (s.kills / s.deaths) : null;
-      // Map KD to a 0-1 scale, where 1.0 is 0.5, 1.5 is 0.75, 0.5 is 0.25, etc.
-      const kdScore = kdRatio === null ? null : Math.max(0, Math.min(1.0, kdRatio / 2.0));
-
-      // Equal-weight current-player form prevents one high-volume fragger from
-      // hiding a weak roster fit. Each player's reconciled map K/D contributes
-      // once to the map score, alongside the existing team result factors.
-      const mapMatchIds = new Set(matches.filter(match => canonicalResourceName(data, 'map', match.map) === mapName).map(match => match.id));
-      const rowsByPlayer = new Map<string, typeof playerStats>();
-      for (const row of playerStats.filter(row => mapMatchIds.has(row.matchId))) {
-        const key = row.playerId || `name:${String(row.displayNameSnapshot || row.player || '').trim().toLocaleLowerCase()}`;
-        rowsByPlayer.set(key, [...(rowsByPlayer.get(key) || []), row]);
-      }
-      const playerScores = [...rowsByPlayer.values()].map(rows => {
-        const reconciled = reconcileObservedPlayerRows(rows);
-        if (!reconciled.length || !reconciled.every(row => typeof row.kills === 'number' && typeof row.deaths === 'number')) return null;
-        const kills = reconciled.reduce((sum, row) => sum + (typeof row.kills === 'number' ? row.kills : 0), 0);
-        const deaths = reconciled.reduce((sum, row) => sum + (typeof row.deaths === 'number' ? row.deaths : 0), 0);
-        return deaths > 0 ? Math.max(0, Math.min(1, (kills / deaths) / 2)) : kills > 0 ? 1 : null;
-      }).filter((value): value is number => value !== null);
-      const playerPerformanceScore = n >= (statsConfig.lowSample || 15) && playerScores.length === rowsByPlayer.size && playerScores.length
-        ? playerScores.reduce((sum, value) => sum + value, 0) / playerScores.length : null;
-
-      const ledger = buildMapScoreLedger({
-        mapWin: { label: 'Shrunk match win rate', value: wr ?? 0, weight: weights.mapWin, known: experimentalScoresEnabled && wr !== null, samples: n },
-        attack: { label: 'Attack round win rate', value: attWr ?? 0, weight: weights.attWin, known: experimentalScoresEnabled && attWr !== null, samples: s.attW + s.attL },
-        defense: { label: 'Defense round win rate', value: defWr ?? 0, weight: weights.defWin, known: experimentalScoresEnabled && defWr !== null, samples: s.defW + s.defL },
-        pistol: { label: 'Pistol conversion', value: pistolWr ?? 0, weight: weights.pistol, known: experimentalScoresEnabled && pistolWr !== null, samples: pistolTotal },
-        eco: { label: 'Post-pistol conversion', value: ecoWr ?? 0, weight: weights.eco, known: experimentalScoresEnabled && ecoWr !== null, samples: ecoTotal },
-        bonus: { label: 'Earned bonus conversion', value: bonusWr ?? 0, weight: weights.bonus, known: experimentalScoresEnabled && bonusWr !== null, samples: bonusTotal },
-        kd: { label: 'Team K/D score', value: kdScore ?? 0, weight: weights.kd, known: experimentalScoresEnabled && kdScore !== null, samples: s.kills + s.deaths },
-      }, statsConfig.lowSample || 15);
-
-      // 95% Wilson Score Interval (highly accurate for small sample sizes and extreme rates)
-      let ciLow = 0;
-      let ciHigh = 0;
-      if (n > 0) {
-        const z = 1.96;
-        const zSq = z * z;
-        const factor = 1 + zSq / n;
-        const center = (rawWr + zSq / (2 * n)) / factor;
-        const spread = (z / factor) * Math.sqrt((rawWr * (1 - rawWr)) / n + zSq / (4 * n * n));
-        ciLow = Math.max(0, center - spread);
-        ciHigh = Math.min(1.0, center + spread);
-      }
-
-      return {
-        map: mapName,
-        score: ledger.score,
-        ledger,
-        n,
-        wr: rawWr === null ? null : Math.round(rawWr * 100),
-        ci: `${Math.round(ciLow * 100)}% - ${Math.round(ciHigh * 100)}%`,
-        attWr: attWr === null ? null : Math.round(attWr * 100),
-        defWr: defWr === null ? null : Math.round(defWr * 100),
-        pistolWr: pistolWr === null ? null : Math.round(pistolWr * 100),
-        ecoWr: ecoWr === null ? null : Math.round(ecoWr * 100),
-        bonusWr: bonusWr === null ? null : Math.round(bonusWr * 100),
-        kd: kdRatio === null ? null : kdRatio.toFixed(2),
-        playerPerformance: playerPerformanceScore === null ? null : Math.round(playerPerformanceScore * 100),
-        contributingPlayers: playerScores.length,
-      };
-    }).sort((a, b) => (b.score ?? -1) - (a.score ?? -1));
-  }, [mapStatsTable, data.settings.weights, data.settings.stats, matches, playerStats]);
+  const calculatedBestMaps = useMemo(() => buildBestMaps(data, mapStatsTable), [data, mapStatsTable]);
+  const insight = bestMapInsight(calculatedBestMaps, data.settings);
 
   // --- TACTICAL LOSS & THROW ANALYTICS ---
   const throwStats = useMemo(() => {
@@ -565,9 +381,10 @@ export default function MapBestStats({ data, evidenceData = data, theme, onUpser
                   const played = s.actualPlayed;
                   const weightedPlayed = s.played;
                   const winrate = weightedPlayed > 0 ? ((s.won / weightedPlayed) * 100).toFixed(0) : '0';
-                  const attWr = (s.attW + s.attL) > 0 ? ((s.attW / (s.attW + s.attL)) * 100).toFixed(0) : '0';
-                  const defWr = (s.defW + s.defL) > 0 ? ((s.defW / (s.defW + s.defL)) * 100).toFixed(0) : '0';
-                  const kd = s.deaths > 0 ? (s.kills / s.deaths).toFixed(2) : '-';
+                  const sides = sideRoundsComplete(s);
+                  const attWr = sides && (s.attW + s.attL) > 0 ? ((s.attW / (s.attW + s.attL)) * 100).toFixed(0) : null;
+                  const defWr = sides && (s.defW + s.defL) > 0 ? ((s.defW / (s.defW + s.defL)) * 100).toFixed(0) : null;
+                  const kd = teamKdComplete(s) && s.deaths > 0 ? (s.kills / s.deaths).toFixed(2) : '-';
                   const roundIntel = roundIntelligenceByMap.get(mName);
 
                   return (
@@ -580,11 +397,11 @@ export default function MapBestStats({ data, evidenceData = data, theme, onUpser
                       <td className="py-3.5 px-3 text-center font-black text-sm">
                         <span className={weightedPlayed > 0 ? percentageTextClass(Number(winrate)) : 'text-slate-500'}>{weightedPlayed > 0 ? `${winrate}%` : '—'}</span>
                       </td>
-                      <td className={`border-l border-white/5 py-3.5 px-3 text-center font-bold ${(s.attW + s.attL) > 0 ? percentageTextClass(Number(attWr)) : 'text-slate-500'}`}>{(s.attW + s.attL) > 0 ? `${attWr}%` : '—'}</td><td className={`py-3.5 px-3 text-center font-bold ${(s.defW + s.defL) > 0 ? percentageTextClass(Number(defWr)) : 'text-slate-500'}`}>{(s.defW + s.defL) > 0 ? `${defWr}%` : '—'}</td>
+                      <td className={`border-l border-white/5 py-3.5 px-3 text-center font-bold ${attWr !== null ? percentageTextClass(Number(attWr)) : 'text-slate-500'}`}>{attWr !== null ? `${attWr}%` : '—'}</td><td className={`py-3.5 px-3 text-center font-bold ${defWr !== null ? percentageTextClass(Number(defWr)) : 'text-slate-500'}`}>{defWr !== null ? `${defWr}%` : '—'}</td>
                       <td className={`border-l border-white/5 py-3.5 px-3 text-center ${percentageTextClass(conversionPercentage(roundIntel?.pistolBySide.attack))}`}>{conversionText(roundIntel?.pistolBySide.attack)}</td><td className={`py-3.5 px-3 text-center ${percentageTextClass(conversionPercentage(roundIntel?.pistolBySide.defense))}`}>{conversionText(roundIntel?.pistolBySide.defense)}</td>
                       <td className={`py-3.5 px-3 text-center ${percentageTextClass(conversionPercentage(roundIntel?.postPistolBySide.attack))}`}>{conversionText(roundIntel?.postPistolBySide.attack)}</td><td className={`py-3.5 px-3 text-center ${percentageTextClass(conversionPercentage(roundIntel?.postPistolBySide.defense))}`}>{conversionText(roundIntel?.postPistolBySide.defense)}</td>
                       <td className={`py-3.5 px-3 text-center ${percentageTextClass(conversionPercentage(roundIntel?.earnedBonusBySide.attack))}`}>{conversionText(roundIntel?.earnedBonusBySide.attack)}</td><td className={`py-3.5 px-3 text-center ${percentageTextClass(conversionPercentage(roundIntel?.earnedBonusBySide.defense))}`}>{conversionText(roundIntel?.earnedBonusBySide.defense)}</td>
-                      <td className={`border-l border-white/5 py-3.5 px-3 text-center font-bold ${Number(kd) >= 1 ? 'text-emerald-400' : 'text-rose-400'}`}>{kd}</td>
+                      <td className={`border-l border-white/5 py-3.5 px-3 text-center font-bold ${kd === '-' ? 'text-slate-500' : Number(kd) >= 1 ? 'text-emerald-400' : 'text-rose-400'}`}>{kd}</td>
                     </tr>
                   );
                 })}
@@ -634,7 +451,7 @@ export default function MapBestStats({ data, evidenceData = data, theme, onUpser
                         {cm.map}
                       </td>
                       <td className="py-3.5 px-4 text-center font-black text-sm text-[#ff4655]">{cm.score ?? 'Not enough data'}</td>
-                      <td className="py-3.5 px-4 text-center text-gray-400">{cm.n > 0 ? cm.ci : 'N/A (unplayed)'}</td>
+                      <td className="py-3.5 px-4 text-center text-gray-400">{cm.ci ?? (cm.n > 0 ? 'Not published' : 'N/A (unplayed)')}</td>
                       <td className="py-3.5 px-4 text-center text-gray-300 font-bold">{cm.n}</td>
                       <td className={`py-3.5 px-4 text-center font-bold ${percentageTextClass(cm.wr)}`}>{cm.wr === null ? 'Unknown' : `${cm.wr}%`}</td>
                       <td className={`py-3.5 px-4 text-center ${percentageTextClass(cm.attWr)}`}>{cm.attWr === null ? 'Unknown' : `${cm.attWr}%`}</td>
@@ -652,13 +469,13 @@ export default function MapBestStats({ data, evidenceData = data, theme, onUpser
           </div>
 
           {/* Strategic Insight card */}
-          {calculatedBestMaps.length > 0 && (
+          {insight && (
             <div className={`p-5 rounded-xl border border-white/5 bg-gradient-to-r from-red-500/5 to-transparent space-y-2`}>
-              <h5 className="text-xs uppercase font-black tracking-widest text-[#ff4655] font-mono">Performance vs. Play Rate Insights</h5>
+              <h5 className="text-xs uppercase font-black tracking-widest text-[#ff4655] font-mono">Experimental best-map insight</h5>
               <p className="text-xs text-gray-300 leading-relaxed font-mono">
-                Your highest-rated map is <strong className="text-white font-black">{calculatedBestMaps[0].map}</strong> (Score Index of {calculatedBestMaps[0].score}), combining a {calculatedBestMaps[0].wr}% raw win rate across {calculatedBestMaps[0].n} recorded instances with {calculatedBestMaps[0].contributingPlayers ? `${calculatedBestMaps[0].playerPerformance}% equal-weight player form from ${calculatedBestMaps[0].contributingPlayers} players` : 'neutral player-form evidence while individual samples are unavailable'}.
-                {Number(calculatedBestMaps[0].kd) >= 1.1 ? ` Strong team KD ratio of ${calculatedBestMaps[0].kd} on this map suggests robust map geometry familiarity & clean defensive anchor rotations.` : ''} 
-                We highly recommend prioritizing picking <strong className="text-white">{calculatedBestMaps[0].map}</strong> in veto procedures when actor sequence allows, while continuing to hold defensive strategies on weaker pools.
+                Your highest experimental score is <strong className="text-white font-black">{insight.map}</strong> (Score Index of {insight.score}, {insight.ledger.coveragePercent}% of weight observed){insight.wr !== null ? `, with a ${insight.wr}% raw win rate across ${insight.n} recorded instances` : ''}{insight.playerPerformance !== null ? ` and ${insight.playerPerformance}% equal-weight player form from ${insight.contributingPlayers} players` : ''}.
+                {insight.kd !== null && Number(insight.kd) >= 1.1 ? ` Strong team KD ratio of ${insight.kd} on this map suggests robust map geometry familiarity & clean defensive anchor rotations.` : ''}
+                {' '}Treat this as a descriptive, unvalidated pointer for veto discussion, not a recommendation.
               </p>
             </div>
           )}

@@ -5,6 +5,7 @@ import { percentageTextClass } from '../utils/percentageColor';
 import { matchOutcome } from '../../lib/analyticsEvidence';
 import { AgentPortrait, MapThumbnail } from './ValorantMedia';
 import { activeResourceNames, canonicalResourceName } from '../../lib/resourceCatalog';
+import { DEFAULT_MINIMUM_METRIC_SAMPLES, publishRate, type MetricPublication } from '../../lib/metricTrust';
 
 interface ComponentProps {
   data: TrackerData;
@@ -16,6 +17,43 @@ export function compositionMatchOutcome(match: any): 'win' | 'loss' | null {
   return outcome === 'win' || outcome === 'loss' ? outcome : null;
 }
 
+const percent = (publication: MetricPublication) => publication.value === null ? null : Math.round(publication.value);
+
+/** Agent win and pick rates: undecided matches and empty agent slots are never counted as losses or picks. */
+export function buildAgentPerformance(data: TrackerData, agentsList: readonly string[], minimumSamples: number) {
+  const matches = new Map((data.matches || []).map(match => [match.id, match]));
+  const stats: Record<string, { played: number; wins: number; losses: number }> = Object.fromEntries(agentsList.map(agent => [agent, { played: 0, wins: 0, losses: 0 }]));
+  let knownSlots = 0;
+  for (const row of data.playerStats || []) {
+    const match = matches.get(row.matchId); if (!match) continue;
+    const agentName = canonicalResourceName(data, 'agent', row.agent); if (!agentName) continue;
+    knownSlots += 1; const item = stats[agentName]; if (!item) continue; item.played += 1;
+    const outcome = compositionMatchOutcome(match); if (outcome === 'win') item.wins += 1; else if (outcome === 'loss') item.losses += 1;
+  }
+  return Object.entries(stats).map(([agent, item]) => {
+    const decided = item.wins + item.losses;
+    const winRate = publishRate({ numerator: item.wins, denominator: decided, observed: decided, expected: decided, minimumSamples });
+    const pickRate = publishRate({ numerator: item.played, denominator: knownSlots, observed: knownSlots, expected: knownSlots, minimumSamples: 1 });
+    return { agent, played: item.played, wins: item.wins, losses: item.losses, winRate: percent(winRate), winRatePublication: winRate, pickRate: percent(pickRate) };
+  }).sort((a, b) => b.played - a.played);
+}
+
+/** A composition is the full five-agent lineup of one decided match; partial lineups are not compositions. */
+export function buildMapCompositions(data: TrackerData, maps: readonly string[], activeAgentKeys: ReadonlySet<string>, minimumSamples: number) {
+  const comps: Record<string, Record<string, { wins: number; losses: number; agents: string[]; winRate: number | null; publication: MetricPublication }>> = Object.fromEntries(maps.map(map => [map, {}]));
+  for (const match of data.matches || []) {
+    const mapName = canonicalResourceName(data, 'map', match.map); if (!mapName || !comps[mapName]) continue;
+    const outcome = compositionMatchOutcome(match); if (!outcome) continue;
+    const rows = (data.playerStats || []).filter(row => row.matchId === match.id);
+    const agents = rows.map(row => canonicalResourceName(data, 'agent', row.agent)).filter((agent): agent is string => Boolean(agent && activeAgentKeys.has(agent.toLocaleLowerCase('en')))).sort();
+    if (rows.length !== 5 || agents.length !== 5) continue;
+    const key = agents.join(', '); const item = comps[mapName][key] ||= { wins: 0, losses: 0, agents, winRate: null, publication: publishRate({ numerator: null, denominator: null, observed: 0, expected: 0 }) };
+    if (outcome === 'win') item.wins += 1; else item.losses += 1;
+  }
+  for (const byMap of Object.values(comps)) for (const item of Object.values(byMap)) { const games = item.wins + item.losses; item.publication = publishRate({ numerator: item.wins, denominator: games, observed: games, expected: games, minimumSamples }); item.winRate = percent(item.publication); }
+  return comps;
+}
+
 export default function TeamCompositions({ data, theme }: ComponentProps) {
   const isLight = data.settings.theme === 'daylight';
   const matches = data.matches || [];
@@ -24,80 +62,9 @@ export default function TeamCompositions({ data, theme }: ComponentProps) {
   const agentsList = useMemo(() => activeResourceNames(data, 'agent'), [data]);
   const activeAgentKeys = useMemo(() => new Set(agentsList.map(agent => agent.toLocaleLowerCase('en'))), [agentsList]);
 
-  // --- MAP COMPOSITIONS ANALYTICS ---
-  const mapCompositions = useMemo(() => {
-    // MapName -> Sorted Composition String -> { wins, losses, agents: [] }
-    const comps: Record<string, Record<string, { wins: number; losses: number; agents: string[] }>> = {};
-
-    maps.forEach(m => {
-      comps[m] = {};
-    });
-
-    matches.forEach((m) => {
-      const mapName = canonicalResourceName(data, 'map', m.map);
-      if (!mapName || !comps[mapName]) return;
-      const outcome = compositionMatchOutcome(m);
-      if (!outcome) return;
-
-      // Find the 5 players stats for this match
-      const mStats = playerStats.filter(ps => ps.matchId === m.id);
-      if (mStats.length === 0) return;
-
-      // Collect the agents and sort them alphabetically
-      const agents = mStats.map(s => canonicalResourceName(data, 'agent', s.agent)).filter((agent): agent is string => Boolean(agent && activeAgentKeys.has(agent.toLocaleLowerCase('en')))).sort();
-      if (agents.length === 0) return;
-
-      const compKey = agents.join(', ');
-      if (!comps[mapName][compKey]) {
-        comps[mapName][compKey] = { wins: 0, losses: 0, agents };
-      }
-
-      if (outcome === 'win') comps[mapName][compKey].wins++;
-      else comps[mapName][compKey].losses++;
-    });
-
-    return comps;
-  }, [data, maps, matches, playerStats, activeAgentKeys]);
-
-  // --- AGENT PICK RATES & PERFORMANCE ---
-  const agentPerformance = useMemo(() => {
-    const stats: Record<string, { played: number; wins: number; losses: number }> = {};
-    
-    agentsList.forEach(a => {
-      stats[a] = { played: 0, wins: 0, losses: 0 };
-    });
-
-    playerStats.forEach((ps) => {
-      const agentName = canonicalResourceName(data, 'agent', ps.agent);
-      if (!agentName || !stats[agentName]) return;
-      const match = matches.find(m => m.id === ps.matchId);
-      if (!match) return;
-
-      const s = stats[agentName];
-      s.played++;
-      const outcome = compositionMatchOutcome(match);
-      if (outcome === 'win') s.wins++;
-      else if (outcome === 'loss') s.losses++;
-    });
-
-    const totalMatches = matches.length;
-
-    return Object.entries(stats)
-      .map(([agentName, s]) => {
-        const decided = s.wins + s.losses;
-        const wr = decided > 0 ? (s.wins / decided) * 100 : 0;
-        const pickRate = totalMatches > 0 ? (s.played / (totalMatches * 5)) * 100 : 0; // Out of total individual slot fills (5 slots per match)
-        return {
-          agent: agentName,
-          played: s.played,
-          wins: s.wins,
-          losses: s.losses,
-          winRate: Math.round(wr),
-          pickRate: Math.round(pickRate)
-        };
-      })
-      .sort((a, b) => b.played - a.played);
-  }, [data, agentsList, playerStats, matches]);
+  const minimumSamples = data.settings.stats?.lowSample || DEFAULT_MINIMUM_METRIC_SAMPLES;
+  const mapCompositions = useMemo(() => buildMapCompositions(data, maps, activeAgentKeys, minimumSamples), [data, maps, activeAgentKeys, minimumSamples]);
+  const agentPerformance = useMemo(() => buildAgentPerformance(data, agentsList, minimumSamples), [data, agentsList, minimumSamples]);
 
   return (
     <div className="space-y-6">
@@ -130,9 +97,9 @@ export default function TeamCompositions({ data, theme }: ComponentProps) {
                       <span className="text-emerald-400 font-bold">{ap.wins}W</span> - <span className="text-rose-400 font-bold">{ap.losses}L</span>
                     </td>
                     <td className="py-2.5 px-3 text-center font-black text-sm">
-                      <span className={percentageTextClass(ap.winRate)}>{ap.winRate}%</span>
+                      <span className={percentageTextClass(ap.winRate)}>{ap.winRate === null ? (ap.wins + ap.losses ? `Needs ${ap.winRatePublication.minimumSamples}` : 'Unknown') : `${ap.winRate}%`}</span>
                     </td>
-                    <td className="py-2.5 px-3 text-center text-gray-400">{ap.pickRate}%</td>
+                    <td className="py-2.5 px-3 text-center text-gray-400">{ap.pickRate === null ? 'Unknown' : `${ap.pickRate}%`}</td>
                   </tr>
                 ))}
                 {agentPerformance.length === 0 && (
@@ -161,7 +128,7 @@ export default function TeamCompositions({ data, theme }: ComponentProps) {
                   <div className="space-y-2 font-mono text-[11px]">
                     {compEntries.map(([compKey, c]) => {
                       const total = c.wins + c.losses;
-                      const wr = total > 0 ? Math.round((c.wins / total) * 100) : 0;
+                      const wr = c.winRate;
                       return (
                         <div key={compKey} className="flex justify-between items-center bg-black/10 p-2.5 rounded border border-white/5">
                           <div className="flex flex-wrap gap-1.5 max-w-[75%]">
@@ -173,7 +140,7 @@ export default function TeamCompositions({ data, theme }: ComponentProps) {
                           </div>
                           <div className="text-right text-[10px] shrink-0">
                             <span className="text-emerald-400 font-bold">{c.wins}W</span> - <span className="text-rose-400 font-bold">{c.losses}L</span> 
-                            <p className={`${percentageTextClass(wr)} font-bold text-[9px]`}>{wr}% WR ({total} games)</p>
+                            <p className={`${percentageTextClass(wr)} font-bold text-[9px]`}>{wr === null ? `WR needs ${c.publication.minimumSamples} games` : `${wr}% WR`} ({total} games)</p>
                           </div>
                         </div>
                       );

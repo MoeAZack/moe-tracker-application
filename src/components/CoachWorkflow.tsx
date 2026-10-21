@@ -1097,7 +1097,7 @@ function renderCard(
           />
           <Metric
             label="FK–FD"
-            value={`${latest.openings.firstKills}–${latest.openings.firstDeaths}`}
+            value={`${latest.openings.firstKills ?? "—"}–${latest.openings.firstDeaths ?? "—"}`}
           />
           <Metric
             label="ATT first three"

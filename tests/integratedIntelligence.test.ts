@@ -96,7 +96,7 @@ describe('integrated intelligence', () => {
       { id: 's2', matchId: 'm2', playerId: 'p2', player: 'Two', kills: 8, deaths: 15, assists: 3, fk: 1, fd: 4, kastCovered: 10, kastSuccessful: 5, agent: 'Omen' },
     ], rounds: [{ id: 'r1', matchId: 'm1', roundNo: 1, result: 'W', side: 'ATT', site: 'A', buy: 'Full', enemyBuy: 'Eco', screenshotEvidence: { reviewStatus: 'confirmed', players: [{ playerId: 'p1', displayName: 'One', team: 'ours', equippedWeapon: 'Vandal' }] } }] };
     const ratings = buildCalibratedPlayerRatings(data); expect(ratings[0].rating).toBeNull(); expect(ratings[0].reliability).toBe(17);
-    expect(ratings[0]).toMatchObject({ calculationVersion: 'calibrated-player-rating/v4', validationStatus: 'experimental-unvalidated', publicationStatus: 'insufficient-evidence', calibration: { status: 'insufficient-evidence', cohortSize: 2, baseline: 'median-mad', minimumCohortSize: 10 }, unknownReasons: expect.arrayContaining(['minimum-10-player-cohort-required', 'minimum-10-matches-required']) }); expect(ratings[0].contexts.maps.length).toBeGreaterThan(0);
+    expect(ratings[0]).toMatchObject({ calculationVersion: 'calibrated-player-rating/v5', validationStatus: 'experimental-unvalidated', publicationStatus: 'insufficient-evidence', calibration: { status: 'insufficient-evidence', cohortSize: 0, baseline: 'median-mad', minimumCohortSize: 10 }, unknownReasons: expect.arrayContaining(['minimum-10-player-cohort-required', 'minimum-10-matches-required']) }); expect(ratings[0].contexts.maps.length).toBeGreaterThan(0);
     expect(buildContextualWeaponOutcomes(data)[0]).toMatchObject({ weapon: 'Vandal', map: 'Ascent', buyClass: 'Full buy', enemyBuyClass: 'Eco', side: 'ATT', site: 'A', player: 'One', agent: 'Jett', wins: 1 });
   });
 
