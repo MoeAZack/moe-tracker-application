@@ -7,12 +7,20 @@ function safeMessage(error) {
     .slice(0, 240);
 }
 
-function createUpdateController({ autoUpdater, enabled, currentVersion = null, updateHealth = null, delayMs = DEFAULT_DELAY_MS, intervalMs = DEFAULT_INTERVAL_MS, onChange = () => {} }) {
+const UNTRUSTED_BUILD = 'Automatic updates are off: this build names no trusted code-signing publisher, so no update can be verified.';
+
+function createUpdateController({ autoUpdater, enabled, currentVersion = null, updateHealth = null, trust = null, delayMs = DEFAULT_DELAY_MS, intervalMs = DEFAULT_INTERVAL_MS, onChange = () => {} }) {
   let timer = null;
   let downloadedFile = null;
-  let state = enabled
-    ? { state: 'current', version: null, percent: null, message: 'Moe Tracker is up to date.' }
-    : { state: 'disabled', version: null, percent: null, message: 'Updates are available in installed builds.' };
+  // Fail closed: without a configured publisher there is nothing to verify an
+  // installer against, so the updater never checks, downloads or installs.
+  const blocked = enabled && !trust?.configured;
+  enabled = enabled && !blocked;
+  let state = blocked
+    ? { state: 'blocked', version: null, percent: null, message: UNTRUSTED_BUILD }
+    : enabled
+      ? { state: 'current', version: null, percent: null, message: 'Moe Tracker is up to date.' }
+      : { state: 'disabled', version: null, percent: null, message: 'Updates are available in installed builds.' };
 
   const setState = (next) => {
     state = { ...state, ...next };
@@ -25,6 +33,9 @@ function createUpdateController({ autoUpdater, enabled, currentVersion = null, u
     autoUpdater.autoInstallOnAppQuit = false;
     autoUpdater.allowPrerelease = false;
     autoUpdater.allowDowngrade = false;
+    // Replaces electron-updater's check, which passes any installer when
+    // app-update.yml names no publisher. A non-null result rejects the download.
+    autoUpdater.verifySignature = file => trust.verify(file);
     autoUpdater.on('checking-for-update', () => setState({ state: 'checking', percent: null, message: 'Checking for updates…' }));
     autoUpdater.on('update-available', info => setState({ state: 'available', version: info?.version || null, percent: null, message: `Version ${info?.version || 'new'} is available.` }));
     autoUpdater.on('update-not-available', () => setState({ state: 'current', version: null, percent: null, message: 'Moe Tracker is up to date.' }));
@@ -52,6 +63,9 @@ function createUpdateController({ autoUpdater, enabled, currentVersion = null, u
 
   async function install() {
     if (!enabled || state.state !== 'downloaded') throw new Error('No downloaded update is ready to install.');
+    // The file on disk is checked again: it may have changed since download.
+    const failure = await trust.verify(downloadedFile);
+    if (failure) { setState({ state: 'error', percent: null, message: safeMessage(failure) }); throw new Error(`The downloaded update was not installed: ${failure}`); }
     const health = updateHealth ? await updateHealth.prepareInstall({ previousVersion: currentVersion, targetVersion: state.version, downloadedFile }) : { rollbackReady: false };
     autoUpdater.quitAndInstall(false, true);
     return { installing: true, rollbackReady: health.rollbackReady };
@@ -71,4 +85,4 @@ function createUpdateController({ autoUpdater, enabled, currentVersion = null, u
   return { getState: () => ({ ...state }), check, download, install, start, stop };
 }
 
-module.exports = { createUpdateController, safeMessage };
+module.exports = { createUpdateController, safeMessage, UNTRUSTED_BUILD };

@@ -12,6 +12,7 @@ const { MAX_ENVELOPE_BYTES, encryptPortablePackage, decryptPortablePackage } = r
 const { appendLocalCrashEvent } = require('./local-crash-log.cjs');
 const { createUpdateController } = require('./update-controller.cjs');
 const { createUpdateHealth } = require('./update-health.cjs');
+const { createUpdateTrust } = require('./update-trust.cjs');
 const { createSupportBundle } = require('./support-bundle.cjs');
 const { resolveReplayRuntime } = require('./replay-runtime.cjs');
 const { collectChildOutput, collectJson } = require('./collector-command.cjs');
@@ -872,11 +873,14 @@ app.on('second-instance', () => { if (runtime) void showMainWindow().catch(error
 if (singleInstanceLock) app.whenReady().then(async () => {
   await ensureRuntime(); applyLoginPreference();
   const { autoUpdater } = require('electron-updater');
-  const updateHealth = createUpdateHealth({ directory: path.join(runtime.paths.local, 'Updates') });
+  // Every installer the updater downloads, installs or rolls back to must be
+  // Authenticode-signed by a publisher named in update-trust.json.
+  const updateTrust = createUpdateTrust();
+  const updateHealth = createUpdateHealth({ directory: path.join(runtime.paths.local, 'Updates'), verifyInstaller: updateTrust.verify });
   const healthState = app.isPackaged ? await updateHealth.beginStartup(app.getVersion()) : { state: 'not-pending' };
   if (healthState.state === 'rollback-started') { quitting = true; app.quit(); return; }
   const updatesEnabled = app.isPackaged && healthState.state !== 'safe-mode';
-  updateController = createUpdateController({ autoUpdater, enabled: updatesEnabled, currentVersion: app.getVersion(), updateHealth });
+  updateController = createUpdateController({ autoUpdater, enabled: updatesEnabled, currentVersion: app.getVersion(), updateHealth, trust: updateTrust });
   updateController.start();
   await startLocalServer(); await startCollector(); await createWindow(); createTray();
   captureInboxTimer = setInterval(() => { void notifyLatestCapture().catch(error => recordLocalCrash('capture-inbox-watch-failed', error)); }, 2_000); captureInboxTimer.unref?.();

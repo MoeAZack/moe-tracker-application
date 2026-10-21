@@ -17,7 +17,7 @@ type DesktopStatus = {
   recovery: { lastBackupAt: string | null; verifiedRecent: boolean };
   latestReplay: null | { name: string; path: string; size: number; modifiedAt: string };
   localService: 'online' | 'offline';
-  update: { state: 'disabled' | 'current' | 'checking' | 'available' | 'downloading' | 'downloaded' | 'error'; version: string | null; percent: number | null; message: string };
+  update: { state: 'disabled' | 'blocked' | 'current' | 'checking' | 'available' | 'downloading' | 'downloaded' | 'error'; version: string | null; percent: number | null; message: string };
   folders: { replays: string; screenshots: string; exports: string; backups: string; logs: string; valorantReplays: string };
   collector: any;
   sync: { paired: boolean; server: string | null; pending: number; received: number };
