@@ -24,14 +24,16 @@ async function auditDesktopWorkspaces() {
   const saved = await fetch(`${origin}/api/save-match`, { method: 'POST', headers: auth, body: JSON.stringify({ match: { date: '2026-10-01', type: 'Scrim', opponent: 'Synthetic Opponent', map: 'Ascent', attW: 2, attL: 1, defW: 1, defL: 2 }, statsUpdate: { operation: 'preserve' }, rounds }) });
   check(saved.ok, `synthetic match seed failed (${saved.status}).`);
   const matchId = (await saved.json()).match.id;
-  const context = await browser.newContext({ viewport: { width: 1440, height: 900 } });
+  // Like the installed app: the page learns only who is signed in, and the
+  // bearer token is added to requests outside the page.
+  const context = await browser.newContext({ viewport: { width: 1440, height: 900 }, extraHTTPHeaders: { authorization: `Bearer ${session.key}` } });
   await context.addInitScript(value => {
     window.moeDesktop = {
       bootstrapSession: async () => value,
       getStatus: async () => ({ appVersion: 'a11y', mode: 'offline-first', deviceName: 'Accessibility audit', retentionDays: 30, startWithWindows: false, cloudUrl: '', replayCount: 0, pendingScoreboards: 0, latestReplay: null, localService: 'online', update: { state: 'current', version: null, percent: null, message: '' }, folders: {}, collector: {}, sync: { paired: false, server: null, pending: 0, received: 0 } }),
       onStatus: () => () => {}, listScoreboards: async () => [], syncNow: async () => ({}), checkForUpdates: async () => ({}),
     };
-  }, session);
+  }, { success: true, role: session.role, username: session.username, expiresAt: session.expiresAt || null });
   const page = await context.newPage();
   const open = async hash => { await page.goto(`${origin}/${hash}`, { waitUntil: 'domcontentloaded' }); await page.locator('#main-content').waitFor({ state: 'visible', timeout: 20_000 }); };
   await open('#/home');

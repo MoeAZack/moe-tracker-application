@@ -15,7 +15,7 @@ const session = await login.json();
 const browser = await chromium.launch({ executablePath: 'C:/Program Files/Google/Chrome/Application/chrome.exe', headless: true });
 const evidenceDir = path.join(process.cwd(), 'release', 'ui-verification'); await mkdir(evidenceDir, { recursive: true });
 try {
-  const page = await browser.newPage({ viewport: { width: 1920, height: 1080 } });
+  const page = await browser.newPage({ viewport: { width: 1920, height: 1080 }, extraHTTPHeaders: { authorization: `Bearer ${session.key}` } });
   page.on('console', message => { if (message.type() === 'error') console.error(`[browser] ${message.text()}`); });
   page.on('pageerror', error => console.error(`[browser-error] ${error.message}`));
   await page.addInitScript(value => {
@@ -24,7 +24,7 @@ try {
       getStatus: async () => ({ appVersion: value.version, mode: 'offline-first', deviceName: 'Verification PC', retentionDays: 30, startWithWindows: false, cloudUrl: '', replayCount: 0, pendingScoreboards: 0, latestReplay: null, localService: 'online', update: { state: 'current', version: null, percent: null, message: '' }, folders: {}, collector: {}, sync: { paired: false, server: null, pending: 0, received: 0 } }),
       onStatus: () => () => {}, listScoreboards: async () => [], syncNow: async () => ({}), checkForUpdates: async () => ({}),
     };
-  }, { ...session, version: packageJson.version });
+  }, { success: true, role: session.role, username: session.username, expiresAt: session.expiresAt || null, version: packageJson.version });
   await page.goto(origin, { waitUntil: 'domcontentloaded' });
   const navigation = page.getByRole('navigation');
   await navigation.getByRole('button', { name: 'Home', exact: true }).waitFor({ state: 'visible', timeout: 20_000 });

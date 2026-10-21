@@ -17,7 +17,7 @@ type DesktopStatus = {
   recovery: { lastBackupAt: string | null; verifiedRecent: boolean };
   latestReplay: null | { name: string; path: string; size: number; modifiedAt: string };
   localService: 'online' | 'offline';
-  update: { state: 'disabled' | 'current' | 'checking' | 'available' | 'downloading' | 'downloaded' | 'error'; version: string | null; percent: number | null; message: string };
+  update: { state: 'disabled' | 'blocked' | 'current' | 'checking' | 'available' | 'downloading' | 'downloaded' | 'error'; version: string | null; percent: number | null; message: string };
   folders: { replays: string; screenshots: string; exports: string; backups: string; logs: string; valorantReplays: string };
   collector: any;
   sync: { paired: boolean; server: string | null; pending: number; received: number };
@@ -28,7 +28,8 @@ declare global {
 
   interface Window {
     moeDesktop?: {
-      bootstrapSession(force?: boolean): Promise<{ key: string; role: string; username: string; expiresAt?: string }>;
+      /** Who the local session belongs to. The bearer token stays in the main process, which adds it to this window's API requests. */
+      bootstrapSession(force?: boolean): Promise<{ success: boolean; role: string; username: string; expiresAt: string | null }>;
       getStatus(): Promise<DesktopStatus>;
       createRecoveryBackup(): Promise<{ backupId?: string; createdAt?: string; message: string }>;
       checkForUpdates(): Promise<DesktopStatus['update']>;

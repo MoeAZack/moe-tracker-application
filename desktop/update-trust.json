@@ -1,0 +1,5 @@
+{
+  "schemaVersion": 1,
+  "note": "Authenticode publishers allowed to ship updates: the signing certificate's full subject DN or its CN. Empty means updates stay off until the owner configures a code-signing certificate.",
+  "publisherNames": []
+}

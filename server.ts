@@ -50,14 +50,18 @@ export async function createApp(serveFrontend = true) {
   });
 
   // Security headers (defense-in-depth). CSP allows Google Identity Services + arbitrary
-  // image hosts (lineup screenshots) while blocking plugins and framing.
+  // image hosts (lineup screenshots) while blocking plugins and framing. Built
+  // pages carry no inline script, so script-src refuses inline code; only the
+  // Vite dev server needs it for its React refresh preamble.
+  const viteDevFrontend = serveFrontend && process.env.NODE_ENV !== 'production';
+  const scriptSources = ["'self'", ...(viteDevFrontend ? ["'unsafe-inline'"] : []), "'wasm-unsafe-eval'", 'https://accounts.google.com', 'https://apis.google.com'];
   app.use((req, res, next) => {
     res.setHeader('X-Content-Type-Options', 'nosniff');
     res.setHeader('X-Frame-Options', 'SAMEORIGIN');
     res.setHeader('Referrer-Policy', 'strict-origin-when-cross-origin');
     res.setHeader('Content-Security-Policy', [
       "default-src 'self'",
-      "script-src 'self' 'unsafe-inline' 'wasm-unsafe-eval' https://accounts.google.com https://apis.google.com",
+      `script-src ${scriptSources.join(' ')}`,
       "worker-src 'self'",
       "style-src 'self' 'unsafe-inline' https://accounts.google.com https://fonts.googleapis.com",
       "img-src 'self' data: https:",
