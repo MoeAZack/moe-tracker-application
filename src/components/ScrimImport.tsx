@@ -9,7 +9,7 @@ import { createBrowserLocalTesseractAdapter, createValorantEndScreenProfile, cre
 import { parseLocalRoundRecognitions } from '../../lib/localRoundOcrEngine';
 import { classifyValorantRoundEvents } from '../../lib/localRoundEventClassifier';
 import { canonicalScoreboardName, cleanCaptureDisplayName, cleanCaptureMap, inferAlliedScoreboardNames, normalizeCaptureName, reconcileCapturedRoundNumbers, scoreFromCompleteRounds } from '../../lib/scrimCaptureImport';
-import { classifyAverageLoadout, classifyTeamEquipment } from '../../lib/scrimRoundAnalytics';
+import { captureRoundRows, captureSideTallies, sideForRound } from '../../lib/captureRoundRows';
 import { classifyValorantScoreboardAgents } from '../../lib/localAgentClassifier';
 import { captureConsistencyReport, findDuplicateScoreboardMatch } from '../../lib/screenshotEvidence';
 import { extractCaptureSession, INFORMATIONAL_ROUND_ISSUES } from '../../lib/captureSessionPipeline';
@@ -80,13 +80,6 @@ export default function ScrimImport({ data, theme, onSaveMatch, onClose }: Props
   const consistency = duplicateOf ? { ...baseConsistency, warnings: [...baseConsistency.warnings, `These player lines are identical to the saved match ${duplicateMatch ? `${duplicateMatch.date} ${duplicateMatch.map} ${duplicateMatch.ourScore}-${duplicateMatch.theirScore}` : duplicateOf}. VALORANT sometimes shows a previous scoreboard; make sure this is a different game.`] } : baseConsistency;
   const [warningsAcknowledged, setWarningsAcknowledged] = useState(false);
   const consistencyBlocked = consistency.errors.length > 0 || (consistency.warnings.length > 0 && !warningsAcknowledged);
-
-  const sideForRound = (roundNo: number, firstHalf: 'Att' | 'Def') => {
-    const opp = firstHalf === 'Att' ? 'Def' : 'Att';
-    if (roundNo <= 12) return firstHalf;
-    if (roundNo <= 24) return opp;
-    return roundNo % 2 === 1 ? firstHalf : opp; // OT alternates
-  };
 
   const runImport = async () => {
     if (!scoreboard) return;
@@ -213,14 +206,7 @@ export default function ScrimImport({ data, theme, onSaveMatch, onClose }: Props
     setSaving(true);
     try {
       const hasRounds = rounds.length > 0;
-      let attW = 0, attL = 0, defW = 0, defL = 0;
-      if (hasRounds) {
-        rounds.forEach((r) => {
-          const side = sideForRound(r.roundNo, meta.firstHalf);
-          if (r.result === 'W') { side === 'Att' ? attW++ : defW++; }
-          if (r.result === 'L') { side === 'Att' ? attL++ : defL++; }
-        });
-      }
+      const { attW, attL, defW, defL } = captureSideTallies(hasRounds ? rounds : [], meta.firstHalf);
 
       const roundResult = (roundNo: number) => rounds.find(round => round.roundNo === roundNo)?.result || '';
       const specialBySide = (roundNo: number) => {
@@ -270,12 +256,7 @@ export default function ScrimImport({ data, theme, onSaveMatch, onClose }: Props
         };
         });
 
-      const economyLabel = (value: unknown, evidence: any, team: 'ours' | 'theirs') => {
-        const equipment = classifyTeamEquipment(evidence?.players || [], team);
-        const label = equipment !== 'unknown' ? equipment : classifyAverageLoadout(value);
-        return label === 'unknown' ? '' : label[0].toUpperCase() + label.slice(1);
-      };
-      const roundRows = hasRounds ? rounds.map((r) => ({ roundNo: r.roundNo, side: sideForRound(r.roundNo, meta.firstHalf), result: r.result, winBy: r.winBy || '', buy: economyLabel(r.screenshotEvidence?.ourAverageLoadout, r.screenshotEvidence, 'ours'), enemyBuy: economyLabel(r.screenshotEvidence?.enemyAverageLoadout, r.screenshotEvidence, 'theirs'), ...(r.screenshotEvidence ? { screenshotEvidence: r.screenshotEvidence, advantageEvidence: deriveRoundAdvantage({ source: 'screenshot', complete: r.screenshotEvidence.reviewStatus === 'confirmed' && r.screenshotEvidence.eventsComplete === true, winner: r.result, events: (r.screenshotEvidence.events || []).map((event: any) => ({ sequence: event.sequence, victimTeam: event.victimTeam })) }) } : {}) })) : undefined;
+      const roundRows = hasRounds ? captureRoundRows(rounds, meta.firstHalf) : undefined;
       // Match, scoreboard and rounds are one server write: a rejected round set saves nothing.
       const result = await onSaveMatch(match, { operation: 'replace', stats }, roundRows);
       const saved = result?.match || result;
