@@ -122,7 +122,7 @@ async function ensureRuntime() {
       role: 'coach',
       retentionDays: 30,
       mode: 'offline-first',
-      cloudUrl: 'https://moetracker-site.pages.dev',
+      cloudUrl: 'https://moezack.pages.dev',
       extraReplayFolders: [],
       capturePaused: false,
       capturePreferences: { profile: 'fullscreen-windowed', display: 'primary', notification: 'open-review', offlineQueue: true, elevated: false },
