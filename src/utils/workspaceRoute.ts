@@ -78,6 +78,15 @@ export function navWorkspaceTabs(input: { desktopMode: boolean; role: string | n
   return routableWorkspaceTabs(input).filter(tab => tab !== 'comparisons' || input.showTryoutComparisons || input.activeTab === 'comparisons');
 }
 
+/**
+ * Where a match or round evidence link opens. VOD Review is coach-only and
+ * desktop-only; anyone else lands on Match Review with the same context
+ * instead of being sent back to Home.
+ */
+export function evidenceReviewTab(routable: readonly WorkspaceTabId[]): WorkspaceTabId {
+  return routable.includes('vod') ? 'vod' : 'matches';
+}
+
 /** The tab to show for a requested route; an unusable tab falls back to Home. */
 export function resolveWorkspaceTab(requested: WorkspaceTabId, routable: readonly WorkspaceTabId[]): WorkspaceTabId {
   return routable.includes(requested) ? requested : 'dashboard';
