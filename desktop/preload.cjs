@@ -3,6 +3,8 @@ const { contextBridge, ipcRenderer } = require('electron');
 contextBridge.exposeInMainWorld('moeDesktop', Object.freeze({
   bootstrapSession: (force = false) => ipcRenderer.invoke('desktop:bootstrap-session', force === true),
   getStatus: () => ipcRenderer.invoke('desktop:get-status'),
+  takeRecoveredOcrLearning: () => ipcRenderer.invoke('desktop:take-recovered-ocr-learning'),
+  confirmRecoveredOcrLearning: (ports) => ipcRenderer.invoke('desktop:confirm-recovered-ocr-learning', ports),
   createRecoveryBackup: () => ipcRenderer.invoke('desktop:create-recovery-backup'),
   checkForUpdates: () => ipcRenderer.invoke('desktop:check-for-updates'),
   downloadUpdate: () => ipcRenderer.invoke('desktop:download-update'),

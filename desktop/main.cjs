@@ -25,6 +25,7 @@ const { publicSession, apiRequestFilter, createSessionHeaderInjector } = require
 const { analyzeVodTimeline, discoverVodGames, releaseVodSource, createReviewClips, readOwnedVodFrame, sweepOrphanedVodDirectories } = require('./vod-timeline-analyzer.cjs');
 const { launchScrimCapture } = require('./capture-launch.cjs');
 const { createIngestionJob, updateIngestionJob: evolveIngestionJob, recoverInterruptedJobs, publicIngestionJob } = require('./ingestion-jobs.cjs');
+const { chooseLocalPort, isPortFree, strandedOriginPorts, startStrandedOriginServer, combineStrandedLearning } = require('./local-origin.cjs');
 
 let mainWindow;
 let tray;
@@ -137,9 +138,11 @@ async function ensureRuntime() {
   if (!config.deviceId) {
     config.deviceId = `desktop-${crypto.randomUUID()}`;
   }
+  // Same port every launch, so the page keeps its browser storage (OCR learning).
+  config.localPort = await chooseLocalPort({ saved: config.localPort, freePort });
   await atomicJson(paths.config, persistedConfig(config));
   if (!await json(paths.syncState, null)) await atomicJson(paths.syncState, { schemaVersion: 1, outbox: [], inbox: [], completed: [] });
-  runtime = { paths, config, port: await freePort(), session: null, coachSession: null };
+  runtime = { paths, config, port: config.localPort, session: null, coachSession: null };
   await recoverIngestionJobsOnStartup();
   return runtime;
 }
@@ -595,6 +598,38 @@ function createTray() {
   tray.on('click', () => { void showMainWindow().catch(error => recordLocalCrash('open-window-failed', error)); });
 }
 
+// Builds before this one used a new random port on every launch, so OCR
+// learning was saved under many old origins. Each old origin is opened once in
+// a hidden window that only reads its learning rows; the page then adds the
+// ones it lacks and confirms. Old folders are never changed or deleted.
+let strandedLearning = null;
+let strandedLearningOffered = [];
+async function readStrandedLearning() {
+  const names = await fsp.readdir(path.join(app.getPath('userData'), 'IndexedDB')).catch(() => []);
+  const ports = strandedOriginPorts(names, { currentPort: runtime.port, recovered: runtime.config.recoveredLearningOrigins || [] });
+  const results = []; const read = [];
+  for (const port of ports) {
+    if (!await isPortFree(port)) continue;
+    let server; let window;
+    try {
+      server = await startStrandedOriginServer(port);
+      window = new BrowserWindow({ show: false, webPreferences: { contextIsolation: true, nodeIntegration: false, sandbox: true } });
+      window.webContents.setWindowOpenHandler(() => ({ action: 'deny' }));
+      await window.loadURL(server.url);
+      let timer;
+      const result = await Promise.race([server.result, new Promise((_, reject) => { timer = setTimeout(() => reject(new Error('Timed out reading an old origin.')), 15_000); })]).finally(() => clearTimeout(timer));
+      if (result?.error) throw new Error(result.error);
+      results.push(result); read.push(port);
+    } catch (error) {
+      console.warn(`[ocr-learning-recovery] port ${port}: ${error.message}`);
+    } finally {
+      if (window && !window.isDestroyed()) window.destroy();
+      await server?.close();
+    }
+  }
+  return { ports: read, ...combineStrandedLearning(results) };
+}
+
 function requireTrustedSender(event) {
   const senderUrl = String(event?.senderFrame?.url || event?.sender?.getURL?.() || '');
   if (!isTrustedSenderUrl(senderUrl, runtime.port)) throw new Error('Desktop request rejected from an untrusted page.');
@@ -606,6 +641,17 @@ function handleTrusted(channel, listener) {
 
 handleTrusted('desktop:bootstrap-session', async (event, force) => { requireTrustedSender(event); return publicSession(await bootstrapSession(force === true)); });
 handleTrusted('desktop:get-status', desktopStatus);
+handleTrusted('desktop:take-recovered-ocr-learning', async () => {
+  const recovered = await (strandedLearning || { ports: [], corrections: [], outcomes: [] });
+  strandedLearningOffered = recovered.ports;
+  return recovered;
+});
+handleTrusted('desktop:confirm-recovered-ocr-learning', async (_event, ports) => {
+  const confirmed = (Array.isArray(ports) ? ports : []).map(Number).filter(port => strandedLearningOffered.includes(port));
+  runtime.config.recoveredLearningOrigins = [...new Set([...(runtime.config.recoveredLearningOrigins || []), ...confirmed])];
+  await saveRuntimeConfig();
+  return { recorded: confirmed.length };
+});
 handleTrusted('desktop:create-recovery-backup', async () => {
   const result = await createRecoveryBackup(true);
   return { ...result, message: 'Encrypted recovery point created on this PC.' };
@@ -914,6 +960,7 @@ if (singleInstanceLock) app.whenReady().then(async () => {
   // Replay watching is optional: a collector failure must not keep the rest of
   // the app from opening. It is reported and retried with backoff.
   const collectorStartError = await startCollector().then(() => null, error => error);
+  strandedLearning = readStrandedLearning().catch(error => { console.warn(`[ocr-learning-recovery] ${error.message}`); return { ports: [], corrections: [], outcomes: [] }; });
   await createWindow(); createTray();
   if (collectorStartError) {
     void recordLocalCrash('collector-start-failed', collectorStartError);

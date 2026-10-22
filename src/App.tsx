@@ -1,7 +1,7 @@
 import React, { useState, useEffect, useMemo, useRef, Suspense, lazy } from 'react';
 import { TrackerData, Settings, MatchStatsUpdate, ScreenshotReviewDraft } from './types';
 import { correctionSamplesFromAcceptedEdit } from '../lib/ocrLearning';
-import { recordOcrCorrections } from './utils/ocrLearningStore';
+import { importRecoveredOcrLearning, recordOcrCorrections } from './utils/ocrLearningStore';
 import LoginScreen from './components/LoginScreen';
 import Logo from './components/Logo';
 import TeamSyncIndicator from './components/TeamSyncIndicator';
@@ -82,6 +82,9 @@ export default function App() {
   const [showTryoutComparisons, setShowTryoutComparisons] = useState<boolean | null>(null);
   const syncedRoute = useRef<WorkspaceRoute | null>(null);
 
+  useEffect(() => {
+    if (desktopMode) void importRecoveredOcrLearning().catch(error => console.warn(`[ocr-learning-recovery] ${error?.message || error}`));
+  }, [desktopMode]);
   useEffect(() => {
     if (reviewMatchId) sessionStorage.setItem('moetracker-review-match', reviewMatchId); else sessionStorage.removeItem('moetracker-review-match');
     if (reviewRoundNo) sessionStorage.setItem('moetracker-review-round', String(reviewRoundNo)); else sessionStorage.removeItem('moetracker-review-round');
