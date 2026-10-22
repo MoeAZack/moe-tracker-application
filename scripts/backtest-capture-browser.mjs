@@ -4,7 +4,8 @@
 // --resample redraws every capture at that size first, to measure a resolution the corpus lacks.
 // Requires `npm run build` first (serves dist/ with the OCR/agent/weapon assets).
 // Optional: CHROMIUM_PATH (defaults to Playwright's bundled browser),
-// ROSTER_JSON (path to [{id?, displayName}]).
+// ROSTER_JSON (path to [{id?, displayName}]), CORRECTION_MODEL_JSON (a learned
+// correction model, as exported from Settings → OCR Health & Learning, to measure its effect).
 import { build } from 'esbuild';
 import { chromium } from 'playwright-core';
 import { createServer } from 'node:http';
@@ -42,6 +43,8 @@ const origin = `http://127.0.0.1:${server.address().port}`;
 const executablePath = process.env.CHROMIUM_PATH || undefined;
 const browser = await chromium.launch({ executablePath, headless: true });
 const rosterPlayers = process.env.ROSTER_JSON ? JSON.parse(await readFile(process.env.ROSTER_JSON, 'utf8')) : [];
+const correctionFile = process.env.CORRECTION_MODEL_JSON ? JSON.parse(await readFile(process.env.CORRECTION_MODEL_JSON, 'utf8')) : undefined;
+const correctionModel = correctionFile?.model ?? correctionFile; // the export holds { model, … }; a bare model works too
 await mkdir(outDir, { recursive: true });
 try {
   for (const folder of folders) {
@@ -58,7 +61,7 @@ try {
     await page.goto(`${origin}/capture-backtest.html`, { waitUntil: 'domcontentloaded' });
     await page.waitForFunction(() => typeof window.__runCaptureBacktest === 'function', null, { timeout: 60_000 });
     const started = Date.now();
-    const result = await page.evaluate(async data => await window.__runCaptureBacktest(data), { captures, rosterPlayers, resample });
+    const result = await page.evaluate(async data => await window.__runCaptureBacktest(data), { captures, rosterPlayers, resample, correctionModel });
     await page.close();
     const output = path.join(outDir, `${path.basename(folder)}.json`);
     await writeFile(output, JSON.stringify({ folder: path.basename(folder), seconds: Math.round((Date.now() - started) / 1000), ...result }, null, 2));
