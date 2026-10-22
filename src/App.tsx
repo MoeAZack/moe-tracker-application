@@ -429,20 +429,6 @@ export default function App() {
     }
   };
 
-  const handleSyncSoloQ = async (player: string) => {
-    const res = await apiFetch('/api/sync-soloq', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ player })
-    });
-    if (!res.ok) {
-      const errJson = await res.json();
-      throw new Error(errJson.error || 'Solo Queue syncing failed.');
-    }
-    // Solo Q sync is a rare, deliberate action; a targeted refetch keeps it simple.
-    await fetchDatabase();
-  };
-
   const handleSaveSettings = async (settings: Settings) => {
     try {
       const res = await apiFetch('/api/settings', {
@@ -476,7 +462,7 @@ export default function App() {
     { id: 'comps', label: 'Compositions', icon: Layers, group: 'Playbook' },
     { id: 'lineups', label: 'Lineup Library', icon: Crosshair, group: 'Playbook' },
     { id: 'aitactical', label: 'Coach Workspace', icon: Sparkles, group: 'Team' },
-    { id: 'roster', label: 'Roster & Solo Q', icon: Users, group: 'Team' },
+    { id: 'roster', label: 'Roster', icon: Users, group: 'Team' },
     { id: 'playerstats', label: 'Player Stats', icon: Activity, group: 'Team' },
     { id: 'comparisons', label: 'Tryout comparisons', icon: GitCompareArrows, group: 'Team' },
     { id: 'settings', label: 'Settings', icon: SettingsIcon, group: 'Team' },
@@ -798,7 +784,7 @@ export default function App() {
               </div>
             )}
             {activeTab === 'playerstats' && analyticsData && (
-              <PlayerSoloTracker data={analyticsData} theme={theme} role={role} onSyncSoloQ={handleSyncSoloQ} onRefresh={fetchDatabase} onOpenEvidence={(matchId, roundNo) => { setReviewMatchId(matchId); setReviewRoundNo(roundNo); setActiveTab('vod'); }} />
+              <PlayerSoloTracker data={analyticsData} theme={theme} role={role} onRefresh={fetchDatabase} onOpenEvidence={(matchId, roundNo) => { setReviewMatchId(matchId); setReviewRoundNo(roundNo); setActiveTab('vod'); }} />
             )}
             {activeTab === 'settings' && data && (
               <div className="space-y-6">
