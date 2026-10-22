@@ -100,14 +100,15 @@ async function storedIds(storeName: 'corrections' | 'outcomes') {
 }
 
 type RecoveryBridge = Pick<NonNullable<Window['moeDesktop']>, 'takeRecoveredOcrLearning' | 'confirmRecoveredOcrLearning'>;
-type RecoveryStore = { storedIds: typeof storedIds; putMany: typeof putMany };
+type RecoveryStore = { storedIds: typeof storedIds; putMany: typeof putMany; learningSwitch?: () => string | null; setLearningEnabled?: (enabled: boolean) => void };
+function learningSwitch() { try { return globalThis.localStorage?.getItem(ENABLED_KEY) ?? null; } catch { return null; } }
 
 /**
  * Adds learning rows recovered from earlier launches' local addresses. Rows
  * already here are left as they are. The old addresses are confirmed only
  * after the rows are written, so a failed write is retried next launch.
  */
-export async function importRecoveredOcrLearning(bridge: RecoveryBridge | undefined = globalThis.window?.moeDesktop, store: RecoveryStore = { storedIds, putMany }) {
+export async function importRecoveredOcrLearning(bridge: RecoveryBridge | undefined = globalThis.window?.moeDesktop, store: RecoveryStore = { storedIds, putMany, learningSwitch, setLearningEnabled: setOcrLearningEnabled }) {
   if (!bridge?.takeRecoveredOcrLearning || !bridge.confirmRecoveredOcrLearning) return null;
   const recovered = await bridge.takeRecoveredOcrLearning();
   if (!recovered?.ports?.length) return null;
@@ -118,6 +119,9 @@ export async function importRecoveredOcrLearning(bridge: RecoveryBridge | undefi
     if (rows.length && !await store.putMany(storeName, rows)) throw new Error('Recovered OCR learning could not be saved.');
     added[storeName] = rows.length;
   }
+  // A coach who switched learning off on an earlier launch keeps it off,
+  // unless they already chose again on this one.
+  if (recovered.learningEnabled === false && (store.learningSwitch?.() ?? null) === null) store.setLearningEnabled?.(false);
   await bridge.confirmRecoveredOcrLearning(recovered.ports);
   if (added.corrections) void prune('corrections', MAX_CORRECTIONS);
   if (added.outcomes) void prune('outcomes', MAX_OUTCOMES);

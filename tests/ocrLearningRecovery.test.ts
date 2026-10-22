@@ -40,4 +40,15 @@ describe('recovered OCR learning import', () => {
     expect(await importRecoveredOcrLearning(desktop, store as any)).toBeNull();
     expect(desktop.confirmed).toEqual([]);
   });
+
+  it('keeps learning switched off when it was off on the newest earlier launch, unless chosen again here', async () => {
+    const choices: boolean[] = [];
+    const off = { ...memoryStore({ corrections: [], outcomes: [] }), learningSwitch: () => null, setLearningEnabled: (value: boolean) => { choices.push(value); } };
+    await importRecoveredOcrLearning(bridge({ ports: [1], learningEnabled: false, corrections: [], outcomes: [] }), off as any);
+    expect(choices).toEqual([false]);
+    const chosen = { ...off, learningSwitch: () => 'true' };
+    await importRecoveredOcrLearning(bridge({ ports: [1], learningEnabled: false, corrections: [], outcomes: [] }), chosen as any);
+    await importRecoveredOcrLearning(bridge({ ports: [1], learningEnabled: true, corrections: [], outcomes: [] }), off as any);
+    expect(choices).toEqual([false]);
+  });
 });

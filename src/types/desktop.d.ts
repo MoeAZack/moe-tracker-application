@@ -33,7 +33,7 @@ declare global {
       bootstrapSession(force?: boolean): Promise<{ success: boolean; role: string; username: string; expiresAt: string | null }>;
       getStatus(): Promise<DesktopStatus>;
       /** OCR learning rows that earlier launches saved under other local addresses. */
-      takeRecoveredOcrLearning?(): Promise<{ ports: number[]; corrections: unknown[]; outcomes: unknown[] }>;
+      takeRecoveredOcrLearning?(): Promise<{ ports: number[]; learningEnabled?: boolean | null; corrections: unknown[]; outcomes: unknown[] }>;
       confirmRecoveredOcrLearning?(ports: number[]): Promise<{ recorded: number }>;
       createRecoveryBackup(): Promise<{ backupId?: string; createdAt?: string; message: string }>;
       checkForUpdates(): Promise<DesktopStatus['update']>;
