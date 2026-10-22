@@ -1,6 +1,6 @@
 {
   "schemaVersion": 1,
-  "appVersion": "0.2.0",
+  "appVersion": "0.2.1",
   "electron": "41.10.7",
   "electronBuilder": "26.15.3",
   "sharp": "0.35.5",
