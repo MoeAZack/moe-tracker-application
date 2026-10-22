@@ -4,6 +4,7 @@ import { deriveRoundAdvantage } from './roundAdvantage';
 import { findMatchCandidates, normalizedMatchName, similarMatchName } from './matchIdentity';
 import { captureRosterFromIdentity } from './identityResolver';
 import { refreshDuplicateQuarantine } from './matchIntegrity';
+import { activeCorePlayerIds, ensureObservedRosterPlayer, setObservedRosterStatus, setTryoutsMode } from './roster';
 
 const { fuseVodEvidence } = evidenceModule as { fuseVodEvidence: (items: VodTimelineEvidence[]) => VodTimelineEvidence | null };
 
@@ -12,6 +13,12 @@ type SubmissionInput = {
   ourScore: number | null; theirScore: number | null;
   players: Array<Omit<VodSubmissionPlayer, 'rosterPlayerId' | 'rosterDisplayName'>>;
   timelineEvidence?: VodTimelineEvidence | null;
+  /**
+   * Coach imports only: a scoreboard name that matches nobody on the roster
+   * becomes a new tryout player under that observed name, instead of
+   * stopping the import.
+   */
+  addObservedPlayers?: boolean;
 };
 
 const METRIC_FIELDS = ['kills', 'deaths', 'assists', 'acs', 'adr', 'hs', 'fk', 'fd', 'plants', 'defuses', 'trades'] as const;
@@ -19,17 +26,36 @@ const METRIC_FIELDS = ['kills', 'deaths', 'assists', 'acs', 'adr', 'hs', 'fk', '
 export const normalizeVodName = (value: string) => normalizedMatchName(value);
 export const similarVodName = (left: string, right: string) => similarMatchName(left, right);
 
-function resolveFive(db: any, rows: SubmissionInput['players']): VodSubmissionPlayer[] {
+const conflict = (message: string) => Object.assign(new Error(message), { status: 409 });
+
+function resolveFive(db: any, rows: SubmissionInput['players'], addObservedPlayers = false): VodSubmissionPlayer[] {
   // A coach timeline-only import (no readable scoreboard, or no roster yet) names nobody; that is allowed, never padded.
   if (!rows.length) return [];
   // Known aliases (coach corrections, tryout aliases, accepted names) count, so a fix made once applies to VOD too.
   const roster = captureRosterFromIdentity(db);
-  const resolved = rows.map(row => {
-    const candidates = roster.filter(player => [player.displayName, ...player.aliases].some(name => similarVodName(row.observedName, name)));
-    if (candidates.length !== 1) throw Object.assign(new Error(`“${row.observedName}” must match exactly one active roster player before this VOD can be integrated.`), { status: 409 });
-    return { ...row, rosterPlayerId: candidates[0].id, rosterDisplayName: candidates[0].displayName };
+  const candidatesFor = rows.map(row => roster.filter(player => [player.displayName, ...player.aliases].some(name => similarVodName(row.observedName, name))));
+  rows.forEach((row, index) => {
+    if (candidatesFor[index].length > 1 || (!candidatesFor[index].length && !addObservedPlayers)) throw conflict(`“${row.observedName}” must match exactly one active roster player before this VOD can be integrated.`);
   });
-  if (new Set(resolved.map(row => row.rosterPlayerId)).size !== 5) throw Object.assign(new Error('The VOD must identify five different active roster players.'), { status: 409 });
+  const unknown = rows.filter((_, index) => !candidatesFor[index].length);
+  // Everything is checked before any player is added, so a refused import adds nobody.
+  if (unknown.some((row, index) => unknown.some((other, otherIndex) => otherIndex !== index && similarVodName(row.observedName, other.observedName)))) throw conflict('Two scoreboard names on our side look like the same player. Nothing was imported.');
+  const archived = unknown.find(row => (db.rosterPlayers || []).some((player: any) => player.retiredAt && similarVodName(row.observedName, player.displayName)));
+  if (archived) throw conflict(`“${archived.observedName}” is archived under Roster. Restore or permanently delete that player, then import this VOD again.`);
+  // With no core players yet, the new players are candidates of a tryout phase.
+  if (unknown.length && activeCorePlayerIds(db).size === 0 && !db.settings?.tryoutsMode) setTryoutsMode(db, true);
+  // During a tryout phase every new name is a candidate; otherwise beside a core it is a stand-in.
+  const newStatus = db.settings?.tryoutsMode || activeCorePlayerIds(db).size === 0 ? 'tryout' as const : 'standIn' as const;
+  const resolved = rows.map((row, index) => {
+    const known = candidatesFor[index][0];
+    if (known) return { ...row, rosterPlayerId: known.id, rosterDisplayName: known.displayName };
+    // The new identity is the name as the scoreboard showed it; nothing is invented or merged.
+    const player = ensureObservedRosterPlayer(db, row.observedName);
+    player.addedFrom ||= 'vod-import';
+    if (!player.rosterStatus) setObservedRosterStatus(db, { playerId: player.id, displayName: player.displayName, status: newStatus });
+    return { ...row, rosterPlayerId: String(player.id), rosterDisplayName: String(player.displayName) };
+  });
+  if (new Set(resolved.map(row => row.rosterPlayerId)).size !== 5) throw conflict('The VOD must identify five different active roster players.');
   return resolved;
 }
 
@@ -65,7 +91,9 @@ export function integrateVodSubmission(db: any, input: SubmissionInput, actorNam
   const duplicate = db.vodSubmissions.find((item: VodSubmission) => item.submittedByPlayerId === input.playerId && item.imageSha256 === input.imageSha256 && item.vodUrl === input.vodUrl);
   if (duplicate && (!input.timelineEvidence || duplicate.timelineEvidence)) return duplicate;
   if (duplicate) { input.matchId = duplicate.linkedMatchId; ids.submissionId = duplicate.id; }
-  const players = resolveFive(db, input.players);
+  const rosterBefore = new Set((db.rosterPlayers || []).map((player: any) => player.id));
+  const players = resolveFive(db, input.players, input.addObservedPlayers === true && !input.playerId);
+  const addedPlayers = players.filter(row => !rosterBefore.has(row.rosterPlayerId)).map(row => row.rosterDisplayName);
   if (input.playerId && !players.some(row => row.rosterPlayerId === input.playerId)) throw Object.assign(new Error('The submitting player must be one of the five identified players.'), { status: 403 });
   const requested = input.matchId ? (db.matches || []).find((match: Match) => match.id === input.matchId) : null;
   if (input.matchId && !requested) throw Object.assign(new Error('The selected match no longer exists.'), { status: 404 });
@@ -140,7 +168,7 @@ export function integrateVodSubmission(db: any, input: SubmissionInput, actorNam
   }
   db.vodReviews ||= [];
   if (!db.vodReviews.some((review: any) => review.matchId === match!.id && review.vodUrl === input.vodUrl)) db.vodReviews.unshift({ id: ids.reviewId, matchId: match.id, title: `${players.find(row => row.rosterPlayerId === input.playerId)?.rosterDisplayName || actorName} VOD · ${match.map}`, vodUrl: input.vodUrl, date: input.date, createdAt: now, notes: [] });
-  const submission: VodSubmission = { schema: 'moetracker.vod-submission/v1', id: ids.submissionId, submittedByPlayerId: input.playerId, submittedByName: players.find(row => row.rosterPlayerId === input.playerId)?.rosterDisplayName || actorName, vodUrl: input.vodUrl, imageSha256: input.imageSha256, date: input.date, map: input.map, opponent: input.opponent, ourScore: input.ourScore, theirScore: input.theirScore, requestedMatchId: input.matchId || null, linkedMatchId: match.id, linkMode: createdMatch ? 'new-match' : 'existing-match', status: 'integrated', rosterMatchCount: players.length, players, timelineEvidence: input.timelineEvidence || null, integration: { createdMatch, createdStats, filledFields, preservedFields }, createdAt: now, integratedAt: now };
+  const submission: VodSubmission = { schema: 'moetracker.vod-submission/v1', id: ids.submissionId, submittedByPlayerId: input.playerId, submittedByName: players.find(row => row.rosterPlayerId === input.playerId)?.rosterDisplayName || actorName, vodUrl: input.vodUrl, imageSha256: input.imageSha256, date: input.date, map: input.map, opponent: input.opponent, ourScore: input.ourScore, theirScore: input.theirScore, requestedMatchId: input.matchId || null, linkedMatchId: match.id, linkMode: createdMatch ? 'new-match' : 'existing-match', status: 'integrated', rosterMatchCount: players.length, players, timelineEvidence: input.timelineEvidence || null, integration: { createdMatch, createdStats, filledFields, preservedFields, ...(addedPlayers.length ? { addedPlayers } : {}) }, createdAt: now, integratedAt: now };
   if (duplicate) Object.assign(duplicate, { timelineEvidence: submission.timelineEvidence, integration: submission.integration, integratedAt: now });
   else db.vodSubmissions.unshift(submission);
   const fused = fuseVodEvidence((db.vodSubmissions as VodSubmission[]).filter(item => item.linkedMatchId === match!.id && item.timelineEvidence).map(item => item.timelineEvidence!));
