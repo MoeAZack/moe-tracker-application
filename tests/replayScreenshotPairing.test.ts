@@ -198,6 +198,25 @@ describe('screenshot-first authenticated workflow', () => {
     expect(stored.playerStats.filter((item: any) => item.matchId === accepted.matchId)).toHaveLength(5);
     expect(stored.rosterPlayers.filter((item: any) => !item.retiredAt && item.rosterStatus === 'tryout')).toHaveLength(5);
   });
+  it('joins a replay to a match logged by hand through the shared match identity', async () => {
+    const coach = await login(); const deviceId = `desktop-${crypto.randomUUID()}`;
+    const { readDB, saveDB } = await import('../lib/store'); const db = await readDB();
+    db.matches = [
+      { id: 'held', date: '2026-10-15', map: 'Haven', opponent: 'Earlier', type: 'Scrim', ourScore: 13, theirScore: 9 },
+      { id: 'logged', date: '2026-10-15', map: ' HAVEN ', opponent: 'Nova', type: 'Scrim', ourScore: 13, theirScore: 9 },
+      { id: 'no-score', date: '2026-10-15', map: 'Haven', opponent: 'Later', type: 'Scrim', ourScore: null, theirScore: null },
+    ] as any;
+    (db as any).engineAdapters = { replay: { held: { schema: 'fixture' } } };
+    await saveDB(db);
+    expect((await request('/api/desktop/replay-evidence', coach, envelope(deviceId))).status).toBe(201);
+    const screenshot = await request('/api/replay-intake/screenshots/local', coach, { deviceId, imageSha256: 'f'.repeat(64), capturedAt: '2026-10-15T19:00:00.000Z', extraction: raw() });
+    expect(await screenshot.json()).toMatchObject({ status: 'linked', automaticMatchId: 'logged' });
+    const stored = JSON.parse(await fs.readFile(dbPath, 'utf8'));
+    // A match already holding a replay is skipped, an unknown score never proves the game, and nothing new is created.
+    expect(stored.matches.map((item: any) => item.id)).toEqual(['held', 'logged', 'no-score']);
+    expect(stored.matches.find((item: any) => item.id === 'logged')).toMatchObject({ opponent: 'Nova' });
+  });
+
   it('joins a synchronized full capture to an existing match and lets replay evidence correct a stale header', async () => {
     const coach = await login(); const device = await (await request('/api/replay-intake/devices/enroll', coach, { name: 'Synced Capture PC' })).json();
     const { readDB, saveDB } = await import('../lib/store'); const seeded = await readDB();
