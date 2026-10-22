@@ -637,6 +637,9 @@ No 0.2.1 (or later) installer is published until all of these pass:
   - A missing `db.json` is not silently replaced by an empty store when the
     workspace existed before.
   - A damaged `db.json` is quarantined.
+  - The orphaned-evidence sweep never deletes evidence files when the index is
+    empty, when its counts disagree with the previous index, or in the process
+    that just ran a storage migration.
 - B. On the owner's PC, a copy of the real schema-14 workspace (never the live
   one) is upgraded with the exact candidate installer, with its SHA-256 recorded.
   Matches, rounds, player stats, evidence artifacts and coaching signals are
