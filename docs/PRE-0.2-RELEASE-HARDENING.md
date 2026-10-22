@@ -667,3 +667,51 @@ No 0.2.1 (or later) installer is published until all of these pass:
   start, import matches, then restart. The counts must stay the same at every step.
   This is the owner's own path.
 - F. The owner gives explicit permission to publish.
+
+## 0.2.1 gate results (2026-10-22)
+
+All runs used copied profiles on the owner's PC. The live workspace and the
+installed app were not touched. Counts only.
+
+Counts are matches / rounds / player stats / evidence artifacts / coaching
+signals.
+
+First candidate, `7536c626cb6e` (installer sha256 `4DB0F967…120EB6`):
+
+- **A** passed: the tests were merged in #139.
+- **B** passed on a copy of the schema-14 workspace upgraded to 15. Counts were
+  8 / 180 / 40 / 196 / 8 before first start, after first start, after two minutes
+  idle and after a restart.
+- **C** passed.
+  - Delete all gave 0 / 0 / 0 / 220 / 0. Restore from Recently deleted gave
+    8 / 180 / 40 / 196 / 87, and the same after a restart.
+  - Delete all again, then restore the burst backup, gave 7 / 148 / 35 / 199 / 67.
+    The backup is taken at the second delete, so the eighth match was still in
+    Recently deleted. Restoring it gave 8 / 180 / 40 / 196 / 88, and the same
+    after a restart.
+  - Coaching signals are rebuilt on every write, so restored signals get new ids
+    and a coach status on old signals does not carry over.
+- **D** failed: `/api/health` said `development` because the desktop app did not
+  pass the revision to the local service.
+- **E** imported 2 of 3 captures. A capture marked complete but missing 4 of its
+  28 requested rounds blocked the import modal on every launch.
+
+D and E were fixed in #142. The second candidate is `fa964bd2670c`:
+
+- Installer `Moe-Tracker-Application-0.2.1-Setup.exe`, 345,958,341 bytes, sha256
+  `8BCD7607F6A62BE42DEBB892D2029B4F652868DFB5F44621EF7D79C8FE35B9E5`.
+- `app.asar` sha256
+  `2FFB9F8A2A74A04919906EEF713E329BA591E0AD789D470874507B04236673D7`.
+- **D** passed: `/api/health` and `/build.json` both name `fa964bd2670c`.
+- **E** passed on an empty profile. Counts (the last figure is the inbox count):
+  - First start: 0 / 0 / 0 / 0 / 0, inbox 0.
+  - Three captures copied in: inbox 3, with no automatic save.
+  - After the first UI save: 1 / 22 / 5 / 25 / 15, inbox 2.
+  - After the second UI save: 2 / 40 / 9 / 45 / 30, inbox 1.
+  - After setting aside the incomplete capture: inbox 0. Its files stayed in the
+    folder.
+  - After a restart: 2 / 40 / 9 / 45 / 30, inbox 0.
+- B and C carry over from the first candidate, because #142 does not touch storage.
+- **F**: the owner chose not to publish 0.2.1. The installer is kept on the owner's
+  PC and installed there. `v0.2.1` is tagged at `fa964bd`, with no GitHub release
+  and no public asset.
