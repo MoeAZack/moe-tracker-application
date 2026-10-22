@@ -9,7 +9,7 @@ export default function DesktopDeviceSettings() {
   const [notice, setNotice] = useState('');
   const [packagePreview, setPackagePreview] = useState<any>(null);
   const [packagePassword, setPackagePassword] = useState('');
-  const [pairServer, setPairServer] = useState('https://moetracker-site.pages.dev');
+  const [pairServer, setPairServer] = useState('https://moezack.pages.dev');
   const [pairCode, setPairCode] = useState('');
   const [retentionDays, setRetentionDays] = useState(30);
   const [capturePreferences, setCapturePreferences] = useState<any>({ profile: 'fullscreen-windowed', display: 'primary', notification: 'open-review', offlineQueue: true });
