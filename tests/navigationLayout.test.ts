@@ -2,14 +2,19 @@ import fs from 'node:fs';
 import { describe, expect, it } from 'vitest';
 
 describe('workspace navigation layout', () => {
-  it('orders the main workspace around schedule, performance, review, playbook and team', () => {
+  it('groups the main workspace into home, matches, team, players, coaching, playbook and settings', () => {
     const app = fs.readFileSync('src/App.tsx', 'utf8');
-    const order = "['Home', 'Schedule & Goals', 'Performance', 'Review', 'Playbook', 'Team']";
+    const order = "['Home', 'Matches', 'Team', 'Players', 'Coaching', 'Playbook', 'Settings']";
     expect(app).toContain(order);
-    expect(app).toContain("{ id: 'calendar', label: 'Schedule & Goals', icon: Calendar, group: 'Schedule & Goals' }");
+    expect(app).toContain("{ id: 'calendar', label: 'Schedule & Goals', icon: Calendar, group: 'Coaching' }");
+    expect(app).toContain("{ id: 'aitactical', label: 'Coach Workspace', icon: Sparkles, group: 'Coaching' }");
+    expect(app).toContain("{ id: 'matches', label: 'Match Review', icon: Swords, group: 'Matches' }");
+    expect(app).toContain("{ id: 'replays', label: 'Replay Evidence', icon: FileCheck2, group: 'Matches' }");
+    expect(app).toContain("{ id: 'economy', label: 'Economy', icon: Coins, group: 'Team' }");
+    expect(app).toContain("{ id: 'settings', label: 'Settings', icon: SettingsIcon, group: 'Settings' }");
     expect(app).toContain("{ id: 'comps', label: 'Compositions', icon: Layers, group: 'Playbook' }");
-    expect(app).toContain("{ id: 'playerstats', label: 'Player Stats', icon: Activity, group: 'Team' }");
-    expect(app).toContain("{ id: 'comparisons', label: 'Tryout comparisons', icon: GitCompareArrows, group: 'Team' }");
+    expect(app).toContain("{ id: 'playerstats', label: 'Player Stats', icon: Activity, group: 'Players' }");
+    expect(app).toContain("{ id: 'comparisons', label: 'Tryout comparisons', icon: GitCompareArrows, group: 'Players' }");
     expect(app).toMatch(/activeTab === 'playerstats'[\s\S]*<PlayerSoloTracker/);
     const rosterRoute = app.slice(app.indexOf("{activeTab === 'roster'"), app.indexOf("{activeTab === 'playerstats'"));
     expect(rosterRoute).not.toContain('<PlayerSoloTracker');
