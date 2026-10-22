@@ -1,8 +1,11 @@
 import { describe, expect, it } from 'vitest';
+import { execFile } from 'child_process';
+import { promisify } from 'util';
 import crypto from 'crypto';
 import fs from 'fs/promises';
 import os from 'os';
 import path from 'path';
+import { fileURLToPath } from 'url';
 import { localEvidenceDigest } from '../lib/replayEvidence';
 import { VRFKIT_PIN } from '../lib/vrfkitReplayPipeline';
 import { collectorInternals } from '../scripts/replay-collector.mjs';
@@ -115,5 +118,43 @@ describe('unsupported VALORANT patches', () => {
     expect(unsupportedReplayBranch(error)).toBe('++Ares-Core+release-13.09');
     expect(describeParserFailure(error)).toMatch(/patch 13\.09.*13\.08.*screenshot capture/);
     expect(describeParserFailure(new Error('other failure'))).toBe('other failure');
+  });
+});
+
+describe('replay collector state files damaged by an unclean shutdown', () => {
+  const collectorScript = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '../scripts/replay-collector.mjs');
+
+  it('moves a NUL-filled state file aside, keeps its bytes, and starts from the fallback', async () => {
+    const root = await fs.mkdtemp(path.join(os.tmpdir(), 'moetracker-corrupt-state-')); const file = path.join(root, 'manifest.json');
+    const damaged = Buffer.alloc(8211); await fs.writeFile(file, damaged);
+    const fallback = { schemaVersion: 1, files: {} };
+    const result = await collectorInternals.readStateJson(file, fallback);
+    expect(result).toEqual(fallback); expect(result).not.toBe(fallback);
+    const names = await fs.readdir(root); const quarantined = names.filter(name => name.startsWith('manifest.json.corrupt-'));
+    expect(names).not.toContain('manifest.json'); expect(quarantined).toHaveLength(1);
+    expect((await fs.readFile(path.join(root, quarantined[0]))).equals(damaged)).toBe(true);
+  });
+
+  it('still returns valid and missing state files unchanged and rethrows non-parse errors', async () => {
+    const root = await fs.mkdtemp(path.join(os.tmpdir(), 'moetracker-state-')); const file = path.join(root, 'status.json');
+    expect(await collectorInternals.readStateJson(file, null)).toBeNull();
+    await collectorInternals.atomicJson(file, { state: 'online' });
+    expect(await collectorInternals.readStateJson(file, null)).toEqual({ state: 'online' });
+    expect(await fs.readdir(root)).toEqual(['status.json']);
+    await expect(collectorInternals.readStateJson(root, null)).rejects.toMatchObject({ code: 'EISDIR' });
+  });
+
+  it('configures successfully when config.json and manifest.json are zero-filled', async () => {
+    const localAppData = await fs.mkdtemp(path.join(os.tmpdir(), 'moetracker-localappdata-')); const appDir = path.join(localAppData, 'MoeTracker', 'ReplayCollector');
+    await fs.mkdir(appDir, { recursive: true });
+    await fs.writeFile(path.join(appDir, 'config.json'), Buffer.alloc(998)); await fs.writeFile(path.join(appDir, 'manifest.json'), Buffer.alloc(8211)); await fs.writeFile(path.join(appDir, 'status.json'), Buffer.alloc(142));
+    const run = (args: string[]) => promisify(execFile)(process.execPath, [collectorScript, ...args], { env: { ...process.env, LOCALAPPDATA: localAppData } });
+    const configured = JSON.parse((await run(['configure', '--device-id', 'desktop-device-01', '--retention-days', '30'])).stdout);
+    expect(configured).toMatchObject({ configured: true, deviceId: 'desktop-device-01', retentionDays: 30 });
+    const status = JSON.parse((await run(['status'])).stdout);
+    expect(status).toMatchObject({ deviceId: 'desktop-device-01', trackedFiles: 0, watcher: null });
+    const names = await fs.readdir(appDir);
+    for (const name of ['config.json', 'manifest.json', 'status.json']) expect(names.filter(entry => entry.startsWith(`${name}.corrupt-`))).toHaveLength(1);
+    expect(JSON.parse(await fs.readFile(path.join(appDir, 'config.json'), 'utf8'))).toMatchObject({ deviceId: 'desktop-device-01' });
   });
 });
