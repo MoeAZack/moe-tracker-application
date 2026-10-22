@@ -19,6 +19,7 @@ import { correctionSamplesFromAcceptedEdit, OCR_LEARNING_VERSION, rosterWithLear
 import { getOcrLearningState, recordOcrCorrections, recordOcrSessionOutcome } from '../utils/ocrLearningStore';
 import { deriveRoundAdvantage } from '../../lib/roundAdvantage';
 import { captureRosterFromIdentity } from '../../lib/identityResolver';
+import { holdCapture, releaseCapture } from '../utils/captureLock';
 
 interface Props {
   data: TrackerData;
@@ -69,6 +70,9 @@ export default function ScrimImport({ data, theme, onSaveMatch, onClose }: Props
   const [alliedSideConfirmed, setAlliedSideConfirmed] = useState(false);
   const [sideInference, setSideInference] = useState<{ firstHalf: 'Att' | 'Def' | null; votes: number } | null>(null);
   const autoLoadStarted = useRef(false);
+  // The capture this modal is reviewing; the background loop leaves it alone until save or close.
+  const heldCapture = useRef<string | null>(null);
+  useEffect(() => () => { if (heldCapture.current) releaseCapture(heldCapture.current, 'review'); }, []);
   const roundsComplete = rounds.every(round => round.result === 'W' || round.result === 'L');
   const duplicateOf = findDuplicateScoreboardMatch(players, data.playerStats || []);
   const baseConsistency = captureConsistencyReport({ ourScore: meta.ourScore, theirScore: meta.theirScore, rounds, players });
@@ -123,6 +127,9 @@ export default function ScrimImport({ data, theme, onSaveMatch, onClose }: Props
       const available = (await window.moeDesktop.listScoreboards()).filter(item => item.capture);
       const record = available.at(-1);
       if (!record) throw new Error('No complete capture session is waiting. Run the one-button capture after a match, then try again.');
+      if (!holdCapture(record.id, 'review')) throw new Error('This capture is being saved automatically right now. Check Match Review in a moment.');
+      if (heldCapture.current && heldCapture.current !== record.id) releaseCapture(heldCapture.current, 'review');
+      heldCapture.current = record.id;
       const session = await window.moeDesktop.readCaptureSession(record.id);
       const scoreboardCapture = session.captures.find(item => item.kind === 'scoreboard');
       if (!scoreboardCapture) throw new Error('The capture session has no scoreboard image.');

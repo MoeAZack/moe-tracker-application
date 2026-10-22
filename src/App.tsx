@@ -713,7 +713,12 @@ export default function App() {
               </div>
             }>
             {activeTab === 'dashboard' && analyticsData && (
-              <Dashboard data={analyticsData} theme={theme} role={role} username={username} summaryMode={!desktopMode} onOpenMatch={(matchId) => { setReviewMatchId(matchId); setActiveTab(evidenceReviewTab(routableTabs)); }} onOpenReplay={() => setActiveTab('replays')} onOpenCapture={() => setScrimOpen(true)} onOpenSchedule={() => setActiveTab('calendar')} onOpenCoachWorkspace={() => setActiveTab('aitactical')} />
+              <Dashboard data={analyticsData} theme={theme} role={role} username={username} summaryMode={!desktopMode} onOpenMatch={(matchId) => { setReviewMatchId(matchId); setActiveTab(evidenceReviewTab(routableTabs)); }} onOpenReplay={() => setActiveTab('replays')} onOpenCapture={() => setScrimOpen(true)} onOpenSchedule={() => setActiveTab('calendar')} onOpenCoachWorkspace={() => setActiveTab('aitactical')} inboxData={data || undefined} onOpenInboxItem={target => {
+                if (target.surface === 'capture') setScrimOpen(true);
+                else if (target.surface === 'replays') setActiveTab('replays');
+                else if (target.surface === 'coaching') setActiveTab('aitactical');
+                else { setReviewMatchId(target.matchId); setReviewRoundNo(target.roundNo ?? null); setActiveTab('matches'); }
+              }} />
             )}
             {activeTab === 'calendar' && data && (
               <CalendarGoals data={data} theme={theme} role={role || 'player'} onUpsert={handleUpsert} onRemove={handleRemove} onRefresh={fetchDatabase} />

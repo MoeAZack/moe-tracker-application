@@ -3,6 +3,8 @@ import { TrackerData, Match } from '../types';
 import { Activity, ArrowRight, CalendarDays, Film, Swords, Target, TrendingUp, Users } from 'lucide-react';
 import { activeRosterCount, canOpenPrivateMatchReview, matchDateWindow, normalizedMatchDate } from '../../lib/uiIntegration';
 import DesktopCommandCenter from './DesktopCommandCenter';
+import ReviewInbox from './ReviewInbox';
+import type { InboxTarget } from '../../lib/reviewInbox';
 import { percentageTextClass } from '../utils/percentageColor';
 import CoachWorkflow from './CoachWorkflow';
 import { DEFAULT_MINIMUM_METRIC_SAMPLES, knownTotal, publishRate } from '../../lib/metricTrust';
@@ -11,6 +13,8 @@ interface Props {
   data: TrackerData; theme: any; role: string | null; username: string | null;
   onOpenMatch: (matchId: string) => void; onOpenReplay?: () => void; onOpenCapture?: () => void;
   onOpenSchedule?: () => void; onOpenCoachWorkspace?: () => void; summaryMode?: boolean;
+  /** Unfiltered workspace data: the inbox must see quarantined copies that analytics leave out. */
+  inboxData?: TrackerData; onOpenInboxItem?: (target: InboxTarget) => void;
 }
 
 const score = (match: Match) => match.ourScore !== null && match.ourScore !== undefined && match.theirScore !== null && match.theirScore !== undefined
@@ -35,7 +39,7 @@ export function personalTotals(rows: ReadonlyArray<Pick<TrackerData['playerStats
   return { kills, deaths, assists, firstKills, firstDeaths, openingRate: opening.value === null ? null : Math.round(opening.value) };
 }
 
-export default function Dashboard({ data, theme, role, username, onOpenMatch, onOpenReplay, onOpenCapture, onOpenSchedule, onOpenCoachWorkspace, summaryMode = false }: Props) {
+export default function Dashboard({ data, theme, role, username, onOpenMatch, onOpenReplay, onOpenCapture, onOpenSchedule, onOpenCoachWorkspace, inboxData, onOpenInboxItem, summaryMode = false }: Props) {
   const light = data.settings.theme === 'daylight';
   const muted = light ? 'text-slate-600' : 'text-gray-400';
   const subtle = light ? 'text-slate-500' : 'text-gray-500';
@@ -65,6 +69,7 @@ export default function Dashboard({ data, theme, role, username, onOpenMatch, on
 
   return <div className="aurora-dashboard space-y-5" aria-labelledby="dashboard-title">
     {!summaryMode && <DesktopCommandCenter onOpenReplay={onOpenReplay} onOpenCapture={onOpenCapture} />}
+    {role === 'coach' && onOpenInboxItem && <ReviewInbox data={inboxData || data} desktopMode={!summaryMode} onOpen={onOpenInboxItem} />}
 
     <header className="flex flex-col gap-3 sm:flex-row sm:items-end sm:justify-between">
       <div><p className={`text-[11px] font-semibold uppercase tracking-[0.18em] ${subtle}`}>{role === 'player' ? 'Personal workspace' : 'Team workspace'}</p><h1 id="dashboard-title" className="mt-1 text-2xl font-semibold tracking-tight">{role === 'coach' ? 'Today at a glance' : `${username || 'Player'} · today`}</h1><p className={`mt-1 text-sm ${muted}`}>{role === 'player' ? 'Your performance, next session, and latest result.' : 'The essential team picture. Detailed coaching work now lives in Coach Workspace.'}</p></div>
