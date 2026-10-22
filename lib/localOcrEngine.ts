@@ -25,6 +25,8 @@ export interface LocalOcrRecognition {
   confidence: number | null;
   /** Below the calibrated resolution: both reads of each K/D/A number (see readSegmentedKda). */
   reads?: string;
+  /** Below the calibrated resolution: kills, deaths, assists confidences, each held to the floor on its own. */
+  numberConfidences?: number[];
 }
 
 export interface LocalOcrProfile {
@@ -466,8 +468,13 @@ export function parseLocalScoreboardRecognitions(
     const parsedMetrics = Object.fromEntries(METRICS.map(metric => [metric, strictInteger(rawMetrics[metric], MAX_BY_METRIC[metric])])) as Record<LocalOcrMetric, number | null>;
     // A low-confidence K/D/A line can parse cleanly with a wrong digit, and
     // nothing cross-checks assists, so below the floor all three stay unknown.
-    const joinedKda = (rawConfidence.kda ?? 0) >= KDA_CONFIDENCE_FLOOR ? parseStrictKda(joinedRaw) : null;
-    if (joinedKda) Object.assign(parsedMetrics, joinedKda);
+    // Below the calibrated resolution every number was read twice, which is
+    // that cross-check, so each number is held to the floor on its own.
+    const numberConfidences = byId.get(`player.${row}.kda`)?.numberConfidences;
+    const perNumber = Array.isArray(numberConfidences) && numberConfidences.length === 3 && numberConfidences.every(Number.isFinite);
+    const joinedKda = perNumber || (rawConfidence.kda ?? 0) >= KDA_CONFIDENCE_FLOOR ? parseStrictKda(joinedRaw) : null;
+    if (joinedKda && perNumber) (['kills', 'deaths', 'assists'] as const).forEach((metric, index) => { if (numberConfidences![index] >= KDA_CONFIDENCE_FLOOR) parsedMetrics[metric] = joinedKda[metric]; });
+    else if (joinedKda) Object.assign(parsedMetrics, joinedKda);
     return {
       name: byId.get(`player.${row}.name`)?.text?.trim() || '',
       agent: null,
@@ -706,8 +713,9 @@ export interface KdaNumberRead { text: string; confidence: number | null }
  * second time from the same crop enlarged differently; when that second read
  * is a number and a different one, the whole line stays unknown: a coach
  * fills in an empty cell, but a plausible wrong one gets saved. When the two
- * reads agree, the number carries the lower of their confidences, so the
- * usual K/D/A floor (KDA_CONFIDENCE_FLOOR) needs both reads to clear it. A
+ * reads agree, the number carries the lower of their confidences, and
+ * `numberConfidences` lets the parser hold each number to the K/D/A floor
+ * (KDA_CONFIDENCE_FLOOR) on its own: one unsure number stays empty alone. A
  * second read that finds no number does not overrule the first.
  * `reads` records both reads per number below the calibrated resolution
  * (digits and confidences only), so a run can show why a line was dropped.
@@ -716,7 +724,7 @@ export async function readSegmentedKda(
   rectangles: readonly KdaNumberRectangle[],
   read: { primary: (rectangle: KdaNumberRectangle) => Promise<KdaNumberRead>; secondary: (rectangle: KdaNumberRectangle) => Promise<KdaNumberRead> },
   lowResolution: boolean,
-): Promise<KdaNumberRead & { reads?: string }> {
+): Promise<KdaNumberRead & { reads?: string; numberConfidences?: number[] }> {
   const values: string[] = []; const confidences: number[] = []; const reads: string[] = [];
   for (const rectangle of rectangles) {
     const { text, confidence } = await read.primary(rectangle);
@@ -734,7 +742,11 @@ export async function readSegmentedKda(
     }
     values.push(text); confidences.push(Number(confidence));
   }
-  return { text: values.length === 3 ? values.join('/') : '', confidence: confidences.length ? Math.min(...confidences) : null, ...(lowResolution ? { reads: reads.join(' ') } : {}) };
+  return {
+    text: values.length === 3 ? values.join('/') : '', confidence: confidences.length ? Math.min(...confidences) : null,
+    ...(lowResolution ? { reads: reads.join(' ') } : {}),
+    ...(lowResolution && values.length === 3 ? { numberConfidences: confidences } : {}),
+  };
 }
 
 export async function createBrowserLocalTesseractAdapter(): Promise<LocalOcrAdapter> {

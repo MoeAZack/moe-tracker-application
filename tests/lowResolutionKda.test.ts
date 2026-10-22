@@ -85,7 +85,7 @@ describe('K/D/A below the calibrated resolution', () => {
   it('keeps the line when the second read agrees, carrying the lower of the two confidences', async () => {
     const { rectangles } = segmentedAt(900 / 1080);
     const read = readers(rectangles!, { text: '4', confidence: 88 }, { text: '4', confidence: 83 });
-    expect(await readSegmentedKda(rectangles!, read, true)).toEqual({ text: '12/4/3', confidence: 83, reads: '12@93|12@90 4@88|4@83 3@93|3@90' });
+    expect(await readSegmentedKda(rectangles!, read, true)).toEqual({ text: '12/4/3', confidence: 83, reads: '12@93|12@90 4@88|4@83 3@93|3@90', numberConfidences: [90, 83, 90] });
     expect(read.secondary).toHaveBeenCalledTimes(3);
   });
 
@@ -94,11 +94,11 @@ describe('K/D/A below the calibrated resolution', () => {
     // Primary 74 clears the floor of 70 on its own; the agreeing second read at 45 does not.
     const read = readers(rectangles!, { text: '1', confidence: 74 }, { text: '1', confidence: 45 });
     const line = await readSegmentedKda(rectangles!, read, true);
-    expect(line).toEqual({ text: '12/1/3', confidence: 45, reads: '12@93|12@90 1@74|1@45 3@93|3@90' });
+    expect(line).toEqual({ text: '12/1/3', confidence: 45, reads: '12@93|12@90 1@74|1@45 3@93|3@90', numberConfidences: [90, 45, 90] });
     expect(line.confidence!).toBeLessThan(KDA_CONFIDENCE_FLOOR);
-    const draft = parseLocalScoreboardRecognitions([{ regionId: 'player.0.kda', text: line.text, confidence: line.confidence!, reads: line.reads }], { capturedAt: '2026-10-22T00:00:00.000Z', rosterPlayers: [] });
+    const draft = parseLocalScoreboardRecognitions([{ regionId: 'player.0.kda', text: line.text, confidence: line.confidence!, reads: line.reads, numberConfidences: line.numberConfidences }], { capturedAt: '2026-10-22T00:00:00.000Z', rosterPlayers: [] });
     const stat = ((draft as any).stats as Array<Record<string, unknown>>)[0];
-    expect([stat?.kills, stat?.deaths, stat?.assists].every(value => value === undefined || value === null)).toBe(true);
+    expect([stat?.kills, stat?.deaths ?? null, stat?.assists]).toEqual([12, null, 3]);
   });
 
   it('a second read that finds no number does not overrule the first', async () => {
@@ -127,5 +127,21 @@ describe('K/D/A below the calibrated resolution', () => {
     const { rectangles } = segmentedAt(1);
     const read = readers(rectangles!, { text: '', confidence: 40 }, { text: '4', confidence: 88 });
     expect(await readSegmentedKda(rectangles!, read, false)).toEqual({ text: '', confidence: 93 });
+  });
+});
+
+describe('per-number floor below the calibrated resolution', () => {
+  it('one low-confidence number abstains alone; the others are kept', () => {
+    const recognitions = [{ regionId: 'player.0.kda', text: '24/1/12', confidence: 45, reads: '24@87|24@91 1@74|1@45 12@95|12@90', numberConfidences: [87, 45, 90] }];
+    const stat = ((parseLocalScoreboardRecognitions(recognitions, { capturedAt: '2026-10-22T00:00:00.000Z', rosterPlayers: [] }) as any).stats as Array<Record<string, unknown>>)[0];
+    expect(stat.kills).toBe(24);
+    expect(stat.deaths ?? null).toBeNull();
+    expect(stat.assists).toBe(12);
+  });
+
+  it('without per-number confidences (1920x1080) a low line still leaves all three empty', () => {
+    const recognitions = [{ regionId: 'player.0.kda', text: '24/1/12', confidence: 45 }];
+    const stat = ((parseLocalScoreboardRecognitions(recognitions, { capturedAt: '2026-10-22T00:00:00.000Z', rosterPlayers: [] }) as any).stats as Array<Record<string, unknown>>)[0];
+    expect([stat.kills ?? null, stat.deaths ?? null, stat.assists ?? null]).toEqual([null, null, null]);
   });
 });
