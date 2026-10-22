@@ -599,24 +599,28 @@ Acceptance evidence:
   certificate is configured locally or in the GitHub release environment. It is
   a local test candidate only; the workflow will not publish it as trusted.
 
-## Withdrawn: v0.2.0 (2026-10-22)
+## Withdrawn: v0.2.0 (2026-10-22), pending incident review
 
-v0.2.0 was withdrawn on 2026-10-22 at the owner's request. The first start of the
-public 0.2.0 installer on a 0.1.x workspace (storage schema 14) migrated the store
-to schema 15. Within about 12 seconds the app had written a `db.json` without its
-matches, player stats, rounds, coaching signals, ratings and analytics. The
-evidence artifact count dropped from 196 to 0, while the artifact sidecar files on
-disk were left intact. Settings, roster, schedule and secrets were unchanged. The
-owner chose a clean setup over restoring that workspace.
+v0.2.0 was withdrawn on 2026-10-22 at the owner's request while an incident is
+reviewed. On the owner's PC, shortly after the upgrade from a 0.1.x workspace
+(storage schema 14), the workspace lost all its matches, player stats, rounds,
+coaching signals, ratings and analytics. The evidence artifact count dropped from
+196 to 0, while the artifact sidecar files on disk were left intact. Settings,
+roster, schedule and secrets were unchanged. The owner chose a clean setup over
+restoring that workspace.
 
-A synthetic schema-14 workspace upgraded through the same 0.2.0 build keeps all
-of its data, so the migration alone does not explain the loss. The only code path
-that reproduces the exact result is the match purge (`purgeMatchGraph`), run once
-per match through match deletion or the duplicate review's discard. What issued
-those deletions on the owner's PC is still open. The release stays withdrawn until
-that is known, because without it nobody can say another 0.2.0 install is safe.
+What is known so far:
 
-Why H5 did not catch it:
+- A synthetic schema-14 workspace upgraded through the same 0.2.0 build keeps all
+  of its data, so the migration alone does not explain the loss.
+- The loss came from 8 separate saves, one per match, 1 to 3 seconds apart. That
+  matches the match purge (`purgeMatchGraph`) run once per match through match
+  deletion. No 0.2.0 code deletes matches in a loop, so these may have been
+  deliberate deletions. The owner has been asked to confirm.
+- Either way, 0.2.0 has no audit record of a match deletion, takes no backup
+  before the last matches go, and has no undo. The gate below covers those gaps.
+
+Gaps in H5 that this review showed, whatever the cause:
 
 - The upgrade evidence above ran `scripts/workspace-upgrade-check.mts` at #99.
   The release was built later, after #100 and #101 changed code that runs during
@@ -640,8 +644,8 @@ No 0.2.1 (or later) installer is published until all of these pass:
     and the duplicate review's discard, leaves a durable audit entry per purge
     (who, which match, when) and a backup written before the last match goes.
     It fails on the 0.2.0 code.
-  If the actor behind the owner's loss is found, the fix covers it with its own
-  test. The fix also carries these store guards, each with a test that fails
+  If the deletions turn out not to be the owner's, whatever issued them gets its
+  own test. The fix also carries these store guards, each with a test that fails
   without it:
   - An ordinary save that takes non-empty matches, rounds or player stats (as
     stored in the current index) to empty is refused unless the caller passes an
