@@ -7,6 +7,7 @@ import { pipeline } from 'stream/promises';
 import { Transform } from 'stream';
 import { readDB, saveDB, DB_PATH } from '../store';
 import { refreshDuplicateQuarantine } from '../matchIntegrity';
+import { findMatchCandidates } from '../matchIdentity';
 import { publishVerifiedReplayTemp, reserveReplayUpload, sha256ReplayFile } from '../replayIntakeSafety';
 import { buildReplayOpeningReviewDraft } from '../replayOpeningEngine';
 import { loadVrfkitPipelineConfig, runVrfkitReplayPipeline, VRFKIT_PIN } from '../vrfkitReplayPipeline';
@@ -487,9 +488,8 @@ function autoFinalizeDesktopReplay(db: any, store: ReplayStore, sha256: string, 
   const ourBoard = teamA?.teamId === teamId ? teamA : teamB?.teamId === teamId ? teamB : null; const theirBoard = ourBoard === teamA ? teamB : teamA;
   const map = evidenceText(board.map); const ourScore = evidenceNumber(ourBoard?.score); const theirScore = evidenceNumber(theirBoard?.score);
   const date = cairoDate(screenshot.draft.sourceMetadata?.capturedAt || screenshot.createdAt);
-  const normalizedMap = String(map || '').trim().toLocaleLowerCase();
-  const candidates = (db.matches || []).filter((match: any) => match.date === date && String(match.map || '').trim().toLocaleLowerCase() === normalizedMap
-    && match.ourScore === ourScore && match.theirScore === theirScore && !db.engineAdapters?.replay?.[match.id]);
+  // Same identity answer as match saves and VOD submissions; a match that already holds a replay is never reused.
+  const candidates = findMatchCandidates(db, { date, map, ourScore, theirScore, sourceMetadata: { provider: 'vrfkit', externalId: sha256 } }, { exclude: (match: any) => Boolean(db.engineAdapters?.replay?.[match.id]) }).matches;
   // Match rows are append-ordered. When a coach has accidentally logged the
   // same map/score more than once, prefer the newest unlinked row instead of
   // creating yet another duplicate; the result remains editable afterward.
