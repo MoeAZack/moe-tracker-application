@@ -38,6 +38,18 @@ describe('desktop scoreboard folder inbox', () => {
     expect(records).toHaveLength(1); expect(records[0]).toMatchObject({ name: 'Scrim-20261014-103926/scoreboard.png', capture: { captureId: '20261014-103926', requestedRounds: 24 } });
   });
 
+  it('lists a complete-marked capture that lacks requested rounds as missing them', async () => {
+    const capture = path.join(folder, 'Scrim-20261014-101834'); await fs.mkdir(capture);
+    const png = Buffer.from([137, 80, 78, 71, 13, 10, 26, 10, 1]);
+    await fs.writeFile(path.join(capture, 'scoreboard.png'), png);
+    const rounds = Array.from({ length: 24 }, (_, index) => ({ kind: 'round', round: index + 1, file: `round-${index + 1}.png` }));
+    for (const round of rounds) await fs.writeFile(path.join(capture, round.file), png);
+    await fs.writeFile(path.join(capture, 'capture-manifest.json'), JSON.stringify({ status: 'complete', captureId: '20261014-101834', requestedRounds: 28, captures: [{ kind: 'scoreboard', file: 'scoreboard.png' }, ...rounds] }));
+    const [record] = await scoreboardInventory(folder, []);
+    expect(record.capture).toMatchObject({ requestedRounds: 28, missingRounds: 4 });
+    await expect(readCaptureSession(record)).rejects.toThrow(/every requested round/);
+  });
+
   it('discovers a PowerShell UTF-8 BOM capture manifest', async () => {
     const capture = path.join(folder, 'Scrim-20261014-104000'); await fs.mkdir(capture);
     await fs.writeFile(path.join(capture, 'scoreboard.png'), Buffer.from([137, 80, 78, 71, 13, 10, 26, 10, 1]));

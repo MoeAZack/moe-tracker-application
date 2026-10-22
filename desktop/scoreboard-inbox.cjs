@@ -20,6 +20,15 @@ async function readManifest(file) {
   return JSON.parse((await fsp.readFile(file, 'utf8')).replace(/^\uFEFF/, ''));
 }
 
+// Rounds the manifest asked for but does not list. Older captures could stop
+// before an overtime tail and still be marked complete.
+function missingRoundCount(manifest) {
+  const requested = manifest.requestedRounds;
+  if (!Number.isInteger(requested) || requested <= 0) return 0;
+  const rounds = new Set((manifest.captures || []).filter(item => item?.kind === 'round' && Number.isInteger(item.round)).map(item => item.round));
+  return Array.from({ length: requested }, (_, index) => index + 1).filter(round => !rounds.has(round)).length;
+}
+
 async function rootCandidates(folder) {
   const candidates = [];
   let entries = [];
@@ -34,7 +43,7 @@ async function rootCandidates(folder) {
         if (manifest.status !== 'complete' || !Array.isArray(manifest.captures)) continue;
         const scoreboard = manifest.captures.find(item => item.kind === 'scoreboard');
         if (!scoreboard || typeof scoreboard.file !== 'string' || path.basename(scoreboard.file) !== scoreboard.file) continue;
-        candidates.push({ file: path.join(captureFolder, scoreboard.file), name: `${entry.name}/${scoreboard.file}`, capture: { captureId: String(manifest.captureId || entry.name), template: manifest.template, requestedRounds: manifest.requestedRounds, folder: captureFolder } });
+        candidates.push({ file: path.join(captureFolder, scoreboard.file), name: `${entry.name}/${scoreboard.file}`, capture: { captureId: String(manifest.captureId || entry.name), template: manifest.template, requestedRounds: manifest.requestedRounds, missingRounds: missingRoundCount(manifest), folder: captureFolder } });
       } catch (error) { if (error.code !== 'ENOENT' && !(error instanceof SyntaxError)) throw error; }
     }
   }
@@ -103,4 +112,4 @@ async function readCaptureSession(record) {
   return { manifest, captures };
 }
 
-module.exports = { MAX_IMAGE_BYTES, imageType, scoreboardInventory, readScoreboardRecord, readCaptureSession };
+module.exports = { MAX_IMAGE_BYTES, imageType, missingRoundCount, scoreboardInventory, readScoreboardRecord, readCaptureSession };

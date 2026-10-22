@@ -20,6 +20,7 @@ import { getOcrLearningState, recordOcrCorrections, recordOcrSessionOutcome } fr
 import { deriveRoundAdvantage } from '../../lib/roundAdvantage';
 import { captureRosterFromIdentity } from '../../lib/identityResolver';
 import { holdCapture, releaseCapture } from '../utils/captureLock';
+import { splitPendingCaptures } from '../utils/captureQueue';
 
 interface Props {
   data: TrackerData;
@@ -60,6 +61,8 @@ export default function ScrimImport({ data, theme, onSaveMatch, onClose }: Props
   const cloudAiAvailable = useCloudAiAvailable();
   const [captureProgress, setCaptureProgress] = useState('');
   const [pendingCaptureId, setPendingCaptureId] = useState<string | null>(null);
+  // The newest capture that is missing rounds, when no readable capture is waiting.
+  const [incompleteCapture, setIncompleteCapture] = useState<{ id: string; captureId: string; requestedRounds: number; missingRounds: number } | null>(null);
   const [ocrBaseline, setOcrBaseline] = useState<{ match: any; stats: any[] } | null>(null);
 
   // Editable review model
@@ -117,8 +120,11 @@ export default function ScrimImport({ data, theme, onSaveMatch, onClose }: Props
     setStep('processing'); setError(null); setCaptureProgress('Finding the latest complete capture…');
     let adapter: Awaited<ReturnType<typeof createBrowserLocalTesseractAdapter>> | null = null;
     try {
-      const available = (await window.moeDesktop.listScoreboards()).filter(item => item.capture);
-      const record = available.at(-1);
+      const { readable, incomplete } = splitPendingCaptures(await window.moeDesktop.listScoreboards());
+      const record = readable.at(-1);
+      const blocked = incomplete.at(-1);
+      setIncompleteCapture(!record && blocked ? { id: blocked.id, captureId: blocked.capture!.captureId, requestedRounds: blocked.capture!.requestedRounds, missingRounds: blocked.capture!.missingRounds || 0 } : null);
+      if (!record && blocked) throw new Error(`Capture ${blocked.capture!.captureId} is missing ${blocked.capture!.missingRounds} of its ${blocked.capture!.requestedRounds} rounds, so it cannot be read. Set it aside to take it out of the inbox; its files stay in the Scoreboards folder.`);
       if (!record) throw new Error('No complete capture session is waiting. Run the one-button capture after a match, then try again.');
       if (!holdCapture(record.id, 'review')) throw new Error('This capture is being saved automatically right now. Check Match Review in a moment.');
       if (heldCapture.current && heldCapture.current !== record.id) releaseCapture(heldCapture.current, 'review');
@@ -174,6 +180,18 @@ export default function ScrimImport({ data, theme, onSaveMatch, onClose }: Props
     } finally {
       await adapter?.terminate().catch(() => {});
       setCaptureProgress('');
+    }
+  };
+
+  const setAsideIncompleteCapture = async () => {
+    if (!window.moeDesktop || !incompleteCapture) return;
+    try {
+      // Marks it handled for the inbox only; no file is moved or deleted.
+      await window.moeDesktop.completeScoreboard(incompleteCapture.id);
+      setIncompleteCapture(null);
+      await loadLatestCapture();
+    } catch (err: any) {
+      setError(err.message || 'The capture could not be set aside.');
     }
   };
 
@@ -297,6 +315,7 @@ export default function ScrimImport({ data, theme, onSaveMatch, onClose }: Props
 
         {step === 'upload' && (
           <div className="space-y-4">
+            {window.moeDesktop && incompleteCapture && <button type="button" onClick={() => void setAsideIncompleteCapture()} className="ui-button min-h-12 w-full justify-center px-4 text-sm">Set aside capture {incompleteCapture.captureId}</button>}
             {window.moeDesktop && <button type="button" onClick={() => void loadLatestCapture()} className="ui-button ui-button-primary min-h-12 w-full justify-center px-4 text-sm"><Sparkles className="h-4 w-4" />Load latest one-button capture</button>}
             <p className="text-xs text-gray-400 leading-relaxed">{window.moeDesktop ? 'Load latest one-button capture reads the screenshots locally on this PC. ' : ''}Read selected screenshots sends the images you choose to Gemini, a cloud AI service, and needs a Gemini API key. Every detected player, score, and round stays a draft until you review and confirm it.</p>
             {fileRow('Scoreboard screenshot', scoreboard, setScoreboard, true)}
