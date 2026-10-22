@@ -75,8 +75,8 @@ function VodProgressPanel({ progress, onCancel }: { progress: VodProgress; onCan
       </div>
       <div className="mt-3 flex flex-wrap items-center justify-between gap-2">
         <span className={progress.status === 'error' ? 'text-rose-200' : 'text-slate-300'}>
+          {progress.detail ? `${progress.detail} · ` : ''}
           {progress.message}
-          {progress.status === 'working' && progress.stepPercent !== null ? ` · ${clampPercent(progress.stepPercent)}% of this stage` : ''}
         </span>
         {onCancel && progress.status === 'working' && (
           <button type="button" onClick={onCancel} className="ui-button min-h-9 px-3 text-xs">

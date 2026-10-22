@@ -1,7 +1,7 @@
 import React from 'react';
 import { renderToStaticMarkup } from 'react-dom/server';
 import { afterEach, describe, expect, it, vi } from 'vitest';
-import { cancelVodImport, knownScoreboardRows, splitVodLinks, startVodBatchImport, vodImportStore, type VodBatchImportInput, type VodImportDeps } from '../src/utils/vodImportRunner';
+import { cancelVodImport, knownScoreboardRows, overallVodPercent, splitVodLinks, startVodBatchImport, vodImportStore, type VodBatchImportInput, type VodImportDeps } from '../src/utils/vodImportRunner';
 import VodImportStatus from '../src/components/VodImportStatus';
 import VodImportQueue from '../src/components/VodImportQueue';
 import VodTeamPick from '../src/components/VodTeamPick';
@@ -282,6 +282,26 @@ describe('VOD import runner survives leaving the VOD tab', () => {
       expect(JSON.parse(String(droppedInit.body)).players).toEqual([]);
       expect(vodImportStore.getSnapshot().batchResult[0].status).toContain('scoreboard pending');
     } finally { discovery.games = []; discovery.boundaries = savedBoundaries; }
+  });
+
+  it('shows one overall percentage that never drops across games, stages and saves', async () => {
+    const h = harness(); const overall: number[] = []; const details: string[] = [];
+    const unsubscribe = vodImportStore.subscribe(() => { const progress = vodImportStore.getSnapshot().progress; if (progress?.status === 'working') { overall.push(overallVodPercent(progress)); if (progress.detail) details.push(progress.detail); } });
+    try {
+      const run = startVodBatchImport(input({ roster: [] }), h.deps);
+      for (let game = 0; game < 2; game += 1) {
+        for (let i = 0; i < 20 && h.desktop.analyzeVod.mock.calls.length <= game; i += 1) await new Promise(resolve => setTimeout(resolve, 0));
+        for (const [stage, percent, gamePercent, stageIndex] of [['probe', 100, 2, 1], ['sampling', 50, 21, 2], ['sampling', 0, 21, 2], ['sampling', 99, 40, 2], ['ocr', 0, 40, 3], ['ocr', 88, 93, 3], ['complete', 100, 100, 3]] as const)
+          h.emit({ stage, percent, message: stage, gamePercent, stageIndex, stageCount: 3, stageLabel: stage } as any);
+        await h.finishAnalysis();
+      }
+      await expect(run).resolves.toBe(true);
+    } finally { unsubscribe(); }
+    expect(overall.length).toBeGreaterThan(10);
+    expect(overall).toEqual([...overall].sort((a, b) => a - b));
+    expect(details).toContain('Game 1 of 2 · stage 3 of 3: ocr');
+    expect(details).toContain('Game 2 of 2 · stage 2 of 3: sampling');
+    expect(details).toContain('Game 1 of 2 · saving');
   });
 
   it('splits a pasted list of links into one VOD each', () => {
