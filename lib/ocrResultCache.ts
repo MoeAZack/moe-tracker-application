@@ -1,4 +1,4 @@
-export const LOCAL_SCOREBOARD_CACHE_VERSION = 'scoreboard-result/v3';
+export const LOCAL_SCOREBOARD_CACHE_VERSION = 'scoreboard-result/v4';
 export const LOCAL_SCOREBOARD_CACHE_LIMIT = 40;
 
 const normalize = (value: unknown) => String(value ?? '').trim().toLocaleLowerCase('en');

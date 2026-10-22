@@ -705,9 +705,10 @@ export interface KdaNumberRead { text: string; confidence: number | null }
  * number is read once, as it always was. Below it, each number is read a
  * second time from the same crop enlarged differently; when that second read
  * is a number and a different one, the whole line stays unknown: a coach
- * fills in an empty cell, but a plausible wrong one gets saved. A second read
- * that finds no number does not overrule the first, and the usual K/D/A
- * confidence floor still applies to what is kept.
+ * fills in an empty cell, but a plausible wrong one gets saved. When the two
+ * reads agree, the number carries the lower of their confidences, so the
+ * usual K/D/A floor (KDA_CONFIDENCE_FLOOR) needs both reads to clear it. A
+ * second read that finds no number does not overrule the first.
  * `reads` records both reads per number below the calibrated resolution
  * (digits and confidences only), so a run can show why a line was dropped.
  */
@@ -727,6 +728,9 @@ export async function readSegmentedKda(
       const second = await read.secondary(rectangle); const secondText = second.text.trim();
       reads.push(`${text}@${Math.round(Number(confidence))}|${secondText || '-'}@${Number.isFinite(second.confidence) ? Math.round(Number(second.confidence)) : '-'}`);
       if (/^\d{1,3}$/.test(secondText) && secondText !== text) { confidences.push(Number(confidence)); values.length = 0; break; }
+      // Agreement is only as sure as the less sure read: the K/D/A floor
+      // below applies to the lower of the two confidences.
+      if (/^\d{1,3}$/.test(secondText) && Number.isFinite(second.confidence)) { values.push(text); confidences.push(Math.min(Number(confidence), Number(second.confidence))); continue; }
     }
     values.push(text); confidences.push(Number(confidence));
   }

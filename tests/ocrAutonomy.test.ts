@@ -28,7 +28,7 @@ describe('OCR autonomy contracts', () => {
 
   it('versions cached recognition by image, geometry and recognition pipeline', () => {
     const profile = createValorantPerformanceProfile(1920, 1080); const imageSha256 = 'a'.repeat(64); const key = recognitionCacheKey(imageSha256, profile);
-    const record = { schemaVersion: 1 as const, key, imageSha256, profile: { id: profile.id, version: profile.version, width: 1920, height: 1080 }, recognitionVersion: 'tesseract-7-eng-1/valorant-fields-v3', recognitions: [{ regionId: 'performance.score', text: '311', confidence: 91 }], createdAt: '2026-10-18T00:00:00.000Z', lastUsedAt: '2026-10-18T00:00:00.000Z' };
+    const record = { schemaVersion: 1 as const, key, imageSha256, profile: { id: profile.id, version: profile.version, width: 1920, height: 1080 }, recognitionVersion: 'tesseract-7-eng-1/valorant-fields-v4', recognitions: [{ regionId: 'performance.score', text: '311', confidence: 91 }], createdAt: '2026-10-18T00:00:00.000Z', lastUsedAt: '2026-10-18T00:00:00.000Z' };
     expect(validCachedRecognitions(record, imageSha256, profile)).toBe(true);
     expect(validCachedRecognitions({ ...record, recognitionVersion: 'old' }, imageSha256, profile)).toBe(false);
   });
