@@ -72,6 +72,26 @@ describe('VOD import runner survives leaving the VOD tab', () => {
     expect(state.queue.map(item => [item.label, item.status, item.games.length])).toEqual([['https://youtu.be/abc', 'done', 2], ['https://youtu.be/second', 'done', 2]]);
   });
 
+  it('runs three queued VODs first in, first out', async () => {
+    const h = harness(); const order: string[] = [];
+    h.desktop.discoverVodGames.mockImplementation(async (request: any) => { order.push(request.vodUrl); return { ...discovery, vodUrl: request.vodUrl }; });
+    const runs = ['https://youtu.be/one', 'https://youtu.be/two', 'https://youtu.be/three'].map(vodUrl => startVodBatchImport(input({ vodUrl }), h.deps));
+    for (const run of runs) { await h.finishAnalysis(); await h.finishAnalysis(); await expect(run).resolves.toBe(true); }
+    expect(order).toEqual(['https://youtu.be/one', 'https://youtu.be/two', 'https://youtu.be/three']);
+  });
+
+  it('does not queue a video that is already waiting or importing', async () => {
+    const h = harness();
+    const first = startVodBatchImport(input(), h.deps);
+    await expect(startVodBatchImport(input(), h.deps)).resolves.toBe(false);
+    expect(vodImportStore.getSnapshot().queue).toHaveLength(1);
+    await h.finishAnalysis(); await h.finishAnalysis(); await first;
+    // Once it has finished, importing it again is the coach's call.
+    const again = startVodBatchImport(input(), h.deps);
+    expect(vodImportStore.getSnapshot().queue).toHaveLength(2);
+    await h.finishAnalysis(); await h.finishAnalysis(); await again;
+  });
+
   it('links a queued VOD against data saved by the VOD before it', async () => {
     const latest = { matches: [{ id: 'm-new', date: '2026-10-20', map: 'Ascent', ourScore: 13, theirScore: 9, opponent: 'OpponentA' }], playerStats: [{ matchId: 'm-new', playerId: 'p1' }] };
     const h = harness({ latestData: latest });

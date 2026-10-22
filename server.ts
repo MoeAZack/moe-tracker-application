@@ -63,7 +63,10 @@ export async function createApp(serveFrontend = true) {
       "img-src 'self' data: https:",
       "font-src 'self' data:",
       "connect-src 'self'",
-      "frame-src 'none'",
+      // Synced multi-POV review embeds YouTube's privacy-mode player (and no YouTube
+      // script); videos from this PC play from blob: URLs made in the page.
+      "frame-src https://www.youtube-nocookie.com",
+      "media-src 'self' blob:",
       "object-src 'none'",
       "base-uri 'self'"
     ].join('; '));

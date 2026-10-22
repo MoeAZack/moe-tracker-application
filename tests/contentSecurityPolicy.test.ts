@@ -50,8 +50,14 @@ describe('content security policy', () => {
     for (const policy of [served, pages]) {
       expect([...policy.values()].flat().join(' ')).not.toMatch(/accounts\.google\.com|apis\.google\.com/);
       expect(policy.get('connect-src')).toEqual(["'self'"]);
-      expect(policy.get('frame-src')).toEqual(["'none'"]);
     }
+    // The app's side-by-side VOD review may frame only YouTube's privacy-mode
+    // player and play videos picked on this PC; the website shows no VODs, so it
+    // frames nothing.
+    expect(served.get('frame-src')).toEqual(['https://www.youtube-nocookie.com']);
+    expect(served.get('media-src')).toEqual(["'self'", 'blob:']);
+    expect(pages.get('frame-src')).toEqual(["'none'"]);
+    expect(pages.get('media-src')).toBeUndefined();
   });
 
   it('loads fonts only from the app itself, in both the served and Pages policies', async () => {

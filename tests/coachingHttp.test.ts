@@ -31,6 +31,27 @@ describe('coaching workflow HTTP contract', () => {
     expect((await request(coach, '/api/vod/round-review', { matchId: 'm1', roundNo: 1, factCorrection: { field: 'result', value: 'maybe', reason: 'Invalid correction attempt.' } })).status).toBe(400);
     const player = await login(playerKey); expect((await request(player, '/api/vod/round-review', { matchId: 'm1', roundNo: 1, note: 'overwrite' })).status).toBe(403);
   });
+  it('turns a reviewed round into a task the assigned player can see and start, with no metric check', async () => {
+    const coach = await login(adminKey); const player = await login(playerKey);
+    const body = { matchId: 'm1', roundNo: 2, title: 'Hold the trade on B main', kind: 'player-feedback', ownerIds: [playerId], vodSeconds: 754 };
+    expect((await request(player, '/api/coaching/round-tasks', body)).status).toBe(403);
+    expect((await request(coach, '/api/coaching/round-tasks', { ...body, matchId: 'missing' })).status).toBe(404);
+    expect((await request(coach, '/api/coaching/round-tasks', { ...body, title: '  ' })).status).toBe(400);
+    expect((await request(coach, '/api/coaching/round-tasks', { ...body, roundNo: 0 })).status).toBe(400);
+    expect((await request(coach, '/api/coaching/round-tasks', { ...body, ownerIds: ['not-on-roster'] })).status).toBe(400);
+    const created = await request(coach, '/api/coaching/round-tasks', body); expect(created.status).toBe(201);
+    const { action } = await created.json();
+    expect(action).toMatchObject({ title: 'Hold the trade on B main', kind: 'player-feedback', ownerIds: [playerId], visibility: 'team', state: 'assigned', check: null, sourceSignalId: '', evidence: { matchIds: ['m1'], roundIds: ['r2'] }, sourceRound: { matchId: 'm1', roundNo: 2, roundId: 'r2', map: 'Ascent', opponent: 'PYO', vodSeconds: 754 } });
+    // A refresh does not drop or "evaluate" a task that has no metric behind it.
+    expect((await request(coach, '/api/coaching/refresh', {})).status).toBe(200);
+    const seen = await (await request(player, '/api/coaching')).json();
+    expect(seen.actions).toEqual([expect.objectContaining({ id: action.id, sourceRound: expect.objectContaining({ roundNo: 2 }), outcome: null })]);
+    expect((await request(player, `/api/coaching/actions/${action.id}/status`, { state: 'in-progress' })).status).toBe(200);
+    // Without owners it is a staff note the players do not see.
+    const staff = await (await request(coach, '/api/coaching/round-tasks', { matchId: 'm1', roundNo: 1, title: 'Rewatch the retake', kind: 'vod-review' })).json();
+    expect(staff.action).toMatchObject({ visibility: 'staff', state: 'planned', ownerIds: [], sourceRound: { roundNo: 1, vodSeconds: null } });
+    expect((await (await request(player, '/api/coaching')).json()).actions.map((item: any) => item.id)).toEqual([action.id]);
+  });
   it('lets only a coach link a PRACC session to match and goal progress', async () => {
     const player = await login(playerKey); const body = { scheduleId: '00000000-0000-4000-8000-000000000020', matchIds: ['m1'], goalIds: ['goal-1'] };
     expect((await request(player, '/api/practice-sessions/link', body)).status).toBe(403);

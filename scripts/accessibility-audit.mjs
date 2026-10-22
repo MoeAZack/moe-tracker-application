@@ -80,6 +80,10 @@ async function auditDesktopWorkspaces() {
   await intelligence.click(); await page.getByText('Evidence fusion').waitFor();
   check(!/\{\s*"|"\s*:\s*[\[{"]/.test(await page.locator('[aria-labelledby="review-intelligence-title"]').innerText()), 'the evidence fusion panel shows raw JSON.');
   await audit(page, 'desktop vod review evidence fusion');
+  // Side-by-side POV review stays closed (no video frames) until opened.
+  check(await page.locator('iframe').count() === 0, 'VOD review loaded video frames before side-by-side review was opened.');
+  await page.getByRole('button', { name: 'Open side-by-side review' }).click(); await page.getByRole('group', { name: /Views on screen/ }).waitFor();
+  await audit(page, 'desktop vod review side-by-side POVs');
 
   // A destructive confirmation is an in-app modal: labelled, focused on Cancel, dismissed by Escape without acting.
   await open(`#/match-review?match=${matchId}`);
