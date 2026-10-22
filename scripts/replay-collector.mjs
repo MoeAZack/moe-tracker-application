@@ -68,7 +68,18 @@ async function atomicJson(file, value) {
   // file allocated but full of NUL bytes on NTFS.
   const handle = await fsp.open(temp, 'w', 0o600);
   try { await handle.writeFile(JSON.stringify(value, null, 2), 'utf8'); await handle.sync(); } finally { await handle.close(); }
-  await fsp.rename(temp, file);
+  await renameWithRetry(temp, file);
+}
+// On Windows a rename over a file another process is reading (the desktop
+// status poll, an antivirus scan) fails with EPERM/EACCES/EBUSY for a moment.
+export async function renameWithRetry(from, to, { attempts = 6, delayMs = 25, rename = fsp.rename } = {}) {
+  for (let attempt = 1; ; attempt += 1) {
+    try { return await rename(from, to); }
+    catch (error) {
+      if (attempt >= attempts || !['EPERM', 'EACCES', 'EBUSY'].includes(error?.code)) throw error;
+      await new Promise(resolve => setTimeout(resolve, delayMs * 2 ** (attempt - 1)));
+    }
+  }
 }
 export function processAlive(pid) {
   try { process.kill(pid, 0); return true; }

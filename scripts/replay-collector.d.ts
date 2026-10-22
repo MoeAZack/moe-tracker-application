@@ -1,5 +1,6 @@
 export function scan(options?: { allowUpload?: boolean; approvedHash?: string | null }): Promise<Array<Record<string, unknown>>>;
 export function migrateConfig(raw?: Record<string, any>): Record<string, any>;
+export function renameWithRetry(from: string, to: string, options?: { attempts?: number; delayMs?: number; rename?: (from: string, to: string) => Promise<void> }): Promise<void>;
 export const LOCAL_NORMALIZER_REVISION: string;
 export const collectorInternals: {
   APP_DIR: string; EVIDENCE_DIR: string; DEFAULT_DEMO: string; normalizerRevision: string;
