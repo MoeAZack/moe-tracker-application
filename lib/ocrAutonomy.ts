@@ -75,6 +75,20 @@ export interface AutonomousCaptureDecision {
   warnings: string[];
   map: string | null;
   alliedPlayerKeys: string[];
+  /** Rounds saved with the match but kept out of round analytics until a coach confirms them. */
+  roundsNeedingReview: number[];
+}
+
+/**
+ * A round whose detail (economy, kill feed, names) is uncertain can still be
+ * saved when its WIN/LOSS banner was read and the frame was not low quality:
+ * the scoreboard total cross-checks every result. Analytics already ignore
+ * rounds that are not confirmed, so only the round's detail waits for review.
+ */
+function deferrableRound(round: any) {
+  const evidence = round?.screenshotEvidence;
+  const issues = Array.isArray(round?.extractionIssues) ? round.extractionIssues : Array.isArray(evidence?.extractionIssues) ? evidence.extractionIssues : [];
+  return (evidence?.confidence === 'medium' || evidence?.confidence === 'high') && !issues.includes('round-result');
 }
 
 /**
@@ -98,11 +112,14 @@ export function autonomousCaptureDecision(extracted: any, knownMaps: readonly st
   const alliedPlayerKeys = allied.map((player: any) => String(player.matchedPlayerId || `name:${normalizeCaptureName(player.extractedName)}`)).filter(Boolean);
   if (allied.length !== 5) reasons.push('allied-five-unresolved');
   if (new Set(alliedPlayerKeys).size !== alliedPlayerKeys.length || alliedPlayerKeys.some(key => key === 'name:')) reasons.push('allied-identities-ambiguous');
-  if (rounds.some((round: any) => round?.screenshotEvidence?.reviewStatus !== 'confirmed')) reasons.push('round-evidence-needs-review');
+  const unconfirmed = rounds.filter((round: any) => round?.screenshotEvidence?.reviewStatus !== 'confirmed');
+  // At most a third of the rounds may wait for review; more than that points at a bad capture, not a few hard frames.
+  if (unconfirmed.some((round: any) => !deferrableRound(round)) || unconfirmed.length * 3 > rounds.length) reasons.push('round-evidence-needs-review');
+  const roundsNeedingReview = unconfirmed.map((round: any) => Number(round?.roundNo)).filter(Number.isInteger).sort((a: number, b: number) => a - b);
   const consistency = captureConsistencyReport({ ourScore: extracted?.meta?.ourScore, theirScore: extracted?.meta?.theirScore, rounds, players });
   reasons.push(...consistency.errors.map((_: string, index: number) => `consistency-error-${index + 1}`));
   if (findDuplicateScoreboardMatch(players, existingStats)) reasons.push('possible-duplicate-match');
-  return { automatic: reasons.length === 0, reasons: [...new Set(reasons)], warnings: consistency.warnings, map, alliedPlayerKeys };
+  return { automatic: reasons.length === 0, reasons: [...new Set(reasons)], warnings: consistency.warnings, map, alliedPlayerKeys, roundsNeedingReview };
 }
 
 export type OcrFallbackMode = 'local-only' | 'local-then-cloud';
