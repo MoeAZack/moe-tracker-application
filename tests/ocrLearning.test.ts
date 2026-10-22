@@ -49,7 +49,8 @@ describe('private OCR learning', () => {
       nextStats: [{ player: 'Row 3', kills: 13 }, { player: 'Row 7', kills: 14 }], nextScoreboardRows: [3, 7],
       recordedAt: `2026-10-18T10:00:0${index}.000Z`,
     }));
-    expect(samples.map(sample => sample.sourceRegion)).toEqual(['player.7.kills', 'player.7.kills', 'player.7.kills']);
+    expect(samples.filter(sample => !sample.kept).map(sample => sample.sourceRegion)).toEqual(['player.7.kills', 'player.7.kills', 'player.7.kills']);
+    expect(samples.filter(sample => sample.kept).map(sample => sample.sourceRegion)).toEqual(['player.3.kills', 'player.3.kills', 'player.3.kills']);
     const model = buildLocalCorrectionModel(samples);
     const context = { sourceModel: 'tesseract-local', layout: 'standard', resolution: '1920x1080' };
     expect(applyLocalCorrection(model, 'kills', 4, { ...context, sourceRegion: 'player.7.kills' })).toBe(14);

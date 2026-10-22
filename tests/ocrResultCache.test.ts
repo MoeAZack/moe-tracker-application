@@ -14,7 +14,7 @@ describe('incremental OCR result cache', () => {
     expect(localScoreboardCacheKey({ ...base, imageSha256: 'def' })).not.toBe(key);
     expect(localScoreboardCacheKey({ ...base, rosterPlayers: [{ id: '1', displayName: 'Beta' }] })).not.toBe(key);
     expect(localScoreboardCacheKey({ ...base, selection: { top: 1 } })).not.toBe(key);
-    expect(localScoreboardCacheKey({ ...base, extractorVersion: 'scoreboard-result/v6' })).not.toBe(key);
+    expect(localScoreboardCacheKey({ ...base, extractorVersion: 'scoreboard-result/v7' })).not.toBe(key);
   });
 
   it('re-runs extraction after a learned alias changes the roster projection', () => {

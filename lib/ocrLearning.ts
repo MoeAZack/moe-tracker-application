@@ -5,6 +5,9 @@ export const OCR_LEARNING_VERSION = 'ocr-learning-v2';
 
 export type OcrLearningField = 'map' | 'opponent' | 'name' | 'agent' | 'kills' | 'deaths' | 'assists' | 'fk' | 'fd' | 'plants' | 'defuses' | 'trades';
 
+/** Scoreboard cells a learned rule can correct. */
+export const CORRECTED_STAT_FIELDS: readonly OcrLearningField[] = ['agent', 'kills', 'deaths', 'assists', 'fk', 'fd', 'plants', 'defuses', 'trades'];
+
 export interface OcrCorrectionSample {
   id: string;
   captureId: string | null;
@@ -19,6 +22,11 @@ export interface OcrCorrectionSample {
   sourceRegion?: string;
   layout?: string;
   resolution?: string;
+  /**
+   * The coach saved the read as it was. Counts against a learned rule for the
+   * same cell and value; never a correction itself.
+   */
+  kept?: boolean;
 }
 
 export interface OcrSessionOutcome {
@@ -85,8 +93,10 @@ export function correctionSamplesFromAcceptedEdit(input: {
   const matchId = String(input.beforeMatch.id || input.nextMatch?.id || '');
   const samples: OcrCorrectionSample[] = [];
   const add = (field: OcrLearningField, predicted: unknown, corrected: unknown, playerId: string | null = null, rowIndex: number | null = null) => {
-    if (same(predicted, corrected)) return;
-    samples.push({ id: `${matchId}:${playerId || `row-${rowIndex ?? 'match'}`}:${field}:${recordedAt}`, captureId, matchId, playerId, field, predicted: comparable(predicted) as any, corrected: comparable(corrected) as any, modelVersion, recordedAt, rowIndex, sourceRegion: rowIndex === null ? field : `player.${rowIndex}.${field}`, layout, resolution });
+    const kept = same(predicted, corrected);
+    // A kept read is evidence only for a scoreboard stat cell; elsewhere it says nothing.
+    if (kept && (rowIndex === null || !CORRECTED_STAT_FIELDS.includes(field) || comparable(predicted) === null)) return;
+    samples.push({ id: `${matchId}:${playerId || `row-${rowIndex ?? 'match'}`}:${field}:${recordedAt}`, captureId, matchId, playerId, field, predicted: comparable(predicted) as any, corrected: comparable(corrected) as any, modelVersion, recordedAt, rowIndex, sourceRegion: rowIndex === null ? field : `player.${rowIndex}.${field}`, layout, resolution, ...(kept ? { kept: true } : {}) });
   };
   add('map', input.beforeMatch.map, input.nextMatch?.map);
   add('opponent', input.beforeMatch.opponent, input.nextMatch?.opponent);
@@ -101,7 +111,9 @@ export function correctionSamplesFromAcceptedEdit(input: {
       : (playerId && beforeByPlayer.get(playerId)) || beforeByKey.get(rowKey(next, index)) || input.beforeStats[index];
     if (!before) return;
     add('name', before.displayNameSnapshot || before.player || before.extractedName, next.displayNameSnapshot || next.player, playerId, rowIndex);
-    for (const field of ['agent', 'kills', 'deaths', 'assists', 'fk', 'fd', 'plants', 'defuses', 'trades'] as OcrLearningField[]) add(field, before[field], next[field], playerId, rowIndex);
+    // A draft value a learned rule changed is labelled against the read the rule saw.
+    const learned = rowIndex !== null && before.learnedCorrections && typeof before.learnedCorrections === 'object' ? before.learnedCorrections : {};
+    for (const field of CORRECTED_STAT_FIELDS) add(field, Object.hasOwn(learned, field) ? learned[field] : before[field], next[field], playerId, rowIndex);
   });
   return samples;
 }
@@ -132,22 +144,27 @@ export function ocrHealthSummary(outcomes: readonly OcrSessionOutcome[], correct
   const reasonCounts = new Map<string, number>();
   for (const outcome of outcomes) for (const reason of outcome.reasons) reasonCounts.set(reason, (reasonCounts.get(reason) || 0) + 1);
   const correctionsByField = new Map<string, number>();
-  for (const sample of corrections) correctionsByField.set(sample.field, (correctionsByField.get(sample.field) || 0) + 1);
+  for (const sample of corrections) if (!sample.kept) correctionsByField.set(sample.field, (correctionsByField.get(sample.field) || 0) + 1);
   const cacheHits = outcomes.reduce((sum, item) => sum + item.cacheHits, 0); const cacheMisses = outcomes.reduce((sum, item) => sum + item.cacheMisses, 0);
   return {
     sessions, automatic, exceptions: sessions - automatic, automaticRate: sessions ? automatic / sessions : null,
-    correctedFields: corrections.length, learnedAliases: aliases.length,
+    correctedFields: corrections.filter(sample => !sample.kept).length, learnedAliases: aliases.length,
     cacheHits, cacheMisses, cacheHitRate: cacheHits + cacheMisses ? cacheHits / (cacheHits + cacheMisses) : null,
     reasons: [...reasonCounts].sort((a, b) => b[1] - a[1]).map(([reason, count]) => ({ reason, count })),
     fields: [...correctionsByField].sort((a, b) => b[1] - a[1]).map(([field, count]) => ({ field, count })),
   };
 }
 
-/** Small, explainable local model; a rule activates only after three identical coach corrections. */
+/**
+ * Small, explainable local model; a rule activates only after three identical
+ * coach corrections, and only while they outnumber the captures where the
+ * coach kept that same read in that same cell.
+ */
 export function buildLocalCorrectionModel(samples: readonly OcrCorrectionSample[]): LocalCorrectionModel {
   const groups = new Map<string, Map<string, { value: string | number; evidence: Set<string> }>>();
   for (const sample of samples) {
-    if (sample.field === 'name' || sample.predicted === null || sample.corrected === null || same(sample.predicted, sample.corrected)) continue;
+    if (sample.field === 'name' || sample.predicted === null || sample.corrected === null) continue;
+    if (same(sample.predicted, sample.corrected) && !sample.kept) continue;
     const source = [sample.modelVersion, sample.layout || 'unknown', sample.resolution || 'unknown', sample.sourceRegion || sample.field, sample.field, String(sample.predicted).toLocaleLowerCase('en')].join('\0'); const target = JSON.stringify(sample.corrected);
     const choices = groups.get(source) || new Map(); const current = choices.get(target);
     const evidenceId = sample.captureId || sample.matchId || sample.id;
@@ -158,6 +175,8 @@ export function buildLocalCorrectionModel(samples: readonly OcrCorrectionSample[
     const ranked = [...choices.values()].map(item => ({ ...item, count: item.evidence.size })).sort((a, b) => b.count - a.count); const winner = ranked[0];
     if (!winner || winner.count < 3 || (ranked[1] && ranked[1].count === winner.count)) continue;
     const [sourceModel, layout, resolution, sourceRegion, fieldRaw, predicted] = source.split('\0'); const field = fieldRaw as OcrLearningField;
+    // The coach keeping the read wins: there is nothing to correct.
+    if (same(winner.value, predicted)) continue;
     const numeric = ['kills','deaths','assists','fk','fd','plants','defuses','trades'].includes(field);
     rules.push({ field, predicted: numeric ? Number(predicted) : predicted, corrected: winner.value, confirmations: winner.count, sourceModel, layout, resolution, sourceRegion });
   }
@@ -174,19 +193,39 @@ export function applyLocalCorrection(model: LocalCorrectionModel | undefined, fi
   return candidates.length === 1 ? candidates[0].corrected : value;
 }
 
-export const CORRECTED_STAT_FIELDS: readonly OcrLearningField[] = ['agent', 'kills', 'deaths', 'assists', 'fk', 'fd', 'plants', 'defuses', 'trades'];
+/**
+ * A learned rule never overrides a number the OCR read at or above this
+ * confidence: the rule is keyed on the value alone, and a cleanly read common
+ * value (a real 0 defuses) looks the same as a misread one.
+ */
+export const LEARNED_RULE_CONFIDENCE_CEILING = 70;
+
+/** OCR confidence of the read behind a stat cell; K/D/A share the line's. */
+function readConfidence(row: Record<string, any>, field: OcrLearningField) {
+  const confidence = row.rawConfidence?.[field === 'kills' || field === 'deaths' || field === 'assists' ? 'kda' : field];
+  return typeof confidence === 'number' && Number.isFinite(confidence) ? confidence : null;
+}
 
 /**
  * Applies learned per-cell corrections to scoreboard rows. A rule applies
  * only to the same OCR model, layout, resolution and cell (row and field) it
  * was learned on, so a capture session and a single uploaded screenshot of
- * the same scoreboard get the same corrections.
+ * the same scoreboard get the same corrections. A number read with confidence
+ * at or above LEARNED_RULE_CONFIDENCE_CEILING is left as read. Each changed
+ * cell's original read is kept in `learnedCorrections`, so the coach's later
+ * edit labels the read and not the rule's output.
  */
 export function applyLearnedCorrections<T extends Record<string, any>>(rows: readonly T[], model: LocalCorrectionModel | undefined, context: { sourceModel?: string; layout: string; resolution: string }): T[] {
   if (!model?.rules.length) return rows.map(row => ({ ...row }));
   return rows.map((row, index) => {
     const corrected: Record<string, any> = { ...row };
-    for (const field of CORRECTED_STAT_FIELDS) corrected[field] = applyLocalCorrection(model, field, corrected[field], { ...context, sourceRegion: `player.${index}.${field}` });
+    const learned: Record<string, unknown> = {};
+    for (const field of CORRECTED_STAT_FIELDS) {
+      if (field !== 'agent' && (readConfidence(row, field) ?? 0) >= LEARNED_RULE_CONFIDENCE_CEILING) continue;
+      const next = applyLocalCorrection(model, field, corrected[field], { ...context, sourceRegion: `player.${index}.${field}` });
+      if (!same(next, corrected[field])) { learned[field] = corrected[field]; corrected[field] = next; }
+    }
+    if (Object.keys(learned).length) corrected.learnedCorrections = learned;
     return corrected as T;
   });
 }
