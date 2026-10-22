@@ -12,6 +12,7 @@ import { DEFAULT_ANALYTICS_MAP_SCOPE, projectAnalyticsMapScope, type AnalyticsMa
 import { reportDesktopDiagnostic } from './utils/desktopDiagnostics';
 import DesktopReplayAutomation from './components/DesktopReplayAutomation';
 import ReviewContextBar from './components/ReviewContextBar';
+import VodImportStatus from './components/VodImportStatus';
 import { projectCurrentPlayerAnalytics } from '../lib/activePlayerAnalytics';
 import { projectReviewContext } from '../lib/reviewContext';
 import { evidenceReviewTab, focusReviewContext, navWorkspaceTabs, parseWorkspaceRoute, resolveWorkspaceTab, routableWorkspaceTabs, syncWorkspaceRoute, type WorkspaceRoute, type WorkspaceTabId } from './utils/workspaceRoute';
@@ -718,6 +719,7 @@ export default function App() {
           )}
 
           {/* Tab Router Switch */}
+          {desktopMode && <VodImportStatus hidden={activeTab === 'vodsubmit'} onOpen={() => setActiveTab('vodsubmit')} />}
           {desktopMode && data && ['matches', 'replays', 'vod', 'economy', 'aitactical'].includes(activeTab) && <ReviewContextBar data={workspaceData || data} value={{ matchId: reviewMatchId, roundNo: reviewRoundNo }} onChange={value => { setReviewMatchId(value.matchId); setReviewRoundNo(value.roundNo); }} onNavigate={tab => setActiveTab(tab)} />}
           <div key={activeTab} className="route-stage flex-grow">
             <ScreenErrorBoundary screen={tabsList.find(tab => tab.id === activeTab)?.label.replace(/[^\p{L}\p{N}&' -]/gu, '').trim() || 'This screen'}>
