@@ -5,6 +5,7 @@ import { Film, Plus, Trash2, Clock, MessageSquare, Send, ExternalLink, AlertTria
 import { cairoDateKeyAt, resolveInitialVodSelection, vodContextMatchId } from '../../lib/uiIntegration';
 import { matchPracticeCompleteness } from '../../lib/practiceCompleteness';
 import RoundReviewCockpit from './RoundReviewCockpit';
+import MultiPovReview from './MultiPovReview';
 import ReviewIntelligencePanels from './ReviewIntelligencePanels';
 
 interface Props {
@@ -372,6 +373,17 @@ export default function VodReview({ data, theme, role, onRefresh, initialMatchId
             </div>
           )}
         </section>
+      )}
+      {focusedMatch && (
+        <MultiPovReview
+          key={focusedMatch.id}
+          reviews={reviews}
+          matchId={focusedMatch.id}
+          rounds={focusedRounds.map(round => round.roundNo).filter((roundNo): roundNo is number => typeof roundNo === 'number')}
+          selectedRoundNo={selectedRoundNo}
+          onRoundChange={roundNo => onReviewContextChange?.(focusedMatch.id, roundNo)}
+          onSaveOffset={(reviewId, vodUrl, offset) => post('/api/vod/save', { review: { id: reviewId, vodUrl, syncOffsetSeconds: offset } })}
+        />
       )}
       {focusedMatch && completeness && (
         <section className="rounded-xl border border-white/10 bg-white/[0.025] p-4 space-y-4" aria-labelledby="practice-completeness-title">
