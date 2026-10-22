@@ -1,4 +1,4 @@
-import { roundEconomyLabel } from './automaticCaptureImport';
+import { roundEconomyLabel } from './captureRoundRows';
 import { deriveRoundAdvantage } from './roundAdvantage';
 
 /**
