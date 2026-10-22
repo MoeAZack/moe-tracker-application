@@ -605,6 +605,8 @@ export default function LiveLogger({ data, theme, onSaveMatch, onSaveRounds, onR
         </div>
       )}
 
+      <button type="button" onClick={() => setActiveTab('matches')} className="text-xs font-semibold text-slate-400 hover:text-white">← Back to Match Review</button>
+
       {/* HEADER ROW */}
       <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4">
         <div>
@@ -612,7 +614,7 @@ export default function LiveLogger({ data, theme, onSaveMatch, onSaveRounds, onR
             <span className="w-2.5 h-2.5 rounded-full bg-[#ff4655] animate-pulse"></span>
             <span className="text-[10px] text-gray-500 uppercase tracking-widest font-black font-mono">LIVE CONSOLE</span>
           </div>
-          <h2 className="text-2xl font-black uppercase tracking-tight">Esports Live Match Logger</h2>
+          <h2 className="text-2xl font-black tracking-tight">Record match live, round by round</h2>
         </div>
         
         {sessionActive && (

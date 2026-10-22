@@ -15,7 +15,7 @@ import ReviewContextBar from './components/ReviewContextBar';
 import VodImportStatus from './components/VodImportStatus';
 import { projectCurrentPlayerAnalytics } from '../lib/activePlayerAnalytics';
 import { projectReviewContext } from '../lib/reviewContext';
-import { destinationEntryTab, evidenceReviewTab, focusReviewContext, navWorkspaceTabs, parseWorkspaceRoute, resolveWorkspaceTab, routableWorkspaceTabs, syncWorkspaceRoute, workspaceDestination, workspaceDestinations, type WorkspaceDestination, type WorkspaceRoute, type WorkspaceTabId } from './utils/workspaceRoute';
+import { destinationEntryTab, evidenceReviewTab, focusReviewContext, navWorkspaceTabs, parseWorkspaceRoute, workspaceSectionTab, resolveWorkspaceTab, routableWorkspaceTabs, syncWorkspaceRoute, workspaceDestination, workspaceDestinations, type WorkspaceDestination, type WorkspaceRoute, type WorkspaceTabId } from './utils/workspaceRoute';
 import ScreenErrorBoundary from './components/ScreenErrorBoundary';
 
 // Heavy route views are code-split so the initial bundle only loads the shell + login.
@@ -475,7 +475,7 @@ export default function App() {
     { id: 'replays', label: 'Replay Evidence', icon: FileCheck2 },
     { id: 'vod', label: 'VOD Review', icon: Film },
     { id: 'vodsubmit', label: 'VOD Submission', icon: Upload },
-    { id: 'livelogger', label: 'Live Logger 🔴', icon: Activity },
+    { id: 'livelogger', label: 'Live logging', icon: Activity },
     { id: 'economy', label: 'Economy', icon: Coins },
     { id: 'maps', label: 'Map Analysis', icon: Compass },
     { id: 'roster', label: 'Roster', icon: Users },
@@ -739,7 +739,7 @@ export default function App() {
           {desktopMode && data && ['matches', 'replays', 'vod', 'economy', 'aitactical'].includes(activeTab) && <ReviewContextBar data={workspaceData || data} value={{ matchId: reviewMatchId, roundNo: reviewRoundNo }} onChange={value => { setReviewMatchId(value.matchId); setReviewRoundNo(value.roundNo); }} onNavigate={tab => setActiveTab(tab)} />}
           {activeSections.length > 1 && <nav aria-label={`${activeDestination} sections`} className="flex flex-wrap gap-2 border-b border-white/10 pb-3">
             {activeSections.map(section => {
-              const SectionIcon = section.icon; const isActive = section.id === activeTab;
+              const SectionIcon = section.icon; const isActive = section.id === workspaceSectionTab(activeTab);
               return <button key={section.id} type="button" onClick={() => setActiveTab(section.id)} aria-current={isActive ? 'page' : undefined} className={`inline-flex min-h-10 items-center gap-2 rounded-lg px-3 py-2 text-xs font-semibold ${isActive ? 'bg-white/10 text-white' : 'text-gray-400 hover:bg-white/5 hover:text-white'}`}><SectionIcon className="h-4 w-4 shrink-0" aria-hidden="true" />{section.label}</button>;
             })}
           </nav>}
@@ -778,6 +778,7 @@ export default function App() {
                 onReviewContextChange={(matchId, roundNo) => { setReviewMatchId(matchId); setReviewRoundNo(roundNo || null); }}
                 onDuplicateReview={handleDuplicateReview}
                 onAcceptRoundEvidence={role === 'coach' ? handleAcceptRoundEvidence : undefined}
+                onRecordLive={routableTabs.includes('livelogger') ? () => setActiveTab('livelogger') : undefined}
               />
             )}
             {activeTab === 'matches' && workspaceData && !desktopMode && <WebsiteMatchLog data={workspaceData} theme={theme} focusMatchId={reviewMatchId} />}

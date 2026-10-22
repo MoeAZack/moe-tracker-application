@@ -93,9 +93,17 @@ export function routableWorkspaceTabs(input: { desktopMode: boolean; role: strin
   return WORKSPACE_TAB_IDS.filter(tab => (input.desktopMode || WEB_SURFACE_TABS.has(tab)) && !(input.role === 'player' && COACH_ONLY_TABS.has(tab)));
 }
 
+/**
+ * Screens that open from inside another section instead of having their own
+ * nav entry. Live logging is a way to record a match, so it starts from Match
+ * Review's Record match and shows Match Review as the current section.
+ */
+const SECTION_PARENT: Partial<Record<WorkspaceTabId, WorkspaceTabId>> = { livelogger: 'matches' };
+export const workspaceSectionTab = (tab: WorkspaceTabId): WorkspaceTabId => SECTION_PARENT[tab] || tab;
+
 /** Tabs listed in the nav: routable ones, with Tryout comparisons only when shown or currently open. */
 export function navWorkspaceTabs(input: { desktopMode: boolean; role: string | null; showTryoutComparisons: boolean; activeTab: WorkspaceTabId }): WorkspaceTabId[] {
-  return routableWorkspaceTabs(input).filter(tab => tab !== 'comparisons' || input.showTryoutComparisons || input.activeTab === 'comparisons');
+  return routableWorkspaceTabs(input).filter(tab => !SECTION_PARENT[tab] && (tab !== 'comparisons' || input.showTryoutComparisons || input.activeTab === 'comparisons'));
 }
 
 /**

@@ -34,6 +34,8 @@ interface ComponentProps {
   onDuplicateReview?: (matchId: string, decision: 'keep-both' | 'discard-this') => Promise<void>;
   /** Coach acceptance of one saved round's screenshot evidence. */
   onAcceptRoundEvidence?: (matchId: string, roundNo: number) => Promise<void>;
+  /** Opens live logging, the round-by-round way to record a match. Left out where it is unavailable. */
+  onRecordLive?: () => void;
 }
 
 const roundFlag = (value: unknown): true | false | null => {
@@ -45,7 +47,7 @@ const roundFlag = (value: unknown): true | false | null => {
 /** A pistol result that was never recorded reads "Unknown", never a bare slash. */
 export const pistolResultLabel = (value: unknown) => String(value ?? '').trim() || 'Unknown';
 
-export default function MatchLogRounds({ data, theme, onSaveMatch, onRemove, onSaveRounds, onSaveVeto, onRefreshDatabase, manualReplayDraft, onManualReplayDraftConsumed, reviewMatchId, reviewRoundNo, onReviewContextChange, onDuplicateReview, onAcceptRoundEvidence }: ComponentProps) {
+export default function MatchLogRounds({ data, theme, onSaveMatch, onRemove, onSaveRounds, onSaveVeto, onRefreshDatabase, manualReplayDraft, onManualReplayDraftConsumed, reviewMatchId, reviewRoundNo, onReviewContextChange, onDuplicateReview, onAcceptRoundEvidence, onRecordLive }: ComponentProps) {
   const isLight = data.settings.theme === 'daylight';
   
   // --- SUB TAB CONTROL ---
@@ -340,8 +342,17 @@ export default function MatchLogRounds({ data, theme, onSaveMatch, onRemove, onS
             onClick={handleOpenAddMatch}
             className={`flex items-center gap-1.5 px-3 py-1.5 text-xs font-bold rounded ${theme.primaryBg} text-white cursor-pointer hover:opacity-90 transition-opacity`}
           >
-            <Plus className="w-4 h-4" /> RECORD MATCH
+            <Plus className="w-4 h-4" /> Record match
           </button>
+          {onRecordLive && (
+            <button
+              type="button"
+              onClick={onRecordLive}
+              className="flex items-center gap-1.5 px-3 py-1.5 text-xs font-bold rounded border border-white/10 bg-white/5 text-white hover:bg-white/10"
+            >
+              <span className="h-2 w-2 rounded-full bg-[#ff4655]" aria-hidden="true" /> Record live, round by round
+            </button>
+          )}
         </div>
       </div>
 
@@ -654,7 +665,7 @@ export default function MatchLogRounds({ data, theme, onSaveMatch, onRemove, onS
                         {roundsForSelectedMatch.length === 0 && (
                           <tr>
                             <td colSpan={11} className="py-8 text-center text-gray-500">
-                              No round sheets logged. Use the button above or Live Logger tab to add rounds!
+                              No round sheets logged. Use the button above, or record the next match live, round by round.
                             </td>
                           </tr>
                         )}
