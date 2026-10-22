@@ -12,7 +12,7 @@ import { buildPlayerDevelopment } from '../../lib/playerDevelopment';
 import { buildPlayerMetricCoverage, type MetricCoverageRow } from '../../lib/metricCoverage';
 import { confirmDialog, promptDialog } from '../utils/appDialogs';
 
-interface Props { data: TrackerData; theme: any; role: string | null; onSyncSoloQ: (player: string) => Promise<any>; onRefresh: () => Promise<void>; onOpenEvidence?: (matchId: string, roundNo: number) => void; }
+interface Props { data: TrackerData; theme: any; role: string | null; onRefresh: () => Promise<void>; onOpenEvidence?: (matchId: string, roundNo: number) => void; }
 type RosterStatus = 'core' | 'standIn' | 'tryout';
 const statusLabels: Record<RosterStatus, string> = { core: 'Core', standIn: 'Stand-in', tryout: 'Tryout' };
 const format = (value: number | null, digits = 2) => value === null ? '—' : value.toFixed(digits);

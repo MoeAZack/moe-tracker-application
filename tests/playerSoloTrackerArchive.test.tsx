@@ -18,7 +18,7 @@ const baseData: any = {
 
 describe('player overview archive action', () => {
   it('shows coach status and archive controls for active evidence and hides retired evidence', () => {
-    const html = renderToStaticMarkup(<PlayerSoloTracker data={baseData} theme={{ cardBg: '', border: '' }} role="coach" onSyncSoloQ={async () => null} onRefresh={async () => {}} />);
+    const html = renderToStaticMarkup(<PlayerSoloTracker data={baseData} theme={{ cardBg: '', border: '' }} role="coach" onRefresh={async () => {}} />);
     expect(html).toContain('Archive');
     expect(html).toContain('Core');
     expect(html).toContain('Stand-in');
@@ -30,7 +30,7 @@ describe('player overview archive action', () => {
 
   it('includes unmatched observed names with immediate classification and archive controls', () => {
     const data = { ...baseData, rosterPlayers: [], playerStats: [{ id: 'legacy', matchId: 'm1', player: 'New Tryout', kills: 12, deaths: 9, assists: 4 }] };
-    const html = renderToStaticMarkup(<PlayerSoloTracker data={data} theme={{ cardBg: '', border: '' }} role="coach" onSyncSoloQ={async () => null} onRefresh={async () => {}} />);
+    const html = renderToStaticMarkup(<PlayerSoloTracker data={data} theme={{ cardBg: '', border: '' }} role="coach" onRefresh={async () => {}} />);
     expect(html).toContain('New Tryout');
     expect(html).toContain('Tryout');
     expect(html).toContain('Archive');
@@ -38,13 +38,13 @@ describe('player overview archive action', () => {
   });
 
   it('does not expose roster mutation to players', () => {
-    const html = renderToStaticMarkup(<PlayerSoloTracker data={baseData} theme={{ cardBg: '', border: '' }} role="player" onSyncSoloQ={async () => null} onRefresh={async () => {}} />);
+    const html = renderToStaticMarkup(<PlayerSoloTracker data={baseData} theme={{ cardBg: '', border: '' }} role="player" onRefresh={async () => {}} />);
     expect(html).not.toContain('Archive');
   });
 
   it('shows a player only their identity-bound profile', () => {
     const data = { ...baseData, authenticatedViewer: { playerId: 'active' }, rosterPlayers: [...baseData.rosterPlayers, { id: 'other', displayName: 'Other teammate', createdAt: '2026-10-14' }], playerStats: [...baseData.playerStats, { id: 's3', matchId: 'm1', playerId: 'other', player: 'Other teammate', kills: 30, deaths: 2 }] };
-    const html = renderToStaticMarkup(<PlayerSoloTracker data={data} theme={{ cardBg: '', border: '' }} role="player" onSyncSoloQ={async () => null} onRefresh={async () => {}} />);
+    const html = renderToStaticMarkup(<PlayerSoloTracker data={data} theme={{ cardBg: '', border: '' }} role="player" onRefresh={async () => {}} />);
     expect(html).toContain('My performance profile');
     expect(html).toContain('Active');
     expect(html).not.toContain('Other teammate');
