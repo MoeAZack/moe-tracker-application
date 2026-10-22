@@ -25,3 +25,7 @@ The source packages and runtime layout follow the official Tesseract.js [local i
 ## Acceptance boundary
 
 The committed fixture is synthetic parser metadata only; it validates field mapping and contains no geometry, pixels or private identifiers. The supplied private screenshot is a vertical 10-row scoreboard at `1839x821`, not a two-column layout. No crop profile for it—or for any assumed `1920x1080` layout—is accepted or shipped. Current private OCR evidence yields only 52/60 exact numeric cells, including assist errors and a `177` versus `17` death error, so it proves the remaining accuracy gap. UI/accuracy acceptance needs calibrated geometry against the representative source and must prove 60/60 numeric cells plus aggregate K 165, D 165, A 63, first bloods 22, plants 18 and defuses 7. Names must retain raw text and ambiguity.
+
+## Number engines
+
+An optional second engine, PaddleOCR PP-OCRv4 (ONNX Runtime WebAssembly, staged and hash-checked in `public/ocr-assets/onnx/` and `public/ocr-assets/paddle/`), can read the numeric cells, alone or in an agree-or-abstain ensemble with Tesseract. Tesseract stays the default. See [OCR-ENGINES.md](OCR-ENGINES.md).

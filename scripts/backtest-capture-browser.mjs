@@ -1,7 +1,8 @@
 // Offline capture backtest: runs the shared capture pipeline in headless
 // Chromium over one or more Scrim-* folders and writes the extracted drafts.
-//   node scripts/backtest-capture-browser.mjs <out-dir> <capture-folder>... [--resample 1600x900]
+//   node scripts/backtest-capture-browser.mjs <out-dir> <capture-folder>... [--resample 1600x900] [--engine tesseract|paddle|ensemble]
 // --resample redraws every capture at that size first, to measure a resolution the corpus lacks.
+// --engine picks who reads numbers (lib/ocrEngines.ts); the default, tesseract, is the shipped behaviour.
 // Requires `npm run build` first (serves dist/ with the OCR/agent/weapon assets).
 // Optional: CHROMIUM_PATH (defaults to Playwright's bundled browser),
 // ROSTER_JSON (path to [{id?, displayName}]), CORRECTION_MODEL_JSON (a learned
@@ -19,6 +20,9 @@ const resampleText = resampleIndex >= 0 ? args.splice(resampleIndex, 2)[1] : nul
 const resampleMatch = resampleText ? /^(\d{3,4})x(\d{3,4})$/.exec(resampleText) : null;
 if (resampleText && !resampleMatch) throw new Error('--resample takes WIDTHxHEIGHT, for example 1600x900.');
 const resample = resampleMatch ? { width: Number(resampleMatch[1]), height: Number(resampleMatch[2]) } : null;
+const engineIndex = args.indexOf('--engine');
+const engine = engineIndex >= 0 ? args.splice(engineIndex, 2)[1] : 'tesseract';
+if (!['tesseract', 'paddle', 'ensemble'].includes(engine)) throw new Error('--engine takes tesseract, paddle or ensemble.');
 const [outDir, ...folders] = args;
 if (!outDir || !folders.length) throw new Error('Usage: node scripts/backtest-capture-browser.mjs <out-dir> <capture-folder>...');
 const root = process.cwd();
@@ -28,7 +32,7 @@ const js = path.join(dist, 'capture-backtest.js');
 const html = path.join(dist, 'capture-backtest.html');
 await build({ entryPoints: [path.join(root, 'scripts', 'capture-backtest-entry.ts')], outfile: js, bundle: true, format: 'esm', platform: 'browser', target: 'es2022', logLevel: 'warning' });
 await writeFile(html, '<!doctype html><meta charset="utf-8"><script type="module" src="/capture-backtest.js"></script>');
-const types = { '.js': 'text/javascript', '.mjs': 'text/javascript', '.html': 'text/html', '.json': 'application/json', '.png': 'image/png', '.wasm': 'application/wasm', '.gz': 'application/gzip', '.css': 'text/css' };
+const types = { '.js': 'text/javascript', '.mjs': 'text/javascript', '.html': 'text/html', '.json': 'application/json', '.png': 'image/png', '.wasm': 'application/wasm', '.onnx': 'application/octet-stream', '.txt': 'text/plain; charset=utf-8', '.gz': 'application/gzip', '.css': 'text/css' };
 const server = createServer(async (request, response) => {
   try {
     const url = decodeURIComponent(new URL(request.url, 'http://x').pathname);
@@ -61,10 +65,10 @@ try {
     await page.goto(`${origin}/capture-backtest.html`, { waitUntil: 'domcontentloaded' });
     await page.waitForFunction(() => typeof window.__runCaptureBacktest === 'function', null, { timeout: 60_000 });
     const started = Date.now();
-    const result = await page.evaluate(async data => await window.__runCaptureBacktest(data), { captures, rosterPlayers, resample, correctionModel });
+    const result = await page.evaluate(async data => await window.__runCaptureBacktest(data), { captures, rosterPlayers, resample, correctionModel, engine });
     await page.close();
     const output = path.join(outDir, `${path.basename(folder)}.json`);
-    await writeFile(output, JSON.stringify({ folder: path.basename(folder), seconds: Math.round((Date.now() - started) / 1000), ...result }, null, 2));
+    await writeFile(output, JSON.stringify({ folder: path.basename(folder), engine, seconds: Math.round((Date.now() - started) / 1000), ...result }, null, 2));
     console.log(`${path.basename(folder)}: ${result.meta.map} ${result.meta.ourScore}-${result.meta.theirScore} · ${result.rounds.length} rounds · ${Math.round((Date.now() - started) / 1000)}s`);
   }
 } finally {

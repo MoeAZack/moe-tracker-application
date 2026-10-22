@@ -15,6 +15,7 @@ import { captureConsistencyReport, findDuplicateScoreboardMatch } from '../../li
 import { extractCaptureSession, INFORMATIONAL_ROUND_ISSUES } from '../../lib/captureSessionPipeline';
 import { buildOpponentHistory } from '../../lib/opponentHistory';
 import { getCachedRecognitions, putCachedRecognitions, sha256Base64 } from '../utils/ocrRecognitionCache';
+import { getOcrEngineSetting } from '../utils/ocrEngineSetting';
 import { correctionSamplesFromAcceptedEdit, OCR_LEARNING_VERSION, rosterWithLearnedAliases } from '../../lib/ocrLearning';
 import { getOcrLearningState, recordOcrCorrections, recordOcrSessionOutcome } from '../utils/ocrLearningStore';
 import { deriveRoundAdvantage } from '../../lib/roundAdvantage';
@@ -137,7 +138,7 @@ export default function ScrimImport({ data, theme, onSaveMatch, onClose }: Props
         : roster.map(displayName => ({ displayName }));
       const learning = await getOcrLearningState(data.rosterPlayers || []);
       const extractionRosterPlayers = rosterWithLearnedAliases(baseRoster, learning.aliases);
-      adapter = await createBrowserLocalTesseractAdapter();
+      adapter = await createBrowserLocalTesseractAdapter({ engine: getOcrEngineSetting() });
       const hashes = new Map<string, Promise<string>>();
       let cacheHits = 0; let cacheMisses = 0;
       const extracted = await extractCaptureSession({
@@ -150,11 +151,11 @@ export default function ScrimImport({ data, theme, onSaveMatch, onClose }: Props
         recognize: async (capture, image, profile) => {
           const identity = `${capture.kind}:${capture.round || 0}:${capture.name || ''}`;
           const hash = await (hashes.get(identity) || (() => { const pending = sha256Base64(capture.base64); hashes.set(identity, pending); return pending; })());
-          const cached = await getCachedRecognitions(hash, profile);
+          const cached = await getCachedRecognitions(hash, profile, adapter!.engine);
           if (cached) { cacheHits += 1; return cached; }
           cacheMisses += 1;
           const recognitions = await adapter!.recognize(image, profile);
-          await putCachedRecognitions(hash, profile, recognitions);
+          await putCachedRecognitions(hash, profile, recognitions, adapter!.engine);
           return recognitions;
         },
         progress: setCaptureProgress,

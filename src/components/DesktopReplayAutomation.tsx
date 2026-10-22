@@ -7,6 +7,7 @@ import { createBrowserLocalTesseractAdapter } from '../../lib/localOcrEngine';
 import { extractCaptureSession, type CaptureImage } from '../../lib/captureSessionPipeline';
 import { buildAutomaticCaptureImport } from '../../lib/automaticCaptureImport';
 import { getCachedRecognitions, putCachedRecognitions, sha256Base64 } from '../utils/ocrRecognitionCache';
+import { getOcrEngineSetting } from '../utils/ocrEngineSetting';
 import { mergeScoreboardFallback, shouldRequestCloudFallback } from '../../lib/ocrAutonomy';
 import { OCR_LEARNING_VERSION, rosterWithLearnedAliases } from '../../lib/ocrLearning';
 import { getOcrLearningState, recordOcrSessionOutcome } from '../utils/ocrLearningStore';
@@ -46,7 +47,7 @@ export default function DesktopReplayAutomation({ data, role, onProcessed, onSav
         attempted.current.set(pending.id, Date.now());
         if (pending.capture) {
           const session = await window.moeDesktop!.readCaptureSession(pending.id);
-          const adapter = await createBrowserLocalTesseractAdapter();
+          const adapter = await createBrowserLocalTesseractAdapter({ engine: getOcrEngineSetting() });
           try {
             const hashes = new Map<string, Promise<string>>();
             // Same identities as the replay path: coach corrections and accepted names count here too.
@@ -64,11 +65,11 @@ export default function DesktopReplayAutomation({ data, role, onProcessed, onSav
               recognize: async (capture, image, profile) => {
                 const identity = `${capture.kind}:${capture.round || 0}:${capture.name || ''}`;
                 const hash = await (hashes.get(identity) || (() => { const value = sha256Base64(capture.base64); hashes.set(identity, value); return value; })());
-                const cached = await getCachedRecognitions(hash, profile);
+                const cached = await getCachedRecognitions(hash, profile, adapter.engine);
                 if (cached) { cacheHits += 1; return cached; }
                 cacheMisses += 1;
                 const recognitions = await adapter.recognize(image, profile);
-                await putCachedRecognitions(hash, profile, recognitions);
+                await putCachedRecognitions(hash, profile, recognitions, adapter.engine);
                 return recognitions;
               },
             });

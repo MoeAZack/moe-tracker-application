@@ -83,6 +83,7 @@ export async function extractCaptureSession(input: {
   ];
   const scoreboardProfile = createValorantEndScreenProfile(scoreboardImage.naturalWidth, scoreboardImage.naturalHeight, scoreboardLayout, measureScoreDigitBoxes(scoreboardPixels), rowOffset);
   const scoreboardAdapter: LocalOcrAdapter = {
+    engine: adapter.engine,
     recognize: (image, profile) => recognize(scoreboardCapture, image as LoadedImage, profile),
     terminate: () => Promise.resolve(),
   };

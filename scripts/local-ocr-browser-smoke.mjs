@@ -75,14 +75,16 @@ try {
   });
   const response = await page.goto(`${origin}/ocr-worker-smoke.html`, { waitUntil: 'domcontentloaded' });
   const csp = response?.headers()['content-security-policy'] || '';
-  if (!csp.includes("worker-src 'self'") || !csp.includes("'wasm-unsafe-eval'") || csp.includes('blob:')) {
+  // media-src allows blob: for local video playback; scripts and workers must not.
+  const directive = name => csp.split(';').map(part => part.trim()).find(part => part.startsWith(`${name} `)) || '';
+  if (!csp.includes("worker-src 'self'") || !csp.includes("'wasm-unsafe-eval'") || directive('script-src').includes('blob:') || directive('worker-src').includes('blob:') || directive('default-src').includes('blob:')) {
     throw new Error(`Unexpected production CSP: ${csp}`);
   }
   await page.waitForFunction(() => (window).__ocrWorkerSmoke?.status !== 'running', null, { timeout: 60_000 });
   const result = await page.evaluate(() => (window).__ocrWorkerSmoke);
   if (result?.status !== 'ok') throw new Error(`Worker initialization failed: ${result?.error || 'unknown error'}`);
   if (externalRequests.length > 0) throw new Error(`OCR worker made external requests: ${externalRequests.join(', ')}`);
-  console.log('Local OCR production browser smoke passed: same-origin worker/core/lang initialized and terminated under CSP.');
+  console.log('Local OCR production browser smoke passed: same-origin Tesseract worker/core/lang and the PaddleOCR number engine initialized, read and terminated under CSP.');
 } finally {
   await browser?.close();
   server.kill();

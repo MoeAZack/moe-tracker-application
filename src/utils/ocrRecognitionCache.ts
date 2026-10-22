@@ -1,5 +1,6 @@
 import type { LocalOcrProfile, LocalOcrRecognition } from '../../lib/localOcrEngine';
 import { OCR_PIPELINE_VERSIONS, recognitionCacheKey, validCachedRecognitions, type OcrCacheRecord } from '../../lib/ocrAutonomy';
+import type { OcrEngineId } from '../../lib/ocrEngines';
 
 const DB_NAME = 'moetracker-ocr-cache';
 const STORE = 'recognitions';
@@ -21,20 +22,20 @@ const transaction = async <T>(mode: IDBTransactionMode, run: (store: IDBObjectSt
   finally { db.close(); }
 };
 
-export async function getCachedRecognitions(imageSha256: string, profile: LocalOcrProfile): Promise<LocalOcrRecognition[] | null> {
-  const key = recognitionCacheKey(imageSha256, profile);
+export async function getCachedRecognitions(imageSha256: string, profile: LocalOcrProfile, engine?: OcrEngineId): Promise<LocalOcrRecognition[] | null> {
+  const key = recognitionCacheKey(imageSha256, profile, engine);
   let record = memory.get(key) || null;
   if (!record) record = await transaction<OcrCacheRecord | null>('readonly', (store, resolve, reject) => {
     const request = store.get(key); request.onsuccess = () => resolve(request.result || null); request.onerror = () => reject(request.error);
   }).catch(() => null);
-  if (!validCachedRecognitions(record, imageSha256, profile)) return null;
+  if (!validCachedRecognitions(record, imageSha256, profile, engine)) return null;
   record.lastUsedAt = new Date().toISOString(); memory.set(key, record);
   void transaction<void>('readwrite', (store, resolve, reject) => { const request = store.put(record!); request.onsuccess = () => resolve(); request.onerror = () => reject(request.error); }).catch(() => {});
   return structuredClone(record.recognitions);
 }
 
-export async function putCachedRecognitions(imageSha256: string, profile: LocalOcrProfile, recognitions: LocalOcrRecognition[]) {
-  const now = new Date().toISOString(); const key = recognitionCacheKey(imageSha256, profile);
+export async function putCachedRecognitions(imageSha256: string, profile: LocalOcrProfile, recognitions: LocalOcrRecognition[], engine?: OcrEngineId) {
+  const now = new Date().toISOString(); const key = recognitionCacheKey(imageSha256, profile, engine);
   const record: OcrCacheRecord = { schemaVersion: 1, key, imageSha256: imageSha256.toLowerCase(), profile: { id: profile.id, version: profile.version, width: profile.dimensions.width, height: profile.dimensions.height }, recognitionVersion: OCR_PIPELINE_VERSIONS.recognition, recognitions: structuredClone(recognitions), createdAt: now, lastUsedAt: now };
   memory.set(key, record);
   await transaction<void>('readwrite', (store, resolve, reject) => { const request = store.put(record); request.onsuccess = () => resolve(); request.onerror = () => reject(request.error); }).catch(() => {});

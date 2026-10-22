@@ -1,4 +1,5 @@
 import type { LocalOcrProfile, LocalOcrRecognition } from './localOcrEngine';
+import { normalizeOcrEngineId, ocrEngineModelSuffix, type OcrEngineId } from './ocrEngines';
 import { captureConsistencyReport, findDuplicateScoreboardMatch } from './screenshotEvidence';
 import { cleanCaptureMap, normalizeCaptureName } from './scrimCaptureImport';
 
@@ -21,15 +22,16 @@ export interface OcrCacheRecord {
   lastUsedAt: string;
 }
 
-export function recognitionCacheKey(imageSha256: string, profile: LocalOcrProfile) {
+/** Tesseract keys are unchanged; another number engine gets its own entries. */
+export function recognitionCacheKey(imageSha256: string, profile: LocalOcrProfile, engine?: OcrEngineId) {
   const geometry = profile.regions.map(region => `${region.id}=${region.rectangle.left},${region.rectangle.top},${region.rectangle.width},${region.rectangle.height}`).join(';');
-  return [imageSha256.toLowerCase(), profile.id, profile.version, profile.dimensions.width, profile.dimensions.height, geometry, OCR_PIPELINE_VERSIONS.recognition].join(':');
+  return [imageSha256.toLowerCase(), profile.id, profile.version, profile.dimensions.width, profile.dimensions.height, geometry, OCR_PIPELINE_VERSIONS.recognition].join(':') + ocrEngineModelSuffix(normalizeOcrEngineId(engine));
 }
 
-export function validCachedRecognitions(record: unknown, imageSha256: string, profile: LocalOcrProfile): record is OcrCacheRecord {
+export function validCachedRecognitions(record: unknown, imageSha256: string, profile: LocalOcrProfile, engine?: OcrEngineId): record is OcrCacheRecord {
   const value = record as OcrCacheRecord;
   return value?.schemaVersion === 1
-    && value.key === recognitionCacheKey(imageSha256, profile)
+    && value.key === recognitionCacheKey(imageSha256, profile, engine)
     && value.imageSha256 === imageSha256.toLowerCase()
     && value.recognitionVersion === OCR_PIPELINE_VERSIONS.recognition
     && value.profile?.id === profile.id
