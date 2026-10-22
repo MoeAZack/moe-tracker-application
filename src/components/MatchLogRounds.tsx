@@ -1,4 +1,7 @@
 import React, { useState, useMemo, useEffect, useRef } from 'react';
+import SourceChip from './SourceChip';
+import { knownResult } from '../../lib/analyticsEvidence';
+import { entrySource, matchSource } from '../../lib/statSource';
 import { buildRoundEditorRows, savableRoundEditorRows } from '../../lib/roundEditor';
 import { AppearanceType, Match, MatchRosterContext, MatchStatsUpdate, PlayerStats, Round, TrackerData, Veto } from '../types';
 import { apiFetch } from '../utils/api';
@@ -46,6 +49,8 @@ const roundFlag = (value: unknown): true | false | null => {
 
 /** A pistol result that was never recorded reads "Unknown", never a bare slash. */
 export const pistolResultLabel = (value: unknown) => String(value ?? '').trim() || 'Unknown';
+/** Won reads green, lost red, and an unrecorded result stays neutral. */
+export const pistolResultClass = (value: unknown) => { const result = knownResult(value); return result === 'win' ? 'text-emerald-400' : result === 'loss' ? 'text-rose-400' : 'text-slate-400'; };
 
 export default function MatchLogRounds({ data, theme, onSaveMatch, onRemove, onSaveRounds, onSaveVeto, onRefreshDatabase, manualReplayDraft, onManualReplayDraftConsumed, reviewMatchId, reviewRoundNo, onReviewContextChange, onDuplicateReview, onAcceptRoundEvidence, onRecordLive }: ComponentProps) {
   const isLight = data.settings.theme === 'daylight';
@@ -384,10 +389,13 @@ export default function MatchLogRounds({ data, theme, onSaveMatch, onRemove, onS
                 >
                   <div className="flex justify-between items-center w-full">
                     <span className="text-xs text-gray-500 font-mono">{m.date}</span>
-                    <span className={`px-2 py-0.5 rounded text-xs font-black uppercase font-mono ${
-                      m.type === 'Official' ? 'bg-rose-500/10 text-rose-400' : 'bg-slate-500/10 text-slate-400'
-                    }`}>
-                      {m.type}
+                    <span className="flex items-center gap-1.5">
+                      <SourceChip kind={matchSource(m, data.playerStats)} />
+                      <span className={`px-2 py-0.5 rounded text-xs font-black uppercase font-mono ${
+                        m.type === 'Official' ? 'bg-rose-500/10 text-rose-400' : 'bg-slate-500/10 text-slate-400'
+                      }`}>
+                        {m.type}
+                      </span>
                     </span>
                   </div>
 
@@ -435,6 +443,7 @@ export default function MatchLogRounds({ data, theme, onSaveMatch, onRemove, onS
                     <span className="px-2 py-0.5 rounded text-xs uppercase font-black bg-cyan-500/10 text-cyan-300">
                       {selectedMatch.rosterContext?.kind || 'unclassified'} lineup
                     </span>
+                    <SourceChip kind={matchSource(selectedMatch, data.playerStats)} />
                   </div>
                   <h4 className="text-xl font-black mt-1">Vs. {selectedMatch.opponent} on <span className={theme.text}>{selectedMatch.map}</span></h4>
                 </div>
@@ -471,7 +480,7 @@ export default function MatchLogRounds({ data, theme, onSaveMatch, onRemove, onS
                 </div>
                 <div>
                   <p className="text-xs text-gray-500 uppercase font-black tracking-widest mb-1">Pistol ATT/DEF</p>
-                  <p className="text-lg font-black text-emerald-400">{pistolResultLabel(selectedMatch.pistolAtt)} / {pistolResultLabel(selectedMatch.pistolDef)}</p>
+                  <p className="text-lg font-black">{[selectedMatch.pistolAtt, selectedMatch.pistolDef].map((value, index) => <React.Fragment key={index}>{index > 0 && <span className="text-gray-600"> / </span>}<span className={pistolResultClass(value)}>{pistolResultLabel(value)}</span></React.Fragment>)}</p>
                 </div>
               </div>
 
@@ -507,7 +516,7 @@ export default function MatchLogRounds({ data, theme, onSaveMatch, onRemove, onS
                   <div className="flex flex-wrap items-center justify-between gap-2 border-b border-white/10 px-4 py-3">
                     <div>
                       <p className="text-xs font-black uppercase tracking-[0.18em] text-white">Match scoreboard</p>
-                      <p className="mt-0.5 text-xs text-slate-400">Accepted replay evidence and coach-confirmed corrections</p>
+                      <p className="mt-0.5 text-xs text-slate-400">Each row shows where its numbers came from.</p>
                     </div>
                     <span className="rounded-full border border-cyan-300/20 bg-cyan-300/10 px-2.5 py-1 text-xs font-black uppercase tracking-widest text-cyan-200">{statsForSelectedMatch.length} players</span>
                   </div>
@@ -532,7 +541,7 @@ export default function MatchLogRounds({ data, theme, onSaveMatch, onRemove, onS
                       {statsForSelectedMatch.map((ps) => {
                         return (
                           <tr key={ps.id} className="hover:bg-cyan-300/[0.055] transition-colors">
-                            <td className="py-3 px-2.5 font-bold text-white text-xs"><span className="mr-2 inline-block h-5 w-0.5 rounded-full bg-cyan-300 align-middle shadow-[0_0_10px_rgba(103,232,249,0.8)]" />{ps.displayNameSnapshot || ps.player}</td>
+                            <td className="py-3 px-2.5 font-bold text-white text-xs"><span className="mr-2 inline-block h-5 w-0.5 rounded-full bg-cyan-300 align-middle shadow-[0_0_10px_rgba(103,232,249,0.8)]" />{ps.displayNameSnapshot || ps.player} <SourceChip kind={entrySource(ps)} /></td>
                             <td className="py-3 px-2.5 text-gray-400">{ps.agent}</td>
                             <td className="py-3 px-2.5 text-center font-black text-slate-100">{ps.kills ?? '-'} <span className="text-gray-600">/</span> {ps.deaths ?? '-'} <span className="text-gray-600">/</span> {ps.assists ?? '-'}</td>
                             <td className="py-3 px-2.5 text-center text-rose-300">{ps.fk ?? '-'}</td>
@@ -549,7 +558,7 @@ export default function MatchLogRounds({ data, theme, onSaveMatch, onRemove, onS
                       {statsForSelectedMatch.length === 0 && (
                         <tr>
                           <td colSpan={11} className="py-8 text-center text-gray-500">
-                            No player stats logged for this match. Click EDIT MATCH to record them!
+                            No player stats logged for this match. Use Edit match to record them.
                           </td>
                         </tr>
                       )}

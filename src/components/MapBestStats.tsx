@@ -10,6 +10,7 @@ import { percentageTextClass } from '../utils/percentageColor';
 import { activeResourceNames, canonicalResourceName } from '../../lib/resourceCatalog';
 import { bestMapInsight, buildBestMaps, buildMapStatsTable, sideRoundsComplete, teamKdComplete } from '../../lib/mapBestScores';
 import { DEFAULT_MINIMUM_METRIC_SAMPLES, metricSampleGate } from '../../lib/metricTrust';
+import { sourceMixText } from '../../lib/statSource';
 
 interface ComponentProps {
   data: TrackerData;
@@ -235,6 +236,7 @@ export default function MapBestStats({ data, theme }: ComponentProps) {
             <Compass className={`w-5 h-5 ${theme.text}`} />
             <h4 className="font-black text-sm uppercase tracking-wide">Map Pool Breakdown</h4>
           </div>
+          {matches.length > 0 && <p className="text-xs text-slate-400">{sourceMixText(matches, data.playerStats)}</p>}
 
           <div className="overflow-x-auto">
             <table className="w-full min-w-[1580px] text-left border-collapse font-mono text-xs">
