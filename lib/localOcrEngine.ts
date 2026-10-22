@@ -627,6 +627,15 @@ export function preprocessTeamColorNumber(
   return { width, height, data: output };
 }
 
+/** A copy of one rectangle of an RGBA image. */
+export function cropPixels(image: { width: number; height: number; data: Uint8ClampedArray }, rectangle: KdaNumberRectangle) {
+  const { left, top, width, height } = rectangle;
+  if (left < 0 || top < 0 || width <= 0 || height <= 0 || left + width > image.width || top + height > image.height) throw new Error('OCR crop lies outside the source image.');
+  const data = new Uint8ClampedArray(width * height * 4);
+  for (let y = 0; y < height; y += 1) data.set(image.data.subarray(((top + y) * image.width + left) * 4, ((top + y) * image.width + left + width) * 4), y * width * 4);
+  return { width, height, data };
+}
+
 /** Split a thresholded, black-on-white K/D/A row without assuming fixed columns. */
 export function segmentKdaNumberRectangles(image: { width: number; height: number; data: Uint8ClampedArray }): KdaNumberRectangle[] | null {
   if (!Number.isInteger(image.width) || !Number.isInteger(image.height) || image.width < 5 || image.height < 5 || image.data.length !== image.width * image.height * 4) return null;
@@ -684,6 +693,51 @@ export function segmentKdaNumberRectangles(image: { width: number; height: numbe
   }));
 }
 
+/**
+ * Full 16:9 scoreboards below the 1920x1080 the geometry was calibrated on.
+ * K/D/A digits there are a few pixels shorter, and one read can land on a
+ * clean, confident, wrong digit (1600x900 turned a 4 into another number).
+ */
+export function isBelowCalibratedResolution(profile: Pick<LocalOcrProfile, 'id' | 'dimensions'>): boolean {
+  const fullScoreboard = profile.id === 'valorant-post-match-scoreboard-v1' || profile.id === 'valorant-post-match-scoreboard-competitive-v1';
+  const { width, height } = profile.dimensions; const aspect = width / height;
+  return fullScoreboard && aspect >= 1.72 && aspect <= 1.82 && height < VALORANT_FULL_HD_REFERENCE.height;
+}
+
+/** Below the calibrated resolution a K/D/A number needs two reads that agree, both at least this confident. */
+export const LOW_RESOLUTION_KDA_CONFIDENCE_FLOOR = 80;
+
+export interface KdaNumberRead { text: string; confidence: number | null }
+
+/**
+ * Reads the three segmented K/D/A numbers. At the calibrated resolution each
+ * number is read once, as it always was. Below it, each number is read a
+ * second time from the thresholded crop, and any disagreement or low
+ * confidence leaves the whole line unknown: a coach fills in an empty cell,
+ * but a plausible wrong one gets saved.
+ */
+export async function readSegmentedKda(
+  rectangles: readonly KdaNumberRectangle[],
+  read: { primary: (rectangle: KdaNumberRectangle) => Promise<KdaNumberRead>; secondary: (rectangle: KdaNumberRectangle) => Promise<KdaNumberRead> },
+  lowResolution: boolean,
+): Promise<KdaNumberRead> {
+  const values: string[] = []; const confidences: number[] = [];
+  for (const rectangle of rectangles) {
+    const { text, confidence } = await read.primary(rectangle);
+    // Replay totals provide the safety check for automatic identity
+    // pairing. Retain a syntactically valid digit even when
+    // Tesseract is uncertain about these very small scoreboard cells.
+    if (!/^\d{1,3}$/.test(text) || !Number.isFinite(confidence)) { values.length = 0; break; }
+    if (lowResolution) {
+      const second = await read.secondary(rectangle);
+      const agreed = second.text.trim() === text && Math.min(Number(confidence), Number.isFinite(second.confidence) ? Number(second.confidence) : 0) >= LOW_RESOLUTION_KDA_CONFIDENCE_FLOOR;
+      if (!agreed) { confidences.push(Number(confidence)); values.length = 0; break; }
+    }
+    values.push(text); confidences.push(Number(confidence));
+  }
+  return { text: values.length === 3 ? values.join('/') : '', confidence: confidences.length ? Math.min(...confidences) : null };
+}
+
 export async function createBrowserLocalTesseractAdapter(): Promise<LocalOcrAdapter> {
   if (typeof document === 'undefined') throw new Error('The local OCR adapter requires a browser canvas runtime.');
   const imported = await import('tesseract.js');
@@ -705,6 +759,7 @@ export async function createBrowserLocalTesseractAdapter(): Promise<LocalOcrAdap
       if (!sourceContext) throw new Error('Canvas preprocessing is unavailable.');
       sourceContext.drawImage(image, 0, 0, source.width, source.height);
       const sourcePixels = sourceContext.getImageData(0, 0, source.width, source.height);
+      const lowResolution = isBelowCalibratedResolution(immutableProfile);
       for (const region of browserRecognitionRegions(immutableProfile)) {
         // The final score keeps the plain threshold: the team-colour mask
         // reads a dimmed one-digit score as empty or as the wrong digit.
@@ -727,34 +782,33 @@ export async function createBrowserLocalTesseractAdapter(): Promise<LocalOcrAdap
         if (region.recognitionKind === 'kda') {
           const segmented = segmentKdaNumberRectangles(processed);
           if (segmented) {
-            const values: string[] = []; const confidences: number[] = [];
-            for (const rectangle of segmented) {
+            const readNumber = async (crop: { width: number; height: number; data: Uint8ClampedArray }, rectangle: KdaNumberRectangle, smooth: boolean): Promise<KdaNumberRead> => {
               const scale = Math.max(4, Math.ceil(96 / rectangle.height)); const padding = 12;
-              const grayscale = preprocessNumericGrayscale(sourcePixels, {
-                left: region.rectangle.left + rectangle.left, top: region.rectangle.top + rectangle.top,
-                width: rectangle.width, height: rectangle.height,
-              });
-              const grayscaleCrop = document.createElement('canvas'); grayscaleCrop.width = grayscale.width; grayscaleCrop.height = grayscale.height;
-              const grayscaleContext = grayscaleCrop.getContext('2d'); if (!grayscaleContext) throw new Error('Canvas preprocessing is unavailable.');
-              grayscaleContext.putImageData(new ImageData(grayscale.data, grayscale.width, grayscale.height), 0, 0);
+              const cropCanvas = document.createElement('canvas'); cropCanvas.width = crop.width; cropCanvas.height = crop.height;
+              const cropContext = cropCanvas.getContext('2d'); if (!cropContext) throw new Error('Canvas preprocessing is unavailable.');
+              cropContext.putImageData(new ImageData(crop.data, crop.width, crop.height), 0, 0);
               const number = document.createElement('canvas'); number.width = rectangle.width * scale + padding * 2; number.height = rectangle.height * scale + padding * 2;
               const numberContext = number.getContext('2d'); if (!numberContext) throw new Error('Canvas preprocessing is unavailable.');
-              numberContext.fillStyle = '#fff'; numberContext.fillRect(0, 0, number.width, number.height); numberContext.imageSmoothingEnabled = true; numberContext.imageSmoothingQuality = 'high';
-              numberContext.drawImage(grayscaleCrop, padding, padding, rectangle.width * scale, rectangle.height * scale);
+              numberContext.fillStyle = '#fff'; numberContext.fillRect(0, 0, number.width, number.height); numberContext.imageSmoothingEnabled = smooth;
+              if (smooth) numberContext.imageSmoothingQuality = 'high';
+              numberContext.drawImage(cropCanvas, padding, padding, rectangle.width * scale, rectangle.height * scale);
               await worker.setParameters({ tessedit_pageseg_mode: tesseract.PSM.SINGLE_WORD, tessedit_char_whitelist: '0123456789' });
-              const result = await worker.recognize(number); const text = (result.data.text || '').trim(); const confidence = result.data.confidence;
-              // Replay totals provide the safety check for automatic identity
-              // pairing. Retain a syntactically valid digit even when
-              // Tesseract is uncertain about these very small scoreboard cells.
-              if (!/^\d{1,3}$/.test(text) || !Number.isFinite(confidence)) { values.length = 0; break; }
-              values.push(text); confidences.push(confidence);
-            }
-            if (values.length === 3) {
-              results.push({ regionId: region.id, text: values.join('/'), confidence: confidences.length ? Math.min(...confidences) : null });
-            }
-            else results.push({ regionId: region.id, text: '', confidence: confidences.length ? Math.min(...confidences) : null });
+              const result = await worker.recognize(number);
+              return { text: (result.data.text || '').trim(), confidence: result.data.confidence };
+            };
+            const read = await readSegmentedKda(segmented, {
+              primary: rectangle => readNumber(preprocessNumericGrayscale(sourcePixels, {
+                left: region.rectangle.left + rectangle.left, top: region.rectangle.top + rectangle.top,
+                width: rectangle.width, height: rectangle.height,
+              }), rectangle, true),
+              // The thresholded crop the segmentation used: a different view of the same glyphs.
+              secondary: rectangle => readNumber(cropPixels(processed, rectangle), rectangle, false),
+            }, lowResolution);
+            results.push({ regionId: region.id, ...read });
             continue;
           }
+          // Without three clean numbers there is nothing to cross-check below the calibrated resolution.
+          if (lowResolution) { results.push({ regionId: region.id, text: '', confidence: null }); continue; }
           const scale = Math.max(4, Math.ceil(96 / processed.height)); const padding = 12;
           const padded = document.createElement('canvas'); padded.width = processed.width * scale + padding * 2; padded.height = processed.height * scale + padding * 2;
           const paddedContext = padded.getContext('2d');

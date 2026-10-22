@@ -3,7 +3,7 @@ import { captureConsistencyReport, findDuplicateScoreboardMatch } from './screen
 import { cleanCaptureMap, normalizeCaptureName } from './scrimCaptureImport';
 
 export const OCR_PIPELINE_VERSIONS = Object.freeze({
-  recognition: 'tesseract-7-eng-1/valorant-fields-v2',
+  recognition: 'tesseract-7-eng-1/valorant-fields-v3',
   layout: 'valorant-summary-anchors-v2',
   normalization: 'valorant-normalization-v3',
   consensus: 'cross-frame-consensus-v1',
