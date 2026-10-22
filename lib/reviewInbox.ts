@@ -3,15 +3,18 @@
 // findings. Each item says where it is resolved; nothing here decides for the
 // coach.
 
+import { recapsToSend } from './practiceRecap';
+
 export type InboxTarget =
   | { surface: 'capture' }
   | { surface: 'replays' }
   | { surface: 'match'; matchId: string; roundNo?: number }
-  | { surface: 'coaching' };
+  | { surface: 'coaching' }
+  | { surface: 'practice-summary'; scheduleId: string };
 
 export interface InboxItem {
   id: string;
-  kind: 'capture' | 'replay' | 'duplicate' | 'rounds' | 'finding';
+  kind: 'capture' | 'replay' | 'duplicate' | 'rounds' | 'finding' | 'summary';
   title: string;
   detail: string;
   target: InboxTarget;
@@ -19,7 +22,7 @@ export interface InboxItem {
 
 const matchLabel = (match: any) => [match?.opponent || 'Unknown opponent', match?.map, match?.date].filter(Boolean).join(' · ');
 
-export function buildReviewInbox(data: any, pending: { captures?: number; replays?: number } = {}): InboxItem[] {
+export function buildReviewInbox(data: any, pending: { captures?: number; replays?: number } = {}, now = new Date()): InboxItem[] {
   const items: InboxItem[] = [];
   const matches: any[] = Array.isArray(data?.matches) ? data.matches : [];
   const rounds: any[] = Array.isArray(data?.rounds) ? data.rounds : [];
@@ -37,6 +40,9 @@ export function buildReviewInbox(data: any, pending: { captures?: number; replay
   }
   const findings = (Array.isArray(data?.coachingSignals) ? data.coachingSignals : []).filter((signal: any) => signal?.status === 'new' || signal?.status === 'needs-evidence');
   if (findings.length) items.push({ id: 'findings', kind: 'finding', title: `${findings.length} coaching finding${findings.length === 1 ? '' : 's'} to triage`, detail: 'New findings, or findings waiting for more evidence, in Coach Workspace.', target: { surface: 'coaching' } });
+  for (const recap of recapsToSend(data, now)) items.push({
+    id: `summary:${recap.scheduleId}`, kind: 'summary', title: `Practice summary ready · ${recap.title}`, detail: `${recap.date} · ${recap.headline} Check it and send it to the team.`, target: { surface: 'practice-summary', scheduleId: recap.scheduleId },
+  });
   return items;
 }
 
@@ -50,6 +56,7 @@ export interface InboxGroup {
 const GROUP_TITLES: Partial<Record<InboxItem['kind'], (count: number) => [string, string]>> = {
   duplicate: count => [`${count} possible duplicate copies`, 'Each is left out of stats until you keep both or discard the copy.'],
   rounds: count => [`${count} matches with rounds to review`, 'Rounds an automatic save could not settle. Their detail counts once reviewed.'],
+  summary: count => [`${count} practice summaries ready`, 'Each is built from the linked matches. Check it and send it to the team.'],
 };
 
 /**

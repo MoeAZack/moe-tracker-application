@@ -97,6 +97,22 @@ async function auditDesktopWorkspaces() {
   await page.keyboard.press('Escape');
   check(await page.getByRole('dialog').count() === 0, 'Escape did not close the strategy board.');
 
+  // A linked practice session offers its summary in the Home inbox, which opens it on the schedule.
+  const today = new Intl.DateTimeFormat('en-CA', { timeZone: 'Africa/Cairo', year: 'numeric', month: '2-digit', day: '2-digit' }).format(new Date());
+  const sessionRow = await fetch(`${origin}/api/upsert`, { method: 'POST', headers: auth, body: JSON.stringify({ sheet: 'Schedule', row: { date: today, primary: 'Synthetic scrim block', calendarKey: 'practice', startTime: '20:00', durationMinutes: 120, attendance: {} } }) });
+  check(sessionRow.ok, `synthetic practice session seed failed (${sessionRow.status}).`);
+  const practiceMatch = await fetch(`${origin}/api/save-match`, { method: 'POST', headers: auth, body: JSON.stringify({ match: { date: today, type: 'Scrim', opponent: 'Synthetic Opponent', map: 'Bind', source: 'manual', ourScore: 13, theirScore: 10 }, statsUpdate: { operation: 'preserve' }, rounds }) });
+  check(practiceMatch.ok, `synthetic practice match seed failed (${practiceMatch.status}).`);
+  const linked = await fetch(`${origin}/api/practice-sessions/link`, { method: 'POST', headers: auth, body: JSON.stringify({ scheduleId: (await sessionRow.json()).id, matchIds: [(await practiceMatch.json()).match.id] }) });
+  check(linked.ok, `synthetic practice link failed (${linked.status}).`);
+  await open('#/home'); await page.reload({ waitUntil: 'domcontentloaded' }); await page.locator('#main-content').waitFor({ state: 'visible', timeout: 20_000 });
+  await page.getByRole('button', { name: /Practice summary ready/ }).click();
+  await page.getByRole('dialog', { name: /Synthetic scrim block/ }).waitFor();
+  check(page.url().includes('#/schedule'), `the practice summary did not open on the schedule (${page.url()}).`);
+  await audit(page, 'desktop practice summary');
+  await page.keyboard.press('Escape');
+  check(await page.getByRole('dialog').count() === 0, 'Escape did not close the practice summary.');
+
   // A destructive confirmation is an in-app modal: labelled, focused on Cancel, dismissed by Escape without acting.
   await open(`#/match-review?match=${matchId}`);
   await page.getByRole('button', { name: 'Delete', exact: true }).click();

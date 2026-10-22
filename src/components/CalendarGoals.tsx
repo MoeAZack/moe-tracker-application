@@ -21,6 +21,7 @@ import { confidentMatchesForSession, practiceMatchSuggestions, practiceSessionPr
 import { coachingGoalVerification } from '../../lib/coachingGoalLink';
 import { linkedReviewSessionOutcome } from '../../lib/linkedReviewSessions';
 import { confirmDialog, promptDialog } from '../utils/appDialogs';
+import PracticeSummary from './PracticeSummary';
 
 interface ComponentProps {
   data: TrackerData;
@@ -29,12 +30,15 @@ interface ComponentProps {
   onUpsert: (sheet: string, row: any) => Promise<any>;
   onRemove: (sheet: string, id: string) => Promise<any>;
   onRefresh: () => Promise<void>;
+  /** A session whose practice summary should open, e.g. from the Home inbox. */
+  openSummaryId?: string | null;
+  onSummaryOpened?: () => void;
 }
 
 const cairoDate = (value = new Date()) =>
   new Intl.DateTimeFormat('en-CA', { timeZone: 'Africa/Cairo', year: 'numeric', month: '2-digit', day: '2-digit' }).format(value);
 
-export default function CalendarGoals({ data, theme, role, onUpsert, onRemove, onRefresh }: ComponentProps) {
+export default function CalendarGoals({ data, theme, role, onUpsert, onRemove, onRefresh, openSummaryId, onSummaryOpened }: ComponentProps) {
   const [activeSubTab, setActiveSubTab] = useState<'calendar' | 'goals'>('calendar');
   const isLight = data.settings.theme === 'daylight';
 
@@ -53,6 +57,13 @@ export default function CalendarGoals({ data, theme, role, onUpsert, onRemove, o
   const [linkedMatchIds, setLinkedMatchIds] = useState<string[]>([]);
   const [linkedGoalIds, setLinkedGoalIds] = useState<string[]>([]);
   const [linkBusy, setLinkBusy] = useState(false);
+  const [summaryFor, setSummaryFor] = useState<string | null>(null);
+  useEffect(() => {
+    if (!openSummaryId) return;
+    const session = (data.schedule || []).find(item => item.id === openSummaryId);
+    if (session) { setSelectedDateStr(session.date); setCurrentDate(new Date(`${session.date}T12:00:00`)); setSummaryFor(session.id); }
+    onSummaryOpened?.();
+  }, [openSummaryId]);
   const exportCalendar = async () => {
     try {
       const response = await apiFetch('/api/calendar.ics');
@@ -797,11 +808,13 @@ export default function CalendarGoals({ data, theme, role, onUpsert, onRemove, o
                         className={`p-4 rounded-xl border ${isLight ? 'bg-slate-50 border-slate-100' : 'bg-white/5 border-white/5'} space-y-3 relative group`}
                       >
                         {role === 'coach' && (
-                          <div className="absolute right-3 top-3 flex items-center gap-1.5 opacity-0 group-hover:opacity-100 transition-opacity">
-                            <button onClick={() => handleOpenEditSchedule(sched)} className="p-1 rounded hover:bg-white/10 text-gray-400 hover:text-white">
+                          <div className="absolute right-3 top-3 flex items-center gap-1.5 opacity-0 group-hover:opacity-100 focus-within:opacity-100 transition-opacity">
+                            <button type="button" aria-label={`Edit ${sched.primary}`} onClick={() => handleOpenEditSchedule(sched)} className="p-1 rounded hover:bg-white/10 text-gray-400 hover:text-white">
                               <Edit2 className="w-3.5 h-3.5" />
                             </button>
                             <button
+                              type="button"
+                              aria-label={`Delete ${sched.primary}`}
                               onClick={() => void handleDeleteSchedule(sched.id)}
                               className="p-1 rounded hover:bg-white/10 text-gray-400 hover:text-rose-500"
                             >
@@ -875,9 +888,16 @@ export default function CalendarGoals({ data, theme, role, onUpsert, onRemove, o
                                   )}
                                 </div>
                                 {role === 'coach' && (
-                                  <button type="button" onClick={() => openProgressLink(sched)} className="ui-button min-h-9 px-3 text-xs">
-                                    {progress.linked ? 'Edit linkage' : 'Link results'}
-                                  </button>
+                                  <div className="flex flex-wrap gap-2">
+                                    {progress.linked && progress.summary.coverage.acceptedMatches > 0 && (
+                                      <button type="button" onClick={() => setSummaryFor(sched.id)} className="ui-button min-h-9 px-3 text-xs">
+                                        {sched.summarySharedAt ? 'Summary · sent' : 'Practice summary'}
+                                      </button>
+                                    )}
+                                    <button type="button" onClick={() => openProgressLink(sched)} className="ui-button min-h-9 px-3 text-xs">
+                                      {progress.linked ? 'Edit linkage' : 'Link results'}
+                                    </button>
+                                  </div>
                                 )}
                               </div>
                             </div>
@@ -1044,11 +1064,11 @@ export default function CalendarGoals({ data, theme, role, onUpsert, onRemove, o
 
               return (
                 <div key={g.id} className={`p-5 rounded-xl border bg-white/5 shadow-lg ${borderCol} flex flex-col justify-between group relative`}>
-                  <div className="absolute right-4 top-4 flex items-center gap-1.5 opacity-0 group-hover:opacity-100 transition-opacity">
-                    <button onClick={() => handleOpenEditGoal(g)} className="p-1 rounded hover:bg-white/10 text-gray-400 hover:text-white">
+                  <div className="absolute right-4 top-4 flex items-center gap-1.5 opacity-0 group-hover:opacity-100 focus-within:opacity-100 transition-opacity">
+                    <button type="button" aria-label="Edit goal" onClick={() => handleOpenEditGoal(g)} className="p-1 rounded hover:bg-white/10 text-gray-400 hover:text-white">
                       <Edit2 className="w-3.5 h-3.5" />
                     </button>
-                    <button onClick={() => handleDeleteGoal(g.id)} className="p-1 rounded hover:bg-white/10 text-gray-400 hover:text-rose-500">
+                    <button type="button" aria-label="Delete goal" onClick={() => handleDeleteGoal(g.id)} className="p-1 rounded hover:bg-white/10 text-gray-400 hover:text-rose-500">
                       <Trash2 className="w-3.5 h-3.5" />
                     </button>
                   </div>
@@ -1640,6 +1660,7 @@ export default function CalendarGoals({ data, theme, role, onUpsert, onRemove, o
           </form>
         </div>
       )}
+      {summaryFor && role === 'coach' && <PracticeSummary data={data} scheduleId={summaryFor} light={isLight} onClose={() => setSummaryFor(null)} onRefresh={onRefresh} />}
     </div>
   );
 }

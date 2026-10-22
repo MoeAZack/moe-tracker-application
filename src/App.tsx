@@ -76,6 +76,7 @@ export default function App() {
   const [activeTab, setActiveTab] = useState<WorkspaceTabId>(() => parseWorkspaceRoute(window.location.hash).tab);
   const [reviewMatchId, setReviewMatchId] = useState<string | null>(() => parseWorkspaceRoute(window.location.hash).matchId || sessionStorage.getItem('moetracker-review-match'));
   const [reviewRoundNo, setReviewRoundNo] = useState<number | null>(() => { const routeRound = parseWorkspaceRoute(window.location.hash).roundNo; if (routeRound) return routeRound; const value = Number(sessionStorage.getItem('moetracker-review-round')); return Number.isSafeInteger(value) && value > 0 ? value : null; });
+  const [summaryScheduleId, setSummaryScheduleId] = useState<string | null>(null);
   const [manualReplayDraft, setManualReplayDraft] = useState<ScreenshotReviewDraft | null>(null);
   const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
   const [showTryoutComparisons, setShowTryoutComparisons] = useState<boolean | null>(null);
@@ -756,11 +757,12 @@ export default function App() {
                 if (target.surface === 'capture') setScrimOpen(true);
                 else if (target.surface === 'replays') setActiveTab('replays');
                 else if (target.surface === 'coaching') setActiveTab('aitactical');
+                else if (target.surface === 'practice-summary') { setSummaryScheduleId(target.scheduleId); setActiveTab('calendar'); }
                 else { setReviewMatchId(target.matchId); setReviewRoundNo(target.roundNo ?? null); setActiveTab('matches'); }
               }} />
             )}
             {activeTab === 'calendar' && data && (
-              <CalendarGoals data={data} theme={theme} role={role || 'player'} onUpsert={handleUpsert} onRemove={handleRemove} onRefresh={fetchDatabase} />
+              <CalendarGoals data={data} theme={theme} role={role || 'player'} onUpsert={handleUpsert} onRemove={handleRemove} onRefresh={fetchDatabase} openSummaryId={summaryScheduleId} onSummaryOpened={() => setSummaryScheduleId(null)} />
             )}
             {activeTab === 'matches' && data && desktopMode && (
               <MatchLogRounds 

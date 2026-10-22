@@ -22,7 +22,8 @@ export default function ReviewInbox({ data, desktopMode, onOpen }: Props) {
     const timer = window.setInterval(() => void refresh(), 30_000);
     return () => { alive = false; window.clearInterval(timer); };
   }, [desktopMode]);
-  const groups = useMemo(() => groupReviewInbox(buildReviewInbox(data, pending)), [data, pending]);
+  // Practice summaries are sent from the desktop app, where the session links live.
+  const groups = useMemo(() => groupReviewInbox(buildReviewInbox(data, pending).filter(item => desktopMode || item.kind !== 'summary')), [data, pending, desktopMode]);
 
   const entry = (title: string, detail: string) => <>
     <span className="text-xs font-semibold text-white">{title}</span>
