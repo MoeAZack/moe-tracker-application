@@ -10,6 +10,7 @@ import { getCachedRecognitions, putCachedRecognitions, sha256Base64 } from '../u
 import { mergeScoreboardFallback, shouldRequestCloudFallback } from '../../lib/ocrAutonomy';
 import { OCR_LEARNING_VERSION, rosterWithLearnedAliases } from '../../lib/ocrLearning';
 import { getOcrLearningState, recordOcrSessionOutcome } from '../utils/ocrLearningStore';
+import { captureRosterFromIdentity } from '../../lib/identityResolver';
 
 const RETRY_AFTER_MS = 5 * 60 * 1000;
 
@@ -42,9 +43,8 @@ export default function DesktopReplayAutomation({ data, role, onProcessed, onSav
           const adapter = await createBrowserLocalTesseractAdapter();
           try {
             const hashes = new Map<string, Promise<string>>();
-            const phaseAliases = new Map<string, string[]>();
-            for (const batch of data.tryoutBatches || []) for (const entry of batch.aliases || []) phaseAliases.set(entry.playerId, [...(phaseAliases.get(entry.playerId) || []), entry.alias]);
-            const baseRoster = (data.rosterPlayers || []).filter(player => !player.retiredAt).map(player => ({ id: player.id, displayName: player.displayName, aliases: phaseAliases.get(player.id) || [] }));
+            // Same identities as the replay path: coach corrections and accepted names count here too.
+            const baseRoster = captureRosterFromIdentity(data);
             const learning = await getOcrLearningState(baseRoster);
             const rosterPlayers = rosterWithLearnedAliases(baseRoster, learning.aliases);
             let cacheHits = 0; let cacheMisses = 0;

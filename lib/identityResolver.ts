@@ -76,3 +76,20 @@ export function buildIdentityResolver(data: any) {
     identities() { return [...candidates.values()].map(candidate => ({ ...candidate, aliases: [...candidate.aliases].sort() })).sort((left, right) => left.playerId.localeCompare(right.playerId)); },
   };
 }
+
+/**
+ * The capture roster: active players with every alias the resolver knows
+ * (roster aliases, tryout aliases, coach corrections, accepted observed
+ * names). An alias that also resolves to another player is left out, so the
+ * OCR matcher sees the same identities as replay and never inherits an
+ * ambiguity the resolver would refuse.
+ */
+export function captureRosterFromIdentity(data: any): Array<{ id: string; displayName: string; aliases: string[] }> {
+  const resolver = buildIdentityResolver(data);
+  // A player present in an older season archive is still active here; only the roster's retiredAt decides.
+  return (data?.rosterPlayers || []).filter((player: any) => player?.id && !player.retiredAt).map((player: any) => {
+    const identity = resolver.identity(String(player.id));
+    const aliases = (identity?.aliases || []).filter(alias => alias !== player.displayName && resolver.resolve({ observedName: alias }).playerId === player.id);
+    return { id: String(player.id), displayName: String(player.displayName || identity?.displayName || ''), aliases };
+  });
+}
