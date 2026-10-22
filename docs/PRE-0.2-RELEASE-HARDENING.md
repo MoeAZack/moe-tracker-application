@@ -713,5 +713,4 @@ D and E were fixed in #142. The second candidate is `fa964bd2670c`:
   - After a restart: 2 / 40 / 9 / 45 / 30, inbox 0.
 - B and C carry over from the first candidate, because #142 does not touch storage.
 - **F**: the owner chose not to publish 0.2.1. The installer is kept on the owner's
-  PC and installed there. `v0.2.1` is tagged at `fa964bd`, with no GitHub release
-  and no public asset.
+  PC and installed there. There is no GitHub release and no public asset.

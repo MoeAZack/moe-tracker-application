@@ -2,8 +2,7 @@
 
 Not published. Gates A to E passed on the owner's PC at `fa964bd` (see
 `PRE-0.2-RELEASE-HARDENING.md`), and the owner chose to keep the installer on
-their PC instead of publishing it. `v0.2.1` is tagged at `fa964bd`; there is no
-GitHub release.
+their PC instead of publishing it. There is no GitHub release.
 
 ## What happened with 0.2.0
 
