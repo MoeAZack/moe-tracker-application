@@ -451,21 +451,21 @@ export default function App() {
 
   const tabsList = [
     { id: 'dashboard', label: 'Home', icon: Trophy, group: 'Home' },
-    { id: 'calendar', label: 'Schedule & Goals', icon: Calendar, group: 'Schedule & Goals' },
-    { id: 'economy', label: 'Economy', icon: Coins, group: 'Performance' },
-    { id: 'maps', label: 'Map Analysis', icon: Compass, group: 'Performance' },
-    { id: 'matches', label: 'Match Review', icon: Swords, group: 'Review' },
-    { id: 'replays', label: 'Replay Evidence', icon: FileCheck2, group: 'Review' },
-    { id: 'vod', label: 'VOD Review', icon: Film, group: 'Review' },
-    { id: 'vodsubmit', label: 'VOD Submission', icon: Upload, group: 'Review' },
-    { id: 'livelogger', label: 'Live Logger 🔴', icon: Activity, group: 'Review' },
+    { id: 'matches', label: 'Match Review', icon: Swords, group: 'Matches' },
+    { id: 'replays', label: 'Replay Evidence', icon: FileCheck2, group: 'Matches' },
+    { id: 'vod', label: 'VOD Review', icon: Film, group: 'Matches' },
+    { id: 'vodsubmit', label: 'VOD Submission', icon: Upload, group: 'Matches' },
+    { id: 'livelogger', label: 'Live Logger 🔴', icon: Activity, group: 'Matches' },
+    { id: 'economy', label: 'Economy', icon: Coins, group: 'Team' },
+    { id: 'maps', label: 'Map Analysis', icon: Compass, group: 'Team' },
+    { id: 'roster', label: 'Roster', icon: Users, group: 'Players' },
+    { id: 'playerstats', label: 'Player Stats', icon: Activity, group: 'Players' },
+    { id: 'comparisons', label: 'Tryout comparisons', icon: GitCompareArrows, group: 'Players' },
+    { id: 'calendar', label: 'Schedule & Goals', icon: Calendar, group: 'Coaching' },
+    { id: 'aitactical', label: 'Coach Workspace', icon: Sparkles, group: 'Coaching' },
     { id: 'comps', label: 'Compositions', icon: Layers, group: 'Playbook' },
     { id: 'lineups', label: 'Lineup Library', icon: Crosshair, group: 'Playbook' },
-    { id: 'aitactical', label: 'Coach Workspace', icon: Sparkles, group: 'Team' },
-    { id: 'roster', label: 'Roster', icon: Users, group: 'Team' },
-    { id: 'playerstats', label: 'Player Stats', icon: Activity, group: 'Team' },
-    { id: 'comparisons', label: 'Tryout comparisons', icon: GitCompareArrows, group: 'Team' },
-    { id: 'settings', label: 'Settings', icon: SettingsIcon, group: 'Team' },
+    { id: 'settings', label: 'Settings', icon: SettingsIcon, group: 'Settings' },
   ] as const;
 
   const tryoutComparisonsVisible = showTryoutComparisons ?? Boolean((data?.settings as any)?.tryoutsMode);
@@ -474,7 +474,7 @@ export default function App() {
     const ids = navWorkspaceTabs({ desktopMode, role, showTryoutComparisons: tryoutComparisonsVisible, activeTab });
     return tabsList.filter(tab => ids.includes(tab.id));
   }, [desktopMode, role, tryoutComparisonsVisible, activeTab]);
-  const groupedTabs = useMemo(() => (['Home', 'Schedule & Goals', 'Performance', 'Review', 'Playbook', 'Team'] as const)
+  const groupedTabs = useMemo(() => (['Home', 'Matches', 'Team', 'Players', 'Coaching', 'Playbook', 'Settings'] as const)
     .map(group => ({ group, tabs: visibleTabs.filter(tab => tab.group === group) })).filter(section => section.tabs.length), [visibleTabs]);
   useEffect(() => {
     const resolved = resolveWorkspaceTab(activeTab, routableTabs);
