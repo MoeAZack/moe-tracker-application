@@ -12,5 +12,10 @@ const env = { ...process.env, APP_REVISION: revision };
 const run = command => execSync(command, { stdio: 'inherit', env });
 run('npm run build');
 if (target === 'worker') run(`npx wrangler --config wrangler.worker.jsonc deploy --var APP_REVISION:${revision} --var APP_VERSION:${version}`);
-else { run('npm run cf:pages:prepare'); run('npx wrangler pages deploy dist --project-name moetracker-site --branch main'); }
+else {
+  run('npm run cf:pages:prepare');
+  // moezack is the canonical site. moetracker-site gets the same bundle so its
+  // page visits redirect there while installed desktops keep using its /api.
+  for (const project of ['moezack', 'moetracker-site']) run(`npx wrangler pages deploy dist --project-name ${project} --branch main`);
+}
 console.log(`Deployed ${target} ${version} (${revision}).`);

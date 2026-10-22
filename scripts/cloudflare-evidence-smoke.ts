@@ -1,7 +1,7 @@
 import { localEvidenceDigest } from '../lib/replayEvidence';
 import { VRFKIT_PIN } from '../lib/vrfkitReplayPipeline';
 
-const origin = process.env.MOETRACKER_ORIGIN || 'https://moetracker-site.pages.dev';
+const origin = process.env.MOETRACKER_ORIGIN || 'https://moezack.pages.dev';
 const admin = process.env.MOETRACKER_ADMIN_PASSWORD;
 if (!admin) throw new Error('MOETRACKER_ADMIN_PASSWORD is required.');
 
