@@ -5,7 +5,7 @@ import { gzipSync, gunzipSync } from 'node:zlib';
 import { createSeed } from './seed';
 import { assertSeasonArchivesStorageSize } from './roster';
 import { ensureWorkspaceIdentity } from './evidenceReference';
-import { decodeFirestoreDocuments, encodeFirestoreDocuments, ensureStorageSchema, migrateHydratedEvidence, planFirestoreWriteBatches, planRevisionActivation, STORAGE_SCHEMA_VERSION, validateTrackerState } from './storageSchema';
+import { ensureStorageSchema, migrateHydratedEvidence, validateTrackerState } from './storageSchema';
 import { artifactRetentionMs, evidenceArtifactReferences, externalizeEvidenceArtifacts, hydrateEvidenceArtifacts, planArtifactCollection, type EvidenceArtifact } from './evidenceArtifacts';
 
 // Runtime state never defaults to the repository's historical/demo db.json.
@@ -13,24 +13,9 @@ import { artifactRetentionMs, evidenceArtifactReferences, externalizeEvidenceArt
 // an empty structural seed under the private runtime data directory.
 export const DB_PATH = process.env.DB_PATH || path.join(process.cwd(), 'data', 'db.json');
 export const EVIDENCE_ARTIFACT_DIR = process.env.EVIDENCE_ARTIFACT_DIR || `${DB_PATH}.evidence`;
-const USE_FIRESTORE = process.env.USE_FIRESTORE === 'true';
-let firestore: any = null;
-async function getFirestore() {
-  if (!USE_FIRESTORE) return null;
-  if (!firestore) {
-    const packageName = '@google-cloud/firestore';
-    const module = await import(packageName);
-    firestore = new module.Firestore({ ignoreUndefinedProperties: true });
-  }
-  return firestore;
-}
-const LEGACY_COLLECTION = 'tracker';
-const META_COLLECTION = 'tracker_v2';
-const REVISION_COLLECTION = 'tracker_v2_revisions';
-const ARTIFACT_COLLECTION = 'tracker_v2_evidence';
-const COMMITTED_COLLECTION = 'tracker_v2_committed';
-/** Inactive revisions kept for rollback on Firestore and D1 (the active one is always kept). */
-const RETAINED_INACTIVE_REVISIONS = 3;
+// The Google Cloud Firestore backend was removed. A deployment that still asks
+// for it must stop loudly rather than quietly start an empty local workspace.
+if (process.env.USE_FIRESTORE === 'true') throw new Error('USE_FIRESTORE is no longer supported: the Firestore backend was removed. Use the local workspace or Cloudflare D1.');
 /** Remote artifact collection reads every retained revision, so it runs at most this often per process. */
 const remoteGcIntervalMs = () => Math.max(0, Number(process.env.EVIDENCE_GC_INTERVAL_MS ?? 10 * 60 * 1000));
 let lastRemoteGcAt = -Infinity;
@@ -54,7 +39,6 @@ function loginThrottleHash(key: string) { return crypto.createHash('sha256').upd
 export async function loginThrottleRemaining(key: string, now = Date.now()) {
   const keyHash = loginThrottleHash(key);
   if (d1) { await ensureD1LoginThrottleTable(); const row: any = await d1.prepare('SELECT locked_until FROM login_throttle WHERE key_hash = ?').bind(keyHash).first(); return row?.locked_until > now ? Math.ceil((row.locked_until - now) / 1000) : 0; }
-  if (USE_FIRESTORE) { const store = await getFirestore(); const snapshot = await store.collection('tracker_login_throttle').doc(keyHash).get(); const lockedUntil = Number(snapshot.data()?.lockedUntil || 0); return lockedUntil > now ? Math.ceil((lockedUntil - now) / 1000) : 0; }
   try { const state = JSON.parse(await fs.readFile(loginThrottlePath(), 'utf8')); const lockedUntil = Number(state[keyHash]?.lockedUntil || 0); return lockedUntil > now ? Math.ceil((lockedUntil - now) / 1000) : 0; } catch (error: any) { if (error?.code !== 'ENOENT') throw error; return 0; }
 }
 
@@ -70,14 +54,12 @@ export async function recordLoginThrottleFailure(key: string, now = Date.now()) 
         updated_at = excluded.updated_at`).bind(keyHash, now, now, LOGIN_THROTTLE_MAX_FAILS, now, LOGIN_THROTTLE_MAX_FAILS, lockUntil).run();
     return;
   }
-  if (USE_FIRESTORE) { const store = await getFirestore(); const ref = store.collection('tracker_login_throttle').doc(keyHash); await store.runTransaction(async (transaction: any) => { const snapshot = await transaction.get(ref); const record = snapshot.data() || {}; const nextFails = Number(record.fails || 0) + 1; const lock = nextFails >= LOGIN_THROTTLE_MAX_FAILS ? now + LOGIN_THROTTLE_LOCK_MS : 0; transaction.set(ref, { fails: lock ? 0 : nextFails, lockedUntil: lock, updatedAt: now }); }); return; }
   const operation = loginThrottleQueue.then(async () => { let state: any = {}; try { state = JSON.parse(await fs.readFile(loginThrottlePath(), 'utf8')); } catch (error: any) { if (error?.code !== 'ENOENT') throw error; } const nextFails = Number(state[keyHash]?.fails || 0) + 1; const lock = nextFails >= LOGIN_THROTTLE_MAX_FAILS ? now + LOGIN_THROTTLE_LOCK_MS : 0; state[keyHash] = { fails: lock ? 0 : nextFails, lockedUntil: lock, updatedAt: now }; for (const [id, record] of Object.entries(state) as any) if (Number(record.updatedAt || 0) < now - 24 * 60 * 60 * 1000) delete state[id]; await fs.mkdir(path.dirname(loginThrottlePath()), { recursive: true }); await fs.writeFile(loginThrottlePath(), JSON.stringify(state), { encoding: 'utf8', mode: 0o600 }); }); loginThrottleQueue = operation.catch(() => undefined); await operation;
 }
 
 export async function clearLoginThrottle(key: string) {
   const keyHash = loginThrottleHash(key);
   if (d1) { await ensureD1LoginThrottleTable(); await d1.prepare('DELETE FROM login_throttle WHERE key_hash = ?').bind(keyHash).run(); return; }
-  if (USE_FIRESTORE) { const store = await getFirestore(); await store.collection('tracker_login_throttle').doc(keyHash).delete(); return; }
   const operation = loginThrottleQueue.then(async () => { let state: any = {}; try { state = JSON.parse(await fs.readFile(loginThrottlePath(), 'utf8')); } catch (error: any) { if (error?.code !== 'ENOENT') throw error; return; } delete state[keyHash]; await fs.writeFile(loginThrottlePath(), JSON.stringify(state), { encoding: 'utf8', mode: 0o600 }); }); loginThrottleQueue = operation.catch(() => undefined); await operation;
 }
 
@@ -183,156 +165,6 @@ async function writeJsonFile(data: any, expected: string | undefined, allowCreat
   return hashText(serialized);
 }
 
-async function stageFirestoreRevision(data: any, revisionId: string) {
-  const firestore = await getFirestore();
-  const planned = externalizeEvidenceArtifacts(data);
-  for (const item of planned.artifacts) {
-    const compressed = gzipSync(Buffer.from(item.json, 'utf8')).toString('base64');
-    const chunks = compressed.match(/[\s\S]{1,600000}/g) || [''];
-    const metaRef = firestore!.collection(ARTIFACT_COLLECTION).doc(item.sha256);
-    // Reuse restarts the retention clock so a concurrent collection cannot remove it.
-    if ((await metaRef.get()).exists) { await metaRef.set({ orphanedAt: null }, { merge: true }); continue; }
-    const batch = firestore!.batch();
-    batch.create(metaRef, { sha256: item.sha256, bytes: item.bytes, chunks: chunks.length, encoding: 'gzip-base64' });
-    chunks.forEach((payload, ordinal) => batch.create(firestore!.collection(ARTIFACT_COLLECTION).doc(`${item.sha256}_${ordinal}`), { sha256: item.sha256, ordinal, payload }));
-    try { await batch.commit(); }
-    catch (error) { if (!(await metaRef.get()).exists) throw error; }
-  }
-  const encoded = encodeFirestoreDocuments(planned.state);
-  for (const documents of planFirestoreWriteBatches(encoded, revisionId)) {
-    const batch = firestore!.batch();
-    for (const doc of documents) batch.create(firestore!.collection(REVISION_COLLECTION).doc(`${revisionId}_${doc.id}`), { revisionId, ...doc.payload });
-    await batch.commit();
-  }
-  return encoded.length;
-}
-
-async function loadFirestoreArtifact(sha256: string) {
-  const firestore = await getFirestore(); const meta = await firestore!.collection(ARTIFACT_COLLECTION).doc(sha256).get();
-  if (!meta.exists) throw new Error(`Evidence artifact ${sha256} is missing.`);
-  const chunks: string[] = [];
-  for (let ordinal = 0; ordinal < Number(meta.data()?.chunks || 0); ordinal += 1) {
-    const part = await firestore!.collection(ARTIFACT_COLLECTION).doc(`${sha256}_${ordinal}`).get();
-    if (!part.exists) throw new Error(`Evidence artifact ${sha256} is incomplete.`);
-    chunks.push(String(part.data()?.payload || ''));
-  }
-  return gunzipSync(Buffer.from(chunks.join(''), 'base64')).toString('utf8');
-}
-
-async function deleteFirestoreRevision(revisionId: string) {
-  const firestore = await getFirestore();
-  const snapshot = await firestore!.collection(REVISION_COLLECTION).where('revisionId', '==', revisionId).get();
-  for (let offset = 0; offset < snapshot.docs.length; offset += 400) {
-    const batch = firestore!.batch();
-    snapshot.docs.slice(offset, offset + 400).forEach(doc => batch.delete(doc.ref));
-    await batch.commit();
-  }
-}
-
-async function activateFirestoreRevision(data: any, expected: number | undefined, mode: 'ordinary' | 'initialize' | 'replace') {
-  const firestore = await getFirestore();
-  removeLegacySecrets(data); ensureStorageSchema(data); ensureWorkspaceIdentity(data); assertSeasonArchivesStorageSize(data.seasonArchives || []); validateTrackerState(data);
-  if (mode === 'ordinary' && expected === undefined) throw Object.assign(new Error('Database revision is required for ordinary writes.'), { status: 409 });
-  const revisionId = crypto.randomUUID();
-  const metaRef = firestore!.collection(META_COLLECTION).doc('meta');
-  try {
-    const documentCount = await stageFirestoreRevision(data, revisionId);
-    const version = await firestore!.runTransaction(async transaction => {
-      const snapshot = await transaction.get(metaRef); const current = Number(snapshot.data()?.version || 0);
-      const version = planRevisionActivation(snapshot.exists ? current : null, expected, mode);
-      transaction.set(metaRef, { schemaVersion: STORAGE_SCHEMA_VERSION, version, activeRevision: revisionId, documentCount, updatedAt: new Date().toISOString() });
-      return version;
-    });
-    // Only an activated revision enters the cleanup ledger; staged ones never do.
-    await firestore!.collection(COMMITTED_COLLECTION).doc(revisionId).set({ revisionId, committedAt: new Date().toISOString() });
-    if (remoteGcDue()) await collectFirestoreStorage(revisionId).catch((error: any) => console.warn('[firestore] evidence cleanup failed:', error?.message || error));
-    return version;
-  } catch (error) {
-    await deleteFirestoreRevision(revisionId).catch(() => {});
-    throw error;
-  }
-}
-
-async function firestoreRevisionReferences(revisionId: string) {
-  const snapshot = await (await getFirestore())!.collection(REVISION_COLLECTION).where('revisionId', '==', revisionId).get();
-  return evidenceArtifactReferences(decodeFirestoreDocuments(snapshot.docs.map((doc: any) => ({ id: doc.id, payload: doc.data() }))));
-}
-
-/** Drop inactive revisions beyond the rollback window, then artifacts no retained revision references. */
-async function collectFirestoreStorage(activeRevision: string, now = Date.now()) {
-  const firestore = await getFirestore();
-  const committed = (await firestore!.collection(COMMITTED_COLLECTION).get()).docs.map((doc: any) => doc.data())
-    .filter((row: any) => typeof row?.revisionId === 'string')
-    .sort((left: any, right: any) => String(right.committedAt).localeCompare(String(left.committedAt)));
-  const inactive = committed.filter((row: any) => row.revisionId !== activeRevision);
-  for (const row of inactive.slice(RETAINED_INACTIVE_REVISIONS)) {
-    await deleteFirestoreRevision(row.revisionId);
-    await firestore!.collection(COMMITTED_COLLECTION).doc(row.revisionId).delete();
-  }
-  const referenced = new Set<string>();
-  for (const revisionId of [activeRevision, ...inactive.slice(0, RETAINED_INACTIVE_REVISIONS).map((row: any) => row.revisionId)]) {
-    for (const sha256 of await firestoreRevisionReferences(revisionId)) referenced.add(sha256);
-  }
-  const metas = (await firestore!.collection(ARTIFACT_COLLECTION).where('encoding', '==', 'gzip-base64').get()).docs.map((doc: any) => doc.data());
-  const ledger = Object.fromEntries(metas.filter((meta: any) => Number.isFinite(meta?.orphanedAt)).map((meta: any) => [meta.sha256, meta.orphanedAt]));
-  const plan = planArtifactCollection(metas.map((meta: any) => String(meta.sha256)), referenced, ledger, now, artifactRetentionMs());
-  for (const meta of metas) {
-    const sha256 = String(meta.sha256);
-    if (referenced.has(sha256)) { if (meta.orphanedAt !== null && meta.orphanedAt !== undefined) await firestore!.collection(ARTIFACT_COLLECTION).doc(sha256).set({ orphanedAt: null }, { merge: true }); continue; }
-    if (!plan.remove.includes(sha256)) { if (meta.orphanedAt !== plan.orphanedSince[sha256]) await firestore!.collection(ARTIFACT_COLLECTION).doc(sha256).set({ orphanedAt: plan.orphanedSince[sha256] }, { merge: true }); continue; }
-    // Re-read before deleting: a writer reusing this artifact resets orphanedAt.
-    const latest = await firestore!.collection(ARTIFACT_COLLECTION).doc(sha256).get();
-    if (!latest.exists || latest.data()?.orphanedAt !== meta.orphanedAt) continue;
-    const batch = firestore!.batch();
-    for (let ordinal = 0; ordinal < Number(meta.chunks || 0); ordinal += 1) batch.delete(firestore!.collection(ARTIFACT_COLLECTION).doc(`${sha256}_${ordinal}`));
-    batch.delete(firestore!.collection(ARTIFACT_COLLECTION).doc(sha256));
-    await batch.commit();
-  }
-}
-
-async function readLegacyFirestore() {
-  const firestore = await getFirestore();
-  const snapshot = await firestore!.collection(LEGACY_COLLECTION).get();
-  const docs = snapshot.docs.filter(doc => doc.id !== '_meta');
-  if (!docs.length) return null;
-  const legacy: any = {};
-  docs.forEach(doc => { legacy[doc.id] = doc.data().v; });
-  return legacy;
-}
-
-async function initializeFirestore() {
-  // This is the only legacy migration branch. Ordinary saves can never infer a first boot.
-  let initial = await readLegacyFirestore();
-  if (!initial && process.env.FIRESTORE_IMPORT_JSON_ON_FIRST_BOOT === 'true') {
-    try { initial = JSON.parse(await fs.readFile(DB_PATH, 'utf8')); }
-    catch (error: any) { if (error?.code !== 'ENOENT') throw error; }
-  }
-  if (!initial) initial = createSeed();
-  ensureStorageSchema(initial); assertSeasonArchivesStorageSize(initial.seasonArchives || []); validateTrackerState(initial);
-  try { await activateFirestoreRevision(initial, undefined, 'initialize'); }
-  catch (error: any) { if (error?.status !== 409) throw error; }
-}
-
-async function readDBFirestore(hydrate = true) {
-  const firestore = await getFirestore();
-  const metaRef = firestore!.collection(META_COLLECTION).doc('meta');
-  const readMeta = async () => typeof (metaRef as any).get === 'function' ? (metaRef as any).get() : ({ exists: false, data: () => undefined });
-  let meta = await readMeta();
-  if (!meta.exists) { await initializeFirestore(); meta = await readMeta(); }
-  const metadata = meta.data()!;
-  if (Number(metadata.schemaVersion) > STORAGE_SCHEMA_VERSION) throw Object.assign(new Error('Firestore schema is newer than this server supports.'), { status: 409 });
-  const revisionId = String(metadata.activeRevision || '');
-  if (!revisionId) throw new Error('Firestore metadata has no active revision.');
-  const snapshot = await firestore!.collection(REVISION_COLLECTION).where('revisionId', '==', revisionId).get();
-  if (snapshot.empty || snapshot.size !== Number(metadata.documentCount)) throw new Error('Active Firestore revision is incomplete.');
-  const docs = snapshot.docs.map(doc => ({ id: doc.id, payload: doc.data() }));
-  const state = decodeFirestoreDocuments(docs);
-  if (hydrate) { await hydrateEvidenceArtifacts(state, loadFirestoreArtifact); migrateHydratedEvidence(state, storedSchemaVersion(state)); }
-  const seed = createSeed();
-  for (const key of Object.keys(seed)) if (state[key] === undefined) state[key] = (seed as any)[key];
-  return attachVersion(state, Number(metadata.version));
-}
-
 export async function readDB() { return readStoredState(true); }
 
 /**
@@ -342,7 +174,7 @@ export async function readDB() { return readStoredState(true); }
  */
 export async function readDBIndex() { return readStoredState(false); }
 
-function activeArtifactLoader() { return d1 ? loadD1Artifact : USE_FIRESTORE ? loadFirestoreArtifact : loadLocalArtifact; }
+function activeArtifactLoader() { return d1 ? loadD1Artifact : loadLocalArtifact; }
 
 /** Artifact refs in `state` that the active evidence vault cannot serve intact. */
 export async function missingEvidenceArtifacts(state: any) {
@@ -361,7 +193,6 @@ export async function hydrateFromEvidenceVault(state: any) {
 
 async function readStoredState(hydrate: boolean) {
   if (d1) return readDBD1(hydrate);
-  if (USE_FIRESTORE) return readDBFirestore(hydrate);
   let storedText: string;
   try { storedText = await fs.readFile(DB_PATH, 'utf8'); }
   catch (error: any) {
@@ -384,7 +215,6 @@ export async function saveDB(data: any) {
     if (expected === undefined) throw Object.assign(new Error('Database revision is required for ordinary writes.'), { status: 409 });
     removeLegacySecrets(data); ensureStorageSchema(data);
     if (d1) await activateD1Revision(data, Number(expected), 'ordinary');
-    else if (USE_FIRESTORE) await activateFirestoreRevision(data, Number(expected), 'ordinary');
     else await writeJsonFile(data, String(expected), false);
   });
   writeQueue = run.catch(() => {});
@@ -393,10 +223,9 @@ export async function saveDB(data: any) {
 
 /** Complete replacement for validated recovery/migration paths only. */
 export async function replaceDB(data: any) {
-  const replacement = structuredClone(data); removeLegacySecrets(replacement); ensureStorageSchema(replacement); validateTrackerState(replacement, { jsonFile: !USE_FIRESTORE && !d1 });
+  const replacement = structuredClone(data); removeLegacySecrets(replacement); ensureStorageSchema(replacement); validateTrackerState(replacement, { jsonFile: !d1 });
   const run = writeQueue.then(async () => {
     if (d1) await activateD1Revision(replacement, undefined, 'replace');
-    else if (USE_FIRESTORE) await activateFirestoreRevision(replacement, undefined, 'replace');
     else {
       let current: string | undefined;
       try { current = hashText(await fs.readFile(DB_PATH, 'utf8')); } catch (error: any) { if (error?.code !== 'ENOENT') throw error; }
@@ -407,7 +236,7 @@ export async function replaceDB(data: any) {
   return run;
 }
 
-export const storeInternals = { VERSION, writeJsonFile, stageFirestoreRevision, activateFirestoreRevision };
+export const storeInternals = { VERSION, writeJsonFile };
 
 const D1_CHUNK_CHARS = 200_000;
 const D1_MAX_CHUNKS = 32;

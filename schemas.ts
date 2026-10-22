@@ -9,7 +9,6 @@ const imagePayload = z.object({ base64: nonEmpty, mediaType: nonEmpty });
 const roleSchema = z.enum(['coach', 'player']);
 
 export const loginKeySchema = z.object({ key: z.string().min(1).max(500), playerName: z.string().trim().min(1).max(100).optional(), desktopIdentity: z.object({ role: z.literal('player'), playerId: z.string().trim().min(1).max(200), displayName: z.string().trim().min(1).max(80) }).optional() });
-export const googleAuthSchema = z.object({ credential: z.string().min(1).max(8000) });
 
 export const upsertSchema = z.object({
   sheet: z.enum(['Schedule', 'Goals', 'SoloQ', 'Strats', 'StratRuns']),
@@ -151,8 +150,6 @@ export const saveVetoSchema = z.object({ matchId: nonEmpty, meta: looseObject, a
 
 export const setSecretSchema = z.object({ name: z.string().min(1).max(100), value: z.string().max(8000).optional().nullable() });
 
-export const accessAddSchema = z.object({ email: z.string().email().max(200), role: z.enum(['coach', 'player']).optional(), name: z.string().max(200).optional(), playerId: z.string().uuid().optional() });
-export const accessRemoveSchema = z.object({ email: z.string().min(1).max(200) });
 export const createKeySchema = z.object({ label: z.string().trim().min(1).max(200), role: roleSchema, playerId: z.string().trim().min(1).max(200).optional() });
 export const playerPasswordSchema = z.object({ playerId: z.string().uuid(), password: z.string().trim().min(10).max(128) }).strict();
 

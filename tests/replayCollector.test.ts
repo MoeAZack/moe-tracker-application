@@ -43,7 +43,8 @@ describe('Windows replay collector boundaries', () => {
   it('migrates legacy configuration to local evidence without enabling raw fallback', () => {
     const migrated = collectorInternals.migrateConfig({ schemaVersion: 1, server: 'https://tracker.example', replayPaths: ['D:/Demos'], autoUpload: true });
     expect(migrated).toMatchObject({ schemaVersion: 2, ingestionMode: 'local-evidence', autoUpload: true, localRuntime: { binaryPath: '', pythonPath: '', normalizerPath: '' } });
-    expect(collectorInternals.migrateConfig({ ingestionMode: 'coach-raw' }).ingestionMode).toBe('coach-raw');
+    // The Google Cloud Storage raw fallback was removed; an old raw config falls back to local evidence.
+    expect(collectorInternals.migrateConfig({ ingestionMode: 'coach-raw' }).ingestionMode).toBe('local-evidence');
   });
 
   it('defaults local processing and raw replay retention without inventing a cloud device identity', () => {
@@ -92,12 +93,6 @@ describe('Windows replay collector boundaries', () => {
     } finally { await fs.rm(root, { recursive: true, force: true }); }
   });
 
-  it('resumes a GCS session after the last acknowledged byte', async () => {
-    const prior = globalThis.fetch; globalThis.fetch = (async () => new Response(null, { status: 308, headers: { Range: 'bytes=0-4095' } })) as any;
-    try { await expect(collectorInternals.resumableOffset({ uploadUrl: 'https://storage.googleapis.com/session-secret' }, 10_000)).resolves.toEqual({ complete: false, offset: 4096 }); }
-    finally { globalThis.fetch = prior; }
-  });
-
   it('treats a submitted review draft as terminal for collector upload', () => {
     expect(collectorInternals.collectorUploadComplete('submitted-review-required')).toBe(true);
     expect(collectorInternals.collectorUploadComplete('review-required')).toBe(false);
@@ -111,11 +106,6 @@ describe('Windows replay collector boundaries', () => {
     expect(collectorInternals.collectorUploadCompleteForServer({ status: 'submitted-review-required', receipt: {} }, 'https://new.example')).toBe(false);
   });
 
-  it('recognizes an already-completed resumable session', async () => {
-    const prior = globalThis.fetch; globalThis.fetch = (async () => new Response(JSON.stringify({ generation: '7' }), { status: 200, headers: { 'Content-Type': 'application/json' } })) as any;
-    try { await expect(collectorInternals.resumableOffset({ uploadUrl: 'https://storage.googleapis.com/session-secret' }, 10_000)).resolves.toEqual({ complete: true, metadata: { generation: '7' } }); }
-    finally { globalThis.fetch = prior; }
-  });
 });
 
 describe('unsupported VALORANT patches', () => {

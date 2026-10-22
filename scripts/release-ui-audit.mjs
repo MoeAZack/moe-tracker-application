@@ -11,7 +11,7 @@ import { chromium } from 'playwright-core';
 async function freePort() { const server = net.createServer(); server.listen(0, '127.0.0.1'); await once(server, 'listening'); const value = server.address().port; server.close(); await once(server, 'close'); return value; }
 const root = process.cwd(); const temporary = await mkdtemp(path.join(os.tmpdir(), 'moetracker-release-ui-')); const port = await freePort(); const origin = `http://127.0.0.1:${port}`;
 const packageJson = JSON.parse(await (await import('node:fs/promises')).readFile(path.join(root, 'package.json'), 'utf8'));
-const server = spawn(process.execPath, ['build/server.cjs'], { cwd: root, env: { ...process.env, NODE_ENV: 'production', HOST: '127.0.0.1', PORT: String(port), USE_FIRESTORE: 'false', DB_PATH: path.join(temporary, 'db.json'), ADMIN_PASSWORD: 'release-ui-audit-secret-12345', JWT_SECRET: 'release-ui-audit-jwt-secret-12345' }, stdio: ['ignore', 'pipe', 'pipe'] });
+const server = spawn(process.execPath, ['build/server.cjs'], { cwd: root, env: { ...process.env, NODE_ENV: 'production', HOST: '127.0.0.1', PORT: String(port), DB_PATH: path.join(temporary, 'db.json'), ADMIN_PASSWORD: 'release-ui-audit-secret-12345', JWT_SECRET: 'release-ui-audit-jwt-secret-12345' }, stdio: ['ignore', 'pipe', 'pipe'] });
 let log = ''; server.stdout.on('data', chunk => { log += chunk; }); server.stderr.on('data', chunk => { log += chunk; }); let browser;
 const evidence = { schema: 'moetracker.release-ui-audit/v1', version: packageJson.version, generatedAt: new Date().toISOString(), timezone: 'Africa/Cairo', zoom: [], forcedColors: null, blocking: [] };
 

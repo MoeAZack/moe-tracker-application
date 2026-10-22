@@ -13,7 +13,6 @@ const APP_DIR = path.join(process.env.LOCALAPPDATA || path.join(os.homedir(), 'A
 const CONFIG_PATH = path.join(APP_DIR, 'config.json');
 const MANIFEST_PATH = path.join(APP_DIR, 'manifest.json');
 const SECRET_PATH = path.join(APP_DIR, 'device-token.dpapi');
-const RAW_SESSION_PATH = path.join(APP_DIR, 'raw-session.dpapi');
 const STATUS_PATH = path.join(APP_DIR, 'status.json');
 const EVIDENCE_DIR = path.join(APP_DIR, 'evidence');
 const LOCK_DIR = path.join(APP_DIR, 'collector.lock');
@@ -81,7 +80,7 @@ async function withCollectorLock(task) {
 }
 export function migrateConfig(raw = {}) {
   const legacy = raw && typeof raw === 'object' ? raw : {};
-  return { schemaVersion: 2, server: typeof legacy.server === 'string' ? legacy.server : '', deviceId: typeof legacy.deviceId === 'string' ? legacy.deviceId : '', replayPaths: Array.isArray(legacy.replayPaths) ? legacy.replayPaths : [DEFAULT_DEMO], managedReplayPaths: Array.isArray(legacy.managedReplayPaths) ? legacy.managedReplayPaths : [], scoreboardFolder: typeof legacy.scoreboardFolder === 'string' ? legacy.scoreboardFolder : '', autoUpload: legacy.autoUpload === true, autoProcess: legacy.autoProcess !== false, retentionDays: Number.isFinite(legacy.retentionDays) ? Math.max(1, Math.min(365, Math.round(legacy.retentionDays))) : 30, stableSeconds: Number.isFinite(legacy.stableSeconds) ? legacy.stableSeconds : 10, scanSeconds: Number.isFinite(legacy.scanSeconds) ? legacy.scanSeconds : 5, ingestionMode: legacy.ingestionMode === 'coach-raw' ? 'coach-raw' : 'local-evidence', localRuntime: { binaryPath: String(legacy.localRuntime?.binaryPath || ''), pythonPath: String(legacy.localRuntime?.pythonPath || ''), normalizerPath: String(legacy.localRuntime?.normalizerPath || '') } };
+  return { schemaVersion: 2, server: typeof legacy.server === 'string' ? legacy.server : '', deviceId: typeof legacy.deviceId === 'string' ? legacy.deviceId : '', replayPaths: Array.isArray(legacy.replayPaths) ? legacy.replayPaths : [DEFAULT_DEMO], managedReplayPaths: Array.isArray(legacy.managedReplayPaths) ? legacy.managedReplayPaths : [], scoreboardFolder: typeof legacy.scoreboardFolder === 'string' ? legacy.scoreboardFolder : '', autoUpload: legacy.autoUpload === true, autoProcess: legacy.autoProcess !== false, retentionDays: Number.isFinite(legacy.retentionDays) ? Math.max(1, Math.min(365, Math.round(legacy.retentionDays))) : 30, stableSeconds: Number.isFinite(legacy.stableSeconds) ? legacy.stableSeconds : 10, scanSeconds: Number.isFinite(legacy.scanSeconds) ? legacy.scanSeconds : 5, ingestionMode: 'local-evidence', localRuntime: { binaryPath: String(legacy.localRuntime?.binaryPath || ''), pythonPath: String(legacy.localRuntime?.pythonPath || ''), normalizerPath: String(legacy.localRuntime?.normalizerPath || '') } };
 }
 async function config() { return migrateConfig(await readJson(CONFIG_PATH, {})); }
 async function manifest() { return readJson(MANIFEST_PATH, { schemaVersion: 1, files: {}, approved: [], scoreboardApprovals: [] }); }
@@ -221,29 +220,10 @@ async function pruneExpiredManagedReplays(state, cfg, nowMs = Date.now()) {
 function deviceHeaders(token, deviceId) { return { 'X-Device-Id': deviceId, 'X-Device-Token': token }; }
 async function postDeviceJson(cfg, token, route, body) { const response = await fetch(new URL(route, serverUrl(cfg.server)), { method: 'POST', redirect: 'error', headers: { ...deviceHeaders(token, cfg.deviceId), 'Content-Type': 'application/json' }, body: JSON.stringify(body) }); const json = await response.json().catch(() => ({ error: `HTTP ${response.status}` })); if (!response.ok) throw new Error(json.error || `Request failed with HTTP ${response.status}.`); return json; }
 async function uploadEvidence(file, hash, size, cfg, token) { const evidence = await produceLocalEvidence(file, hash, size, cfg); return postDeviceJson(cfg, token, `/api/replay-intake/evidence/${hash}`, evidence); }
-async function resumableOffset(session, size) {
-  const probe = await fetch(session.uploadUrl, { method: 'PUT', redirect: 'error', headers: { 'Content-Length': '0', 'Content-Range': `bytes */${size}` } });
-  if (probe.ok) return { complete: true, metadata: await probe.json().catch(() => ({})) };
-  if (probe.status !== 308) throw new Error(`Direct raw upload resume check failed with HTTP ${probe.status}.`);
-  const match = /^bytes=0-(\d+)$/.exec(probe.headers.get('range') || ''); return { complete: false, offset: match ? Number(match[1]) + 1 : 0 };
-}
-async function uploadRawFallback(file, hash, size, cfg, token) {
-  let session = await unprotectJsonFile(RAW_SESSION_PATH); let offset = 0; let metadata = {}; let complete = false;
-  if (!session || session.sha256 !== hash || Date.parse(session.expiresAt) <= Date.now()) { session = { ...(await postDeviceJson(cfg, token, '/api/replay-intake/raw/initiate', { sha256: hash, size, originalName: path.basename(file) })), sha256: hash }; await protectJsonFile(RAW_SESSION_PATH, session); }
-  else { const resume = await resumableOffset(session, size); if (resume.complete) { metadata = resume.metadata; complete = true; } else offset = resume.offset; }
-  if (!complete && offset < size) {
-    const upload = await fetch(session.uploadUrl, { method: 'PUT', redirect: 'error', duplex: 'half', headers: { 'Content-Type': REPLAY_TYPE, 'Content-Length': String(size - offset), 'Content-Range': `bytes ${offset}-${size - 1}/${size}` }, body: fs.createReadStream(file, { start: offset }) });
-    if (!upload.ok) throw new Error(`Direct raw upload paused at HTTP ${upload.status}; the protected resumable session will be retried.`);
-    metadata = await upload.json().catch(() => ({}));
-  }
-  const receipt = await postDeviceJson(cfg, token, '/api/replay-intake/raw/finalize', { uploadId: session.uploadId, generation: metadata.generation }); await fsp.rm(RAW_SESSION_PATH, { force: true }); return receipt;
-}
-
 async function upload(file, hash, size, cfg) {
   // Re-validate immediately before DPAPI credential access; redirects are prohibited below.
   const safeServer = serverUrl(cfg.server);
   const token = await unprotectToken();
-  if (cfg.ingestionMode === 'coach-raw') return uploadRawFallback(file, hash, size, cfg, token);
   return uploadEvidence(file, hash, size, cfg, token);
 }
 
@@ -277,7 +257,7 @@ async function scanUnlocked({ allowUpload = false, approvedHash = null } = {}) {
     }
     const approved = approvedHash === hash || state.approved.includes(hash);
     if (allowUpload && (approved || cfg.autoUpload) && !collectorUploadComplete(prior.status)) {
-      prior.status = cfg.ingestionMode === 'coach-raw' ? 'uploading' : 'processing-local';
+      prior.status = 'processing-local';
       const receipt = await upload(file, hash, stat.size, cfg); prior.status = 'submitted-review-required'; prior.uploadedAt = new Date().toISOString(); prior.receipt = { sha256: receipt.sha256 || hash, server: serverUrl(cfg.server), ingestionMode: receipt.ingestionMode || cfg.ingestionMode, parserStatus: receipt.parserStatus || receipt.status || 'pending', reviewRequired: true }; state.approved = state.approved.filter(item => item !== hash);
     }
     results.push({ file: path.basename(file), sha256: hash, size: stat.size, status: prior.status });
@@ -301,7 +281,7 @@ async function main() {
     if (Number.isFinite(retentionDays) && retentionDays >= 1) cfg.retentionDays = Math.min(365, Math.round(retentionDays));
     const binaryPath = option(args, '--vrfkit-binary'); const pythonPath = option(args, '--python'); const normalizerPath = option(args, '--normalizer');
     if (binaryPath) cfg.localRuntime.binaryPath = path.resolve(binaryPath); if (pythonPath) cfg.localRuntime.pythonPath = path.resolve(pythonPath); if (normalizerPath) cfg.localRuntime.normalizerPath = path.resolve(normalizerPath);
-    if (has(args, '--coach-raw-fallback')) cfg.ingestionMode = 'coach-raw'; if (has(args, '--local-evidence')) cfg.ingestionMode = 'local-evidence';
+    if (has(args, '--local-evidence')) cfg.ingestionMode = 'local-evidence';
     if (has(args, '--enable-auto-upload')) cfg.autoUpload = true;
     if (has(args, '--disable-auto-upload')) cfg.autoUpload = false;
     if (has(args, '--enable-auto-process')) cfg.autoProcess = true;
@@ -380,11 +360,11 @@ async function main() {
   }
   if (command === 'status') {
     const runtimeReady = (await Promise.all(Object.values(cfg.localRuntime).map(async value => Boolean(value) && fsp.access(value).then(() => true, () => false)))).every(Boolean);
-    console.log(JSON.stringify({ configPath: CONFIG_PATH, manifestPath: MANIFEST_PATH, statusPath: STATUS_PATH, evidenceDir: EVIDENCE_DIR, defaultReplayPath: DEFAULT_DEMO, server: cfg.server || null, deviceId: cfg.deviceId || null, replayPaths: cfg.replayPaths, ingestionMode: cfg.ingestionMode, localRuntimeReady: runtimeReady, resumableSessionProtected: fs.existsSync(RAW_SESSION_PATH), autoProcess: cfg.autoProcess, autoUpload: cfg.autoUpload, retentionDays: cfg.retentionDays, credentialStored: fs.existsSync(SECRET_PATH), trackedFiles: Object.keys(state.files).length, localEvidenceCount: Object.values(state.files).filter(item => item?.evidencePath).length, watcher: await readJson(STATUS_PATH, null) }, null, 2)); return;
+    console.log(JSON.stringify({ configPath: CONFIG_PATH, manifestPath: MANIFEST_PATH, statusPath: STATUS_PATH, evidenceDir: EVIDENCE_DIR, defaultReplayPath: DEFAULT_DEMO, server: cfg.server || null, deviceId: cfg.deviceId || null, replayPaths: cfg.replayPaths, ingestionMode: cfg.ingestionMode, localRuntimeReady: runtimeReady, autoProcess: cfg.autoProcess, autoUpload: cfg.autoUpload, retentionDays: cfg.retentionDays, credentialStored: fs.existsSync(SECRET_PATH), trackedFiles: Object.keys(state.files).length, localEvidenceCount: Object.values(state.files).filter(item => item?.evidencePath).length, watcher: await readJson(STATUS_PATH, null) }, null, 2)); return;
   }
   throw new Error('Commands: configure, enroll, scan, process-latest, approve, watch, scoreboard-approve, status');
 }
 
 if (process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href) main().catch(error => { console.error(`Replay collector: ${error.message}`); process.exitCode = 1; });
 
-export const collectorInternals = { APP_DIR, EVIDENCE_DIR, LOCK_DIR, DEFAULT_DEMO, normalizerRevision: LOCAL_NORMALIZER_REVISION, inside, canonicalFile, serverUrl, scoreboardApproval, uploadRequest, migrateConfig, validateNormalizedEvidence, validateEvidenceEnvelope, readReusableEvidence, evidencePath, pruneExpiredManagedReplays, resumableOffset, collectorUploadComplete, collectorUploadCompleteForServer };
+export const collectorInternals = { APP_DIR, EVIDENCE_DIR, LOCK_DIR, DEFAULT_DEMO, normalizerRevision: LOCAL_NORMALIZER_REVISION, inside, canonicalFile, serverUrl, scoreboardApproval, uploadRequest, migrateConfig, validateNormalizedEvidence, validateEvidenceEnvelope, readReusableEvidence, evidencePath, pruneExpiredManagedReplays, collectorUploadComplete, collectorUploadCompleteForServer };

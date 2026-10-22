@@ -31,7 +31,7 @@ async function signIn(page, origin) {
 
 const tempRoot = await mkdtemp(path.join(os.tmpdir(), 'moetracker-website-smoke-'));
 const port = await availablePort(); const origin = `http://127.0.0.1:${port}`;
-const server = spawn(process.execPath, ['build/server.cjs'], { cwd: root, env: { ...process.env, NODE_ENV: 'production', HOST: '127.0.0.1', PORT: String(port), USE_FIRESTORE: 'false', DB_PATH: path.join(tempRoot, 'db.json'), ADMIN_PASSWORD: 'browser-smoke-admin-secret-123', JWT_SECRET: 'browser-smoke-jwt-secret-12345' }, stdio: ['ignore', 'pipe', 'pipe'] });
+const server = spawn(process.execPath, ['build/server.cjs'], { cwd: root, env: { ...process.env, NODE_ENV: 'production', HOST: '127.0.0.1', PORT: String(port), DB_PATH: path.join(tempRoot, 'db.json'), ADMIN_PASSWORD: 'browser-smoke-admin-secret-123', JWT_SECRET: 'browser-smoke-jwt-secret-12345' }, stdio: ['ignore', 'pipe', 'pipe'] });
 let serverLog = ''; server.stdout.on('data', chunk => { serverLog += String(chunk); }); server.stderr.on('data', chunk => { serverLog += String(chunk); });
 let browser;
 try {

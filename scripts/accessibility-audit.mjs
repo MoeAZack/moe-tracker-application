@@ -10,7 +10,7 @@ import { chromium } from 'playwright-core';
 
 async function port() { const server = net.createServer(); server.listen(0, '127.0.0.1'); await once(server, 'listening'); const value = server.address().port; server.close(); await once(server, 'close'); return value; }
 const root = process.cwd(); const temporary = await mkdtemp(path.join(os.tmpdir(), 'moetracker-a11y-')); const serverPort = await port(); const origin = `http://127.0.0.1:${serverPort}`;
-const server = spawn(process.execPath, ['build/server.cjs'], { cwd: root, env: { ...process.env, NODE_ENV: 'production', HOST: '127.0.0.1', PORT: String(serverPort), USE_FIRESTORE: 'false', DB_PATH: path.join(temporary, 'db.json'), ADMIN_PASSWORD: 'accessibility-audit-secret', JWT_SECRET: 'accessibility-audit-jwt-secret-12345' }, stdio: ['ignore', 'pipe', 'pipe'] });
+const server = spawn(process.execPath, ['build/server.cjs'], { cwd: root, env: { ...process.env, NODE_ENV: 'production', HOST: '127.0.0.1', PORT: String(serverPort), DB_PATH: path.join(temporary, 'db.json'), ADMIN_PASSWORD: 'accessibility-audit-secret', JWT_SECRET: 'accessibility-audit-jwt-secret-12345' }, stdio: ['ignore', 'pipe', 'pipe'] });
 let log = ''; server.stdout.on('data', value => { log += value; }); server.stderr.on('data', value => { log += value; }); let browser;
 const results = [];
 const check = (condition, message) => { if (!condition) throw new Error(`Accessibility audit: ${message}`); };

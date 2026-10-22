@@ -18,7 +18,6 @@ import { buildScreenshotReviewDraft } from '../entryEngine';
 import { localScreenshotSubmissionSchema } from '../../schemas';
 import { pairReplayScreenshots, pruneScreenshotPairings, screenshotAdmission, screenshotPairingPublic, screenshotRecordId, validatePairingImage, type ScreenshotPairing } from '../replayScreenshotPairing';
 import { activeCorePlayerIds, ensureObservedRosterPlayer, setObservedRosterStatus } from '../roster';
-import { cancelRawReplayUpload, deleteRawReplayObject, downloadRawReplayObject, initiateRawReplayUpload, verifyRawReplayObject, type RawReplayObject } from '../gcsReplayTemp';
 import { clientIp, requestRateLimit } from '../utils';
 import { historicalPlayerLabel, mergeAcceptedPlayerStat, preserveIdentitySnapshot } from '../identitySnapshot';
 import { replayScreenshotReconciliation } from '../ocrLearning';
@@ -61,7 +60,7 @@ function parserLimits() {
 }
 
 function assertPrivateStorageRoot() {
-  for (const relative of ['dist', 'fb-public', 'public']) {
+  for (const relative of ['dist', 'public']) {
     const staticRoot = path.resolve(process.cwd(), relative); const relation = path.relative(staticRoot, PRIVATE_DIR);
     if (!relation || (!relation.startsWith('..') && !path.isAbsolute(relation))) throw new Error('REPLAY_STORAGE_DIR must be outside static/frontend asset directories.');
   }
@@ -74,6 +73,8 @@ type DeviceRecord = {
   createdAt: string; expiresAt: string; revokedAt: string | null; lastSeenAt: string | null;
 };
 
+/** A raw replay record from the removed Google Cloud Storage fallback, kept only so existing records stay readable. */
+type RawReplayObject = { bucket: string; object: string; generation: string; size: number; sha256: string; uploadId: string; status: 'uploading' | 'verified' | 'processing' | 'parse-failed' | 'deleted'; expiresAt: string };
 type ReplayBlob = { sha256: string; size: number; storedAt: string; ingestionMode?: 'local-evidence' | 'coach-raw' | 'legacy-raw'; uploadStatus?: 'uploading' | 'verified' | 'processed' | 'deleted' | 'failed'; rawObject?: RawReplayObject | null; parserStatus: 'unavailable' | 'pending' | 'parsed-review-required' | 'failed'; parserJobId?: string | null; evidenceHash?: string; reviewStatus: 'review-required' | 'accepted'; matchId: string | null };
 type ReplayAssociation = { id: string; sha256: string; size: number; originalName: string; deviceId: string; owner: DeviceRecord['owner']; receivedAt: string };
 type ReplayParserJob = {
@@ -696,27 +697,6 @@ function priorRawFinalizeReceipt(store: ReplayStore, uploadId: string, deviceId:
   return receipt.deviceId === deviceId ? { ok: true as const, response: receipt.response } : { ok: false as const };
 }
 
-async function materializeRawReplay(record: RawReplayObject, sha256: string) {
-  const target = `${privateReplayPath(sha256)}.${crypto.randomUUID()}.gcs`;
-  await fsp.mkdir(path.dirname(target), { recursive: true });
-  const response = await downloadRawReplayObject(record); const hasher = crypto.createHash('sha256'); let bytes = 0;
-  const meter = new Transform({ transform(chunk, _encoding, callback) { bytes += chunk.length; if (bytes > record.size) return callback(new Error('GCS replay exceeded its verified size.')); hasher.update(chunk); callback(null, chunk); } });
-  try {
-    await pipeline(response.body as any, meter, fs.createWriteStream(target, { flags: 'wx', mode: 0o600 }));
-    if (bytes !== record.size || hasher.digest('hex') !== sha256) throw new Error('GCS replay failed integrity verification during parser staging.');
-    return target;
-  } catch (error) { await fsp.rm(target, { force: true }).catch(() => {}); throw error; }
-}
-
-async function markRawDeleted(sha256: string, generation: string) {
-  for (let attempt = 0; attempt < 3; attempt += 1) {
-    const db = await readDB(); const blob = replayStore(db).blobs[sha256];
-    if (!blob?.rawObject || blob.rawObject.generation !== generation) return;
-    blob.rawObject.status = 'deleted'; blob.uploadStatus = 'deleted';
-    try { await saveDB(db); return; } catch (error: any) { if (error?.status !== 409 || attempt === 2) throw error; }
-  }
-}
-
 async function executeParserJob(jobId: string, sha256: string, fence: number) {
   const heartbeatEvery = Math.max(5_000, Math.floor(parserLimits().leaseMs / 3));
   const heartbeat = setInterval(() => { void heartbeatParserLease(jobId, fence).catch(error => console.warn('[replay-parser] lease heartbeat failed:', error?.message || error)); }, heartbeatEvery);
@@ -724,17 +704,15 @@ async function executeParserJob(jobId: string, sha256: string, fence: number) {
   try {
     const config = loadVrfkitPipelineConfig(PRIVATE_DIR);
     const db = await readDB(); const current = replayStore(db).parserJobs[jobId]; const rawObject = current?.rawObject || null;
-    if (rawObject) { rawObject.status = 'processing'; stagedPath = await materializeRawReplay(rawObject, sha256); }
+    // Raw replays once waited in Google Cloud Storage; that path was removed, so
+    // a job queued before then cannot fetch its file and fails visibly.
+    if (rawObject) throw new Error('This replay was held in the removed Google Cloud Storage fallback. Import it again from the PC that recorded it.');
     const parsed = await runVrfkitReplayPipeline(stagedPath || privateReplayPath(sha256), sha256, config);
     const reviewDraft = buildReplayOpeningReviewDraft(parsed.result.parserInput);
     const retained = { scoreboard: parsed.result.scoreboard, reviewDraft, diagnostics: parsed.result.diagnostics };
     if (Buffer.byteLength(JSON.stringify(retained)) > parserLimits().evidenceBytes) throw new Error('Normalized replay evidence exceeded its retained evidence limit.');
     clearInterval(heartbeat);
     const persisted = await finalizeParserJob(jobId, sha256, fence, { result: retained });
-    if (persisted && rawObject) {
-      await deleteRawReplayObject(rawObject);
-      await markRawDeleted(sha256, rawObject.generation);
-    }
   } catch (error: any) {
     console.error('[replay-parser] private job failed:', error?.message || error);
     try {
@@ -782,7 +760,6 @@ async function expireRawSession(uploadId: string) {
   if (!session) return;
   const delay = Date.parse(session.expiresAt) - Date.now();
   if (delay > 0) { scheduleRawSessionExpiry(session); return; }
-  if (typeof session.uploadUrl === 'string' && session.uploadUrl.startsWith('https://storage.googleapis.com/')) await cancelRawReplayUpload(session.uploadUrl);
   delete store.rawSessions[uploadId]; const blob = store.blobs[session.sha256];
   if (blob?.uploadStatus === 'uploading') blob.uploadStatus = 'failed';
   await saveDB(db); rawSessionTimers.delete(uploadId);
@@ -940,54 +917,17 @@ export function registerReplayDeviceUploadRoute(app: Express) {
     finally { releaseReservation?.(); }
   });
 
-  app.post('/api/replay-intake/raw/initiate', async (req, res) => {
-    try {
-      const authenticated = await authenticateDevice(req);
-      if (!authenticated) return res.status(401).json({ error: 'Device credential is invalid, expired, or revoked.' });
-      const { db, store, device } = authenticated;
-      if (device.owner.role !== 'coach') return res.status(403).json({ error: 'Raw replay fallback is available only to coach-owned devices.' });
-      const sha256 = String(req.body?.sha256 || '').toLowerCase(); const size = Number(req.body?.size); const originalName = cleanReplayName(req.body?.originalName);
-      if (!HEX_SHA256.test(sha256) || !originalName || !Number.isSafeInteger(size) || size <= 0 || size > MAX_REPLAY_BYTES) return res.status(400).json({ error: 'Valid replay SHA-256, size, and filename are required.' });
-      const existing = store.blobs[sha256];
-      if (existing && (existing.reviewStatus === 'accepted' || (existing.parserJobId && store.parserJobs[existing.parserJobId]?.result))) return res.status(409).json({ error: 'Verified evidence already exists for this replay.' });
-      if (existing && existing.size !== size) return res.status(409).json({ error: 'This replay hash already has conflicting metadata.' });
-      // Both raw storage and parser are explicit configuration gates. Do not accept a raw object that cannot be processed.
-      loadVrfkitPipelineConfig(PRIVATE_DIR);
-      const session = await initiateRawReplayUpload({ sha256, size, deviceId: device.id, originalName }); const now = new Date().toISOString();
-      store.rawSessions[session.uploadId] = { uploadId: session.uploadId, sha256, size, originalName, deviceId: device.id, owner: device.owner, bucket: session.bucket, object: session.object, uploadUrl: session.uploadUrl, expiresAt: session.expiresAt, createdAt: now };
-      const ownKey = associationKey(device.id, sha256);
-      store.associations[ownKey] ||= { id: crypto.randomUUID(), sha256, size, originalName, deviceId: device.id, owner: device.owner, receivedAt: now };
-      store.blobs[sha256] ||= { sha256, size, storedAt: now, ingestionMode: 'coach-raw', uploadStatus: 'uploading', parserStatus: 'unavailable', reviewStatus: 'review-required', matchId: null };
-      device.lastSeenAt = now; await saveDB(db); scheduleRawSessionExpiry(store.rawSessions[session.uploadId]);
-      res.status(201).json({ uploadId: session.uploadId, uploadUrl: session.uploadUrl, expiresAt: session.expiresAt, requiredHeaders: { 'Content-Type': REPLAY_TYPE, 'Content-Length': String(size) }, finalize: '/api/replay-intake/raw/finalize', reviewRequired: true });
-    } catch (error: any) { res.status(error?.status || 400).json({ error: error?.message || 'Raw replay session could not be created.', code: error?.code }); }
-  });
-
-  app.post('/api/replay-intake/raw/finalize', async (req, res) => {
-    try {
-      const authenticated = await authenticateDevice(req);
-      if (!authenticated) return res.status(401).json({ error: 'Device credential is invalid, expired, or revoked.' });
-      const { db, store, device } = authenticated; const uploadId = String(req.body?.uploadId || ''); const generation = req.body?.generation ? String(req.body.generation) : undefined;
-      const priorReceipt = priorRawFinalizeReceipt(store, uploadId, device.id);
-      if (priorReceipt) return priorReceipt.ok ? res.status(202).json({ ...priorReceipt.response, idempotent: true }) : res.status(409).json({ error: 'Raw replay receipt belongs to another device.' });
-      const session = store.rawSessions[uploadId];
-      if (!session || session.deviceId !== device.id || Date.parse(session.expiresAt) <= Date.now()) return res.status(409).json({ error: 'Raw replay session is missing, expired, or belongs to another device.' });
-      const verified = await verifyRawReplayObject({ ...session, generation });
-      const rawObject: RawReplayObject = { bucket: session.bucket, object: session.object, generation: verified.generation, size: session.size, sha256: session.sha256, uploadId, status: 'verified', expiresAt: session.expiresAt };
-      const blob = store.blobs[session.sha256]; if (!blob || blob.size !== session.size) return res.status(409).json({ error: 'Raw replay metadata is inconsistent.' });
-      const sourceDeviceIds = [device.id]; const admission = parserAdmission(store, device.owner.actorId, sourceDeviceIds); if (!admission.ok) return res.status(429).json({ error: admission.error });
-      const now = new Date().toISOString(); const job: ReplayParserJob = { id: crypto.randomUUID(), sha256: session.sha256, requestedBy: device.owner.actorId, sourceDeviceIds, status: 'queued', createdAt: now, startedAt: null, completedAt: null, parser: { name: 'vrfkit', version: VRFKIT_PIN.version }, reviewStatus: 'review-required', rawObject };
-      const response = { ...parserJobPublic(job), ingestionMode: 'coach-raw', uploadStatus: 'verified', rawObjectStatus: 'verified' };
-      store.parserJobs[job.id] = job; blob.rawObject = rawObject; blob.ingestionMode = 'coach-raw'; blob.uploadStatus = 'verified'; blob.parserStatus = 'pending'; blob.parserJobId = job.id; delete store.rawSessions[uploadId]; store.rawReceipts[uploadId] = { uploadId, deviceId: device.id, response, createdAt: now }; pruneRawReceipts(store); device.lastSeenAt = now;
-      await saveDB(db); const timer = rawSessionTimers.get(uploadId); if (timer) clearTimeout(timer); rawSessionTimers.delete(uploadId); res.status(202).json(response); requestParserPump();
-    } catch (error: any) { res.status(error?.status || 400).json({ error: error?.message || 'Raw replay could not be finalized.' }); }
-  });
+  // The coach raw-replay fallback through Google Cloud Storage was removed.
+  // Collectors send local evidence instead; old collectors get a clear answer.
+  const rawFallbackRemoved = (_req: any, res: any) => res.status(410).json({ error: 'The raw replay fallback was removed. Update the collector; it sends local replay evidence instead.' });
+  app.post('/api/replay-intake/raw/initiate', rawFallbackRemoved);
+  app.post('/api/replay-intake/raw/finalize', rawFallbackRemoved);
 
   app.put('/api/replay-intake/uploads/:sha256', async (req, res) => {
     let tempPath: string | null = null; let releaseLock: (() => void) | null = null; let releaseReservation: (() => void) | null = null;
     const deadline = setTimeout(() => req.destroy(new Error('Replay upload timed out.')), MAX_UPLOAD_MS);
     try {
-      if (process.env.REPLAY_LEGACY_RAW_UPLOAD_ENABLED !== 'true') return res.status(410).json({ error: 'Legacy server-proxied raw upload is disabled. Use local evidence or coach GCS fallback.' });
+      if (process.env.REPLAY_LEGACY_RAW_UPLOAD_ENABLED !== 'true') return res.status(410).json({ error: 'Legacy server-proxied raw upload is disabled. Use local replay evidence.' });
       if (req.header('content-type') !== REPLAY_TYPE) return res.status(415).json({ error: `Content-Type must be ${REPLAY_TYPE}.` });
       const expectedHash = String(req.params.sha256 || '').toLowerCase();
       const originalName = cleanReplayName(req.header('x-replay-filename'));
@@ -1261,7 +1201,6 @@ export async function registerReplayDeviceRoutes(app: Express) {
       if (!blob) return res.status(404).json({ error: 'Replay evidence not found.' });
       const active = Object.values(store.parserJobs).some(job => job.sha256 === sha256 && ['queued', 'running'].includes(job.status));
       if (active) return res.status(409).json({ error: 'Wait for replay processing to finish before deleting it.' });
-      if (blob.rawObject && blob.rawObject.status !== 'deleted') await deleteRawReplayObject(blob.rawObject);
       await fsp.rm(privateReplayPath(sha256), { force: true }).catch(() => {});
       for (const [key, association] of Object.entries(store.associations)) if (association.sha256 === sha256) delete store.associations[key];
       for (const [key, job] of Object.entries(store.parserJobs)) if (job.sha256 === sha256) delete store.parserJobs[key];

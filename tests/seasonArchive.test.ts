@@ -221,9 +221,9 @@ describe('season archive HTTP and version boundary', () => {
       authKeys: [{ id: 'player-1', keyHash: crypto.createHash('sha256').update(playerKey).digest('hex'), label: 'Player', role: 'player' }],
     }));
     for (const [key, value] of Object.entries({
-      NODE_ENV: 'test', USE_FIRESTORE: 'false', DB_PATH: dbPath,
+      NODE_ENV: 'test', DB_PATH: dbPath,
       ADMIN_PASSWORD: adminKey, JWT_SECRET: 'test-session-secret-at-least-24-characters',
-      GEMINI_API_KEY: 'test-no-external-calls', GOOGLE_CLIENT_ID: '',
+      GEMINI_API_KEY: 'test-no-external-calls',
     })) vi.stubEnv(key, value);
     const { createApp } = await import('../server');
     const app = await createApp(false);
@@ -261,7 +261,7 @@ describe('season archive HTTP and version boundary', () => {
     tempDir = await fs.mkdtemp(path.join(os.tmpdir(), 'moetracker-season-stale-'));
     const dbPath = path.join(tempDir, 'db.json');
     await fs.writeFile(dbPath, JSON.stringify(seasonDb()));
-    vi.stubEnv('USE_FIRESTORE', 'false');
+    
     vi.stubEnv('DB_PATH', dbPath);
     const { readDB, saveDB } = await import('../lib/store');
     const winner = await readDB();

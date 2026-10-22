@@ -17,7 +17,7 @@ describe('file store concurrency', () => {
     const corrupted = '{"matches":[{"id":"valuable-record"}], broken';
     await fs.writeFile(dbPath, corrupted);
     vi.stubEnv('DB_PATH', dbPath);
-    vi.stubEnv('USE_FIRESTORE', 'false');
+    
     const { readDB } = await import('../lib/store');
     await expect(readDB()).rejects.toBeInstanceOf(SyntaxError);
     expect(await fs.readFile(dbPath, 'utf8')).toBe(corrupted);
@@ -28,7 +28,7 @@ describe('file store concurrency', () => {
     const dbPath = path.join(tempDir, 'db.json');
     await fs.writeFile(dbPath, JSON.stringify({ settings: {}, matches: [] }));
     vi.stubEnv('DB_PATH', dbPath);
-    vi.stubEnv('USE_FIRESTORE', 'false');
+    
     const { readDB, saveDB } = await import('../lib/store');
 
     const first = await readDB();
@@ -47,7 +47,7 @@ describe('file store concurrency', () => {
     const original = JSON.stringify({ settings: {}, matches: [{ id: 'preserved' }], seasonArchives: [] });
     await fs.writeFile(dbPath, original);
     vi.stubEnv('DB_PATH', dbPath);
-    vi.stubEnv('USE_FIRESTORE', 'false');
+    
     const { readDB, saveDB } = await import('../lib/store');
     const { MAX_SEASON_ARCHIVES_BYTES } = await import('../lib/roster');
     const db = await readDB();

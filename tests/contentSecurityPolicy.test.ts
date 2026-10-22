@@ -14,8 +14,8 @@ async function policyFor(nodeEnv: string, serveFrontend: boolean) {
   const dbPath = path.join(tempDir, 'db.json');
   await fs.writeFile(dbPath, JSON.stringify({ matches: [], rounds: [], playerStats: [] }));
   for (const [key, value] of Object.entries({
-    NODE_ENV: nodeEnv, USE_FIRESTORE: 'false', DB_PATH: dbPath,
-    ADMIN_PASSWORD: 'csp-test-master-secret-24-characters', JWT_SECRET: 'csp-test-session-secret-24-characters', GEMINI_API_KEY: 'test-no-external-calls', GOOGLE_CLIENT_ID: '',
+    NODE_ENV: nodeEnv, DB_PATH: dbPath,
+    ADMIN_PASSWORD: 'csp-test-master-secret-24-characters', JWT_SECRET: 'csp-test-session-secret-24-characters', GEMINI_API_KEY: 'test-no-external-calls',
   })) vi.stubEnv(key, value);
   const { createApp } = await import('../server');
   const app = await createApp(serveFrontend);
@@ -38,9 +38,20 @@ afterEach(async () => {
 describe('content security policy', () => {
   it('refuses inline script on the built app the desktop and website serve', async () => {
     const policy = await policyFor('production', true);
-    expect(policy.get('script-src')).toEqual(["'self'", "'wasm-unsafe-eval'", 'https://accounts.google.com', 'https://apis.google.com']);
+    expect(policy.get('script-src')).toEqual(["'self'", "'wasm-unsafe-eval'"]);
     expect(policy.get('object-src')).toEqual(["'none'"]);
     expect(policy.get('base-uri')).toEqual(["'self'"]);
+  });
+
+  it('no longer trusts Google sign-in hosts now that Google sign-in is removed', async () => {
+    const served = await policyFor('production', true);
+    const headers = await fs.readFile(path.join(process.cwd(), 'public', '_headers'), 'utf8');
+    const pages = directives(String(headers.split('\n').find(item => item.trim().startsWith('Content-Security-Policy:'))).trim().replace(/^Content-Security-Policy:\s*/, ''));
+    for (const policy of [served, pages]) {
+      expect([...policy.values()].flat().join(' ')).not.toMatch(/accounts\.google\.com|apis\.google\.com/);
+      expect(policy.get('connect-src')).toEqual(["'self'"]);
+      expect(policy.get('frame-src')).toEqual(["'none'"]);
+    }
   });
 
   it('refuses inline script on the API-only server', async () => {
@@ -51,6 +62,6 @@ describe('content security policy', () => {
     const headers = await fs.readFile(path.join(process.cwd(), 'public', '_headers'), 'utf8');
     const line = headers.split('\n').find(item => item.trim().startsWith('Content-Security-Policy:'));
     const policy = directives(String(line).trim().replace(/^Content-Security-Policy:\s*/, ''));
-    expect(policy.get('script-src')).toEqual(["'self'", "'wasm-unsafe-eval'", 'https://accounts.google.com', 'https://apis.google.com']);
+    expect(policy.get('script-src')).toEqual(["'self'", "'wasm-unsafe-eval'"]);
   });
 });

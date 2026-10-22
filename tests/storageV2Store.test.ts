@@ -10,7 +10,7 @@ describe('Storage v2 local store', () => {
   it('commits artifacts before the small index and transparently hydrates reads', async () => {
     const dir = await fs.mkdtemp(path.join(os.tmpdir(), 'moe-storage-v2-')); dirs.push(dir);
     const dbPath = path.join(dir, 'db.json'); const evidenceDir = path.join(dir, 'evidence');
-    vi.stubEnv('DB_PATH', dbPath); vi.stubEnv('EVIDENCE_ARTIFACT_DIR', evidenceDir); vi.stubEnv('USE_FIRESTORE', 'false');
+    vi.stubEnv('DB_PATH', dbPath); vi.stubEnv('EVIDENCE_ARTIFACT_DIR', evidenceDir); 
     const { readDB, saveDB } = await import('../lib/store');
     const db = await readDB();
     db.matches = [{ id: 'm1', date: '2026-10-20', map: 'Ascent' }];
@@ -26,7 +26,7 @@ describe('Storage v2 local store', () => {
   it('fails closed instead of silently dropping a missing artifact', async () => {
     const dir = await fs.mkdtemp(path.join(os.tmpdir(), 'moe-storage-v2-missing-')); dirs.push(dir);
     const dbPath = path.join(dir, 'db.json'); const evidenceDir = path.join(dir, 'evidence');
-    vi.stubEnv('DB_PATH', dbPath); vi.stubEnv('EVIDENCE_ARTIFACT_DIR', evidenceDir); vi.stubEnv('USE_FIRESTORE', 'false');
+    vi.stubEnv('DB_PATH', dbPath); vi.stubEnv('EVIDENCE_ARTIFACT_DIR', evidenceDir); 
     const { readDB, saveDB } = await import('../lib/store'); const db = await readDB();
     db.matches = [{ id: 'm1' }]; db.rounds = [{ id: 'r1', matchId: 'm1', roundNo: 1, screenshotEvidence: { pixels: 'x'.repeat(20_000) } }]; await saveDB(db);
     for (const file of await fs.readdir(evidenceDir)) await fs.unlink(path.join(evidenceDir, file));
@@ -36,7 +36,7 @@ describe('Storage v2 local store', () => {
   it('counts retention from when an artifact was orphaned, not from when it was written', async () => {
     const dir = await fs.mkdtemp(path.join(os.tmpdir(), 'moe-storage-v2-retention-')); dirs.push(dir);
     const dbPath = path.join(dir, 'db.json'); const evidenceDir = path.join(dir, 'evidence');
-    vi.stubEnv('DB_PATH', dbPath); vi.stubEnv('EVIDENCE_ARTIFACT_DIR', evidenceDir); vi.stubEnv('EVIDENCE_ARTIFACT_RETENTION_DAYS', '1'); vi.stubEnv('USE_FIRESTORE', 'false');
+    vi.stubEnv('DB_PATH', dbPath); vi.stubEnv('EVIDENCE_ARTIFACT_DIR', evidenceDir); vi.stubEnv('EVIDENCE_ARTIFACT_RETENTION_DAYS', '1'); 
     const { readDB, saveDB } = await import('../lib/store'); let db = await readDB();
     db.matches = [{ id: 'm1' }]; db.rounds = [{ id: 'r1', matchId: 'm1', roundNo: 1, screenshotEvidence: { pixels: 'a'.repeat(20_000) } }]; await saveDB(db);
     const artifacts = async () => (await fs.readdir(evidenceDir)).filter(name => name.endsWith('.json.gz'));
@@ -57,7 +57,7 @@ describe('Storage v2 local store', () => {
   it('rewrites a truncated artifact instead of trusting an index that points at it', async () => {
     const dir = await fs.mkdtemp(path.join(os.tmpdir(), 'moe-storage-v2-truncated-')); dirs.push(dir);
     const dbPath = path.join(dir, 'db.json'); const evidenceDir = path.join(dir, 'evidence');
-    vi.stubEnv('DB_PATH', dbPath); vi.stubEnv('EVIDENCE_ARTIFACT_DIR', evidenceDir); vi.stubEnv('USE_FIRESTORE', 'false');
+    vi.stubEnv('DB_PATH', dbPath); vi.stubEnv('EVIDENCE_ARTIFACT_DIR', evidenceDir); 
     const { readDB, saveDB } = await import('../lib/store'); const db = await readDB();
     const evidence = { pixels: 'x'.repeat(20_000) };
     db.matches = [{ id: 'm1' }]; db.rounds = [{ id: 'r1', matchId: 'm1', roundNo: 1, screenshotEvidence: evidence }]; await saveDB(db);
@@ -75,7 +75,7 @@ describe('Storage v2 local store', () => {
   it('flags same-game pairs on a schema-14 database whose round evidence is externalized', async () => {
     const dir = await fs.mkdtemp(path.join(os.tmpdir(), 'moe-storage-v2-schema14-')); dirs.push(dir);
     const dbPath = path.join(dir, 'db.json'); const evidenceDir = path.join(dir, 'evidence');
-    vi.stubEnv('DB_PATH', dbPath); vi.stubEnv('EVIDENCE_ARTIFACT_DIR', evidenceDir); vi.stubEnv('USE_FIRESTORE', 'false');
+    vi.stubEnv('DB_PATH', dbPath); vi.stubEnv('EVIDENCE_ARTIFACT_DIR', evidenceDir); 
     const { recaptureMatch, recaptureRounds } = await import('./fixtures/sameGameRecapture');
     const { readDB, saveDB } = await import('../lib/store'); const db = await readDB();
     db.matches = [recaptureMatch('a', 'first'), recaptureMatch('b', 'second')];
@@ -93,7 +93,7 @@ describe('Storage v2 local store', () => {
   it('restores a backup over a workspace whose evidence artifact is missing', async () => {
     const dir = await fs.mkdtemp(path.join(os.tmpdir(), 'moe-storage-v2-restore-')); dirs.push(dir);
     const dbPath = path.join(dir, 'db.json'); const evidenceDir = path.join(dir, 'evidence');
-    vi.stubEnv('DB_PATH', dbPath); vi.stubEnv('EVIDENCE_ARTIFACT_DIR', evidenceDir); vi.stubEnv('PRIVATE_BACKUP_DIR', path.join(dir, 'backups')); vi.stubEnv('USE_FIRESTORE', 'false');
+    vi.stubEnv('DB_PATH', dbPath); vi.stubEnv('EVIDENCE_ARTIFACT_DIR', evidenceDir); vi.stubEnv('PRIVATE_BACKUP_DIR', path.join(dir, 'backups')); 
     const { readDB, saveDB } = await import('../lib/store'); const { createPrivateBackup, restorePrivateBackup } = await import('../lib/privateBackup');
     const db = await readDB();
     db.matches = [{ id: 'm1' }]; db.rounds = [{ id: 'r1', matchId: 'm1', roundNo: 1, screenshotEvidence: { pixels: 'good'.repeat(5_000) } }]; await saveDB(db);
@@ -112,7 +112,7 @@ describe('Storage v2 local store', () => {
   it('restores an index-only backup from the vault and refuses it when an artifact is gone', async () => {
     const dir = await fs.mkdtemp(path.join(os.tmpdir(), 'moe-storage-v2-index-only-')); dirs.push(dir);
     const dbPath = path.join(dir, 'db.json'); const evidenceDir = path.join(dir, 'evidence'); const backupDir = path.join(dir, 'backups');
-    vi.stubEnv('DB_PATH', dbPath); vi.stubEnv('EVIDENCE_ARTIFACT_DIR', evidenceDir); vi.stubEnv('PRIVATE_BACKUP_DIR', backupDir); vi.stubEnv('USE_FIRESTORE', 'false');
+    vi.stubEnv('DB_PATH', dbPath); vi.stubEnv('EVIDENCE_ARTIFACT_DIR', evidenceDir); vi.stubEnv('PRIVATE_BACKUP_DIR', backupDir); 
     const { readDB, saveDB } = await import('../lib/store'); const { createPrivateBackup, restorePrivateBackup } = await import('../lib/privateBackup');
     let db = await readDB();
     db.matches = [{ id: 'm1', roundAnalytics: { heat: 'a'.repeat(20_000) } }]; db.rounds = [{ id: 'r1', matchId: 'm1', roundNo: 1, screenshotEvidence: { pixels: 'good'.repeat(5_000) } }]; await saveDB(db);
@@ -137,7 +137,7 @@ describe('Storage v2 local store', () => {
   it('lets offline audits read hydrated evidence instead of artifact stubs', async () => {
     const dir = await fs.mkdtemp(path.join(os.tmpdir(), 'moe-storage-v2-offline-')); dirs.push(dir);
     const dbPath = path.join(dir, 'db.json');
-    vi.stubEnv('DB_PATH', dbPath); vi.stubEnv('EVIDENCE_ARTIFACT_DIR', ''); vi.stubEnv('USE_FIRESTORE', 'false');
+    vi.stubEnv('DB_PATH', dbPath); vi.stubEnv('EVIDENCE_ARTIFACT_DIR', ''); 
     const { readDB, saveDB } = await import('../lib/store'); const db = await readDB();
     db.matches = [{ id: 'm1' }]; db.rounds = [{ id: 'r1', matchId: 'm1', roundNo: 1, screenshotEvidence: { pixels: 'z'.repeat(20_000) } }]; await saveDB(db);
     const { readOfflineSnapshot } = await import('../lib/offlineSnapshot');
