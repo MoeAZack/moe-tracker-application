@@ -52,6 +52,7 @@ import {
 import { notify } from './utils/appDialogs';
 import AppDialogHost from './components/AppDialogHost';
 import WorkspaceRecovery from './components/WorkspaceRecovery';
+import { fetchTrackerState, trackerStateFailure } from './utils/trackerStateFetch';
 
 const DESTINATION_ICONS: Record<WorkspaceDestination, typeof Trophy> = {
   Home: Trophy, Matches: Swords, Team: Compass, Players: Users, Coaching: Sparkles, Playbook: Layers, Settings: SettingsIcon,
@@ -157,12 +158,16 @@ export default function App() {
   // Load Database State
   const fetchDatabase = async () => {
     try {
-      const res = await apiFetch(desktopMode ? '/api/data' : '/api/website-summary');
+      const res = await fetchTrackerState(() => apiFetch(desktopMode ? '/api/data' : '/api/website-summary'));
       if (res.status === 503) {
-        const body = await res.json().catch(() => ({}));
+        const body = await res.clone().json().catch(() => ({}));
         if (body.code === 'WORKSPACE_DATABASE_MISSING' || body.code === 'WORKSPACE_DATABASE_UNREADABLE') { setWorkspaceUnavailable(true); setError(null); return; }
       }
-      if (!res.ok) throw new Error('Failed to retrieve tracker state.');
+      if (!res.ok) {
+        const failure = await trackerStateFailure(res);
+        const code = await reportDesktopDiagnostic('load-tracker-state', new Error(failure));
+        throw new Error(`Failed to retrieve tracker state.${code ? ` Error code: ${code}` : ''}`);
+      }
       const json = await res.json();
       setData(json);
       setWorkspaceUnavailable(false);

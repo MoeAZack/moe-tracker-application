@@ -4,6 +4,7 @@ import crypto from 'crypto';
 import { gzipSync, gunzipSync } from 'node:zlib';
 import { createSeed } from './seed';
 import { DESTRUCTIVE_SAVE } from './destructiveSave';
+import { retryTransientFileLock } from './windowsFileRetry';
 import { assertSeasonArchivesStorageSize } from './roster';
 import { ensureWorkspaceIdentity } from './evidenceReference';
 import { ensureStorageSchema, migrateHydratedEvidence, STORAGE_SCHEMA_VERSION, validateTrackerState } from './storageSchema';
@@ -146,7 +147,7 @@ async function storeLocalArtifacts(artifacts: EvidenceArtifact[]) {
 
 async function loadLocalArtifact(sha256: string) {
   if (!/^[a-f0-9]{64}$/.test(sha256)) throw new Error('Evidence artifact reference is invalid.');
-  try { return gunzipSync(await fs.readFile(path.join(EVIDENCE_ARTIFACT_DIR, `${sha256}.json.gz`))).toString('utf8'); }
+  try { return gunzipSync(await retryTransientFileLock(() => fs.readFile(path.join(EVIDENCE_ARTIFACT_DIR, `${sha256}.json.gz`)))).toString('utf8'); }
   catch (error: any) { throw new Error(`Evidence artifact ${sha256} could not be loaded: ${error?.message || error}`); }
 }
 
@@ -173,7 +174,7 @@ async function writeJsonFile(data: any, expected: string | undefined, allowCreat
   assertSeasonArchivesStorageSize(data.seasonArchives || []);
   validateTrackerState(data, { jsonFile: true });
   let currentText: string | null = null;
-  try { currentText = await fs.readFile(DB_PATH, 'utf8'); } catch (error: any) { if (error?.code !== 'ENOENT') throw error; }
+  try { currentText = await retryTransientFileLock(() => fs.readFile(DB_PATH, 'utf8')); } catch (error: any) { if (error?.code !== 'ENOENT') throw error; }
   if (currentText === null && !allowCreate) throw Object.assign(new Error('Database revision is required for ordinary writes.'), { status: 409 });
   if (currentText !== null && expected === undefined) throw Object.assign(new Error('Database revision is required for ordinary writes.'), { status: 409 });
   if (currentText !== null && hashText(currentText) !== expected) throw Object.assign(new Error('Data changed while this request was being processed. Please retry.'), { status: 409 });
@@ -189,7 +190,7 @@ async function writeJsonFile(data: any, expected: string | undefined, allowCreat
   const serialized = JSON.stringify(planned.state, null, 2);
   const handle = await fs.open(tempPath, 'wx', 0o600);
   try { await handle.writeFile(serialized, 'utf8'); await handle.sync(); } finally { await handle.close(); }
-  await fs.rename(tempPath, DB_PATH);
+  await retryTransientFileLock(() => fs.rename(tempPath, DB_PATH));
   await syncDirectory(path.dirname(DB_PATH)).catch(() => {});
   if (previousSchema < STORAGE_SCHEMA_VERSION) migratedInThisProcess = true;
   const active = evidenceArtifactReferences(planned.state);
@@ -283,7 +284,7 @@ async function quarantineUnreadableDatabase() {
 async function readStoredState(hydrate: boolean) {
   if (d1) return readDBD1(hydrate);
   let storedText: string;
-  try { storedText = await fs.readFile(DB_PATH, 'utf8'); }
+  try { storedText = await retryTransientFileLock(() => fs.readFile(DB_PATH, 'utf8')); }
   catch (error: any) {
     if (error?.code !== 'ENOENT') throw error;
     const signs = await priorWorkspaceSigns();
