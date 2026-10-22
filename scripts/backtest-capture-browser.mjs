@@ -50,6 +50,8 @@ const rosterPlayers = process.env.ROSTER_JSON ? JSON.parse(await readFile(proces
 const correctionFile = process.env.CORRECTION_MODEL_JSON ? JSON.parse(await readFile(process.env.CORRECTION_MODEL_JSON, 'utf8')) : undefined;
 const correctionModel = correctionFile?.model ?? correctionFile; // the export holds { model, … }; a bare model works too
 await mkdir(outDir, { recursive: true });
+// Ensemble: learned digit templates carry across sessions in folder order, never written to disk.
+let glyphTemplates = null;
 try {
   for (const folder of folders) {
     const names = await readdir(folder);
@@ -65,8 +67,9 @@ try {
     await page.goto(`${origin}/capture-backtest.html`, { waitUntil: 'domcontentloaded' });
     await page.waitForFunction(() => typeof window.__runCaptureBacktest === 'function', null, { timeout: 60_000 });
     const started = Date.now();
-    const result = await page.evaluate(async data => await window.__runCaptureBacktest(data), { captures, rosterPlayers, resample, correctionModel, engine });
+    const result = await page.evaluate(async data => await window.__runCaptureBacktest(data), { captures, rosterPlayers, resample, correctionModel, engine, glyphTemplates });
     await page.close();
+    if (result.glyphTemplates) { glyphTemplates = result.glyphTemplates; delete result.glyphTemplates; }
     const output = path.join(outDir, `${path.basename(folder)}.json`);
     await writeFile(output, JSON.stringify({ folder: path.basename(folder), engine, seconds: Math.round((Date.now() - started) / 1000), ...result }, null, 2));
     console.log(`${path.basename(folder)}: ${result.meta.map} ${result.meta.ourScore}-${result.meta.theirScore} · ${result.rounds.length} rounds · ${Math.round((Date.now() - started) / 1000)}s`);

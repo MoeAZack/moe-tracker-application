@@ -1,5 +1,6 @@
 import { buildScreenshotReviewDraft } from './entryEngine';
-import { agreeingNumberRead, loadBrowserPaddleDigitRecognizer, normalizeOcrEngineId, ocrEngineModelSuffix, type OcrEngineId } from './ocrEngines';
+import { agreeingNumberRead, loadBrowserPaddleDigitRecognizer, normalizeOcrEngineId, ocrEngineModelSuffix, unanimousNumberRead, type OcrEngineId } from './ocrEngines';
+import { classifyGlyphs, glyphFeatures, glyphLearningLabel, learnGlyphs, type GlyphTemplateSet } from './glyphTemplates';
 
 export const LOCAL_OCR_RUNTIME = Object.freeze({
   tesseractVersion: '7.0.0',
@@ -757,7 +758,7 @@ export async function readSegmentedKda(
  * lib/ocrEngines.ts); names, maps and labels are always read by Tesseract.
  * The default, Tesseract, runs exactly the reads it always ran.
  */
-export async function createBrowserLocalTesseractAdapter(options: { engine?: OcrEngineId } = {}): Promise<LocalOcrAdapter> {
+export async function createBrowserLocalTesseractAdapter(options: { engine?: OcrEngineId; glyphTemplates?: GlyphTemplateSet } = {}): Promise<LocalOcrAdapter> {
   if (typeof document === 'undefined') throw new Error('The local OCR adapter requires a browser canvas runtime.');
   // A build or machine where the PaddleOCR runtime cannot start reads with
   // Tesseract alone, and says so through `engine`, so the draft's source
@@ -826,7 +827,15 @@ export async function createBrowserLocalTesseractAdapter(options: { engine?: Ocr
               if (!paddle) return readTesseractNumber(crop, rectangle, enlarge);
               const paddleRead = await paddle.readDigits(crop, enlarge === 1 ? .25 : .5);
               if (engine === 'paddle') return paddleRead;
-              return agreeingNumberRead([await readTesseractNumber(crop, rectangle, enlarge), paddleRead]);
+              const tesseractRead = await readTesseractNumber(crop, rectangle, enlarge);
+              const templates = options.glyphTemplates; if (!templates) return agreeingNumberRead([tesseractRead, paddleRead]);
+              // The learned font templates are a third voter; they abstain until they know the digits.
+              const resolution = `${immutableProfile.dimensions.height}p`; const glyphs = glyphFeatures(crop);
+              const read = unanimousNumberRead([tesseractRead, paddleRead, classifyGlyphs(templates, resolution, glyphs)]);
+              // A very sure PaddleOCR read that Tesseract does not contradict teaches the templates.
+              const label = enlarge === 1 ? glyphLearningLabel(tesseractRead, paddleRead) : null;
+              if (label) learnGlyphs(templates, resolution, glyphs, label);
+              return read;
             };
             const grayscaleNumber = (rectangle: KdaNumberRectangle) => preprocessNumericGrayscale(sourcePixels, {
               left: region.rectangle.left + rectangle.left, top: region.rectangle.top + rectangle.top,

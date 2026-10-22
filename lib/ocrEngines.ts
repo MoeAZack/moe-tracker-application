@@ -20,7 +20,7 @@ export const DEFAULT_OCR_ENGINE: OcrEngineId = 'tesseract';
 export const OCR_ENGINE_LABELS: Readonly<Record<OcrEngineId, { label: string; detail: string }>> = Object.freeze({
   tesseract: { label: 'Tesseract', detail: 'The original reader. Reads names and numbers.' },
   paddle: { label: 'PaddleOCR numbers', detail: 'PP-OCRv4 reads K/D/A and other numbers; Tesseract still reads names.' },
-  ensemble: { label: 'Ensemble (both must agree)', detail: 'Both engines read every number. Any disagreement leaves the cell empty for you to fill in.' },
+  ensemble: { label: 'Ensemble (must agree)', detail: 'Tesseract, PaddleOCR and the digit templates it learns read every number. Any disagreement leaves the cell empty for you to fill in.' },
 });
 
 /** Pinned offline runtime: served from the app's own origin like the Tesseract assets. */
@@ -35,8 +35,21 @@ export const PADDLE_OCR_RUNTIME = Object.freeze({
   inputHeight: 48,
 });
 
-/** Scale for PaddleOCR's 0..1 character probabilities so they compare with Tesseract's 0..100 floors. */
-export const PADDLE_CONFIDENCE_SCALE = 100;
+/**
+ * PaddleOCR's confidence is a softmax probability (the weakest digit's), not
+ * Tesseract's 0..100 score, so it is mapped onto Tesseract's scale before the
+ * K/D/A floor (KDA_CONFIDENCE_FLOOR, 70) and the learned-rule ceiling
+ * (LEARNED_RULE_CONFIDENCE_CEILING, 70) see it. On the committed fixtures
+ * (540 reads: 270 numbers, each in both framings the app uses) every wrong
+ * PaddleOCR read had a probability of 0.67 or less, so a probability of 0.75
+ * maps to 70: below it a number is held to the same rules as an unsure
+ * Tesseract read. 0.75..1 spreads over 70..100; 0..0.75 over 0..70.
+ */
+export const PADDLE_FLOOR_PROBABILITY = .75;
+export function calibratedPaddleConfidence(probability: number) {
+  const value = Math.max(0, Math.min(1, probability));
+  return value <= PADDLE_FLOOR_PROBABILITY ? value / PADDLE_FLOOR_PROBABILITY * 70 : 70 + (value - PADDLE_FLOOR_PROBABILITY) / (1 - PADDLE_FLOOR_PROBABILITY) * 30;
+}
 
 export function normalizeOcrEngineId(value: unknown): OcrEngineId {
   return OCR_ENGINE_IDS.includes(value as OcrEngineId) ? value as OcrEngineId : DEFAULT_OCR_ENGINE;
@@ -51,7 +64,7 @@ export function normalizeOcrEngineId(value: unknown): OcrEngineId {
 export function ocrEngineModelSuffix(engine: OcrEngineId | undefined): string {
   const id = normalizeOcrEngineId(engine);
   if (id === 'tesseract') return '';
-  return id === 'paddle' ? `+numbers:${PADDLE_OCR_RUNTIME.recognitionVersion}` : `+numbers:ensemble(tesseract,${PADDLE_OCR_RUNTIME.recognitionVersion})`;
+  return id === 'paddle' ? `+numbers:${PADDLE_OCR_RUNTIME.recognitionVersion}` : `+numbers:ensemble(tesseract,${PADDLE_OCR_RUNTIME.recognitionVersion},glyph-templates-v1)`;
 }
 
 export interface NumberRead { text: string; confidence: number | null }
@@ -69,6 +82,21 @@ export function agreeingNumberRead(reads: readonly NumberRead[], pattern: RegExp
   const confidence = confidences.length === cleaned.length && confidences.length ? Math.min(...confidences) : null;
   const agreed = cleaned.length > 0 && cleaned.every(read => pattern.test(read.text) && read.text === cleaned[0].text);
   return { text: agreed ? cleaned[0].text : '', confidence, agreed };
+}
+
+/**
+ * Ensemble rule with an optional voter: a voter that finds nothing abstains,
+ * but any number it does read must match every other read. The number is kept
+ * when at least `minimumVotes` voters read it and nobody read anything else.
+ * Tesseract and PaddleOCR always vote; the learned digit templates vote only
+ * once they know the digits (lib/glyphTemplates.ts), so with two voters this
+ * is exactly agreeingNumberRead.
+ */
+export function unanimousNumberRead(reads: readonly NumberRead[], minimumVotes = 2, pattern: RegExp = DIGITS): NumberRead & { agreed: boolean } {
+  const votes = reads.map(read => ({ text: String(read.text || '').trim(), confidence: Number.isFinite(read.confidence) ? Number(read.confidence) : null })).filter(read => read.text);
+  const agreed = votes.length >= minimumVotes && votes.every(read => pattern.test(read.text) && read.text === votes[0].text);
+  const confidences = votes.map(read => read.confidence).filter((value): value is number => value !== null);
+  return { text: agreed ? votes[0].text : '', confidence: confidences.length === votes.length && confidences.length ? Math.min(...confidences) : null, agreed };
 }
 
 export interface RgbaImage { width: number; height: number; data: Uint8ClampedArray }
@@ -136,8 +164,8 @@ export interface OnnxRuntimeLike {
 
 export interface PaddleDigitRecognizer {
   /**
-   * Reads digits from a dark-on-white crop. Confidence is on Tesseract's
-   * 0..100 scale. `padFraction` changes the white margin, which gives the
+   * Reads digits from a dark-on-white crop. Confidence is calibrated onto
+   * Tesseract's 0..100 scale (calibratedPaddleConfidence). `padFraction` changes the white margin, which gives the
    * model a second, differently framed view of the same number.
    */
   readDigits(image: RgbaImage, padFraction?: number): Promise<NumberRead>;
@@ -154,7 +182,7 @@ export async function createPaddleDigitRecognizer(ort: OnnxRuntimeLike, model: U
       const output = outputs[session.outputNames[0]];
       const [, steps, classes] = output.dims;
       const read = decodeDigitsCtc(output.data as ArrayLike<number>, steps, classes, characters);
-      return { text: read.text, confidence: read.confidence === null ? null : read.confidence * PADDLE_CONFIDENCE_SCALE };
+      return { text: read.text, confidence: read.confidence === null ? null : calibratedPaddleConfidence(read.confidence) };
     },
     async release() { await session.release?.(); },
   };

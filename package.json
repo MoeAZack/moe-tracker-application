@@ -108,9 +108,14 @@
       "dist/**/*",
       "build/**/*",
       "scripts/**/*",
-      "package.json"
+      "package.json",
+      "THIRD-PARTY-NOTICES.md"
     ],
     "extraResources": [
+      {
+        "from": "THIRD-PARTY-NOTICES.md",
+        "to": "THIRD-PARTY-NOTICES.md"
+      },
       {
         "from": "scripts",
         "to": "scripts",

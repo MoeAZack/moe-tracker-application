@@ -3,11 +3,10 @@ import type { MatchStatsUpdate, TrackerData } from '../types';
 import { apiFetch } from '../utils/api';
 import { reportDesktopDiagnostic } from '../utils/desktopDiagnostics';
 import { extractScoreboardLocally } from '../utils/localScoreboard';
-import { createBrowserLocalTesseractAdapter } from '../../lib/localOcrEngine';
 import { extractCaptureSession, type CaptureImage } from '../../lib/captureSessionPipeline';
 import { buildAutomaticCaptureImport } from '../../lib/automaticCaptureImport';
 import { getCachedRecognitions, putCachedRecognitions, sha256Base64 } from '../utils/ocrRecognitionCache';
-import { getOcrEngineSetting } from '../utils/ocrEngineSetting';
+import { createConfiguredOcrAdapter } from '../utils/ocrEngineSetting';
 import { mergeScoreboardFallback, shouldRequestCloudFallback } from '../../lib/ocrAutonomy';
 import { OCR_LEARNING_VERSION, rosterWithLearnedAliases } from '../../lib/ocrLearning';
 import { getOcrLearningState, recordOcrSessionOutcome } from '../utils/ocrLearningStore';
@@ -47,7 +46,7 @@ export default function DesktopReplayAutomation({ data, role, onProcessed, onSav
         attempted.current.set(pending.id, Date.now());
         if (pending.capture) {
           const session = await window.moeDesktop!.readCaptureSession(pending.id);
-          const adapter = await createBrowserLocalTesseractAdapter({ engine: getOcrEngineSetting() });
+          const adapter = await createConfiguredOcrAdapter();
           try {
             const hashes = new Map<string, Promise<string>>();
             // Same identities as the replay path: coach corrections and accepted names count here too.

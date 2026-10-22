@@ -15,7 +15,7 @@ import { captureConsistencyReport, findDuplicateScoreboardMatch } from '../../li
 import { extractCaptureSession, INFORMATIONAL_ROUND_ISSUES } from '../../lib/captureSessionPipeline';
 import { buildOpponentHistory } from '../../lib/opponentHistory';
 import { getCachedRecognitions, putCachedRecognitions, sha256Base64 } from '../utils/ocrRecognitionCache';
-import { getOcrEngineSetting } from '../utils/ocrEngineSetting';
+import { createConfiguredOcrAdapter } from '../utils/ocrEngineSetting';
 import { correctionSamplesFromAcceptedEdit, OCR_LEARNING_VERSION, rosterWithLearnedAliases } from '../../lib/ocrLearning';
 import { getOcrLearningState, recordOcrCorrections, recordOcrSessionOutcome } from '../utils/ocrLearningStore';
 import { deriveRoundAdvantage } from '../../lib/roundAdvantage';
@@ -138,7 +138,7 @@ export default function ScrimImport({ data, theme, onSaveMatch, onClose }: Props
         : roster.map(displayName => ({ displayName }));
       const learning = await getOcrLearningState(data.rosterPlayers || []);
       const extractionRosterPlayers = rosterWithLearnedAliases(baseRoster, learning.aliases);
-      adapter = await createBrowserLocalTesseractAdapter({ engine: getOcrEngineSetting() });
+      adapter = await createConfiguredOcrAdapter();
       const hashes = new Map<string, Promise<string>>();
       let cacheHits = 0; let cacheMisses = 0;
       const extracted = await extractCaptureSession({

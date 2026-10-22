@@ -2,7 +2,7 @@ import type { ScoreboardSelection } from '../../lib/localOcrEngine';
 import { LOCAL_SCOREBOARD_CACHE_VERSION, localScoreboardCacheKey, pruneOcrResultCache } from '../../lib/ocrResultCache';
 import { applyLearnedCorrections, type LocalCorrectionModel } from '../../lib/ocrLearning';
 import { getOcrLearningState, learnedExtractionRoster } from './ocrLearningStore';
-import { getOcrEngineSetting } from './ocrEngineSetting';
+import { createConfiguredOcrAdapter, getOcrEngineSetting } from './ocrEngineSetting';
 import { normalizeOcrEngineId, ocrEngineModelSuffix } from '../../lib/ocrEngines';
 
 /** Short fingerprint of the learned rules, so a newly learned correction re-reads instead of reusing a cached draft. */
@@ -52,7 +52,7 @@ export async function extractScoreboardLocally(file: File, roster: Array<{ id?: 
     context.drawImage(image, 0, 0); const pixels = context.getImageData(0, 0, canvas.width, canvas.height);
     profile = localOcr.createValorantEndScreenProfile(image.naturalWidth, image.naturalHeight, 'custom', localOcr.measureScoreDigitBoxes(pixels), localOcr.measureScoreboardRowOffset(pixels));
   }
-  const adapter = await localOcr.createBrowserLocalTesseractAdapter({ engine });
+  const adapter = await createConfiguredOcrAdapter();
   try {
     const draft = await localOcr.extractLocalScoreboardDraft(adapter, image, profile.dimensions, { capturedAt: new Date().toISOString(), rosterPlayers }, profile);
     if (correctionModel) draft.stats = applyLearnedCorrections(draft.stats, correctionModel, { sourceModel: draft.sourceMetadata.model, layout: 'custom', resolution: `${image.naturalWidth}x${image.naturalHeight}` });

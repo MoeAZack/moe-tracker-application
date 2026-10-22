@@ -1,7 +1,10 @@
 import { describe, expect, it } from 'vitest';
+import { readFileSync } from 'node:fs';
 import {
   DEFAULT_OCR_ENGINE,
+  PADDLE_FLOOR_PROBABILITY,
   agreeingNumberRead,
+  calibratedPaddleConfidence,
   createPaddleDigitRecognizer,
   decodeDigitsCtc,
   normalizeOcrEngineId,
@@ -85,6 +88,15 @@ describe('PaddleOCR decoding', () => {
     expect(() => decodeDigitsCtc([1, 0, 0], 1, 3, ['', 'a', ' '])).toThrow(/ten digits/);
   });
 
+  it('feeds the model blue, green, red planes in that order', () => {
+    // A pure red crop: PaddleOCR models were trained on BGR, so red is the third plane.
+    const red = { width: 8, height: 8, data: new Uint8ClampedArray(8 * 8 * 4) };
+    for (let index = 0; index < 64; index += 1) { red.data[index * 4] = 255; red.data[index * 4 + 3] = 255; }
+    const { tensor, width } = paddleRecognitionTensor(red);
+    const centre = (plane: number) => tensor[plane * 48 * width + 24 * width + Math.floor(width / 2)];
+    expect([centre(0), centre(1), centre(2)]).toEqual([-1, -1, 1]);
+  });
+
   it('builds a 48-pixel BGR tensor padded with white', () => {
     const image = { width: 4, height: 8, data: new Uint8ClampedArray(4 * 8 * 4).fill(255) };
     image.data[0] = 0; // one red-channel-dark pixel
@@ -94,6 +106,17 @@ describe('PaddleOCR decoding', () => {
     expect(tensor).toHaveLength(3 * 48 * width);
     expect(tensor[0]).toBe(1); // padded corner is white
     expect(() => paddleRecognitionTensor({ width: 2, height: 2, data: new Uint8ClampedArray(3) })).toThrow();
+  });
+});
+
+describe('PaddleOCR confidence calibration', () => {
+  it('maps the softmax probability onto the 0..100 scale the K/D/A floor and learned-rule ceiling use', () => {
+    expect(calibratedPaddleConfidence(PADDLE_FLOOR_PROBABILITY)).toBe(70);
+    expect(calibratedPaddleConfidence(1)).toBe(100);
+    expect(calibratedPaddleConfidence(0)).toBe(0);
+    expect(calibratedPaddleConfidence(.67)).toBeLessThan(KDA_CONFIDENCE_FLOOR);
+    expect(calibratedPaddleConfidence(.5)).toBeLessThan(calibratedPaddleConfidence(.9));
+    expect(calibratedPaddleConfidence(7)).toBe(100);
   });
 });
 
@@ -111,10 +134,23 @@ describe('PaddleOCR on the committed HUD-digit fixtures', () => {
           const read = await recognizer.readDigits(numberCrop(crop));
           if (read.text === crop.label) correct += 1;
           else if (read.text && (read.confidence ?? 0) >= KDA_CONFIDENCE_FLOOR) confidentWrong += 1;
+          // The wider framing the low-resolution second read uses must not be confidently wrong either.
+          const second = await recognizer.readDigits(numberCrop(crop), .5);
+          if (second.text && second.text !== crop.label && (second.confidence ?? 0) >= KDA_CONFIDENCE_FLOOR) confidentWrong += 1;
         }
         expect({ height, confidentWrong }).toEqual({ height, confidentWrong: 0 });
         expect(correct, `${height}p`).toBeGreaterThanOrEqual(88);
       }
     } finally { await recognizer.release(); }
   }, 120_000);
+});
+
+describe('licences', () => {
+  it('ships third-party notices naming every OCR component in the installer', () => {
+    const pkg = JSON.parse(readFileSync('package.json', 'utf8'));
+    expect(pkg.build.files).toContain('THIRD-PARTY-NOTICES.md');
+    expect(pkg.build.extraResources.some((item: { from: string }) => item.from === 'THIRD-PARTY-NOTICES.md')).toBe(true);
+    const notices = readFileSync('THIRD-PARTY-NOTICES.md', 'utf8');
+    for (const name of ['tesseract.js', 'tesseract.js-core', '@tesseract.js-data/eng', 'ONNX Runtime Web', 'PP-OCRv4', 'Apache-2.0']) expect(notices).toContain(name);
+  });
 });
