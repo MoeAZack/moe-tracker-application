@@ -1,17 +1,16 @@
 import React, { useEffect, useState } from 'react';
 import { CheckCircle, Loader2, Save } from 'lucide-react';
 
-type SecretKey = 'GEMINI_API_KEY' | 'GRID_API_KEY' | 'DISCORD_WEBHOOK_URL';
+type SecretKey = 'GEMINI_API_KEY' | 'DISCORD_WEBHOOK_URL';
 const rows: Array<{ key: SecretKey; label: string; placeholder: string; help: string }> = [
   { key: 'GEMINI_API_KEY', label: 'Gemini API key', placeholder: 'Paste a new local key', help: 'Used by AI coaching features on this PC.' },
-  { key: 'GRID_API_KEY', label: 'Official GRID.gg API key', placeholder: 'Paste a new local key', help: 'Stored now; GRID ingestion remains gated until the team feed and schema are activated.' },
   { key: 'DISCORD_WEBHOOK_URL', label: 'Discord webhook URL', placeholder: 'Paste a new local webhook', help: 'Sends automatic match reports from this PC.' },
 ];
 
 export default function DesktopIntegrationSecrets() {
   const bridge = window.moeDesktop;
-  const [configured, setConfigured] = useState<Record<SecretKey, boolean>>({ GEMINI_API_KEY: false, GRID_API_KEY: false, DISCORD_WEBHOOK_URL: false });
-  const [values, setValues] = useState<Record<SecretKey, string>>({ GEMINI_API_KEY: '', GRID_API_KEY: '', DISCORD_WEBHOOK_URL: '' });
+  const [configured, setConfigured] = useState<Record<SecretKey, boolean>>({ GEMINI_API_KEY: false, DISCORD_WEBHOOK_URL: false });
+  const [values, setValues] = useState<Record<SecretKey, string>>({ GEMINI_API_KEY: '', DISCORD_WEBHOOK_URL: '' });
   const [busy, setBusy] = useState<SecretKey | null>(null);
   const [message, setMessage] = useState('');
   useEffect(() => {

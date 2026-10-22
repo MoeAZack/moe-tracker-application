@@ -6,11 +6,6 @@ import {
   calculateShadowPlayerRating, previewShadowRatingWeights, SHADOW_RATING_ENGINE_VERSION,
   type PlayerRatingFormula, type PlayerRatingInput, type RatingBaseline,
 } from '../playerRatingEngine';
-import {
-  RANKED_SYNC_ENGINE_VERSION, validateProviderCapability, validateRankedConsentRecord, applyRankedSyncOutcome,
-  type ProviderCapability, type RankedAccountIdentity, type RankedConsent, type RankedSyncState,
-  type SyncOutcome,
-} from '../rankedSyncEngine';
 
 type Actor = { role: 'coach' | 'player'; username: string; playerId?: string; actorId: string };
 type Stored<T> = T & { revision: number; requestId: string; requestHash: string; updatedAt: string };
@@ -43,6 +38,8 @@ function adapters(db: any) {
       db.engineAdapters.ratings.baselineVersions[config.baseline.version] = hash;
     }
   }
+  // The ranked-sync prototype was removed. Its stored records stay in the
+  // workspace untouched so roster archive and restore keep them intact.
   db.engineAdapters.ranked ||= { providers: {}, accounts: {}, consents: {}, states: {} };
   for (const key of ['providers', 'accounts', 'consents', 'states']) db.engineAdapters.ranked[key] ||= {};
   return db.engineAdapters;
@@ -127,43 +124,6 @@ function validateReplayObservation(item: any) {
   if (!onlyKeys(item, ['observationId', 'roundNumber', 'signal', 'grade', 'explicitlyPresent', 'confidence', 'occurredAtMs', 'phase', 'playerId', 'targetPlayerId', 'teamId', 'attributes']) || !text(item.observationId) || !integerAtLeast(item.roundNumber, 1) || !REPLAY_SIGNALS.has(item.signal) || !['event-log', 'video-observation', 'ocr', 'inference'].includes(item.grade) || typeof item.explicitlyPresent !== 'boolean' || (item.confidence !== null && (!finiteNonnegative(item.confidence) || item.confidence > 1)) || (item.occurredAtMs !== undefined && item.occurredAtMs !== null && !finiteNonnegative(item.occurredAtMs)) || (item.phase !== undefined && !['pre-round', 'barrier', 'early', 'mid', 'late', 'post-plant', 'round-end', 'unknown'].includes(item.phase)) || ['playerId', 'targetPlayerId', 'teamId'].some(key => item[key] !== undefined && !nullableText(item[key])) || (item.attributes !== undefined && (item.attributes === null || typeof item.attributes !== 'object' || Array.isArray(item.attributes)))) throw Object.assign(new Error('Replay observation is invalid.'), { status: 400 });
 }
 
-function normalizeAccount(raw: any): RankedAccountIdentity {
-  if (!onlyKeys(raw, ['providerAccountId', 'region', 'platform'])) throw Object.assign(new Error('Ranked account identity contains unsupported fields.'), { status: 400 });
-  const providerAccountId = text(raw?.providerAccountId); const region = text(raw?.region); const platform = text(raw?.platform);
-  if (!providerAccountId || !region || !platform) throw Object.assign(new Error('Exact account identity is required.'), { status: 400 });
-  return { providerAccountId, region, platform };
-}
-
-function accountFingerprint(record: any) {
-  return contentHash({
-    playerId: typeof record?.playerId === 'string' ? record.playerId : null,
-    providerId: typeof record?.providerId === 'string' ? record.providerId : null,
-    account: {
-      providerAccountId: typeof record?.account?.providerAccountId === 'string' ? record.account.providerAccountId : null,
-      region: typeof record?.account?.region === 'string' ? record.account.region : null,
-      platform: typeof record?.account?.platform === 'string' ? record.account.platform : null,
-    },
-    revision: Number.isSafeInteger(record?.revision) ? record.revision : null,
-  });
-}
-
-function normalizeProvider(raw: any): ProviderCapability {
-  if (!onlyKeys(raw, ['providerId', 'approvedStatus', 'configured', 'documentedEndpointFamily', 'sourceSchemaVersion', 'termsPolicyVersion', 'quota'])
-    || (raw?.quota !== null && !onlyKeys(raw?.quota, ['limit', 'windowMs']))) throw Object.assign(new Error('Provider capability contains unsupported fields.'), { status: 400 });
-  if (!['approved', 'pending', 'denied', 'unknown'].includes(raw?.approvedStatus) || typeof raw?.configured !== 'boolean'
-    || !['documentedEndpointFamily', 'sourceSchemaVersion', 'termsPolicyVersion'].every(key => raw?.[key] === null || typeof raw?.[key] === 'string')
-    || (raw?.quota !== null && (!Number.isSafeInteger(raw?.quota?.limit) || raw.quota.limit < 1 || !Number.isSafeInteger(raw?.quota?.windowMs) || raw.quota.windowMs < 1))) {
-    throw Object.assign(new Error('Provider capability fields are invalid.'), { status: 400 });
-  }
-  const provider: ProviderCapability = {
-    providerId: text(raw.providerId) || '', approvedStatus: raw.approvedStatus, configured: raw.configured,
-    documentedEndpointFamily: text(raw.documentedEndpointFamily), sourceSchemaVersion: text(raw.sourceSchemaVersion),
-    termsPolicyVersion: text(raw.termsPolicyVersion), quota: raw.quota === null ? null : { limit: raw.quota.limit, windowMs: raw.quota.windowMs },
-  };
-  if (!validateProviderCapability(provider)) throw Object.assign(new Error('Invalid or incomplete provider capability.'), { status: 400 });
-  return provider;
-}
-
 function operationScope(req: Request, operation: string, target: string, requestId: string) {
   const user = actor(req);
   return contentHash({ operation, actorId: user.actorId, role: user.role, target, requestId });
@@ -237,33 +197,6 @@ function ratingPublic(record: any) {
   };
 }
 
-function safeRankedForPlayer(data: any, playerId: string) {
-  const accounts = Object.values(data.accounts).filter((item: any) => item.playerId === playerId).map((item: any) => ({
-    playerId, providerId: publicString(item?.providerId), account: { providerAccountId: publicString(item?.account?.providerAccountId), region: publicString(item?.account?.region), platform: publicString(item?.account?.platform) }, revision: publicNumber(item?.revision), fingerprint: accountFingerprint(item),
-  }));
-  const consents = Object.values(data.consents).filter((item: any) => item.playerId === playerId).map((item: any) => ({
-    playerId, providerId: publicString(item?.providerId), scopes: publicStrings(item?.scopes) || [], consentVersion: publicString(item?.consentVersion),
-    grantedAt: publicString(item?.grantedAt), revokedAt: publicString(item?.revokedAt), revision: publicNumber(item?.revision),
-  }));
-  const states = Object.values(data.states).filter((item: any) => item.playerId === playerId).map((item: any) => ({
-    playerId, providerId: publicString(item?.providerId), status: publicString(item?.status), lastSuccessfulSyncAt: publicString(item?.lastSuccessfulSyncAt),
-    knownMatchCount: publicNumber(item?.knownMatchCount), lastErrorCode: publicString(item?.lastErrorCode), revision: publicNumber(item?.revision),
-  }));
-  return { engineVersion: RANKED_SYNC_ENGINE_VERSION, activation: 'disabled', accounts, consents, states };
-}
-
-const consentResponse = (item: any) => ({ playerId: item.playerId, providerId: item.providerId, scopes: [...item.scopes], consentVersion: item.consentVersion, grantedAt: item.grantedAt, revokedAt: item.revokedAt, revision: item.revision });
-
-function rankedForCoach(data: any) {
-  return {
-    engineVersion: RANKED_SYNC_ENGINE_VERSION, activation: 'disabled',
-    providers: Object.values(data.providers).map((item: any) => ({ providerId: item.providerId, approvedStatus: item.approvedStatus, configured: item.configured, documentedEndpointFamily: item.documentedEndpointFamily, sourceSchemaVersion: item.sourceSchemaVersion, termsPolicyVersion: item.termsPolicyVersion, quota: item.quota ? { limit: item.quota.limit, windowMs: item.quota.windowMs } : null, revision: item.revision })),
-    accounts: Object.values(data.accounts).map((item: any) => ({ playerId: item.playerId, providerId: item.providerId, account: { providerAccountId: item.account.providerAccountId, region: item.account.region, platform: item.account.platform }, revision: item.revision, fingerprint: accountFingerprint(item) })),
-    consents: Object.values(data.consents).map((item: any) => ({ playerId: item.playerId, providerId: item.providerId, scopes: [...item.scopes], consentVersion: item.consentVersion, grantedAt: item.grantedAt, revokedAt: item.revokedAt, grantedBy: item.grantedBy ? { kind: item.grantedBy.kind, playerId: item.grantedBy.playerId, username: item.grantedBy.username } : null, revision: item.revision })),
-    states: Object.values(data.states).map((item: any) => ({ playerId: item.playerId, providerId: item.providerId, status: item.status, lastAttemptAt: item.lastAttemptAt, lastSuccessfulSyncAt: item.lastSuccessfulSyncAt, knownMatchCount: item.knownMatchCount, lastErrorCode: item.lastErrorCode, revision: item.revision })),
-  };
-}
-
 export function registerEngineAdapterRoutes(app: Express) {
   app.get('/api/engine-adapters', async (req, res) => {
     try {
@@ -278,18 +211,11 @@ export function registerEngineAdapterRoutes(app: Express) {
         const playerId = item?.input?.context?.playerId || item?.result?.context?.playerId;
         return activePlayerIds.has(playerId) && Array.isArray(matchIds) && matchIds.length > 0 && matchIds.every((id: any) => activeMatchIds.has(id));
       }));
-      const activeRanked = {
-        ...data.ranked,
-        accounts: Object.fromEntries(Object.entries(data.ranked.accounts).filter(([, item]: any) => activePlayerIds.has(item?.playerId))),
-        consents: Object.fromEntries(Object.entries(data.ranked.consents).filter(([, item]: any) => activePlayerIds.has(item?.playerId))),
-        states: Object.fromEntries(Object.entries(data.ranked.states).filter(([, item]: any) => activePlayerIds.has(item?.playerId))),
-      };
-      if (user.role === 'coach') return res.json({ replay: activeReplay, ratings: { ...data.ratings, records: activeRatings }, ranked: rankedForCoach(activeRanked) });
-      if (!user.playerId) return res.json({ replay: [], ratings: [], ranked: { engineVersion: RANKED_SYNC_ENGINE_VERSION, activation: 'disabled', accounts: [], consents: [], states: [] } });
+      if (user.role === 'coach') return res.json({ replay: activeReplay, ratings: { ...data.ratings, records: activeRatings } });
+      if (!user.playerId) return res.json({ replay: [], ratings: [] });
       res.json({
         replay: activeReplay.map(replayPublic).filter(Boolean),
         ratings: Object.values(activeRatings).map(ratingPublic).filter((item: any) => item?.playerId === user.playerId),
-        ranked: safeRankedForPlayer(activeRanked, user.playerId),
       });
     } catch (error: any) { bad(res, error.message, error.status || 500); }
   });
@@ -382,110 +308,4 @@ export function registerEngineAdapterRoutes(app: Express) {
       if (record !== current) { data.ratings.records[key] = record; rememberOperation(data, scope, requestHash, record); await saveDB(db); } res.json(record);
     } catch (error: any) { bad(res, error.message, error.status || 400); }
   });
-
-  app.post('/api/engine-adapters/ranked/provider', async (req, res) => {
-    try {
-      if (!coach(req, res)) return;
-      const { expected, requestId, requestHash } = writeInput(req.body); const provider = normalizeProvider(req.body.provider);
-      const db = await readDB(); const data = adapters(db); const current = data.ranked.providers[provider.providerId];
-      const record = nextRecord(current, expected, requestId, requestHash, { ...provider, activation: 'disabled', engineVersion: RANKED_SYNC_ENGINE_VERSION });
-      if (record !== current) { data.ranked.providers[provider.providerId] = record; await saveDB(db); } res.json(record);
-    } catch (error: any) { bad(res, error.message, error.status || 400); }
-  });
-
-  app.post('/api/engine-adapters/ranked/account', async (req, res) => {
-    try {
-      if (!coach(req, res)) return;
-      const { expected, requestId, requestHash } = writeInput(req.body); const playerId = text(req.body.playerId); const providerId = text(req.body.providerId);
-      const account = normalizeAccount(req.body.account);
-      if (!playerId || !providerId) return bad(res, 'Exact player and provider identity are required.');
-      const db = await readDB(); if (!(db.rosterPlayers || []).some((item: any) => item.id === playerId && !item.retiredAt)) return bad(res, 'Ranked accounts require an active roster identity.', 409);
-      const data = adapters(db); if (!data.ranked.providers[providerId]) return bad(res, 'Provider capability is not persisted.', 409);
-      const key = `${playerId}:${providerId}`; const current = data.ranked.accounts[key];
-      const activeConsent = data.ranked.consents[key];
-      const accountChanged = !current || JSON.stringify(current.account) !== JSON.stringify(account);
-      if (current && activeConsent && !activeConsent.revokedAt && accountChanged) return bad(res, 'Revoke active consent before changing the exact account identity.', 409);
-      const record = nextRecord(current, expected, requestId, requestHash, { playerId, providerId, account: structuredClone(account) });
-      if (record !== current) { data.ranked.accounts[key] = record; if (accountChanged || !data.ranked.states[key]) data.ranked.states[key] = initialState(playerId, providerId, account); await saveDB(db); } res.json(record);
-    } catch (error: any) { bad(res, error.message, error.status || 400); }
-  });
-
-  app.post('/api/engine-adapters/ranked/consent', async (req, res) => {
-    try {
-      const user = actor(req);
-      if (user.role !== 'player' || !user.playerId || (req.body.playerId && req.body.playerId !== user.playerId)) return bad(res, 'Only the bound player may grant their own ranked consent.', 403);
-      const requestedPlayerId = user.playerId;
-      const { expected, requestId, requestHash } = writeInput(req.body); const providerId = text(req.body.providerId); if (!providerId) return bad(res, 'providerId is required.');
-      const db = await readDB(); const data = adapters(db); const key = `${requestedPlayerId}:${providerId}`; const accountRecord = data.ranked.accounts[key];
-      if (!accountRecord) return bad(res, 'Coach-confirmed exact account identity is required.', 409);
-      let displayedAccount: RankedAccountIdentity;
-      try { displayedAccount = normalizeAccount(req.body.account); } catch { return bad(res, 'The displayed exact account identity is required. Reload and confirm it again.', 409); }
-      const displayedRevision = revision(req.body.accountRevision); const displayedFingerprint = text(req.body.accountFingerprint);
-      if (displayedRevision === null || !displayedFingerprint || displayedRevision !== accountRecord.revision
-        || canonical(displayedAccount) !== canonical(accountRecord.account) || displayedFingerprint !== accountFingerprint(accountRecord)) {
-        return bad(res, 'The ranked account changed after it was displayed. Reload and confirm the current exact account.', 409);
-      }
-      const now = new Date().toISOString(); const consent: RankedConsent = {
-        playerId: requestedPlayerId, providerId, account: accountRecord.account,
-        consentVersion: text(req.body.consentVersion) || '', scopes: req.body.scopes,
-        grantedAt: now, revokedAt: null, obtainedThrough: 'explicit-ranked-consent',
-      };
-      if (!validateRankedConsentRecord(consent, now)) return bad(res, 'Invalid consent version or scopes.');
-      const persistedConsent = { ...consent, grantedBy: { kind: 'bound-player-session', playerId: requestedPlayerId, username: user.username } };
-      const current = data.ranked.consents[key]; const record = nextRecord(current, expected, requestId, requestHash, persistedConsent);
-      if (record !== current) { data.ranked.consents[key] = record; await saveDB(db); } res.json(consentResponse(record));
-    } catch (error: any) { bad(res, error.message, error.status || 400); }
-  });
-
-  app.post('/api/engine-adapters/ranked/revoke', async (req, res) => {
-    try {
-      const user = actor(req); const requestedPlayerId = user.role === 'player' ? user.playerId : text(req.body.playerId);
-      if (!requestedPlayerId || (user.role === 'player' && req.body.playerId && req.body.playerId !== requestedPlayerId)) return bad(res, 'Player identity is not bound to this session.', 403);
-      const { expected, requestId, requestHash } = writeInput(req.body); const providerId = text(req.body.providerId); const db = await readDB(); const data = adapters(db); const key = `${requestedPlayerId}:${providerId}`; const current = data.ranked.consents[key];
-      if (!providerId || !data.ranked.providers[providerId] || !data.ranked.accounts[key] || !current) return bad(res, 'Authorized provider, account, and consent target are required.', 404);
-      const scope = operationScope(req, 'ranked-consent-revoke', `player:${requestedPlayerId}:provider:${providerId}`, requestId);
-      const prior = operationRetry(data, scope, requestHash); if (prior) return res.json(prior);
-      if (current.revokedAt) return bad(res, 'Active consent is required.', 409);
-      const record = transitionRecord(current, expected, requestId, requestHash, { ...current, revokedAt: new Date().toISOString() });
-      if (record !== current) {
-        data.ranked.consents[key] = record;
-        const storedState = data.ranked.states[key];
-        if (storedState) {
-          const now = new Date().toISOString(); const state = stripStoredState(storedState);
-          data.ranked.states[key] = {
-            ...applyRankedSyncOutcome(state, { kind: 'blocked', generation: state.lastAttemptGeneration + 1, startedAt: now, at: now, errorCode: 'consent-revoked' }),
-            revision: (storedState.revision || 0) + 1, requestId: `consent-revocation:${requestId}`, requestHash, updatedAt: now,
-          };
-        }
-        const response = consentResponse(record); rememberOperation(data, scope, requestHash, response); await saveDB(db);
-      } res.json(consentResponse(record));
-    } catch (error: any) { bad(res, error.message, error.status || 400); }
-  });
-
-  app.post('/api/engine-adapters/ranked/outcome', async (req, res) => {
-    try {
-      if (!coach(req, res)) return;
-      const { expected, requestId, requestHash } = writeInput(req.body); const playerId = text(req.body.playerId); const providerId = text(req.body.providerId);
-      if (!playerId || !providerId) return bad(res, 'playerId and providerId are required.');
-      const db = await readDB(); const data = adapters(db); const key = `${playerId}:${providerId}`; const current = data.ranked.states[key];
-      if (!current) return bad(res, 'Persisted account state is required.', 409);
-      if (current.requestId === requestId) {
-        if (current.requestHash !== requestHash) return bad(res, 'Idempotency key was reused with a different request.', 409);
-        return res.json(current);
-      }
-      if ((current.revision || 0) !== expected) return bad(res, 'Stale revision. Reload and retry.', 409);
-      const state = applyRankedSyncOutcome(stripStoredState(current), req.body.outcome as SyncOutcome);
-      const record = { ...state, revision: expected + 1, requestId, requestHash, updatedAt: new Date().toISOString() };
-      data.ranked.states[key] = record; await saveDB(db); res.json(record);
-    } catch (error: any) { bad(res, error.message, error.status || 400); }
-  });
-}
-
-function initialState(playerId: string, providerId: string, account: RankedAccountIdentity): RankedSyncState {
-  return { playerId, providerId, account: structuredClone(account), cursor: null, watermark: null, status: 'never-synced', lastAttemptAt: null, lastAttemptGeneration: 0, lastAttemptStartedAt: null, lastSuccessfulSyncAt: null, knownMatchCount: null, lastErrorCode: null };
-}
-
-function stripStoredState(value: any): RankedSyncState {
-  const { revision: _revision, requestId: _requestId, updatedAt: _updatedAt, ...state } = value;
-  return state;
 }

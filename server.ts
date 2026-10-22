@@ -172,21 +172,6 @@ export async function createApp(serveFrontend = true) {
   });
 
 
-  // Cron endpoint: sync every configured player's Solo Queue. Guarded by a shared
-  // secret header (set CRON_SECRET) so Cloud Scheduler can call it without a coach key.
-  // Registered before the auth middleware so it isn't gated by the bearer token.
-  app.post('/api/cron/sync-soloq', async (req, res) => {
-    try {
-      const secret = process.env.CRON_SECRET;
-      if (!secret || req.headers['x-cron-secret'] !== secret) {
-        return res.status(401).json({ error: 'Unauthorized cron request.' });
-      }
-      res.status(503).json({ disabled: true, fetched: false, wrote: false, reason: 'ranked-sync-gate-unavailable', error: 'Scheduled ranked sync is disabled until provider, consent and account gates are persisted.' });
-    } catch (err: any) {
-      res.status(500).json({ error: err.message });
-    }
-  });
-
   // Private recovery backup. It is deliberately not available through the normal
   // authenticated API: the manifest includes private engine/intake metadata.
   app.post('/api/cron/backup', async (req, res) => {
@@ -266,7 +251,6 @@ export async function createApp(serveFrontend = true) {
       || req.path === '/attendance/check-in'
       || req.path === '/vod-submissions'
       || /^\/coaching\/actions\/[^/]+\/status$/.test(req.path)
-      || req.path === '/engine-adapters/ranked/consent' || req.path === '/engine-adapters/ranked/revoke'
       || req.path === '/replay-intake/devices/enroll' || req.path === '/replay-intake/devices/revoke'
       || req.path === '/replay-intake/pairing-codes'
       || (process.env.APP_DESKTOP === 'true' && req.path === '/desktop/replay-evidence'));
@@ -449,7 +433,7 @@ export async function createApp(serveFrontend = true) {
   await registerReplayDeviceRoutes(app);
   registerPortablePackageRoutes(app);
 
-  // Integrations routes (secrets, calendar, Henrik, VLR, GRID) — extracted module
+  // Integrations routes (secret status, calendar export, PRACC) — extracted module
   registerIntegrationRoutes(app);
 
   // Gemini Vision routes (screenshot OCR + scrim auto-import) — extracted module

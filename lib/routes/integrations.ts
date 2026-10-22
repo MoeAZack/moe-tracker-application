@@ -3,9 +3,8 @@ import { readDB, saveDB } from '../store';
 import { buildScheduleIcs } from '../calendarExport';
 import { fetchPraccCalendar, reconcilePraccSchedule, validatePraccCalendarUrl } from '../praccCalendar';
 
-// Integrations: secrets, calendar mocks, HenrikDev (Riot verify + Solo Q sync),
-// VLR.gg scraping, and GRID match import. All protected routes (registered after
-// the auth middleware).
+// Integrations: secret status, the schedule calendar export and the PRACC
+// calendar feed. All protected routes (registered after the auth middleware).
 export function registerIntegrationRoutes(app: Express) {
   const requireCoach = (req: any, res: any) => {
     if (req.user?.role === 'coach') return true;
@@ -62,8 +61,6 @@ export function registerIntegrationRoutes(app: Express) {
       const db = await readDB();
       res.json({
         ANTHROPIC_API_KEY: !!process.env.ANTHROPIC_API_KEY || !!db.secrets.ANTHROPIC_API_KEY,
-        HENRIK_API_KEY: !!process.env.HENRIK_API_KEY,
-        GRID_API_KEY: !!process.env.GRID_API_KEY,
         DISCORD_WEBHOOK_URL: !!process.env.DISCORD_WEBHOOK_URL
       });
     } catch (err: any) {
@@ -78,27 +75,16 @@ export function registerIntegrationRoutes(app: Express) {
       const has = (v: any) => !!v;
       res.json({
         gemini: { configured: has(process.env.GEMINI_API_KEY), note: 'Optional cloud AI: AI coach brief, playbook generator and the manual cloud screenshot reader (needs active billing). Capture OCR runs locally without it.' },
-        henrik: { configured: false, note: 'Legacy ranked integration disabled; provider eligibility, versioned consent and exact account gating are not persisted' },
-        grid: { configured: has(process.env.GRID_API_KEY), note: has(process.env.GRID_API_KEY) ? 'Key available; GRID ingestion remains gated until provider activation and schema acceptance' : 'Add the key locally or as a Cloudflare secret; ingestion still requires provider activation' },
         discord: { configured: has(process.env.DISCORD_WEBHOOK_URL), note: 'Automatic match report broadcasts' },
-        vlr: { configured: false, note: 'Disabled until team-side mapping and idempotency are verified' },
-        pracc: { configured: has(db.settings?.praccCalendarUrl), note: db.settings?.praccCalendarLastError || (db.settings?.praccCalendarUrl ? 'Connected to Schedule & Goals' : 'Add the private .ics feed in Settings → Attendance Rules') },
-        dailySync: { configured: false, note: 'Legacy scheduled ranked sync disabled' }
+        pracc: { configured: has(db.settings?.praccCalendarUrl), note: db.settings?.praccCalendarLastError || (db.settings?.praccCalendarUrl ? 'Connected to Schedule & Goals' : 'Add the private .ics feed in Settings → Attendance Rules') }
       });
     } catch (err: any) {
       res.status(500).json({ error: err.message });
     }
   });
 
-  const calendarUnavailable = (_req: any, res: any) => res.status(503).json({
-    disabled: true, wrote: false, eventId: null,
-    error: 'Calendar sync is unavailable until a real provider adapter and authorization gate are implemented.',
-  });
-  app.post('/api/sync-calendar', calendarUnavailable);
-  app.post('/api/unsync-calendar', calendarUnavailable);
-
   // Provider-neutral export works without OAuth and can be subscribed/imported
-  // by any calendar application. Provider write-back remains separately gated.
+  // by any calendar application.
   app.get('/api/calendar.ics', async (_req, res) => {
     try {
       const db = await readDB();
@@ -135,31 +121,4 @@ export function registerIntegrationRoutes(app: Express) {
       await saveDB(db); res.json(praccStatus(db.settings));
     } catch (err: any) { res.status(err?.status || 500).json({ error: err.message }); }
   });
-
-  // POST HenrikDev Verify Riot ID
-  app.post('/api/verify-riot', async (req, res) => {
-    res.status(503).json({ disabled: true, fetched: false, wrote: false, reason: 'ranked-sync-gate-unavailable', error: 'Legacy Riot verification is disabled until eligible provider and consent/account gates are persisted.' });
-  });
-
-  // POST HenrikDev Sync Solo Q rank/RR + today's real W/L
-  app.post('/api/sync-soloq', async (req, res) => {
-    res.status(503).json({ disabled: true, fetched: false, wrote: false, reason: 'ranked-sync-gate-unavailable', error: 'Ranked sync requires eligible provider access, explicit versioned consent, and exact account identity.' });
-  });
-
-  const vlrDisabled = (res: any) => res.status(503).json({
-    disabled: true,
-    fetched: false,
-    wrote: false,
-    error: 'VLR import is disabled until team-side mapping and idempotency are verified. No network request was made and no tracker data was written.',
-  });
-
-  app.get('/api/vlr-team-matches', (_req, res) => vlrDisabled(res));
-  app.get('/api/vlr-team-map-stats', (_req, res) => vlrDisabled(res));
-  app.post('/api/import-vlr-match', (_req, res) => vlrDisabled(res));
-
-  // POST import GRID.gg live telemetry series feed
-  app.post('/api/import-grid-match', (_req, res) => res.status(503).json({
-    disabled: true, fetched: false, wrote: false,
-    error: 'GRID import is unavailable until provider eligibility, activation and schema gates are accepted.',
-  }));
 }

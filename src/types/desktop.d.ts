@@ -68,8 +68,8 @@ declare global {
       completeScoreboard(id: string): Promise<{ completed: boolean }>;
       startScrimCapture(input: { roundCount?: number | null }): Promise<{ started: boolean; message: string }>;
       onCaptureReady(callback: (capture: { id: string; captureId: string }) => void): () => void;
-      getIntegrationSecretStatus(): Promise<{ encryptionAvailable: boolean; configured: Record<'GEMINI_API_KEY' | 'GRID_API_KEY' | 'DISCORD_WEBHOOK_URL', boolean>; scope: 'local-device' }>;
-      setIntegrationSecret(input: { key: 'GEMINI_API_KEY' | 'GRID_API_KEY' | 'DISCORD_WEBHOOK_URL'; value: string }): Promise<{ configured: boolean }>;
+      getIntegrationSecretStatus(): Promise<{ encryptionAvailable: boolean; configured: Record<'GEMINI_API_KEY' | 'DISCORD_WEBHOOK_URL', boolean>; scope: 'local-device' }>;
+      setIntegrationSecret(input: { key: 'GEMINI_API_KEY' | 'DISCORD_WEBHOOK_URL'; value: string }): Promise<{ configured: boolean }>;
       exportTeamPackage(input?: { password?: string }): Promise<{ exported: boolean; encrypted: boolean; path: string }>;
       previewTeamPackage(input?: { password?: string }): Promise<{ canceled: boolean; file?: string; preview?: any }>;
       importTeamPackage(): Promise<{ imported: boolean; message: string; result: any }>;

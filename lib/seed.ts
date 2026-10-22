@@ -50,8 +50,7 @@ export function createSeed() {
   };
 
   const secrets = {
-    ANTHROPIC_API_KEY: false,
-    HENRIK_API_KEY: false
+    ANTHROPIC_API_KEY: false
   };
 
   const schedule: any[] = [];

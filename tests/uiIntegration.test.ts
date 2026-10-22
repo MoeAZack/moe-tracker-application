@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { activeObservedPlayerStats, activeRosterCount, aggregateObservedPlayerDashboard, aggregateObservedPlayerKd, cairoDateKeyAt, canOpenPrivateMatchReview, engineAdapterUiSummary, matchDateWindow, playerMetricRoundEvidence, rankedIntegrationReadiness, replayIntegrationReadiness, resolveInitialVodSelection, selectedVodMatchId, shadowRatingReadiness, vodContextMatchId } from '../lib/uiIntegration';
+import { activeObservedPlayerStats, activeRosterCount, aggregateObservedPlayerDashboard, aggregateObservedPlayerKd, cairoDateKeyAt, canOpenPrivateMatchReview, engineAdapterUiSummary, matchDateWindow, playerMetricRoundEvidence, replayIntegrationReadiness, resolveInitialVodSelection, selectedVodMatchId, shadowRatingReadiness, vodContextMatchId } from '../lib/uiIntegration';
 import type { Match, VodReview } from '../src/types';
 
 const review = (id: string, matchId?: string): VodReview => ({ id, matchId, title: id, vodUrl: 'https://example.invalid', notes: [] });
@@ -199,21 +199,19 @@ describe('role-safe match actions', () => {
 });
 
 describe('engine adapter UI summary', () => {
-  it('labels accepted evidence without implying ranked activation or rating authority', () => {
+  it('labels accepted evidence without implying rating authority, and lists no ranked consent', () => {
     expect(engineAdapterUiSummary({
       replay: [{ status: 'accepted' }], ratings: [{ status: 'accepted' }],
       ranked: { consents: [{ revokedAt: null }] },
     })).toEqual({
       replay: { configured: true, note: '1 persisted review; acceptance required' },
       shadowRating: { configured: true, note: '1 recomputed shadow record; uncalibrated results stay experimental and never authoritative' },
-      rankedConsent: { configured: true, note: 'Offline consent/status only; provider sync remains disabled' },
     });
   });
-  it('derives readiness and ranked health from persisted adapter facts', () => {
+  it('derives readiness from persisted adapter facts', () => {
     const payload = { replay: [{ status: 'accepted' }], ratings: { records: { r: { status: 'accepted', calibrationStatus: 'uncalibrated', result: { eligibleForShadowAggregate: true } } } }, ranked: { providers: [{ approvedStatus: 'approved' }], accounts: [{}], consents: [{ revokedAt: null }], states: [{ status: 'fresh' }, { status: 'partial' }, { status: 'never-synced' }] } };
     expect(replayIntegrationReadiness(payload)).toMatchObject({ status: 'ready', detail: expect.stringContaining('1 accepted') });
     expect(shadowRatingReadiness(payload)).toMatchObject({ status: 'ready', detail: expect.stringContaining('1 accepted with coverage') });
-    const ranked = rankedIntegrationReadiness(payload); expect(ranked.status).toBe('ready'); expect(ranked.detail).toContain('1 fresh'); expect(ranked.detail).toContain('1 partial'); expect(ranked.detail).toContain('1 never-synced'); expect(ranked.detail).not.toContain('healthy');
   });
   it('counts an accepted player-safe shadow projection without private coach result input', () => {
     const readiness = shadowRatingReadiness({ ratings: [{ status: 'accepted', acceptedWithCoverage: true, calibrationStatus: 'uncalibrated', experimental: true, coverage: { availableWeight: .8, totalWeight: 1, ratio: .8 }, score: 1.07, authoritativeScore: null }] });

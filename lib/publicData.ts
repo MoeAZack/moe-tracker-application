@@ -80,8 +80,6 @@ export function toPublicTrackerData(db: Record<string, any>, role: 'coach' | 'pl
   publicData.settings = settings;
   publicData.secrets = {
     GEMINI_API_KEY: !!process.env.GEMINI_API_KEY,
-    HENRIK_API_KEY: !!process.env.HENRIK_API_KEY,
-    GRID_API_KEY: !!process.env.GRID_API_KEY,
     DISCORD_WEBHOOK_URL: !!process.env.DISCORD_WEBHOOK_URL
   };
   if (authenticatedPlayerId !== undefined) {

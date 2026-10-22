@@ -26,7 +26,7 @@ describe('public tracker data', () => {
   });
 
   it('never returns auth records or credential values', () => {
-    process.env.GRID_API_KEY = 'server-only';
+    process.env.DISCORD_WEBHOOK_URL = 'server-only';
     const result = toPublicTrackerData({
       authKeys: [{ key: 'coach-key' }],
       allowedUsers: [{ email: 'coach@example.com' }],
@@ -44,7 +44,8 @@ describe('public tracker data', () => {
     expect(result).not.toHaveProperty('allowedUsers');
     expect(result).not.toHaveProperty('secretValues');
     expect(result.settings).toEqual({ teamName: 'Synthetic Squad' });
-    expect(result.secrets.GRID_API_KEY).toBe(true);
+    expect(result.secrets.DISCORD_WEBHOOK_URL).toBe(true);
+    expect(Object.keys(result.secrets).sort()).toEqual(['DISCORD_WEBHOOK_URL', 'GEMINI_API_KEY']);
     expect(JSON.stringify(result)).not.toContain('server-only');
   });
 

@@ -44,7 +44,7 @@ try {
   await navigation.getByRole('button', { name: 'Economy', exact: true }).click();
   await capture('economy', ['Economy Analytics', 'Economy evidence by match']);
   await navigation.getByRole('button', { name: 'Settings', exact: true }).click();
-  await capture('settings', ['Workspace Team Configurations', 'External API & Webhook Endpoints', 'Official GRID.GG API key']);
+  await capture('settings', ['Workspace Team Configurations', 'External API & Webhook Endpoints', 'Discord webhook URL']);
   await page.getByRole('button', { name: 'Device, Sync & Storage' }).click();
   await capture('settings-device', ['This PC & Team Sync', 'Pair PC', 'Device, Sync & Storage']);
   const failed = Object.entries(checks).filter(([, passed]) => !passed).map(([name]) => name);

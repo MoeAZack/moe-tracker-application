@@ -254,6 +254,24 @@ describe('HTTP authentication and authorization boundary', () => {
     expect(JSON.parse(await fs.readFile(dbPath, 'utf8')).allowedUsers).toEqual(db.allowedUsers);
   });
 
+  it('serves none of the removed ranked, GRID, VLR and calendar write-back routes, and keeps stored ranked records', async () => {
+    const db = JSON.parse(await fs.readFile(dbPath, 'utf8'));
+    db.engineAdapters.ranked = { providers: { old: { providerId: 'old' } }, accounts: {}, consents: { 'p:old': { playerId: 'p', revokedAt: null } }, states: {} };
+    await fs.writeFile(dbPath, JSON.stringify(db));
+    const coach = await login(adminKey);
+    for (const route of ['/api/vlr-team-matches', '/api/vlr-team-map-stats']) expect((await request(route, coach)).status).toBe(404);
+    for (const route of ['/api/verify-riot', '/api/sync-soloq', '/api/import-vlr-match', '/api/import-grid-match', '/api/sync-calendar', '/api/unsync-calendar',
+      '/api/engine-adapters/ranked/provider', '/api/engine-adapters/ranked/account', '/api/engine-adapters/ranked/consent', '/api/engine-adapters/ranked/revoke', '/api/engine-adapters/ranked/outcome']) {
+      expect((await request(route, coach, {})).status, route).toBe(404);
+    }
+    expect((await request('/api/cron/sync-soloq', coach, {})).status).toBe(404);
+    const engines = await (await request('/api/engine-adapters', coach)).json();
+    expect(engines).not.toHaveProperty('ranked');
+    const status = await (await request('/api/integrations-status', coach)).json();
+    expect(Object.keys(status).sort()).toEqual(['discord', 'gemini', 'pracc']);
+    expect(JSON.parse(await fs.readFile(dbPath, 'utf8')).engineAdapters.ranked).toEqual(db.engineAdapters.ranked);
+  });
+
   it('uses current stored roles and denies an unknown role despite a signed coach claim', async () => {
     const token = jwt.sign({ kind: 'key', keyId: 'player-1', role: 'coach' }, jwtSecret);
     expect((await request('/api/keys', token)).status).toBe(403);
