@@ -217,6 +217,8 @@ async function startLocalServer() {
     JWT_SECRET: runtime.config.jwtSecret,
     APP_DESKTOP: 'true',
     APP_VERSION: app.getVersion(),
+    // The replay collector reports this id; saved captures use it to pair.
+    DESKTOP_DEVICE_ID: runtime.config.deviceId,
     ...integrationEnvironment,
   }});
   serverProcess = child;
