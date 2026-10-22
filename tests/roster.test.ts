@@ -86,7 +86,13 @@ describe('roster domain', () => {
     expect(seed.schedule).toEqual([]);
     expect(seed.goals).toEqual([]);
     expect(seed.strats).toEqual([]);
-    expect(JSON.stringify(seed)).not.toMatch(/Shalaby|Shniider|Gamax|Nasr|Top GZ/);
+    // No roster or opponent identity of any kind ships in the seed: every
+    // player list anywhere in it is empty and no match carries an opponent.
+    const lists: unknown[] = [];
+    const walk = (value: any) => { if (!value || typeof value !== 'object') return; for (const [key, item] of Object.entries(value)) { if (/^(players|inactivePlayers|roster|rosterPlayers|tryoutPlayers)$/.test(key)) lists.push(item); walk(item); } };
+    walk(seed);
+    expect(lists.every(item => Array.isArray(item) ? item.length === 0 : item && typeof item === 'object' ? Object.keys(item).length === 0 : item === undefined || item === null)).toBe(true);
+    expect(JSON.stringify(seed)).not.toMatch(/"opponent"\s*:\s*"[^"]/);
   });
 
   it('archives a candidate list and creates an empty batch without touching core or statistics', () => {

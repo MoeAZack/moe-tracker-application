@@ -8,7 +8,7 @@ describe('map discipline roster identities', () => {
   it('does not resurrect legacy setting names after the canonical roster is cleared', () => {
     const data: any = {
       settings: {
-        theme: 'midnight', maps: ['Haven'], players: ['Shalaby', 'Shniider'], inactivePlayers: ['Former'],
+        theme: 'midnight', maps: ['Haven'], players: ['SyntheticAce', 'SyntheticBolt'], inactivePlayers: ['Former'],
         stats: {}, weights: {},
       },
       rosterPlayers: [], matches: [], playerStats: [], rounds: [], strats: [], stratRuns: [],
@@ -16,8 +16,8 @@ describe('map discipline roster identities', () => {
 
     const html = renderToStaticMarkup(<MapBestStats data={data} theme={{ border: 'border', cardBg: 'card' }} onUpsert={async () => null} onRemove={async () => null} />);
 
-    expect(html).not.toContain('Shalaby');
-    expect(html).not.toContain('Shniider');
+    expect(html).not.toContain('SyntheticAce');
+    expect(html).not.toContain('SyntheticBolt');
     expect(html).not.toContain('Former');
   });
 

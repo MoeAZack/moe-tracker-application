@@ -15,14 +15,14 @@ describe('public tracker data', () => {
 
   it('projects legacy player selectors from canonical active core membership', () => {
     const result = toPublicTrackerData({
-      settings: { players: ['Shalaby', 'Shniider'], inactivePlayers: ['Former'] },
+      settings: { players: ['SyntheticAce', 'SyntheticBolt'], inactivePlayers: ['Former'] },
       rosterPlayers: [{ id: 'active', displayName: 'Ahmed' }, { id: 'retired', displayName: 'Old', retiredAt: '2026-01-01T00:00:00.000Z' }],
       coreMemberships: [{ id: 'ended', playerId: 'active', endedAt: '2026-02-01T00:00:00.000Z' }],
     });
 
     expect(result.settings.players).toEqual([]);
     expect(result.settings.inactivePlayers).toEqual([]);
-    expect(JSON.stringify(result.settings)).not.toMatch(/Shalaby|Shniider|Former/);
+    expect(JSON.stringify(result.settings)).not.toMatch(/SyntheticAce|SyntheticBolt|Former/);
   });
 
   it('never returns auth records or credential values', () => {

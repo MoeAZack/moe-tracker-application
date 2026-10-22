@@ -171,7 +171,7 @@ export default function VodReview({ data, theme, role, onRefresh, initialMatchId
 
       {isCoach && showAdd && (
         <form onSubmit={addReview} className={`rounded-xl border ${theme.border} ${theme.cardBg} p-4 grid sm:grid-cols-2 gap-3`}>
-          <label className="sr-only" htmlFor="vod-title">Review title</label><input id="vod-title" value={form.title} onChange={(e) => setForm({ ...form, title: e.target.value })} placeholder="Title (e.g. vs Nasr — Bind review)" className="min-w-0 bg-black/20 border border-white/10 rounded-lg px-3 py-2 text-sm outline-none" />
+          <label className="sr-only" htmlFor="vod-title">Review title</label><input id="vod-title" value={form.title} onChange={(e) => setForm({ ...form, title: e.target.value })} placeholder="Title (e.g. vs opponent — Bind review)" className="min-w-0 bg-black/20 border border-white/10 rounded-lg px-3 py-2 text-sm outline-none" />
           <label className="sr-only" htmlFor="vod-url">VOD URL</label><input id="vod-url" value={form.vodUrl} onChange={(e) => setForm({ ...form, vodUrl: e.target.value })} placeholder="VOD URL (YouTube / Twitch)" className="min-w-0 bg-black/20 border border-white/10 rounded-lg px-3 py-2 text-sm outline-none font-mono" />
           <label className="sr-only" htmlFor="vod-match">Linked match</label><select id="vod-match" value={form.matchId} onChange={(e) => setForm({ ...form, matchId: e.target.value })} className="min-w-0 bg-black/20 border border-white/10 rounded-lg px-3 py-2 text-sm outline-none">
             <option value="">Link to match (optional)</option>
