@@ -394,6 +394,19 @@ export default function App() {
     }
   };
 
+  const handleAcceptRoundEvidence = async (matchId: string, roundNo: number) => {
+    try {
+      const res = await apiFetch('/api/round-evidence-accept', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ matchId, roundNo }) });
+      if (!res.ok) throw await saveError(res, 'Failed to accept round evidence.');
+      const resJson = await res.json();
+      if (resJson.screenshotSummary && window.moeDesktop) await window.moeDesktop.queueScreenshotSummary(resJson.screenshotSummary);
+      setData(prev => prev ? mergeRoundsResult(prev, matchId, resJson) : prev);
+    } catch (err: any) {
+      notify(err.message || 'Error accepting round evidence.', 'error');
+      throw err;
+    }
+  };
+
   const handleDuplicateReview = async (matchId: string, decision: 'keep-both' | 'discard-this') => {
     try {
       const res = await apiFetch('/api/match-duplicate-review', {
@@ -713,7 +726,12 @@ export default function App() {
               </div>
             }>
             {activeTab === 'dashboard' && analyticsData && (
-              <Dashboard data={analyticsData} theme={theme} role={role} username={username} summaryMode={!desktopMode} onOpenMatch={(matchId) => { setReviewMatchId(matchId); setActiveTab(evidenceReviewTab(routableTabs)); }} onOpenReplay={() => setActiveTab('replays')} onOpenCapture={() => setScrimOpen(true)} onOpenSchedule={() => setActiveTab('calendar')} onOpenCoachWorkspace={() => setActiveTab('aitactical')} />
+              <Dashboard data={analyticsData} theme={theme} role={role} username={username} summaryMode={!desktopMode} onOpenMatch={(matchId) => { setReviewMatchId(matchId); setActiveTab(evidenceReviewTab(routableTabs)); }} onOpenReplay={() => setActiveTab('replays')} onOpenCapture={() => setScrimOpen(true)} onOpenSchedule={() => setActiveTab('calendar')} onOpenCoachWorkspace={() => setActiveTab('aitactical')} inboxData={data || undefined} onOpenInboxItem={target => {
+                if (target.surface === 'capture') setScrimOpen(true);
+                else if (target.surface === 'replays') setActiveTab('replays');
+                else if (target.surface === 'coaching') setActiveTab('aitactical');
+                else { setReviewMatchId(target.matchId); setReviewRoundNo(target.roundNo ?? null); setActiveTab('matches'); }
+              }} />
             )}
             {activeTab === 'calendar' && data && (
               <CalendarGoals data={data} theme={theme} role={role || 'player'} onUpsert={handleUpsert} onRemove={handleRemove} onRefresh={fetchDatabase} />
@@ -733,6 +751,7 @@ export default function App() {
                 reviewRoundNo={reviewRoundNo}
                 onReviewContextChange={(matchId, roundNo) => { setReviewMatchId(matchId); setReviewRoundNo(roundNo || null); }}
                 onDuplicateReview={handleDuplicateReview}
+                onAcceptRoundEvidence={role === 'coach' ? handleAcceptRoundEvidence : undefined}
               />
             )}
             {activeTab === 'matches' && workspaceData && !desktopMode && <WebsiteMatchLog data={workspaceData} theme={theme} focusMatchId={reviewMatchId} />}

@@ -32,6 +32,8 @@ interface ComponentProps {
   reviewRoundNo?: number | null;
   onReviewContextChange?: (matchId: string, roundNo?: number | null) => void;
   onDuplicateReview?: (matchId: string, decision: 'keep-both' | 'discard-this') => Promise<void>;
+  /** Coach acceptance of one saved round's screenshot evidence. */
+  onAcceptRoundEvidence?: (matchId: string, roundNo: number) => Promise<void>;
 }
 
 const roundFlag = (value: unknown): true | false | null => {
@@ -40,7 +42,7 @@ const roundFlag = (value: unknown): true | false | null => {
   return null;
 };
 
-export default function MatchLogRounds({ data, theme, onSaveMatch, onRemove, onSaveRounds, onSaveVeto, onRefreshDatabase, manualReplayDraft, onManualReplayDraftConsumed, reviewMatchId, reviewRoundNo, onReviewContextChange, onDuplicateReview }: ComponentProps) {
+export default function MatchLogRounds({ data, theme, onSaveMatch, onRemove, onSaveRounds, onSaveVeto, onRefreshDatabase, manualReplayDraft, onManualReplayDraftConsumed, reviewMatchId, reviewRoundNo, onReviewContextChange, onDuplicateReview, onAcceptRoundEvidence }: ComponentProps) {
   const isLight = data.settings.theme === 'daylight';
   
   // --- SUB TAB CONTROL ---
@@ -579,7 +581,7 @@ export default function MatchLogRounds({ data, theme, onSaveMatch, onRemove, onS
                       <tbody className="divide-y divide-white/5">
                         {roundsForSelectedMatch.map((r) => (
                           <tr key={r.id} className="hover:bg-white/5 transition-colors">
-                            <td className={`py-2 px-2.5 font-bold ${reviewRoundNo === r.roundNo ? 'text-cyan-300' : 'text-gray-400'}`}><button type="button" onClick={() => onReviewContextChange?.(selectedMatch.id, r.roundNo)} className="min-h-8 min-w-8 rounded hover:bg-white/5">{r.roundNo}</button></td>
+                            <td className={`py-2 px-2.5 font-bold ${reviewRoundNo === r.roundNo ? 'text-cyan-300' : 'text-gray-400'}`}><button type="button" onClick={() => onReviewContextChange?.(selectedMatch.id, r.roundNo)} className="min-h-8 min-w-8 rounded hover:bg-white/5">{r.roundNo}</button>{onAcceptRoundEvidence && (r as any).screenshotEvidence && (r as any).screenshotEvidence.reviewStatus !== 'confirmed' && <button type="button" onClick={() => void onAcceptRoundEvidence(selectedMatch.id, r.roundNo).catch(() => {})} className="mt-1 block rounded border border-cyan-300/30 px-1 py-0.5 text-[9px] font-semibold text-cyan-200">Accept evidence</button>}</td>
                             <td className={`py-2 px-2.5 font-bold ${r.side === 'Att' ? 'text-amber-500' : 'text-cyan-400'}`}>{r.side}</td>
                             <td className="py-2 px-2.5">
                               <span className="text-white font-medium">{r.buy}</span>
