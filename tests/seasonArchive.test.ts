@@ -131,14 +131,14 @@ describe('full roster-season archive domain', () => {
   it('archives and restores a legacy name-only roster instead of losing it', () => {
     const db: any = seasonDb();
     for (const key of ['rosterPlayers', 'coreMemberships', 'tryoutBatches', 'schedule', 'goals', 'matches', 'playerStats', 'soloq', 'rounds', 'vetos', 'stratRuns', 'vodReviews']) db[key] = [];
-    db.settings.players = ['Shalaby', 'Shniider'];
+    db.settings.players = ['SyntheticAce', 'SyntheticBolt'];
     db.settings.inactivePlayers = ['Former'];
     db.settings.riotIds = {};
     const archive = archiveAndResetSeason(db, 'Legacy season', 'Clean season', () => archiveId, now);
     expect(db.settings.players).toEqual([]);
-    expect(archive.legacyPlayers).toEqual(['Shalaby', 'Shniider']);
+    expect(archive.legacyPlayers).toEqual(['SyntheticAce', 'SyntheticBolt']);
     restoreSeasonArchive(db, archive.id);
-    expect(db.settings.players).toEqual(['Shalaby', 'Shniider']);
+    expect(db.settings.players).toEqual(['SyntheticAce', 'SyntheticBolt']);
     expect(db.settings.inactivePlayers).toEqual(['Former']);
   });
 

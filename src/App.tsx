@@ -15,6 +15,7 @@ import ReviewContextBar from './components/ReviewContextBar';
 import { projectCurrentPlayerAnalytics } from '../lib/activePlayerAnalytics';
 import { projectReviewContext } from '../lib/reviewContext';
 import { evidenceReviewTab, focusReviewContext, navWorkspaceTabs, parseWorkspaceRoute, resolveWorkspaceTab, routableWorkspaceTabs, syncWorkspaceRoute, type WorkspaceRoute, type WorkspaceTabId } from './utils/workspaceRoute';
+import ScreenErrorBoundary from './components/ScreenErrorBoundary';
 
 // Heavy route views are code-split so the initial bundle only loads the shell + login.
 const Dashboard = lazy(() => import('./components/Dashboard'));
@@ -719,6 +720,7 @@ export default function App() {
           {/* Tab Router Switch */}
           {desktopMode && data && ['matches', 'replays', 'vod', 'economy', 'aitactical'].includes(activeTab) && <ReviewContextBar data={workspaceData || data} value={{ matchId: reviewMatchId, roundNo: reviewRoundNo }} onChange={value => { setReviewMatchId(value.matchId); setReviewRoundNo(value.roundNo); }} onNavigate={tab => setActiveTab(tab)} />}
           <div key={activeTab} className="route-stage flex-grow">
+            <ScreenErrorBoundary screen={tabsList.find(tab => tab.id === activeTab)?.label.replace(/[^\p{L}\p{N}&' -]/gu, '').trim() || 'This screen'}>
             <Suspense fallback={
               <div className="flex items-center justify-center py-24 text-gray-500 font-mono text-sm gap-3">
                 <RefreshCw className="w-5 h-5 animate-spin text-[#ff4655]" />
@@ -812,12 +814,14 @@ export default function App() {
               </div>
             )}
             </Suspense>
+            </ScreenErrorBoundary>
           </div>
         </main>
       </div>
 
       {/* --- SCRIM AUTO-IMPORT MODAL --- */}
       {desktopMode && scrimOpen && data && (
+        <ScreenErrorBoundary screen="Scoreboard import">
         <Suspense fallback={null}>
           <ScrimImport
             data={data}
@@ -826,6 +830,7 @@ export default function App() {
             onClose={() => setScrimOpen(false)}
           />
         </Suspense>
+        </ScreenErrorBoundary>
       )}
 
     </div>
