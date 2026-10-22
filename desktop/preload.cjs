@@ -15,6 +15,7 @@ contextBridge.exposeInMainWorld('moeDesktop', Object.freeze({
   readVodFrame: (input) => ipcRenderer.invoke('desktop:read-vod-frame', input),
   listVodJobs: () => ipcRenderer.invoke('desktop:list-vod-jobs'),
   listIngestionJobs: () => ipcRenderer.invoke('desktop:list-ingestion-jobs'),
+  clearIngestionJobs: (ids) => ipcRenderer.invoke('desktop:clear-ingestion-jobs', ids),
   beginIngestionJob: (input) => ipcRenderer.invoke('desktop:begin-ingestion-job', input),
   updateIngestionJob: (input) => ipcRenderer.invoke('desktop:update-ingestion-job', input),
   cancelIngestionJob: (jobId) => ipcRenderer.invoke('desktop:cancel-ingestion-job', jobId),

@@ -50,10 +50,34 @@ function recoverInterruptedJobs(jobs, now = new Date().toISOString()) {
   });
 }
 
+// The startup sweep keeps a VOD work folder only for these jobs (see
+// sweepOrphanedVodDirectories); their records must survive a history clear.
+const keepsRetainedWork = job => job?.resumable === true || ['running', 'paused', 'ready', 'queued'].includes(job?.status);
+const isActive = job => ['running', 'queued'].includes(job?.status);
+
+/**
+ * Clears jobs from the history list (all, or the given ids). A finished job
+ * with nothing retained is dropped. A job that still holds a retained video
+ * is only hidden, so its record keeps the video from the startup sweep.
+ * Running and queued jobs are never touched.
+ */
+function clearIngestionHistory(jobs, ids = null, now = new Date().toISOString()) {
+  const wanted = ids ? new Set(ids.map(String)) : null;
+  let removed = 0; let hidden = 0;
+  const next = [];
+  for (const job of jobs || []) {
+    if ((wanted && !wanted.has(String(job.id))) || isActive(job) || job.clearedAt) { next.push(job); continue; }
+    if (keepsRetainedWork(job)) { next.push({ ...job, clearedAt: now }); hidden += 1; } else removed += 1;
+  }
+  return { jobs: next, removed, hidden };
+}
+
+const listedIngestionJobs = jobs => (jobs || []).filter(job => !job.clearedAt);
+
 function publicIngestionJob(job) {
   const { sourcePath: _sourcePath, checkpointFile: _checkpointFile, ...safe } = job;
   return safe;
 }
 
-module.exports = { SOURCES, STATUSES, createIngestionJob, updateIngestionJob, recoverInterruptedJobs, publicIngestionJob };
+module.exports = { SOURCES, STATUSES, createIngestionJob, updateIngestionJob, recoverInterruptedJobs, publicIngestionJob, clearIngestionHistory, listedIngestionJobs };
 
