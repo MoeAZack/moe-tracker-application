@@ -31,7 +31,7 @@ export function DrawingView({ drawing, label, className = '' }: { drawing: Frame
  * the tree whether or not the coach is drawing, so a playing video is never
  * reloaded by opening or closing the tools.
  */
-export function DrawableFrame({ frame, drawing, shown, onSave, onCancel, saveLabel, disabledReason }: { frame: React.ReactNode; drawing: boolean; shown?: { drawing: FrameDrawing; label: string } | null; onSave: (drawing: FrameDrawing, text: string) => void; onCancel: () => void; saveLabel: string; disabledReason?: string }) {
+export function DrawableFrame({ frame, drawing, shown, initial, withNote = true, onSave, onCancel, saveLabel, disabledReason }: { frame: React.ReactNode; drawing: boolean; initial?: FrameDrawing | null; withNote?: boolean; shown?: { drawing: FrameDrawing; label: string } | null; onSave: (drawing: FrameDrawing, text: string) => void; onCancel: () => void; saveLabel: string; disabledReason?: string }) {
   const [strokes, setStrokes] = useState<DrawingStroke[]>([]);
   const [tool, setTool] = useState<DrawTool>('arrow');
   const [color, setColor] = useState<DrawColor>('#ff4655');
@@ -66,7 +66,7 @@ export function DrawableFrame({ frame, drawing, shown, onSave, onCancel, saveLab
     redraw(value => value + 1);
   };
   // Each drawing session starts clean, whether it ended by saving or by Done.
-  useEffect(() => { if (!drawing) { setStrokes([]); setText(''); current.current = null; } }, [drawing]);
+  useEffect(() => { setStrokes(drawing && initial ? initial.strokes : []); setText(''); current.current = null; }, [drawing]);
   const shownStrokes = current.current ? [...strokes, current.current] : strokes;
   const result = normalizeDrawing({ strokes });
   return (
@@ -116,8 +116,8 @@ export function DrawableFrame({ frame, drawing, shown, onSave, onCancel, saveLab
           <button type="button" disabled={!strokes.length} onClick={() => setStrokes([])} className="ui-button inline-flex min-h-8 items-center gap-1 px-2 text-xs">
             <Trash2 className="h-3.5 w-3.5" /> Clear
           </button>
-          <input aria-label="Note for this drawing" value={text} maxLength={500} onChange={event => setText(event.target.value)} placeholder="What should they see here?" className="ui-field min-h-8 min-w-[10rem] flex-1 px-2 text-xs" />
-          <button type="button" disabled={!result || !!disabledReason} onClick={() => result && onSave(result, text.trim())} className="ui-button ui-button-primary min-h-8 px-3 text-xs">
+          {withNote && <input aria-label="Note for this drawing" value={text} maxLength={500} onChange={event => setText(event.target.value)} placeholder="What should they see here?" className="ui-field min-h-8 min-w-[10rem] flex-1 px-2 text-xs" />}
+          <button type="button" disabled={(!result && !initial) || !!disabledReason} onClick={() => (result || initial) && onSave(result || { ...initial!, strokes: [] }, text.trim())} className="ui-button ui-button-primary min-h-8 px-3 text-xs">
             {saveLabel}
           </button>
           <button type="button" onClick={onCancel} className="ui-button min-h-8 px-3 text-xs">

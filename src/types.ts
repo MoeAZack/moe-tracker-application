@@ -715,6 +715,8 @@ export interface Strat {
   name: string;
   notes?: string;
   active: string | boolean;
+  /** The plan drawn on the map, step by step. */
+  board?: import('../lib/strategyBoard').StrategyBoard;
 }
 
 export interface StratRun {

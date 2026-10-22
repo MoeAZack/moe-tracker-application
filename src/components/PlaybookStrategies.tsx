@@ -1,7 +1,8 @@
-import React, { useMemo, useState } from 'react';
-import { CheckCircle2, Edit2, Plus, Trash2, XCircle } from 'lucide-react';
+import React, { useEffect, useMemo, useState } from 'react';
+import { CheckCircle2, Edit2, Map as MapIcon, Plus, Trash2, XCircle } from 'lucide-react';
 import { Strat, StratRun, TrackerData } from '../types';
-import { buildResourceCatalog } from '../../lib/resourceCatalog';
+import { activeResourceNames, buildResourceCatalog } from '../../lib/resourceCatalog';
+import StrategyBoard from './StrategyBoard';
 import { buildStratRecords, STRAT_SIDES, stratSide } from '../../lib/stratbook';
 import { DEFAULT_MINIMUM_METRIC_SAMPLES, metricSampleGate } from '../../lib/metricTrust';
 import { knownResult } from '../../lib/analyticsEvidence';
@@ -37,6 +38,16 @@ export default function PlaybookStrategies({ data, theme, onUpsert, onRemove }: 
   const [selectedSide, setSelectedSide] = useState<string>('All');
   const [editing, setEditing] = useState<Partial<Strat> | null>(null);
   const [runsFor, setRunsFor] = useState<Strat | null>(null);
+  const [boardFor, setBoardFor] = useState<string | null>(null);
+  const boardStrat = strats.find(strat => strat.id === boardFor) || null;
+  const agents = useMemo(() => activeResourceNames(data, 'agent'), [data]);
+  // Escape closes the board wherever focus is (a disabled tool button drops focus to the page).
+  useEffect(() => {
+    if (!boardFor) return;
+    const close = (event: KeyboardEvent) => { if (event.key === 'Escape') setBoardFor(null); };
+    window.addEventListener('keydown', close);
+    return () => window.removeEventListener('keydown', close);
+  }, [boardFor]);
   const [newRunResult, setNewRunResult] = useState('W');
   const [newRunReason, setNewRunReason] = useState('');
 
@@ -124,7 +135,12 @@ export default function PlaybookStrategies({ data, theme, onUpsert, onRemove }: 
                   <p>{rate(record.taggedWins, record.taggedRounds, 'Tagged rounds')}</p>
                   {record.lastFailReason && <p>Last failure: {record.lastFailReason}</p>}
                 </div>
-                <button type="button" onClick={() => { setRunsFor(strat); setNewRunResult('W'); setNewRunReason(''); }} className="shrink-0 rounded border border-white/10 bg-white/5 px-2.5 py-1 text-xs font-semibold text-white hover:bg-white/10">Runs</button>
+                <div className="flex shrink-0 gap-2">
+                  <button type="button" onClick={() => setBoardFor(strat.id)} className="inline-flex items-center gap-1 rounded border border-white/10 bg-white/5 px-2.5 py-1 text-xs font-semibold text-white hover:bg-white/10">
+                    <MapIcon className="h-3.5 w-3.5" aria-hidden="true" /> {strat.board ? `Board · ${strat.board.phases.length} step${strat.board.phases.length === 1 ? '' : 's'}` : 'Board'}
+                  </button>
+                  <button type="button" onClick={() => { setRunsFor(strat); setNewRunResult('W'); setNewRunReason(''); }} className="rounded border border-white/10 bg-white/5 px-2.5 py-1 text-xs font-semibold text-white hover:bg-white/10">Runs</button>
+                </div>
               </div>
             </article>
           );
@@ -135,6 +151,23 @@ export default function PlaybookStrategies({ data, theme, onUpsert, onRemove }: 
           </p>
         )}
       </div>
+
+      {boardStrat && (
+        <div className="fixed inset-0 z-[100] overflow-y-auto bg-black/85 p-4" role="dialog" aria-modal="true" aria-labelledby="strategy-board-title">
+          <div className={`mx-auto max-w-6xl rounded-xl border p-5 ${dialog}`}>
+            <StrategyBoard
+              key={boardStrat.id}
+              strat={boardStrat}
+              agents={agents}
+              onClose={() => setBoardFor(null)}
+              onSave={async board => {
+                const { board: _previous, ...rest } = boardStrat;
+                await onUpsert('Strats', board ? { ...rest, board } : rest);
+              }}
+            />
+          </div>
+        </div>
+      )}
 
       {editing && (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/80 p-4">
