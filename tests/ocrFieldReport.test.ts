@@ -120,3 +120,24 @@ describe('replay-joined labels', () => {
     expect(pairRows([{ kda: [10, 10, 10] }], [{ kills: 40, deaths: 0, assists: 0 }])).toEqual([null]);
   });
 });
+
+describe('ocr-field-report command', () => {
+  it('exits 1 when a single cell differs from the baseline, and 0 when none do', async () => {
+    const { execFileSync, spawnSync } = await import('node:child_process');
+    const fs = await import('node:fs/promises'); const os = await import('node:os'); const path = await import('node:path');
+    const dir = await fs.mkdtemp(path.join(os.tmpdir(), 'ocr-report-'));
+    try {
+      const run = { meta: { map: 'Ascent', ourScore: 13, theirScore: 9 }, players: [{ extractedName: 'Player1', kills: 20, deaths: 10, assists: 5 }], rounds: [] };
+      for (const name of ['base', 'same', 'changed']) await fs.mkdir(path.join(dir, name));
+      await fs.writeFile(path.join(dir, 'base', 'Scrim-1.json'), JSON.stringify(run));
+      await fs.writeFile(path.join(dir, 'same', 'Scrim-1.json'), JSON.stringify(run));
+      await fs.writeFile(path.join(dir, 'changed', 'Scrim-1.json'), JSON.stringify({ ...run, players: [{ ...run.players[0], assists: 6 }] }));
+      const labels = path.join(dir, 'labels.json'); await fs.writeFile(labels, JSON.stringify({ sessions: [] }));
+      const script = path.resolve('scripts/ocr-field-report.mjs');
+      expect(JSON.parse(execFileSync(process.execPath, [script, path.join(dir, 'same'), '--baseline', path.join(dir, 'base'), '--labels', labels], { encoding: 'utf8' })).baseline.cellDiffs).toBe(0);
+      const changed = spawnSync(process.execPath, [script, path.join(dir, 'changed'), '--baseline', path.join(dir, 'base'), '--labels', labels], { encoding: 'utf8' });
+      expect(changed.status).toBe(1);
+      expect(JSON.parse(changed.stdout).baseline.diffs).toEqual([{ captureId: 'Scrim-1', cell: 'players.0.assists', baseline: 5, candidate: 6 }]);
+    } finally { await fs.rm(dir, { recursive: true, force: true }); }
+  });
+});
