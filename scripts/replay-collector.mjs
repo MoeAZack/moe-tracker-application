@@ -48,9 +48,27 @@ function scoreboardApproval(file, folder, replaySha256, imageSha256, approvedAt 
 }
 
 async function readJson(file, fallback) { try { return JSON.parse(await fsp.readFile(file, 'utf8')); } catch (error) { if (error?.code === 'ENOENT') return structuredClone(fallback); throw error; } }
+// Collector state files (config, manifest, watcher status) can be left
+// zero-filled or truncated when Windows loses power or is force-stopped
+// mid-write. Move the damaged file aside (never delete it) and start from the
+// fallback, so one bad file cannot stop the whole desktop app from opening.
+async function readStateJson(file, fallback) {
+  try { return await readJson(file, fallback); }
+  catch (error) {
+    if (!(error instanceof SyntaxError)) throw error;
+    const quarantined = `${file}.corrupt-${new Date().toISOString().replace(/[:.]/g, '-')}`;
+    await fsp.rename(file, quarantined).catch(renameError => { if (renameError?.code !== 'ENOENT') throw renameError; });
+    console.error(`Replay collector: ${path.basename(file)} was unreadable and was moved to ${path.basename(quarantined)}; starting from defaults.`);
+    return structuredClone(fallback);
+  }
+}
 async function atomicJson(file, value) {
   await fsp.mkdir(path.dirname(file), { recursive: true }); const temp = `${file}.${process.pid}.tmp`;
-  await fsp.writeFile(temp, JSON.stringify(value, null, 2), { encoding: 'utf8', mode: 0o600 }); await fsp.rename(temp, file);
+  // Flush the bytes before the rename; otherwise a crash can leave the renamed
+  // file allocated but full of NUL bytes on NTFS.
+  const handle = await fsp.open(temp, 'w', 0o600);
+  try { await handle.writeFile(JSON.stringify(value, null, 2), 'utf8'); await handle.sync(); } finally { await handle.close(); }
+  await fsp.rename(temp, file);
 }
 export function processAlive(pid) {
   try { process.kill(pid, 0); return true; }
@@ -82,8 +100,8 @@ export function migrateConfig(raw = {}) {
   const legacy = raw && typeof raw === 'object' ? raw : {};
   return { schemaVersion: 2, server: typeof legacy.server === 'string' ? legacy.server : '', deviceId: typeof legacy.deviceId === 'string' ? legacy.deviceId : '', replayPaths: Array.isArray(legacy.replayPaths) ? legacy.replayPaths : [DEFAULT_DEMO], managedReplayPaths: Array.isArray(legacy.managedReplayPaths) ? legacy.managedReplayPaths : [], scoreboardFolder: typeof legacy.scoreboardFolder === 'string' ? legacy.scoreboardFolder : '', autoUpload: legacy.autoUpload === true, autoProcess: legacy.autoProcess !== false, retentionDays: Number.isFinite(legacy.retentionDays) ? Math.max(1, Math.min(365, Math.round(legacy.retentionDays))) : 30, stableSeconds: Number.isFinite(legacy.stableSeconds) ? legacy.stableSeconds : 10, scanSeconds: Number.isFinite(legacy.scanSeconds) ? legacy.scanSeconds : 5, ingestionMode: 'local-evidence', localRuntime: { binaryPath: String(legacy.localRuntime?.binaryPath || ''), pythonPath: String(legacy.localRuntime?.pythonPath || ''), normalizerPath: String(legacy.localRuntime?.normalizerPath || '') } };
 }
-async function config() { return migrateConfig(await readJson(CONFIG_PATH, {})); }
-async function manifest() { return readJson(MANIFEST_PATH, { schemaVersion: 1, files: {}, approved: [], scoreboardApprovals: [] }); }
+async function config() { return migrateConfig(await readStateJson(CONFIG_PATH, {})); }
+async function manifest() { return readStateJson(MANIFEST_PATH, { schemaVersion: 1, files: {}, approved: [], scoreboardApprovals: [] }); }
 
 function dpapi(script, input) {
   if (process.platform !== 'win32') throw new Error('Device credentials require Windows DPAPI; this collector fails closed on other platforms.');
@@ -360,11 +378,11 @@ async function main() {
   }
   if (command === 'status') {
     const runtimeReady = (await Promise.all(Object.values(cfg.localRuntime).map(async value => Boolean(value) && fsp.access(value).then(() => true, () => false)))).every(Boolean);
-    console.log(JSON.stringify({ configPath: CONFIG_PATH, manifestPath: MANIFEST_PATH, statusPath: STATUS_PATH, evidenceDir: EVIDENCE_DIR, defaultReplayPath: DEFAULT_DEMO, server: cfg.server || null, deviceId: cfg.deviceId || null, replayPaths: cfg.replayPaths, ingestionMode: cfg.ingestionMode, localRuntimeReady: runtimeReady, autoProcess: cfg.autoProcess, autoUpload: cfg.autoUpload, retentionDays: cfg.retentionDays, credentialStored: fs.existsSync(SECRET_PATH), trackedFiles: Object.keys(state.files).length, localEvidenceCount: Object.values(state.files).filter(item => item?.evidencePath).length, watcher: await readJson(STATUS_PATH, null) }, null, 2)); return;
+    console.log(JSON.stringify({ configPath: CONFIG_PATH, manifestPath: MANIFEST_PATH, statusPath: STATUS_PATH, evidenceDir: EVIDENCE_DIR, defaultReplayPath: DEFAULT_DEMO, server: cfg.server || null, deviceId: cfg.deviceId || null, replayPaths: cfg.replayPaths, ingestionMode: cfg.ingestionMode, localRuntimeReady: runtimeReady, autoProcess: cfg.autoProcess, autoUpload: cfg.autoUpload, retentionDays: cfg.retentionDays, credentialStored: fs.existsSync(SECRET_PATH), trackedFiles: Object.keys(state.files).length, localEvidenceCount: Object.values(state.files).filter(item => item?.evidencePath).length, watcher: await readStateJson(STATUS_PATH, null) }, null, 2)); return;
   }
   throw new Error('Commands: configure, enroll, scan, process-latest, approve, watch, scoreboard-approve, status');
 }
 
 if (process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href) main().catch(error => { console.error(`Replay collector: ${error.message}`); process.exitCode = 1; });
 
-export const collectorInternals = { APP_DIR, EVIDENCE_DIR, LOCK_DIR, DEFAULT_DEMO, normalizerRevision: LOCAL_NORMALIZER_REVISION, inside, canonicalFile, serverUrl, scoreboardApproval, uploadRequest, migrateConfig, validateNormalizedEvidence, validateEvidenceEnvelope, readReusableEvidence, evidencePath, pruneExpiredManagedReplays, collectorUploadComplete, collectorUploadCompleteForServer };
+export const collectorInternals = { APP_DIR, EVIDENCE_DIR, LOCK_DIR, DEFAULT_DEMO, normalizerRevision: LOCAL_NORMALIZER_REVISION, inside, canonicalFile, serverUrl, scoreboardApproval, uploadRequest, migrateConfig, readStateJson, atomicJson, validateNormalizedEvidence, validateEvidenceEnvelope, readReusableEvidence, evidencePath, pruneExpiredManagedReplays, collectorUploadComplete, collectorUploadCompleteForServer };
