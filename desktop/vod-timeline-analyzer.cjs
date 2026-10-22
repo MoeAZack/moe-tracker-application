@@ -343,8 +343,8 @@ function pgm(frame, width, height) { return Buffer.concat([Buffer.from(`P5\n${wi
 
 // OCR workers for one analysis. degrade() drops to a single fresh worker after
 // a failure so the import keeps going.
-async function createOcrPool(count, log = () => {}) {
-  const { createWorker, PSM } = require('tesseract.js');
+async function createOcrPool(count, log = () => {}, tesseract = require('tesseract.js')) {
+  const { createWorker, PSM } = tesseract;
   const langPath = path.dirname(unpackedExecutable(require.resolve('@tesseract.js-data/eng/4.0.0/eng.traineddata.gz')));
   const start = async () => { const worker = await createWorker('eng', undefined, { langPath }); await worker.setParameters({ tessedit_pageseg_mode: PSM.SPARSE_TEXT }); return worker; };
   const pool = { workers: [] };
@@ -490,4 +490,4 @@ async function readVodFrame(directory, frame) {
   return { mediaType: 'image/png', base64: (await fsp.readFile(path.join(path.resolve(directory), name))).toString('base64') };
 }
 
-module.exports = { sweepOrphanedVodDirectories, readOwnedVodFrame, readVodFrame, normalizeYoutubeUrl, youtubeVideoId, probeVideo, analyzeVodTimeline, normalizeTimelinePlayers, discoverVodGames, releaseVodSource, createReviewClips, changedFrames, changedFramesTogether, sampleRegions, recognizeFrames, frameDifference, visualSignature, ensureDiskSpace, scoreboardGeometryScore, agentSelectGeometryScore, chooseGameBoundaries, inferPovPlayer };
+module.exports = { sweepOrphanedVodDirectories, readOwnedVodFrame, readVodFrame, normalizeYoutubeUrl, youtubeVideoId, probeVideo, analyzeVodTimeline, normalizeTimelinePlayers, discoverVodGames, releaseVodSource, createReviewClips, changedFrames, changedFramesTogether, sampleRegions, recognizeFrames, createOcrPool, frameDifference, visualSignature, ensureDiskSpace, scoreboardGeometryScore, agentSelectGeometryScore, chooseGameBoundaries, inferPovPlayer };

@@ -9,7 +9,7 @@ import ffmpegStatic from 'ffmpeg-static';
 import analyzerModule from '../desktop/vod-timeline-analyzer.cjs';
 import performanceModule from '../desktop/vod-performance.cjs';
 
-const { analyzeVodTimeline, changedFrames, changedFramesTogether, sampleRegions, recognizeFrames } = analyzerModule;
+const { analyzeVodTimeline, changedFrames, changedFramesTogether, sampleRegions, recognizeFrames, createOcrPool } = analyzerModule;
 const { normalizeVodPerformance, resolveOcrWorkers, combinedDecodeArgs, sampledRange } = performanceModule;
 const GB = 1024 ** 3;
 
@@ -148,6 +148,21 @@ describe('parallel OCR keeps frame order', () => {
     const recovered = await read(pool);
     expect(pool.workers).toHaveLength(1);
     expect(recovered).toEqual(one);
+  });
+
+  it('the real pool falls back to one worker only once, so a worker that always fails stops the import', async () => {
+    const started: any[] = []; const log: string[] = [];
+    const tesseract = { PSM: { SPARSE_TEXT: '11' }, createWorker: vi.fn(async () => { const worker = { setParameters: vi.fn(async () => {}), recognize: vi.fn(async () => { throw new Error('worker crashed'); }), terminate: vi.fn(async () => {}) }; started.push(worker); return worker; }) };
+    const pool = await (createOcrPool as any)(3, (line: string) => log.push(line), tesseract);
+    expect(pool.workers).toHaveLength(3);
+    await expect(read(pool)).rejects.toThrow('worker crashed');
+    // Three workers, then exactly one replacement; no third round.
+    expect(tesseract.createWorker).toHaveBeenCalledTimes(4);
+    expect(pool.degrade).toBeNull();
+    for (const worker of started.slice(0, 3)) expect(worker.terminate).toHaveBeenCalled();
+    expect(log.filter(line => line.includes('continuing with 1 worker'))).toHaveLength(1);
+    await pool.terminate();
+    expect(started[3].terminate).toHaveBeenCalled();
   });
 
   it('a second failure after falling back stops the import with the error', async () => {
