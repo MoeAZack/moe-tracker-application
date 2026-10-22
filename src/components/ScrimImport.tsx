@@ -18,6 +18,7 @@ import { getCachedRecognitions, putCachedRecognitions, sha256Base64 } from '../u
 import { correctionSamplesFromAcceptedEdit, OCR_LEARNING_VERSION, rosterWithLearnedAliases } from '../../lib/ocrLearning';
 import { getOcrLearningState, recordOcrCorrections, recordOcrSessionOutcome } from '../utils/ocrLearningStore';
 import { deriveRoundAdvantage } from '../../lib/roundAdvantage';
+import { captureRosterFromIdentity } from '../../lib/identityResolver';
 
 interface Props {
   data: TrackerData;
@@ -125,10 +126,8 @@ export default function ScrimImport({ data, theme, onSaveMatch, onClose }: Props
       const session = await window.moeDesktop.readCaptureSession(record.id);
       const scoreboardCapture = session.captures.find(item => item.kind === 'scoreboard');
       if (!scoreboardCapture) throw new Error('The capture session has no scoreboard image.');
-      const phaseAliases = new Map<string, string[]>();
-      for (const batch of data.tryoutBatches || []) for (const entry of batch.aliases || []) phaseAliases.set(entry.playerId, [...(phaseAliases.get(entry.playerId) || []), entry.alias]);
       const baseRoster = rosterPlayers.length
-        ? rosterPlayers.map(player => ({ id: player.id, displayName: player.displayName, aliases: phaseAliases.get(player.id) || [] }))
+        ? captureRosterFromIdentity(data)
         : roster.map(displayName => ({ displayName }));
       const learning = await getOcrLearningState(data.rosterPlayers || []);
       const extractionRosterPlayers = rosterWithLearnedAliases(baseRoster, learning.aliases);

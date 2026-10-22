@@ -24,7 +24,7 @@ function add(index: Map<string, Set<string>>, key: string, playerId: string) {
  * One non-writing identity resolver shared by OCR, replay, VOD and analytics.
  * It never guesses through ambiguity and never rewrites observed names.
  */
-export function buildIdentityResolver(data: any) {
+export function buildIdentityResolver(data: any, options: { observedNames?: 'all' | 'coach-accepted' } = {}) {
   const candidates = new Map<string, Candidate>();
   const ensure = (playerId: unknown, displayName: unknown, archived = false) => {
     const id = typeof playerId === 'string' ? playerId.trim() : '';
@@ -49,7 +49,15 @@ export function buildIdentityResolver(data: any) {
     const candidate = candidates.get(String(correction?.targetPlayerId || '')); const observed = String(correction?.sourceIdentity || '').replace(/^unlinked-name:/, '').trim();
     if (candidate && observed) candidate.aliases.add(observed);
   }
+  // 'coach-accepted' leaves out names no coach has looked at: rows in a
+  // quarantined duplicate, and rows an automatic save linked by OCR fuzzy
+  // match. Otherwise one wrong link would become an exact alias that OCR and
+  // VOD reuse, widening the match with every save.
+  const unaccepted = new Set<string>(options.observedNames === 'coach-accepted'
+    ? (data?.matches || []).filter((match: any) => match?.duplicateReview?.status === 'quarantined' || match?.automation).map((match: any) => String(match.id))
+    : []);
   for (const row of data?.playerStats || []) {
+    if (unaccepted.has(String(row?.matchId || ''))) continue;
     const candidate = candidates.get(String(row?.playerId || '')); const observed = String(row?.displayNameSnapshot || row?.player || '').trim();
     if (candidate && observed) candidate.aliases.add(observed);
   }
@@ -75,4 +83,21 @@ export function buildIdentityResolver(data: any) {
     identity(playerId: string) { const candidate = candidates.get(playerId); return candidate ? { ...candidate, aliases: [...candidate.aliases].sort() } : null; },
     identities() { return [...candidates.values()].map(candidate => ({ ...candidate, aliases: [...candidate.aliases].sort() })).sort((left, right) => left.playerId.localeCompare(right.playerId)); },
   };
+}
+
+/**
+ * The capture roster: active players with every alias the resolver knows
+ * (roster aliases, tryout aliases, coach corrections, accepted observed
+ * names). An alias that also resolves to another player is left out, so the
+ * OCR matcher sees the same identities as replay and never inherits an
+ * ambiguity the resolver would refuse.
+ */
+export function captureRosterFromIdentity(data: any): Array<{ id: string; displayName: string; aliases: string[] }> {
+  const resolver = buildIdentityResolver(data, { observedNames: 'coach-accepted' });
+  // A player present in an older season archive is still active here; only the roster's retiredAt decides.
+  return (data?.rosterPlayers || []).filter((player: any) => player?.id && !player.retiredAt).map((player: any) => {
+    const identity = resolver.identity(String(player.id));
+    const aliases = (identity?.aliases || []).filter(alias => alias !== player.displayName && resolver.resolve({ observedName: alias }).playerId === player.id);
+    return { id: String(player.id), displayName: String(player.displayName || identity?.displayName || ''), aliases };
+  });
 }
