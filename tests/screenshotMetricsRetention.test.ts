@@ -20,7 +20,7 @@ describe('stored screenshot metrics that cannot be rebuilt', () => {
 
   it('survive a relink, a rebuild and a save byte for byte, and stay withheld from coaches', async () => {
     const dir = await fs.mkdtemp(path.join(os.tmpdir(), 'metric-retention-'));
-    vi.stubEnv('DB_PATH', path.join(dir, 'db.json')); vi.stubEnv('USE_FIRESTORE', 'false');
+    vi.stubEnv('DB_PATH', path.join(dir, 'db.json')); 
     const { readDB, replaceDB, saveDB } = await import('../lib/store');
     await replaceDB(workspace());
     const stored = JSON.stringify((await readDB()).playerStats[0].screenshotMetrics);

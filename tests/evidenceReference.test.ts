@@ -417,7 +417,7 @@ describe('workspace identity compatibility', () => {
     tempDir = await fs.mkdtemp(path.join(os.tmpdir(), 'moetracker-workspace-'));
     const dbPath = path.join(tempDir, 'db.json');
     await fs.writeFile(dbPath, JSON.stringify({ settings: {}, matches: [{ id: 'legacy-match' }] }));
-    vi.stubEnv('DB_PATH', dbPath); vi.stubEnv('USE_FIRESTORE', 'false');
+    vi.stubEnv('DB_PATH', dbPath); 
     const { readDB, saveDB, replaceDB } = await import('../lib/store');
     const legacy = await readDB();
     expect(workspaceIdentity(legacy)).toBeNull();
@@ -438,7 +438,7 @@ describe('workspace identity compatibility', () => {
 
   it('gives a fresh installation an identity at first boot', async () => {
     tempDir = await fs.mkdtemp(path.join(os.tmpdir(), 'moetracker-workspace-fresh-'));
-    vi.stubEnv('DB_PATH', path.join(tempDir, 'db.json')); vi.stubEnv('USE_FIRESTORE', 'false');
+    vi.stubEnv('DB_PATH', path.join(tempDir, 'db.json')); 
     const { readDB } = await import('../lib/store');
     const first = workspaceIdentity(await readDB());
     expect(first).toMatch(/^ws_[A-Za-z0-9_-]{16,64}$/);

@@ -12,5 +12,5 @@ export const collectorInternals: {
   validateEvidenceEnvelope(raw: unknown, replaySha256: string, size: number, deviceId: string): unknown;
   readReusableEvidence(target: string, replaySha256: string, size: number, deviceId: string): Promise<any>;
   evidencePath(hash: string): string; pruneExpiredManagedReplays(state: any, config: any, nowMs?: number): Promise<string[]>;
-  resumableOffset(session: any, size: number): Promise<any>; collectorUploadComplete(status: string): boolean;
+  collectorUploadComplete(status: string): boolean;
 };

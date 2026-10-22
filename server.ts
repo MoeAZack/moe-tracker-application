@@ -21,11 +21,6 @@ import { registerComparisonRoutes } from './lib/routes/comparisons';
 import { registerCoachingRoutes } from './lib/routes/coaching';
 import { buildInfo } from './lib/buildInfo';
 
-// Google Sign-In config (dormant unless GOOGLE_CLIENT_ID is set — password auth always works).
-const GOOGLE_CLIENT_ID = process.env.GOOGLE_CLIENT_ID || '';
-const BOOTSTRAP_ADMIN_EMAIL = (process.env.BOOTSTRAP_ADMIN_EMAIL || '').toLowerCase();
-const googleClient = null;
-
 function requiredSecret(name: 'ADMIN_PASSWORD' | 'JWT_SECRET'): string {
   const value = process.env[name]?.trim();
   if (!value) throw new Error(`${name} is required. Configure it as a deployment secret.`);
@@ -55,7 +50,7 @@ export async function createApp(serveFrontend = true) {
   // pages carry no inline script, so script-src refuses inline code; only the
   // Vite dev server needs it for its React refresh preamble.
   const viteDevFrontend = serveFrontend && process.env.NODE_ENV !== 'production';
-  const scriptSources = ["'self'", ...(viteDevFrontend ? ["'unsafe-inline'"] : []), "'wasm-unsafe-eval'", 'https://accounts.google.com', 'https://apis.google.com'];
+  const scriptSources = ["'self'", ...(viteDevFrontend ? ["'unsafe-inline'"] : []), "'wasm-unsafe-eval'"];
   app.use((req, res, next) => {
     res.setHeader('X-Content-Type-Options', 'nosniff');
     res.setHeader('X-Frame-Options', 'SAMEORIGIN');
@@ -64,11 +59,11 @@ export async function createApp(serveFrontend = true) {
       "default-src 'self'",
       `script-src ${scriptSources.join(' ')}`,
       "worker-src 'self'",
-      "style-src 'self' 'unsafe-inline' https://accounts.google.com https://fonts.googleapis.com",
+      "style-src 'self' 'unsafe-inline' https://fonts.googleapis.com",
       "img-src 'self' data: https:",
       "font-src 'self' data: https://fonts.gstatic.com",
-      "connect-src 'self' https://accounts.google.com",
-      "frame-src https://accounts.google.com",
+      "connect-src 'self'",
+      "frame-src 'none'",
       "object-src 'none'",
       "base-uri 'self'"
     ].join('; '));
@@ -176,12 +171,6 @@ export async function createApp(serveFrontend = true) {
     }
   });
 
-  // Public client config: tells the login screen whether Google Sign-In is available.
-  app.get('/api/config', (req, res) => {
-    res.json({ googleEnabled: !!googleClient, googleClientId: GOOGLE_CLIENT_ID });
-  });
-
-  app.post('/api/auth/google', (_req, res) => res.status(410).json({ error: 'Google sign-in has been removed from this free-only deployment.' }));
 
   // Cron endpoint: sync every configured player's Solo Queue. Guarded by a shared
   // secret header (set CRON_SECRET) so Cloud Scheduler can call it without a coach key.
@@ -258,15 +247,6 @@ export async function createApp(serveFrontend = true) {
               (req as any).sessionPlayerId = entry.playerId;
               (req as any).sessionActorId = `key:${entry.id}`;
             }
-          } else if (decoded?.kind === 'google' && decoded.email) {
-            const entry = (db.allowedUsers || []).find((u: any) => (u.email || '').toLowerCase() === String(decoded.email).toLowerCase());
-            const activeGooglePlayer = entry?.role !== 'player' || (entry?.playerId && (db.rosterPlayers || []).some((player: any) => player.id === entry.playerId && !player.retiredAt));
-            if (entry && activeGooglePlayer) {
-              userRole = entry.role;
-              username = decoded.name || entry.email;
-              (req as any).sessionPlayerId = entry.playerId;
-              (req as any).sessionActorId = `google:${String(decoded.email).toLowerCase()}`;
-            }
           }
         } catch {
           // Not a valid session token — falls through to 401 below.
@@ -334,7 +314,7 @@ export async function createApp(serveFrontend = true) {
         databaseCharacters, applicationWriteLimitCharacters,
         applicationWriteRemainingCharacters: applicationWriteLimitCharacters ? Math.max(0, applicationWriteLimitCharacters - databaseCharacters) : null,
         applicationWritePercent,
-        freeTierBaselineBytes, safetyCapBytes, status, freeTierVerified: false, rawCoachModeEnabled: process.env.REPLAY_RAW_GCS_ENABLED === 'true',
+        freeTierBaselineBytes, safetyCapBytes, status, freeTierVerified: false,
         providerOverheadIncluded: false,
         note: cloudflareRuntime
           ? 'The application write ceiling is shown separately from Cloudflare storage. Archive before the application ceiling is reached; provider storage also excludes indexes and inactive revisions.'
@@ -450,58 +430,6 @@ export async function createApp(serveFrontend = true) {
     }
   });
 
-  // GET the list of Google accounts allowed to sign in
-  app.get('/api/access', async (req, res) => {
-    try {
-      if (!requireCoach(req, res)) return;
-      const db = await readDB();
-      res.json(db.allowedUsers || []);
-    } catch (err: any) {
-      res.status(500).json({ error: err.message });
-    }
-  });
-
-  // POST add (or update the role of) an allowed Google account
-  app.post('/api/access/add', async (req, res) => {
-    try {
-      if (!requireCoach(req, res)) return;
-      const body = validate(schemas.accessAddSchema, req.body, res); if (!body) return;
-      const { email, role, name, playerId } = body;
-      const clean = String(email).trim().toLowerCase();
-      const finalRole = role === 'coach' ? 'coach' : 'player';
-      const db = await readDB();
-      if (!db.allowedUsers) db.allowedUsers = [];
-      if (finalRole === 'player' && (!playerId || !(db.rosterPlayers || []).some((player: any) => player.id === playerId && !player.retiredAt))) return res.status(400).json({ error: 'Player Google access must be linked to an active roster identity.' });
-      const existing = db.allowedUsers.find((u: any) => (u.email || '').toLowerCase() === clean);
-      if (existing) {
-        existing.role = finalRole;
-        if (name) existing.name = name;
-        if (finalRole === 'player') existing.playerId = playerId; else delete existing.playerId;
-      } else {
-        db.allowedUsers.push({ email: clean, role: finalRole, name: name || '', ...(finalRole === 'player' ? { playerId } : {}), addedAt: new Date().toISOString() });
-      }
-      await saveDB(db);
-      res.json(db.allowedUsers);
-    } catch (err: any) {
-      res.status(500).json({ error: err.message });
-    }
-  });
-
-  // POST remove an allowed Google account (revokes their access immediately)
-  app.post('/api/access/remove', async (req, res) => {
-    try {
-      if (!requireCoach(req, res)) return;
-      const body = validate(schemas.accessRemoveSchema, req.body, res); if (!body) return;
-      const clean = String(body.email).trim().toLowerCase();
-      const db = await readDB();
-      if (!db.allowedUsers) db.allowedUsers = [];
-      db.allowedUsers = db.allowedUsers.filter((u: any) => (u.email || '').toLowerCase() !== clean);
-      await saveDB(db);
-      res.json(db.allowedUsers);
-    } catch (err: any) {
-      res.status(500).json({ error: err.message });
-    }
-  });
 
   // VOD Review + Lineup Library routes (extracted module)
   registerVodLineupRoutes(app);

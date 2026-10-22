@@ -2,7 +2,7 @@ import tseslint from '@typescript-eslint/eslint-plugin';
 import tsParser from '@typescript-eslint/parser';
 
 export default [
-  { ignores: ['dist/**', 'build/**', 'cloudflare/build/**', 'cloudflare/replay-build*/**', 'node_modules/**', 'fb-public/**'] },
+  { ignores: ['dist/**', 'build/**', 'cloudflare/build/**', 'cloudflare/replay-build*/**', 'node_modules/**'] },
   {
     files: ['**/*.{ts,tsx}'],
     languageOptions: {

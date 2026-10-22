@@ -46,9 +46,9 @@ beforeAll(async () => {
   tempDir = await fs.mkdtemp(path.join(os.tmpdir(), 'moetracker-screenshot-contract-'));
   dbPath = path.join(tempDir, 'db.json');
   for (const [key, value] of Object.entries({
-    NODE_ENV: 'test', USE_FIRESTORE: 'false', DB_PATH: dbPath,
+    NODE_ENV: 'test', DB_PATH: dbPath,
     ADMIN_PASSWORD: adminKey, JWT_SECRET: 'test-session-secret-at-least-24-characters',
-    GEMINI_API_KEY: 'test-no-external-calls', GOOGLE_CLIENT_ID: '',
+    GEMINI_API_KEY: 'test-no-external-calls',
   })) vi.stubEnv(key, value);
   await fs.writeFile(dbPath, JSON.stringify(fixture()));
   const { createApp } = await import('../server');

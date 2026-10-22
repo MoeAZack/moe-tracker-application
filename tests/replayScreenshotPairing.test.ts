@@ -119,7 +119,7 @@ function envelope(deviceId: string) {
 describe('screenshot-first authenticated workflow', () => {
   beforeEach(async () => {
     vi.resetModules(); temporary = await fs.mkdtemp(path.join(os.tmpdir(), 'moetracker-pairing-')); dbPath = path.join(temporary, 'db.json');
-    for (const [key, value] of Object.entries({ NODE_ENV: 'test', APP_DESKTOP: 'true', USE_FIRESTORE: 'false', DB_PATH: dbPath, REPLAY_STORAGE_DIR: path.join(temporary, 'private'), ADMIN_PASSWORD: admin, JWT_SECRET: 'screenshot-session-secret-at-least-24-characters', GOOGLE_CLIENT_ID: '', REPLAY_GCS_RAW_ENABLED: 'false' })) vi.stubEnv(key, value);
+    for (const [key, value] of Object.entries({ NODE_ENV: 'test', APP_DESKTOP: 'true', DB_PATH: dbPath, REPLAY_STORAGE_DIR: path.join(temporary, 'private'), ADMIN_PASSWORD: admin, JWT_SECRET: 'screenshot-session-secret-at-least-24-characters', REPLAY_GCS_RAW_ENABLED: 'false' })) vi.stubEnv(key, value);
     await fs.writeFile(dbPath, JSON.stringify({ settings: { players: [] }, matches: [], seasonArchives: [], rosterPlayers: [{ id: 'p1', displayName: 'Player' }], authKeys: [{ id: 'player-key', keyHash: crypto.createHash('sha256').update('player-key').digest('hex'), label: 'Player', role: 'player', playerId: 'p1' }], allowedUsers: [] }));
     mocked.generate.mockReset(); mocked.generate.mockResolvedValue({ text: JSON.stringify({ ...raw(), base64: png, players: raw().players.map(p => ({ ...p, rawMetrics: { base64: png } })) }) });
     const { createApp } = await import('../server'); const app = await createApp(false); server = await new Promise<Server>(resolve => { const instance = app.listen(0, '127.0.0.1', () => resolve(instance)); }); origin = `http://127.0.0.1:${(server.address() as AddressInfo).port}`;

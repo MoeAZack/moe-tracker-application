@@ -3,7 +3,7 @@ import fs from 'fs/promises';
 import os from 'os';
 import path from 'path';
 import { afterEach, describe, expect, it, vi } from 'vitest';
-import { decodeFirestoreDocuments, encodeFirestoreDocuments, ensureStorageSchema, estimatedFirestoreWriteBytes, FIRESTORE_BATCH_SAFE_BYTES, MAX_ENTITY_BYTES, planFirestoreWriteBatches, planRevisionActivation, STORAGE_SCHEMA_VERSION, validateTrackerState } from '../lib/storageSchema';
+import { encodeStorageDocuments, ensureStorageSchema, MAX_ENTITY_BYTES, STORAGE_SCHEMA_VERSION, validateTrackerState} from '../lib/storageSchema';
 import { DurableFilesystemReplayStorage } from '../lib/replayIntakeSafety';
 import { replayIntakeInternals } from '../lib/routes/replayIntake';
 import { assertSeasonArchivesStorageSize } from '../lib/roster';
@@ -15,23 +15,22 @@ function state() {
   return ensureStorageSchema({ settings: {}, matches: [], playerStats: [], seasonArchives: [], replayIntake: { schemaVersion: 4, devices: {}, blobs: {}, associations: {}, parserJobs: {}, reviews: {} }, engineAdapters: { replay: {}, ratings: { records: {} } } });
 }
 
-describe('schema-v2 Firestore codec', () => {
-  it('splits a representative aggregate over 1 MiB into bounded documents and round-trips', () => {
+describe('storage record bounds', () => {
+  it('splits a representative aggregate over 1 MiB into bounded documents', () => {
     const input = state();
     input.matches = Array.from({ length: 12 }, (_, index) => ({ id: `m${index}`, notes: 'x'.repeat(100_000) }));
     expect(Buffer.byteLength(JSON.stringify(input.matches))).toBeGreaterThan(1024 * 1024);
-    const encoded = encodeFirestoreDocuments(input);
+    const encoded = encodeStorageDocuments(input);
     expect(encoded.filter(doc => doc.payload.topKey === 'matches').length).toBe(13);
     expect(Math.max(...encoded.map(doc => Buffer.byteLength(JSON.stringify(doc.payload))))).toBeLessThan(1024 * 1024);
-    expect(decodeFirestoreDocuments(encoded).matches).toEqual(input.matches);
     input.seasonArchives = Array.from({ length: 4 }, (_, index) => ({ id: `s${index}`, snapshot: 'y'.repeat(300_000) }));
     expect(() => assertSeasonArchivesStorageSize(input.seasonArchives)).not.toThrow();
-    expect(encodeFirestoreDocuments(input).filter(doc => doc.payload.topKey === 'seasonArchives')).toHaveLength(5);
+    expect(encodeStorageDocuments(input).filter(doc => doc.payload.topKey === 'seasonArchives')).toHaveLength(5);
   });
 
   it('rejects a too-large entity and a newer schema', () => {
     const input = state(); input.matches = [{ id: 'oversized', notes: 'x'.repeat(MAX_ENTITY_BYTES + 1000) }];
-    expect(() => encodeFirestoreDocuments(input)).toThrow(/entity limit/);
+    expect(() => encodeStorageDocuments(input)).toThrow(/entity limit/);
     expect(() => ensureStorageSchema({ _storage: { schemaVersion: STORAGE_SCHEMA_VERSION + 1 } })).toThrow(/newer/);
   });
 
@@ -39,21 +38,6 @@ describe('schema-v2 Firestore codec', () => {
     const input: any = state(); input.settings = { agents: ['Omen', 'Custom Agent'], inactiveAgents: ['Jett'] };
     const normalized = ensureStorageSchema(input);
     expect(normalized.settings.agents).toEqual(['Omen', 'Custom Agent']); expect(normalized.settings.inactiveAgents).toEqual(['Jett']);
-  });
-
-  it('allows exactly one transactional cold-start activation', () => {
-    const winnerVersion = planRevisionActivation(null, undefined, 'initialize');
-    expect(winnerVersion).toBe(1);
-    expect(() => planRevisionActivation(winnerVersion, undefined, 'initialize')).toThrow(/concurrently/);
-    expect(() => planRevisionActivation(winnerVersion, undefined, 'ordinary')).toThrow(/revision|changed/);
-  });
-
-  it('keeps 20 near-limit entities below the Firestore 10 MiB commit boundary', () => {
-    const input = state(); input.matches = Array.from({ length: 20 }, (_, index) => ({ id: `large-${index}`, notes: 'n'.repeat(800_000) }));
-    const documents = encodeFirestoreDocuments(input); const revisionId = 'r'.repeat(36);
-    const batches = planFirestoreWriteBatches(documents, revisionId);
-    expect(batches.length).toBeGreaterThan(1);
-    for (const batch of batches) expect(batch.reduce((sum, document) => sum + estimatedFirestoreWriteBytes(document, revisionId), 0)).toBeLessThanOrEqual(FIRESTORE_BATCH_SAFE_BYTES);
   });
 
   it.each([
@@ -66,14 +50,15 @@ describe('schema-v2 Firestore codec', () => {
     expect(() => validateTrackerState(invalid)).toThrow(message);
   });
 
-  it('omits undefined parser-job failure consistently through validation and codec recovery', () => {
+  it('omits undefined parser-job failure consistently through validation and encoding', () => {
     const input = state(); input.replayIntake.parserJobs.completed = {
       id: 'completed', sha256: 'a'.repeat(64), status: 'completed', result: { scoreboard: [] }, failure: undefined,
     };
     expect(() => validateTrackerState(input)).not.toThrow();
-    const recovered = decodeFirestoreDocuments(encodeFirestoreDocuments(input));
-    expect(recovered.replayIntake.parserJobs.completed).toMatchObject({ id: 'completed', status: 'completed' });
-    expect(recovered.replayIntake.parserJobs.completed).not.toHaveProperty('failure');
+    const job = encodeStorageDocuments(input).filter(doc => doc.payload.topKey === 'replayIntake' && JSON.stringify((doc.payload.path as unknown[]).slice(0, 2)) === JSON.stringify(['parserJobs', 'completed']));
+    const leaves = Object.fromEntries(job.filter(doc => doc.payload.kind === 'value').map(doc => [String((doc.payload.path as unknown[])[2]), doc.payload.value]));
+    expect(leaves).toMatchObject({ id: 'completed', status: 'completed' });
+    expect(leaves).not.toHaveProperty('failure');
   });
 });
 

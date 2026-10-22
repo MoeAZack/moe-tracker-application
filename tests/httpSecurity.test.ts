@@ -34,8 +34,8 @@ beforeEach(async () => {
   tempDir = await fs.mkdtemp(path.join(os.tmpdir(), 'moetracker-http-'));
   dbPath = path.join(tempDir, 'db.json');
   for (const [key, value] of Object.entries({
-    NODE_ENV: 'test', USE_FIRESTORE: 'false', DB_PATH: dbPath,
-    ADMIN_PASSWORD: adminKey, JWT_SECRET: jwtSecret, GEMINI_API_KEY: 'test-no-external-calls', GOOGLE_CLIENT_ID: '',
+    NODE_ENV: 'test', DB_PATH: dbPath,
+    ADMIN_PASSWORD: adminKey, JWT_SECRET: jwtSecret, GEMINI_API_KEY: 'test-no-external-calls',
   })) vi.stubEnv(key, value);
   await fs.writeFile(dbPath, JSON.stringify({
     settings: {
@@ -123,7 +123,7 @@ describe('HTTP authentication and authorization boundary', () => {
 
   it('rejects player administrative reads and writes while allowing comment validation', async () => {
     const token = await login(playerKey);
-    for (const route of ['/api/access', '/api/keys']) expect((await request(route, token)).status).toBe(403);
+    for (const route of ['/api/keys']) expect((await request(route, token)).status).toBe(403);
     for (const route of ['/api/settings', '/api/reset-metrics', '/api/keys/create']) {
       expect((await request(route, token, {})).status).toBe(403);
     }
@@ -240,6 +240,18 @@ describe('HTTP authentication and authorization boundary', () => {
     const tokens = ['not-a-jwt', jwt.sign(claims, jwtSecret, { expiresIn: -1 }),
       jwt.sign(claims, 'wrong-secret'), jwt.sign(claims, jwtSecret, { algorithm: 'HS384' })];
     for (const token of tokens) expect((await request('/api/data', token)).status).toBe(401);
+  });
+
+  it('accepts no Google sessions and serves no Google sign-in or access routes', async () => {
+    const db = JSON.parse(await fs.readFile(dbPath, 'utf8'));
+    const email = db.allowedUsers[0].email;
+    const googleSession = jwt.sign({ kind: 'google', email, name: 'Old Google coach' }, jwtSecret);
+    expect((await request('/api/data', googleSession)).status).toBe(401);
+    const coach = await login(adminKey);
+    for (const route of ['/api/config', '/api/access']) expect((await request(route, coach)).status).toBe(404);
+    for (const route of ['/api/auth/google', '/api/access/add', '/api/access/remove']) expect((await request(route, coach, {})).status).toBe(404);
+    // Stored access entries are data: they stay, they just no longer grant anything.
+    expect(JSON.parse(await fs.readFile(dbPath, 'utf8')).allowedUsers).toEqual(db.allowedUsers);
   });
 
   it('uses current stored roles and denies an unknown role despite a signed coach claim', async () => {
