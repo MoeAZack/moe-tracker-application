@@ -42,6 +42,9 @@ const roundFlag = (value: unknown): true | false | null => {
   return null;
 };
 
+/** A pistol result that was never recorded reads "Unknown", never a bare slash. */
+export const pistolResultLabel = (value: unknown) => String(value ?? '').trim() || 'Unknown';
+
 export default function MatchLogRounds({ data, theme, onSaveMatch, onRemove, onSaveRounds, onSaveVeto, onRefreshDatabase, manualReplayDraft, onManualReplayDraftConsumed, reviewMatchId, reviewRoundNo, onReviewContextChange, onDuplicateReview, onAcceptRoundEvidence }: ComponentProps) {
   const isLight = data.settings.theme === 'daylight';
   
@@ -457,7 +460,7 @@ export default function MatchLogRounds({ data, theme, onSaveMatch, onRemove, onS
                 </div>
                 <div>
                   <p className="text-[10px] text-gray-500 uppercase font-black tracking-widest mb-1">Pistol ATT/DEF</p>
-                  <p className="text-lg font-black text-emerald-400">{selectedMatch.pistolAtt} / {selectedMatch.pistolDef}</p>
+                  <p className="text-lg font-black text-emerald-400">{pistolResultLabel(selectedMatch.pistolAtt)} / {pistolResultLabel(selectedMatch.pistolDef)}</p>
                 </div>
               </div>
 

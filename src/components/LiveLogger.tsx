@@ -53,6 +53,13 @@ export function preserveMixedTryoutPhase(
   return tryoutBatchId ? { ...context, tryoutBatchId } : context;
 }
 
+const SPLIT_ROUNDS = { pistolAtt: 1, ecoAtt: 2, bonusAtt: 3, pistolDef: 13, ecoDef: 14, bonusDef: 15 } as const;
+
+/** Pistol, post-pistol and bonus labels after logging one round. A split round not logged yet stays '' (unknown), never a loss. */
+export function liveSplitLabels(match: Partial<Record<keyof typeof SPLIT_ROUNDS, string>>, roundNo: number, result: string) {
+  return Object.fromEntries((Object.keys(SPLIT_ROUNDS) as Array<keyof typeof SPLIT_ROUNDS>).map(key => [key, SPLIT_ROUNDS[key] === roundNo ? result : match[key] || ''])) as Record<keyof typeof SPLIT_ROUNDS, string>;
+}
+
 export default function LiveLogger({ data, theme, onSaveMatch, onSaveRounds, onRefreshDatabase, setActiveTab, onUpsert }: ComponentProps) {
   const isLight = data.settings.theme === 'daylight';
   
@@ -179,12 +186,13 @@ export default function LiveLogger({ data, theme, onSaveMatch, onSaveRounds, onR
       attL: 0,
       defW: 0,
       defL: 0,
-      pistolAtt: 'L',
-      pistolDef: 'L',
-      ecoAtt: 'L',
-      ecoDef: 'L',
-      bonusAtt: 'L',
-      bonusDef: 'L',
+      // Unplayed split rounds stay unknown until the round is logged.
+      pistolAtt: '',
+      pistolDef: '',
+      ecoAtt: '',
+      ecoDef: '',
+      bonusAtt: '',
+      bonusDef: '',
       notes: `Live session with Primary IGL: ${primaryIgl || 'None'}, Secondary IGL: ${secondaryIgl || 'None'}.`,
       source: 'live-logger',
       rosterContext,
@@ -366,19 +374,7 @@ export default function LiveLogger({ data, theme, onSaveMatch, onSaveRounds, onR
     }
 
     // Dynamic Pistol / Eco / Bonus trackers
-    let pistolAtt = sessionMatch.pistolAtt || 'L';
-    let pistolDef = sessionMatch.pistolDef || 'L';
-    let ecoAtt = sessionMatch.ecoAtt || 'L';
-    let ecoDef = sessionMatch.ecoDef || 'L';
-    let bonusAtt = sessionMatch.bonusAtt || 'L';
-    let bonusDef = sessionMatch.bonusDef || 'L';
-
-    if (currentRoundNo === 1) pistolAtt = roundResult;
-    if (currentRoundNo === 13) pistolDef = roundResult;
-    if (currentRoundNo === 2) ecoAtt = roundResult;
-    if (currentRoundNo === 14) ecoDef = roundResult;
-    if (currentRoundNo === 3) bonusAtt = roundResult;
-    if (currentRoundNo === 15) bonusDef = roundResult;
+    const { pistolAtt, pistolDef, ecoAtt, ecoDef, bonusAtt, bonusDef } = liveSplitLabels(sessionMatch, currentRoundNo, roundResult);
 
     // Recalculate score splits
     let attW = 0, attL = 0, defW = 0, defL = 0;

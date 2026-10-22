@@ -56,18 +56,22 @@ export default function RosterManager({ data, theme, onRefresh }: Props) {
   const [newSeasonName, setNewSeasonName] = useState("");
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  const [collapsed, setCollapsed] = useState(() =>
-    typeof window !== "undefined"
-      ? archivedPlayers.length === 0 &&
-        window.localStorage.getItem("moe.roster-manager.collapsed.v2") !==
-          "false"
-      : false,
-  );
+  // The Roster tab holds only this panel, so it opens expanded. It stays
+  // minimized only after the coach minimizes it. The v2 key stored the old
+  // collapsed-by-default state on every visit, so it is not read.
+  const [collapsed, setCollapsed] = useState(() => {
+    try {
+      return typeof window !== "undefined" && window.localStorage.getItem("moe.roster-manager.collapsed.v3") === "true";
+    } catch {
+      return false;
+    }
+  });
   useEffect(() => {
-    window.localStorage.setItem(
-      "moe.roster-manager.collapsed.v2",
-      String(collapsed),
-    );
+    try {
+      window.localStorage.setItem("moe.roster-manager.collapsed.v3", String(collapsed));
+    } catch {
+      // Storage can be unavailable; the panel still works for this visit.
+    }
   }, [collapsed]);
   const [archivedOpen, setArchivedOpen] = useState(false);
   useEffect(() => {
