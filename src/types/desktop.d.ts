@@ -59,7 +59,7 @@ declare global {
       setRetentionDays(days: number): Promise<{ retentionDays: number }>;
       setStartWithWindows(enabled: boolean): Promise<{ startWithWindows: boolean }>;
       setCapturePaused(paused: boolean): Promise<{ paused: boolean }>;
-      setCapturePreferences(input: { profile: 'fullscreen' | 'fullscreen-windowed' | 'windowed'; display: string; notification: 'open-review' | 'notify-only' | 'silent'; offlineQueue: boolean; elevated?: boolean }): Promise<DesktopStatus['capture']['preferences']>;
+      setCapturePreferences(input: { profile: 'fullscreen' | 'fullscreen-windowed' | 'windowed'; display: string; notification: 'open-review' | 'notify-only' | 'silent'; offlineQueue: boolean; elevated?: boolean; matchEndOffer?: 'notify' | 'off' }): Promise<DesktopStatus['capture']['preferences']>;
       disconnectDevice(): Promise<{ disconnected: boolean }>;
       listScoreboards(): Promise<Array<{ id: string; name: string; size: number; modifiedAt: string; mediaType: string; capture?: null | { captureId: string; template: string; requestedRounds: number } }>>;
       readScoreboard(id: string): Promise<{ id: string; imageSha256: string; name: string; mediaType: string; bytes: Uint8Array }>;
