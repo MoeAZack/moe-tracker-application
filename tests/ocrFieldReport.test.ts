@@ -164,6 +164,25 @@ describe('replay-joined labels', () => {
     expect(report.byCondition['1600x900 · unknown% · custom']).toBeDefined();
   });
 
+  it('labels first bloods, first deaths, plants and defuses from the replay values recorded at reconciliation, never from the saved row', () => {
+    const reconciled = { matchId: 'm1', agent: 'Killjoy', kills: 18, deaths: 14, assists: 6, defuses: 1, fd: 3, plants: 0, ...replayRow,
+      // The saved row's defuses (1) is the screenshot fallback; the replay read 2. plants had no replay value.
+      evidenceReconciliation: { comparisons: [
+        { field: 'kills', screenshot: 18, replay: 18, agrees: true },
+        { field: 'defuses', screenshot: 1, replay: 2, agrees: false },
+        { field: 'fd', screenshot: 3, replay: 3, agrees: true },
+        { field: 'side', screenshot: 'attack', replay: 'attack', agrees: true },
+      ] } };
+    const labels = replayJoinedLabels({ ...db, playerStats: [reconciled] });
+    expect(labels.sessions[0].players).toEqual([{ agent: 'Killjoy', kda: [18, 14, 6], stats: { defuses: 2, fd: 3 } }]);
+    const run = { 'Scrim-1': output([{ extractedName: 'x', agent: 'Killjoy', kills: 18, deaths: 14, assists: 6, defuses: 1, fd: 3, plants: 0 }], { map: 'Ascent', ourScore: 13, theirScore: 11 }) };
+    const report = fieldReport(labels, run);
+    expect(report.fields.defuses).toMatchObject({ labelled: 1, correct: 0, falseAccept: 1 });
+    expect(report.fields.fd).toMatchObject({ labelled: 1, correct: 1 });
+    expect(report.fields.plants).toBeUndefined();
+    expect(report.falseAccepts).toContainEqual({ captureId: 'Scrim-1', field: 'defuses', row: 0, read: 1, expected: 2 });
+  });
+
   it('leaves a player unpaired rather than guessing between two equally close rows', () => {
     expect(pairRows([{ kda: [10, 10, 10] }], [{ kills: 11, deaths: 10, assists: 10 }, { kills: 9, deaths: 10, assists: 10 }])).toEqual([null]);
     expect(pairRows([{ kda: [10, 10, 10] }], [{ kills: 40, deaths: 0, assists: 0 }])).toEqual([null]);
