@@ -1,6 +1,25 @@
 # Delivery roadmap
 
-Last reconciled: 20 October 2026, Africa/Cairo. This status is tied to executable tests and the audit matrix in `AUDIT-COVERAGE-2026-10-20.md`; the release remains unsigned until the external Windows signing gate is completed.
+Last reconciled: 22 October 2026, Africa/Cairo. Version 0.2.0 is published
+(unsigned). The owner picked stages R1 to R4 from the second audit; R5 was not
+picked. Older sections below are kept as the record of what shipped.
+
+## Current — after 0.2.0
+
+- [ ] **R1 Clean house**
+  - [x] Screen error boundary: one failing screen no longer blanks the app
+  - [x] Private roster data out of the tree; synthetic names in tests
+  - [x] `AUTONOMY.md` rewritten for real data and the current gates
+  - [x] Old Google code removed: Firestore, Cloud Storage, Google sign-in, Firebase stub
+  - [ ] Git history purged of the old `db.json` (runs on the owner's PC)
+  - [ ] Dead integrations removed: GRID key, HenrikDev, VLR, ranked-sync prototype
+  - [ ] Fonts bundled with the app; unused packages removed
+  - [ ] PRACC rows with coach work kept and flagged instead of deleted
+  - [ ] Map Analysis copy and small-sample markers; Compositions empty state; Roster open; "Unknown" pistol results
+  - [ ] Docs describe the current release, storage and replay paths
+- [ ] **R2 One product**: 7 destinations instead of 16 tabs, AI hub out of Coach Workspace, one strat editor, Live Logger folded into Record match, one visual system and product name, a source chip on every stat
+- [ ] **R3 Coach loop**: strategy board, VOD jumps to the round, drawing on a frame, tasks from a round, automatic practice summary, batch video import, synced multi-POV review
+- [ ] **R4 OCR evidence loop**: replay-joined labels, false-accept report, more scoreboard layouts, single-screenshot corrections; every OCR change passes the `d685d56` zero-diff gate on the owner's corpus
 
 ## Integrated coaching intelligence — P0 to P4
 

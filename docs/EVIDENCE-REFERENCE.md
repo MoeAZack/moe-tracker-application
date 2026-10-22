@@ -44,7 +44,7 @@ A derived claim (a summary value, a later review signal or assignment) links to 
 - A screenshot-derived round remains `draft` while its retained round evidence is `review-required`; it is accepted only when the round is confirmed and its match evidence is accepted.
 - Legacy matches without source metadata produce `sourceTypes: ['unknown']`. An accepted legacy row that never recorded an acceptance time keeps `acceptedAt: null`.
 - `acceptedAt` is populated only from a recorded acceptance/confirmation timestamp and never falls back to `capturedAt`.
-- The workspace identity (`db.workspace = { schemaVersion: 1, id, createdAt }`) is created on the first persisted write (JSON, Firestore and D1 paths) and is never replaced. Reads never create it, so an unsaved identity cannot change between requests. It survives season archive/reset and is not copied by portable-package import. A complete restore carries the restored workspace's own identity.
+- The workspace identity (`db.workspace = { schemaVersion: 1, id, createdAt }`) is created on the first persisted write (JSON and D1 paths) and is never replaced. Reads never create it, so an unsaved identity cannot change between requests. It survives season archive/reset and is not copied by portable-package import. A complete restore carries the restored workspace's own identity.
 
 ## Known limitations
 

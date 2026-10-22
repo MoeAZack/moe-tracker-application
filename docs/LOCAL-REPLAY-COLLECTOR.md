@@ -1,6 +1,6 @@
 # Local replay collector (Windows, review-first)
 
-The collector now defaults to pinned local parsing and sends device-attested normalized evidence only. Device attestation is not proof against a compromised enrolled PC; coach review remains the trust boundary. Raw replay upload is a coach-only, explicitly configured GCS fallback. See [HYBRID-REPLAY-INGESTION.md](HYBRID-REPLAY-INGESTION.md) for the trust boundary, resumable behavior, and deployment gates.
+The collector now defaults to pinned local parsing and sends device-attested normalized evidence only. Device attestation is not proof against a compromised enrolled PC; coach review remains the trust boundary. The Google Cloud Storage raw fallback was removed. See [HYBRID-REPLAY-INGESTION.md](HYBRID-REPLAY-INGESTION.md) for the trust boundary.
 
 Status: implemented for local/test validation; **not deployed**. The optional parser is gated separately and remains off until its pinned local runtime is configured.
 
@@ -12,7 +12,7 @@ Status: implemented for local/test validation; **not deployed**. The optional pa
 - Defaults to dry-run/review-required. A person approves one hash with `approve`, or deliberately enables auto-upload for that device.
 - Runs the pinned parser and normalizer locally, then sends only bounded device-attested evidence tied to the replay SHA-256, size, and enrolled device. Daily device quotas and evidence-retention limits apply.
 - Deduplicates by SHA-256 and records a terminal submitted state locally so watch mode does not reparse successful review drafts. Submission never implies coach acceptance.
-- Offers raw bytes only through the explicit coach GCS fallback. The legacy server-proxied route is disabled by default and, when temporarily enabled for migration, rejects player-owned devices.
+- Never uploads raw replay bytes. The legacy server-proxied route is disabled by default and, when temporarily enabled for migration, rejects player-owned devices.
 
 It does **not** inspect game memory, read Riot credentials/tokens, capture the screen, scan unrelated folders, upload videos, or upload screenshots. Raw replay paths and bytes are never returned to players or public responses.
 
