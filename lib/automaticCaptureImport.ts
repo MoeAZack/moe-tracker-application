@@ -20,6 +20,14 @@ const sideForRound = (roundNo: number, firstHalf: 'Att' | 'Def') => {
   return roundNo % 2 === 1 ? firstHalf : opposite;
 };
 
+/** Buy label for one side of a round. An unconfirmed round keeps its raw evidence for review but labels nothing from it. */
+export function roundEconomyLabel(evidence: any, team: 'ours' | 'theirs') {
+  if (evidence?.reviewStatus !== 'confirmed') return '';
+  const equipment = classifyTeamEquipment(evidence?.players || [], team);
+  const label = equipment !== 'unknown' ? equipment : classifyAverageLoadout(team === 'ours' ? evidence?.ourAverageLoadout : evidence?.enemyAverageLoadout);
+  return label === 'unknown' ? '' : label[0].toUpperCase() + label.slice(1);
+}
+
 export function buildAutomaticCaptureImport(extracted: any, data: TrackerData, captureId: string | null, capturedAt: string | null = null) {
   const maps = data.settings?.maps || [];
   const decision = autonomousCaptureDecision(extracted, maps, data.playerStats || []);
@@ -64,13 +72,6 @@ export function buildAutomaticCaptureImport(extracted: any, data: TrackerData, c
     agent: player.agent || '', kAtt: null, kDef: null, dAtt: null, dDef: null, aAtt: null, aDef: null,
     kills: numberOrNull(player.kills), deaths: numberOrNull(player.deaths), assists: numberOrNull(player.assists), acs: numberOrNull(player.acs), adr: numberOrNull(player.adr), hs: numberOrNull(player.hs), fk: numberOrNull(player.fk), fd: numberOrNull(player.fd), performanceScore: numberOrNull(player.performanceScore), trades: numberOrNull(player.trades), plants: numberOrNull(player.plants), defuses: numberOrNull(player.defuses), ...(player.headToHead ? { headToHead: player.headToHead } : {}), sourceMetadata,
   }));
-  const economyLabel = (value: unknown, evidence: any, team: 'ours' | 'theirs') => {
-    // An unconfirmed round keeps its raw evidence for review but labels nothing from it.
-    if (evidence?.reviewStatus !== 'confirmed') return '';
-    const equipment = classifyTeamEquipment(evidence?.players || [], team);
-    const label = equipment !== 'unknown' ? equipment : classifyAverageLoadout(value);
-    return label === 'unknown' ? '' : label[0].toUpperCase() + label.slice(1);
-  };
-  const roundRows = rounds.map(round => ({ roundNo: round.roundNo, side: sideForRound(round.roundNo, firstHalf), result: round.result, winBy: round.winBy || '', buy: economyLabel(round.screenshotEvidence?.ourAverageLoadout, round.screenshotEvidence, 'ours'), enemyBuy: economyLabel(round.screenshotEvidence?.enemyAverageLoadout, round.screenshotEvidence, 'theirs'), screenshotEvidence: round.screenshotEvidence, advantageEvidence: deriveRoundAdvantage({ source: 'screenshot', complete: round.screenshotEvidence?.reviewStatus === 'confirmed' && round.screenshotEvidence?.eventsComplete === true, winner: round.result, events: (round.screenshotEvidence?.events || []).map((event: any) => ({ sequence: event.sequence, victimTeam: event.victimTeam })) }) }));
+  const roundRows = rounds.map(round => ({ roundNo: round.roundNo, side: sideForRound(round.roundNo, firstHalf), result: round.result, winBy: round.winBy || '', buy: roundEconomyLabel(round.screenshotEvidence, 'ours'), enemyBuy: roundEconomyLabel(round.screenshotEvidence, 'theirs'), screenshotEvidence: round.screenshotEvidence, advantageEvidence: deriveRoundAdvantage({ source: 'screenshot', complete: round.screenshotEvidence?.reviewStatus === 'confirmed' && round.screenshotEvidence?.eventsComplete === true, winner: round.result, events: (round.screenshotEvidence?.events || []).map((event: any) => ({ sequence: event.sequence, victimTeam: event.victimTeam })) }) }));
   return { decision, payload: { match, stats, roundRows } };
 }
