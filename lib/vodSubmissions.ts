@@ -20,6 +20,8 @@ export const normalizeVodName = (value: string) => normalizedMatchName(value);
 export const similarVodName = (left: string, right: string) => similarMatchName(left, right);
 
 function resolveFive(db: any, rows: SubmissionInput['players']): VodSubmissionPlayer[] {
+  // A coach timeline-only import (no readable scoreboard, or no roster yet) names nobody; that is allowed, never padded.
+  if (!rows.length) return [];
   // Known aliases (coach corrections, tryout aliases, accepted names) count, so a fix made once applies to VOD too.
   const roster = captureRosterFromIdentity(db);
   const resolved = rows.map(row => {
@@ -71,7 +73,8 @@ export function integrateVodSubmission(db: any, input: SubmissionInput, actorNam
   if (requested && [...rosterIds].filter(id => matchRosterIds(db, requested.id).has(id)).length < 5 && !hasUniqueKdaCoverage(db, requested.id, players)) throw Object.assign(new Error('The selected match does not contain the same five-player roster or five unique K/D/A rows. Choose the correct match or create a new VOD entry.'), { status: 409 });
   const incomingIdentityRows = players.map(player => ({ playerId: player.rosterPlayerId, player: player.rosterDisplayName }));
   // One shared identity answer; a header-only candidate must also hold all five players.
-  const found = !requested ? findMatchCandidates(db, input, { stats: incomingIdentityRows, unknownMatches: true }) : { basis: null, matches: [] };
+  // With no identities a date/map header alone could land on another game, so an unnamed import only ever creates its own match.
+  const found = !requested && players.length ? findMatchCandidates(db, input, { stats: incomingIdentityRows, unknownMatches: true }) : { basis: null, matches: [] };
   const automatic = found.basis === 'header' ? found.matches.filter((match: Match) => [...rosterIds].every(id => matchRosterIds(db, match.id).has(id))) : found.matches;
   let match: Match | undefined = requested || (automatic.length === 1 ? automatic[0] : undefined);
   const createdMatch = !match;
@@ -79,7 +82,7 @@ export function integrateVodSubmission(db: any, input: SubmissionInput, actorNam
     match = {
       id: ids.matchId, date: input.date, type: 'VOD submission', opponent: input.opponent || 'Unknown opponent', map: input.map || 'Unknown map',
       attW: null, attL: null, defW: null, defL: null, ourScore: input.ourScore, theirScore: input.theirScore, vod: input.vodUrl,
-      notes: `Created automatically from a ${input.playerId ? 'player' : 'coach'} VOD submission after five roster identities matched.`, source: 'vod-submission',
+      notes: `Created automatically from a ${input.playerId ? 'player' : 'coach'} VOD submission ${players.length ? 'after five roster identities matched' : 'with no player identities yet; scoreboard totals are pending'}.`, source: 'vod-submission',
       sourceMetadata: { method: 'vod-submission', capturedAt: now, provider: 'local-ocr', externalId: ids.submissionId },
       comparisonEvidence: { accepted: true }, rosterContext: { kind: 'mixed' }, vodSubmissionIds: [ids.submissionId],
     };

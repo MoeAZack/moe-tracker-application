@@ -6,14 +6,33 @@ import evidenceModule from '../desktop/vod-timeline-evidence.cjs';
 import analyzerModule from '../desktop/vod-timeline-analyzer.cjs';
 import { boundaryTimelinePlayers } from '../src/components/VodSubmission';
 
-const { aggregateVideoEvidence, parseKillFeedSnapshot, parseUltimateSnapshots, parseRoundStateSnapshot, buildRoundTimeline, buildObserverSegments, applyVisualTemplates, fuseVodEvidence } = evidenceModule;
-const { sweepOrphanedVodDirectories, normalizeYoutubeUrl, youtubeVideoId, frameDifference, visualSignature, scoreboardGeometryScore, agentSelectGeometryScore, chooseGameBoundaries, inferPovPlayer, analyzeVodTimeline, releaseVodSource, discoverVodGames, readVodFrame, readOwnedVodFrame } = analyzerModule;
+const { aggregateVideoEvidence, NO_IDENTITIES_LIMITATION, parseKillFeedSnapshot, parseUltimateSnapshots, parseRoundStateSnapshot, buildRoundTimeline, buildObserverSegments, applyVisualTemplates, fuseVodEvidence } = evidenceModule;
+const { sweepOrphanedVodDirectories, normalizeYoutubeUrl, youtubeVideoId, frameDifference, visualSignature, scoreboardGeometryScore, agentSelectGeometryScore, chooseGameBoundaries, inferPovPlayer, analyzeVodTimeline, releaseVodSource, discoverVodGames, readVodFrame, readOwnedVodFrame, normalizeTimelinePlayers } = analyzerModule;
 const players = [
   { name: 'Alpha', team: 'ours' }, { name: 'Bravo', team: 'ours' }, { name: 'Charlie', team: 'ours' }, { name: 'Delta', team: 'ours' }, { name: 'Echo', team: 'ours' },
   { name: 'EnemyOne', team: 'theirs' }, { name: 'EnemyTwo', team: 'theirs' }, { name: 'EnemyThree', team: 'theirs' }, { name: 'EnemyFour', team: 'theirs' }, { name: 'EnemyFive', team: 'theirs' },
 ] as const;
 
 describe('VOD timeline evidence', () => {
+  it('runs with no known player identity on an empty workspace and says what is missing', () => {
+    expect(normalizeTimelinePlayers(undefined)).toEqual([]);
+    expect(normalizeTimelinePlayers([])).toEqual([]);
+    expect(normalizeTimelinePlayers([{ name: '  ' }, { name: 'Alpha', team: 'theirs', expectedKills: -1, expectedDeaths: 3 }, null])).toEqual([{ name: 'Alpha', team: 'theirs', expectedKills: null, expectedDeaths: 3 }]);
+    const result = aggregateVideoEvidence({ players: [], durationMs: 60_000,
+      killFeedSnapshots: [{ timestampMs: 1_000, text: 'Alpha Vandal EnemyOne', confidence: .9 }],
+      roundStateSnapshots: [{ timestampMs: 500, text: '0 0 1:39', confidence: .9 }],
+    });
+    // Nobody is credited and nothing is invented: unknown stays unknown, never zero for a named player.
+    expect(result.playerMetrics).toEqual([]);
+    expect(result.observations.filter((event: any) => event.kind === 'elimination')).toEqual([]);
+    expect(result.coverage.signals.eliminations).toBe('unsupported');
+    expect(result.coverage.killFeedSnapshots).toBe(1);
+    expect(result.limitations).toContain(NO_IDENTITIES_LIMITATION);
+    expect(NO_IDENTITIES_LIMITATION).toMatch(/Roster/);
+    // Named analyses keep their existing limitations untouched.
+    expect(aggregateVideoEvidence({ players, durationMs: 60_000 }).limitations).not.toContain(NO_IDENTITIES_LIMITATION);
+  });
+
   it('parses ordered cross-team kill-feed names without inventing same-team events', () => {
     expect(parseKillFeedSnapshot({ timestampMs: 1_000, text: 'Alpha Vandal EnemyOne', confidence: .9 }, players)).toEqual([
       expect.objectContaining({ kind: 'elimination', killer: 'Alpha', victim: 'EnemyOne', killerTeam: 'ours', victimTeam: 'theirs' }),

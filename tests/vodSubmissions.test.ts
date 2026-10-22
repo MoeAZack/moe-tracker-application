@@ -36,6 +36,24 @@ describe('player VOD submission integration', () => {
     expect(db.playerStats).toHaveLength(5);
   });
 
+  it('saves a coach timeline-only import on an empty workspace as its own match with nobody named', () => {
+    const db: any = createSeed(); db.rosterPlayers = []; db.matches = []; db.playerStats = [];
+    const { playerId: _playerId, ...coachInput } = input;
+    const submission = integrateVodSubmission(db, { ...coachInput, playerId: null, ourScore: null, theirScore: null, opponent: null, players: [] }, 'Coach team VOD', { ...ids, statId: () => 'never' }, '2026-10-18T14:00:00Z');
+    expect(submission).toMatchObject({ linkMode: 'new-match', rosterMatchCount: 0, players: [], integration: { createdMatch: true, createdStats: 0 } });
+    expect(db.matches).toHaveLength(1); expect(db.matches[0]).toMatchObject({ ourScore: null, theirScore: null, opponent: 'Unknown opponent' });
+    expect(db.matches[0].notes).toContain('no player identities');
+    expect(db.playerStats).toEqual([]);
+  });
+
+  it('never links an unnamed import to a saved game by date and map alone', () => {
+    const db = fixture();
+    const { playerId: _playerId, ...coachInput } = input;
+    const submission = integrateVodSubmission(db, { ...coachInput, playerId: null, players: [] }, 'Coach team VOD', ids, '2026-10-18T14:00:00Z');
+    expect(submission.linkMode).toBe('new-match'); expect(submission.linkedMatchId).toBe('new-match');
+    expect(db.matches.find((match: any) => match.id === 'm1').vodSubmissionIds).toBeUndefined();
+  });
+
   it('links by the shared match header only when the saved match also holds all five players', () => {
     // Same date, map, opponent and score, but only four of the five players: a header can repeat, so it is not this game.
     const db = fixture(); db.playerStats = db.playerStats.slice(0, 4).map((row: any) => ({ ...row, playerId: undefined, player: `other-${row.id}`, displayNameSnapshot: `other-${row.id}` }));

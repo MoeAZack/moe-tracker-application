@@ -150,6 +150,21 @@ describe('VOD import runner survives leaving the VOD tab', () => {
     expect(renderToStaticMarkup(React.createElement(VodImportQueue, { queue: [] }))).toBe('');
   });
 
+  it('imports a first VOD on an empty workspace with nobody named, never linking by date and map alone', async () => {
+    const h = harness();
+    const run = startVodBatchImport(input({ roster: [], matches: [{ id: 'other-game', date: '2026-10-20', map: 'Ascent' }] as any }), h.deps);
+    await h.finishAnalysis(); await h.finishAnalysis();
+    await expect(run).resolves.toBe(true);
+    expect(h.desktop.analyzeVod).toHaveBeenCalledTimes(2);
+    for (const [request] of h.desktop.analyzeVod.mock.calls as any[]) expect(request.players).toEqual([]);
+    for (const [url, init] of h.apiFetch.mock.calls as any[]) if (url === '/api/vod-submissions') { const body = JSON.parse(String(init.body)); expect(body.matchId).toBeUndefined(); expect(body.players).toEqual([]); }
+    const state = vodImportStore.getSnapshot();
+    expect(state.progress?.status).toBe('done');
+    expect(state.batchResult.map(game => game.status)).toEqual(['Timeline imported · scoreboard pending · players not named yet', 'Timeline imported · scoreboard pending · players not named yet']);
+    expect(state.message).toContain('No player names were known for these games');
+    expect(state.message).toContain('Add your players under Roster');
+  });
+
   it('splits a pasted list of links into one VOD each', () => {
     expect(splitVodLinks('https://youtu.be/a\nhttps://youtu.be/b, https://youtu.be/a  https://www.youtube.com/live/c')).toEqual(['https://youtu.be/a', 'https://youtu.be/b', 'https://www.youtube.com/live/c']);
     expect(splitVodLinks('  ')).toEqual([]);
