@@ -2,6 +2,7 @@ import type { Match, PlayerStats, VodSubmission, VodSubmissionPlayer, VodTimelin
 import evidenceModule from '../desktop/vod-timeline-evidence.cjs';
 import { deriveRoundAdvantage } from './roundAdvantage';
 import { findPhysicalMatchCandidates } from './physicalMatchIdentity';
+import { captureRosterFromIdentity } from './identityResolver';
 import { refreshDuplicateQuarantine } from './matchIntegrity';
 
 const { fuseVodEvidence } = evidenceModule as { fuseVodEvidence: (items: VodTimelineEvidence[]) => VodTimelineEvidence | null };
@@ -38,9 +39,10 @@ export function similarVodName(left: string, right: string) {
 }
 
 function resolveFive(db: any, rows: SubmissionInput['players']): VodSubmissionPlayer[] {
-  const roster = (db.rosterPlayers || []).filter((player: any) => !player.retiredAt);
+  // Known aliases (coach corrections, tryout aliases, accepted names) count, so a fix made once applies to VOD too.
+  const roster = captureRosterFromIdentity(db);
   const resolved = rows.map(row => {
-    const candidates = roster.filter((player: any) => similarVodName(row.observedName, player.displayName));
+    const candidates = roster.filter(player => [player.displayName, ...player.aliases].some(name => similarVodName(row.observedName, name)));
     if (candidates.length !== 1) throw Object.assign(new Error(`“${row.observedName}” must match exactly one active roster player before this VOD can be integrated.`), { status: 409 });
     return { ...row, rosterPlayerId: candidates[0].id, rosterDisplayName: candidates[0].displayName };
   });
