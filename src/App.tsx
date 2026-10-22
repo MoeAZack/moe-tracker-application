@@ -15,7 +15,7 @@ import ReviewContextBar from './components/ReviewContextBar';
 import VodImportStatus from './components/VodImportStatus';
 import { projectCurrentPlayerAnalytics } from '../lib/activePlayerAnalytics';
 import { projectReviewContext } from '../lib/reviewContext';
-import { evidenceReviewTab, focusReviewContext, navWorkspaceTabs, parseWorkspaceRoute, resolveWorkspaceTab, routableWorkspaceTabs, syncWorkspaceRoute, type WorkspaceRoute, type WorkspaceTabId } from './utils/workspaceRoute';
+import { destinationEntryTab, evidenceReviewTab, focusReviewContext, navWorkspaceTabs, parseWorkspaceRoute, resolveWorkspaceTab, routableWorkspaceTabs, syncWorkspaceRoute, workspaceDestination, workspaceDestinations, type WorkspaceDestination, type WorkspaceRoute, type WorkspaceTabId } from './utils/workspaceRoute';
 import ScreenErrorBoundary from './components/ScreenErrorBoundary';
 
 // Heavy route views are code-split so the initial bundle only loads the shell + login.
@@ -49,6 +49,10 @@ import {
 } from 'lucide-react';
 import { notify } from './utils/appDialogs';
 import AppDialogHost from './components/AppDialogHost';
+
+const DESTINATION_ICONS: Record<WorkspaceDestination, typeof Trophy> = {
+  Home: Trophy, Matches: Swords, Team: Compass, Players: Users, Coaching: Sparkles, Playbook: Layers, Settings: SettingsIcon,
+};
 
 export default function App() {
   useEffect(() => {
@@ -465,22 +469,22 @@ export default function App() {
   };
 
   const tabsList = [
-    { id: 'dashboard', label: 'Home', icon: Trophy, group: 'Home' },
-    { id: 'matches', label: 'Match Review', icon: Swords, group: 'Matches' },
-    { id: 'replays', label: 'Replay Evidence', icon: FileCheck2, group: 'Matches' },
-    { id: 'vod', label: 'VOD Review', icon: Film, group: 'Matches' },
-    { id: 'vodsubmit', label: 'VOD Submission', icon: Upload, group: 'Matches' },
-    { id: 'livelogger', label: 'Live Logger 🔴', icon: Activity, group: 'Matches' },
-    { id: 'economy', label: 'Economy', icon: Coins, group: 'Team' },
-    { id: 'maps', label: 'Map Analysis', icon: Compass, group: 'Team' },
-    { id: 'roster', label: 'Roster', icon: Users, group: 'Players' },
-    { id: 'playerstats', label: 'Player Stats', icon: Activity, group: 'Players' },
-    { id: 'comparisons', label: 'Tryout comparisons', icon: GitCompareArrows, group: 'Players' },
-    { id: 'calendar', label: 'Schedule & Goals', icon: Calendar, group: 'Coaching' },
-    { id: 'aitactical', label: 'Coach Workspace', icon: Sparkles, group: 'Coaching' },
-    { id: 'comps', label: 'Compositions', icon: Layers, group: 'Playbook' },
-    { id: 'lineups', label: 'Lineup Library', icon: Crosshair, group: 'Playbook' },
-    { id: 'settings', label: 'Settings', icon: SettingsIcon, group: 'Settings' },
+    { id: 'dashboard', label: 'Home', icon: Trophy },
+    { id: 'matches', label: 'Match Review', icon: Swords },
+    { id: 'replays', label: 'Replay Evidence', icon: FileCheck2 },
+    { id: 'vod', label: 'VOD Review', icon: Film },
+    { id: 'vodsubmit', label: 'VOD Submission', icon: Upload },
+    { id: 'livelogger', label: 'Live Logger 🔴', icon: Activity },
+    { id: 'economy', label: 'Economy', icon: Coins },
+    { id: 'maps', label: 'Map Analysis', icon: Compass },
+    { id: 'roster', label: 'Roster', icon: Users },
+    { id: 'playerstats', label: 'Player Stats', icon: Activity },
+    { id: 'comparisons', label: 'Tryout comparisons', icon: GitCompareArrows },
+    { id: 'calendar', label: 'Schedule & Goals', icon: Calendar },
+    { id: 'aitactical', label: 'Coach Workspace', icon: Sparkles },
+    { id: 'comps', label: 'Compositions', icon: Layers },
+    { id: 'lineups', label: 'Lineup Library', icon: Crosshair },
+    { id: 'settings', label: 'Settings', icon: SettingsIcon },
   ] as const;
 
   const tryoutComparisonsVisible = showTryoutComparisons ?? Boolean((data?.settings as any)?.tryoutsMode);
@@ -489,8 +493,19 @@ export default function App() {
     const ids = navWorkspaceTabs({ desktopMode, role, showTryoutComparisons: tryoutComparisonsVisible, activeTab });
     return tabsList.filter(tab => ids.includes(tab.id));
   }, [desktopMode, role, tryoutComparisonsVisible, activeTab]);
-  const groupedTabs = useMemo(() => (['Home', 'Matches', 'Team', 'Players', 'Coaching', 'Playbook', 'Settings'] as const)
-    .map(group => ({ group, tabs: visibleTabs.filter(tab => tab.group === group) })).filter(section => section.tabs.length), [visibleTabs]);
+  // Seven destinations in the sidebar; a destination with several screens
+  // shows them as sections above the screen.
+  const destinations = useMemo(() => workspaceDestinations(visibleTabs.map(tab => tab.id)).map(entry => ({
+    ...entry, icon: DESTINATION_ICONS[entry.destination], sections: entry.tabs.map(id => visibleTabs.find(tab => tab.id === id)!),
+  })), [visibleTabs]);
+  const activeDestination = workspaceDestination(activeTab);
+  const activeSections = destinations.find(entry => entry.destination === activeDestination)?.sections || [];
+  const lastSectionByDestination = useRef<Partial<Record<WorkspaceDestination, WorkspaceTabId>>>({});
+  useEffect(() => { lastSectionByDestination.current[workspaceDestination(activeTab)] = activeTab; }, [activeTab]);
+  const openDestination = (destination: WorkspaceDestination) => {
+    const target = destinationEntryTab(destinations.find(entry => entry.destination === destination)?.tabs || [], lastSectionByDestination.current[destination]);
+    if (target) setActiveTab(target);
+  };
   useEffect(() => {
     const resolved = resolveWorkspaceTab(activeTab, routableTabs);
     if (resolved !== activeTab) setActiveTab(resolved);
@@ -531,14 +546,13 @@ export default function App() {
             </div>
           </div>
           
-          <nav className="space-y-4">
-            {groupedTabs.map(section => <section key={section.group}><p className="mb-1.5 px-3 text-[9px] font-black uppercase tracking-[0.2em] text-slate-600">{section.group}</p><div className="space-y-1">{section.tabs.map((tab) => {
-              const IconComp = tab.icon;
-              const isActive = activeTab === tab.id;
+          <nav aria-label="Main" className="space-y-1">
+            {destinations.map(({ destination, icon: IconComp }) => {
+              const isActive = activeDestination === destination;
               return (
                 <button
-                  key={tab.id}
-                  onClick={() => setActiveTab(tab.id)}
+                  key={destination}
+                  onClick={() => openDestination(destination)}
                   aria-current={isActive ? 'page' : undefined}
                   className={`nav-item w-full flex items-center gap-4 px-3 py-2.5 text-left uppercase text-xs tracking-wider font-bold font-mono ${
                     isActive
@@ -547,10 +561,10 @@ export default function App() {
                   }`}
                 >
                   <IconComp className="w-4.5 h-4.5 shrink-0" />
-                  <span>{tab.label}</span>
+                  <span>{destination}</span>
                 </button>
               );
-            })}</div></section>)}
+            })}
           </nav>
         </div>
 
@@ -656,14 +670,13 @@ export default function App() {
         {/* Mobile Navigation Drawer */}
         {mobileMenuOpen && (
           <nav id="mobile-navigation" className="liquid-chrome lg:hidden border-x-0 border-t-0 rounded-none px-4 py-4 space-y-2 relative z-40 animate-fadeIn">
-            {groupedTabs.map(section => <section key={section.group}><p className="mb-1 px-3 pt-2 text-[9px] font-black uppercase tracking-[0.2em] text-slate-600">{section.group}</p>{section.tabs.map((tab) => {
-              const IconComp = tab.icon;
-              const isActive = activeTab === tab.id;
+            {destinations.map(({ destination, icon: IconComp }) => {
+              const isActive = activeDestination === destination;
               return (
                 <button
-                  key={tab.id}
+                  key={destination}
                   onClick={() => {
-                    setActiveTab(tab.id);
+                    openDestination(destination);
                     setMobileMenuOpen(false);
                   }}
                   className={`nav-item w-full min-h-11 flex items-center gap-3.5 px-3 py-2.5 text-left uppercase text-xs tracking-wider font-bold font-mono ${
@@ -674,10 +687,10 @@ export default function App() {
                   aria-current={isActive ? 'page' : undefined}
                 >
                   <IconComp className="w-4.5 h-4.5" />
-                  <span>{tab.label}</span>
+                  <span>{destination}</span>
                 </button>
               );
-            })}</section>)}
+            })}
 
             {/* Mobile Session Status and Sign Out */}
             <div className="pt-3 border-t border-white/5 mt-2 space-y-2 text-left">
@@ -721,6 +734,12 @@ export default function App() {
           {/* Tab Router Switch */}
           {desktopMode && <VodImportStatus hidden={activeTab === 'vodsubmit'} onOpen={() => setActiveTab('vodsubmit')} />}
           {desktopMode && data && ['matches', 'replays', 'vod', 'economy', 'aitactical'].includes(activeTab) && <ReviewContextBar data={workspaceData || data} value={{ matchId: reviewMatchId, roundNo: reviewRoundNo }} onChange={value => { setReviewMatchId(value.matchId); setReviewRoundNo(value.roundNo); }} onNavigate={tab => setActiveTab(tab)} />}
+          {activeSections.length > 1 && <nav aria-label={`${activeDestination} sections`} className="flex flex-wrap gap-2 border-b border-white/10 pb-3">
+            {activeSections.map(section => {
+              const SectionIcon = section.icon; const isActive = section.id === activeTab;
+              return <button key={section.id} type="button" onClick={() => setActiveTab(section.id)} aria-current={isActive ? 'page' : undefined} className={`inline-flex min-h-10 items-center gap-2 rounded-lg px-3 py-2 text-xs font-semibold ${isActive ? 'bg-white/10 text-white' : 'text-gray-400 hover:bg-white/5 hover:text-white'}`}><SectionIcon className="h-4 w-4 shrink-0" aria-hidden="true" />{section.label}</button>;
+            })}
+          </nav>}
           <div key={activeTab} className="route-stage flex-grow">
             <ScreenErrorBoundary screen={tabsList.find(tab => tab.id === activeTab)?.label.replace(/[^\p{L}\p{N}&' -]/gu, '').trim() || 'This screen'}>
             <Suspense fallback={

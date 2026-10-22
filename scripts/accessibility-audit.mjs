@@ -39,11 +39,19 @@ async function auditDesktopWorkspaces() {
   await open('#/home');
   const nav = name => page.getByRole('button', { name, exact: true });
 
-  // Back returns to the previous workspace (history entries are pushed, not replaced).
+  // A destination opens its first section; Back returns to the previous screen (history entries are pushed, not replaced).
+  await nav('Coaching').click(); await page.waitForURL(/#\/schedule/);
+  check(await nav('Coaching').getAttribute('aria-current') === 'page' && await nav('Schedule & Goals').getAttribute('aria-current') === 'page', 'Coaching did not open its first section.');
   await nav('Coach Workspace').click(); await page.waitForURL(/#\/coach-workspace/);
   await audit(page, 'desktop coach workspace');
+  await page.goBack({ waitUntil: 'commit' }).catch(() => null); await page.waitForURL(/#\/schedule/, { timeout: 5_000 }).catch(() => null);
+  check(page.url().includes('#/schedule') && await nav('Schedule & Goals').getAttribute('aria-current', { timeout: 5_000 }).catch(() => null) === 'page', `Back did not return to Schedule & Goals (${page.url()}).`);
   await page.goBack({ waitUntil: 'commit' }).catch(() => null); await page.waitForURL(/#\/home/, { timeout: 5_000 }).catch(() => null);
   check(page.url().includes('#/home') && await nav('Home').getAttribute('aria-current', { timeout: 5_000 }).catch(() => null) === 'page', `Back did not return to Home (${page.url()}).`);
+  // Returning to a destination reopens the section last used there.
+  await nav('Coaching').click(); await nav('Coach Workspace').click(); await page.waitForURL(/#\/coach-workspace/);
+  await nav('Home').click(); await page.waitForURL(/#\/home/); await nav('Coaching').click();
+  check(page.url().includes('#/coach-workspace'), `Coaching did not reopen Coach Workspace (${page.url()}).`);
 
   // The selected round survives Replay Evidence and Coach Workspace links.
   for (const [path, name] of [['replay-evidence', 'Replay Evidence'], ['coach-workspace', 'Coach Workspace']]) {

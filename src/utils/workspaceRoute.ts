@@ -6,6 +6,26 @@ const pathByTab: Record<WorkspaceTabId, string> = {
   comps: 'compositions', roster: 'roster', playerstats: 'player-stats', settings: 'settings', livelogger: 'live-logger',
   aitactical: 'coach-workspace', vod: 'vod-review', vodsubmit: 'vod-submission', lineups: 'lineups', economy: 'economy', comparisons: 'tryouts',
 };
+/** The seven sidebar destinations. Each screen belongs to exactly one; a destination with several screens shows them as sections. */
+export const WORKSPACE_DESTINATIONS = ['Home', 'Matches', 'Team', 'Players', 'Coaching', 'Playbook', 'Settings'] as const;
+export type WorkspaceDestination = typeof WORKSPACE_DESTINATIONS[number];
+const destinationByTab: Record<WorkspaceTabId, WorkspaceDestination> = {
+  dashboard: 'Home', matches: 'Matches', replays: 'Matches', vod: 'Matches', vodsubmit: 'Matches', livelogger: 'Matches',
+  economy: 'Team', maps: 'Team', roster: 'Players', playerstats: 'Players', comparisons: 'Players',
+  calendar: 'Coaching', aitactical: 'Coaching', comps: 'Playbook', lineups: 'Playbook', settings: 'Settings',
+};
+export const workspaceDestination = (tab: WorkspaceTabId): WorkspaceDestination => destinationByTab[tab];
+
+/** Destinations with at least one visible screen, each with its screens in nav order. */
+export function workspaceDestinations(visible: readonly WorkspaceTabId[]): Array<{ destination: WorkspaceDestination; tabs: WorkspaceTabId[] }> {
+  return WORKSPACE_DESTINATIONS.map(destination => ({ destination, tabs: visible.filter(tab => destinationByTab[tab] === destination) })).filter(entry => entry.tabs.length > 0);
+}
+
+/** Opening a destination returns to the section last used there, or its first section. */
+export function destinationEntryTab(tabs: readonly WorkspaceTabId[], remembered?: WorkspaceTabId | null): WorkspaceTabId | null {
+  return remembered && tabs.includes(remembered) ? remembered : tabs[0] ?? null;
+}
+
 const tabByPath = new Map(Object.entries(pathByTab).map(([tab, path]) => [path, tab as WorkspaceTabId]));
 
 export interface WorkspaceRoute { tab: WorkspaceTabId; matchId: string | null; roundNo: number | null }

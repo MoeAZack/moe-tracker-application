@@ -1,20 +1,14 @@
 import fs from 'node:fs';
 import { describe, expect, it } from 'vitest';
+import { WORKSPACE_DESTINATIONS, workspaceDestination } from '../src/utils/workspaceRoute';
 
 describe('workspace navigation layout', () => {
   it('groups the main workspace into home, matches, team, players, coaching, playbook and settings', () => {
+    expect([...WORKSPACE_DESTINATIONS]).toEqual(['Home', 'Matches', 'Team', 'Players', 'Coaching', 'Playbook', 'Settings']);
+    expect(Object.fromEntries((['calendar', 'aitactical', 'matches', 'replays', 'economy', 'settings', 'comps', 'playerstats', 'comparisons'] as const).map(tab => [tab, workspaceDestination(tab)]))).toEqual({
+      calendar: 'Coaching', aitactical: 'Coaching', matches: 'Matches', replays: 'Matches', economy: 'Team', settings: 'Settings', comps: 'Playbook', playerstats: 'Players', comparisons: 'Players',
+    });
     const app = fs.readFileSync('src/App.tsx', 'utf8');
-    const order = "['Home', 'Matches', 'Team', 'Players', 'Coaching', 'Playbook', 'Settings']";
-    expect(app).toContain(order);
-    expect(app).toContain("{ id: 'calendar', label: 'Schedule & Goals', icon: Calendar, group: 'Coaching' }");
-    expect(app).toContain("{ id: 'aitactical', label: 'Coach Workspace', icon: Sparkles, group: 'Coaching' }");
-    expect(app).toContain("{ id: 'matches', label: 'Match Review', icon: Swords, group: 'Matches' }");
-    expect(app).toContain("{ id: 'replays', label: 'Replay Evidence', icon: FileCheck2, group: 'Matches' }");
-    expect(app).toContain("{ id: 'economy', label: 'Economy', icon: Coins, group: 'Team' }");
-    expect(app).toContain("{ id: 'settings', label: 'Settings', icon: SettingsIcon, group: 'Settings' }");
-    expect(app).toContain("{ id: 'comps', label: 'Compositions', icon: Layers, group: 'Playbook' }");
-    expect(app).toContain("{ id: 'playerstats', label: 'Player Stats', icon: Activity, group: 'Players' }");
-    expect(app).toContain("{ id: 'comparisons', label: 'Tryout comparisons', icon: GitCompareArrows, group: 'Players' }");
     expect(app).toMatch(/activeTab === 'playerstats'[\s\S]*<PlayerSoloTracker/);
     const rosterRoute = app.slice(app.indexOf("{activeTab === 'roster'"), app.indexOf("{activeTab === 'playerstats'"));
     expect(rosterRoute).not.toContain('<PlayerSoloTracker');

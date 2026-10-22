@@ -39,8 +39,10 @@ try {
   await page.locator('summary[aria-label^="Team sync for"]').click();
   await capture('team-sync', ['Connect this PC', 'Device, Sync & Storage']);
   await page.locator('summary[aria-label^="Team sync for"]').click();
+  await navigation.getByRole('button', { name: 'Matches', exact: true }).click();
   await navigation.getByRole('button', { name: 'Match Review', exact: true }).click();
   await capture('matches', ['Scrims & Matches Log']);
+  await navigation.getByRole('button', { name: 'Team', exact: true }).click();
   await navigation.getByRole('button', { name: 'Economy', exact: true }).click();
   await capture('economy', ['Economy Analytics', 'Economy evidence by match']);
   await navigation.getByRole('button', { name: 'Settings', exact: true }).click();

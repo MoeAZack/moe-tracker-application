@@ -9,8 +9,9 @@ import { chromium } from 'playwright-core';
 
 const root = process.cwd();
 const browserPaths = [process.env.LOCAL_OCR_BROWSER, 'C:/Program Files/Google/Chrome/Application/chrome.exe', 'C:/Program Files (x86)/Microsoft/Edge/Application/msedge.exe'].filter(Boolean);
-// The smoke signs in as a coach, so the coach's website tabs must all be present.
-const retained = ['Home', 'Schedule & Goals', 'Match Review', 'VOD Submission', 'Economy', 'Map Analysis', 'Coach Workspace', 'Roster', 'Player Stats'];
+// The smoke signs in as a coach, so the coach's website destinations and their sections must all be present.
+const retained = ['Home', 'Matches', 'Team', 'Players', 'Coaching'];
+const sections = { Matches: ['Match Review', 'VOD Submission'], Team: ['Economy', 'Map Analysis'], Players: ['Roster', 'Player Stats'], Coaching: ['Schedule & Goals', 'Coach Workspace'] };
 const desktopOnly = ['Replay Evidence', 'VOD Review', 'Lineup Library', 'Live Logger', 'Compositions', 'Settings', 'Import scoreboard', 'Scrim Auto-Import'];
 
 async function availablePort() {
@@ -49,6 +50,13 @@ try {
     const navigation = (await page.locator('nav button').allTextContents()).join('\n');
     for (const label of retained) if (!navigation.includes(label)) throw new Error(`Expected website navigation is missing: ${label}`);
     for (const label of desktopOnly) if (navigation.includes(label)) throw new Error(`Desktop-only control leaked into website: ${label}`);
+    for (const [destination, expected] of Object.entries(sections)) {
+      if (viewport.width < 800 && !(await page.locator('#mobile-navigation').isVisible())) await page.getByRole('button', { name: 'Open navigation' }).click();
+      await page.getByRole('button', { name: destination, exact: true }).click();
+      const shown = (await page.getByRole('navigation', { name: `${destination} sections` }).locator('button').allTextContents()).join('\n');
+      for (const label of expected) if (!shown.includes(label)) throw new Error(`Website ${destination} is missing its ${label} section.`);
+      for (const label of desktopOnly) if (shown.includes(label)) throw new Error(`Desktop-only section leaked into website ${destination}: ${label}`);
+    }
     const summary = await page.evaluate(async () => {
       const token = localStorage.getItem('team_tracker_key');
       const response = await fetch('/api/website-summary', { headers: { authorization: `Bearer ${token}` } });
@@ -57,6 +65,8 @@ try {
     });
     for (const key of ['rounds', 'vetos', 'strats', 'stratRuns', 'seasonArchives', 'vodReviews', 'lineups']) if (!Array.isArray(summary[key]) || summary[key].length) throw new Error(`Website summary exposed ${key}.`);
     if (Object.keys(summary.secrets || {}).length) throw new Error('Website summary exposed secret capability flags.');
+    if (viewport.width < 800) await page.getByRole('button', { name: 'Open navigation' }).click();
+    await page.getByRole('button', { name: 'Matches', exact: true }).click();
     await page.getByRole('button', { name: 'VOD Submission' }).click();
     await page.getByRole('heading', { name: 'Submit and analyze a personal VOD' }).waitFor({ state: 'visible' });
     await page.close();
