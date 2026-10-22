@@ -1,8 +1,8 @@
-# Moe Tracker 0.2.1 release notes (draft)
+# Moe Tracker 0.2.1 release notes
 
-Draft for the GitHub release text. Not published: publishing needs the owner's
-explicit permission for this version (gate F in `PRE-0.2-RELEASE-HARDENING.md`),
-after gates B to E pass on the owner's PC.
+Not published. Gates A to E passed on the owner's PC at `fa964bd` (see
+`PRE-0.2-RELEASE-HARDENING.md`), and the owner chose to keep the installer on
+their PC instead of publishing it. There is no GitHub release.
 
 ## What happened with 0.2.0
 
@@ -54,6 +54,10 @@ backup before the last match went, and no undo. It found a separate bug too: a
   every start. Learning stranded by earlier versions is recovered once.
 - Automatic VOD import keeps running when you switch tabs.
 - "Link results" works for practice sessions you created by hand.
+- A capture that is missing some of its rounds no longer blocks the import
+  screen. Readable captures load first, and you can set the incomplete one
+  aside. Its files stay in the folder.
+- The desktop app's health check names the commit it was built from.
 
 ## New since 0.2.0
 
