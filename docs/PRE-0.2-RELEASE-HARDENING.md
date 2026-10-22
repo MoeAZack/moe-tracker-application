@@ -598,3 +598,55 @@ Acceptance evidence:
 - The local installer remains `NotSigned` because no public code-signing
   certificate is configured locally or in the GitHub release environment. It is
   a local test candidate only; the workflow will not publish it as trusted.
+
+## Withdrawn: v0.2.0 (2026-10-22)
+
+v0.2.0 was withdrawn on 2026-10-22 at the owner's request. The first start of the
+public 0.2.0 installer on a 0.1.x workspace (storage schema 14) migrated the store
+to schema 15 and, about 12 seconds later, wrote a `db.json` without its matches,
+player stats, rounds, coaching signals, ratings and analytics. The evidence
+artifact count dropped from 196 to 0, while the artifact sidecar files on disk
+were left intact. Settings, roster, schedule and secrets were unchanged. The
+owner chose a clean setup over restoring that workspace.
+
+Why H5 did not catch it:
+
+- The upgrade evidence above ran `scripts/workspace-upgrade-check.mts` at #99.
+  The release was built later, after #100 and #101 changed code that runs during
+  migration. H5 was not rerun at the release commit.
+- The check reads and saves the store module directly. It never starts the
+  installed app, so a write made by a startup path after migration is invisible
+  to it.
+- The `windows-lifecycle` CI job upgrades an empty workspace, not a populated
+  schema-14 one.
+
+## Gate for any 0.2.1
+
+No 0.2.1 (or later) installer is published until all of these pass:
+
+- A. The fix includes a synthetic, populated schema-14 fixture. It must contain
+  matches, player stats, rounds, coaching signals, ratings and at least one
+  externalized evidence artifact. The test reproduces the loss on the 0.2.0 code,
+  passes with the fix, and runs the built server's first-start sequence, not only
+  `readDB`/`saveDB`. The fix also carries these store guards, each with a test
+  that fails without it:
+  - An ordinary save that takes non-empty matches, rounds or player stats to empty
+    is refused.
+  - Resetting metrics takes a private backup first (or quarantines) and fails
+    closed.
+  - A missing `db.json` is not silently replaced by an empty store when the
+    workspace existed before.
+  - A damaged `db.json` is quarantined.
+- B. On the owner's PC, a copy of the real schema-14 workspace (never the live
+  one) is upgraded with the exact candidate installer, with its SHA-256 recorded.
+  Matches, rounds, player stats, evidence artifacts and coaching signals are
+  counted before the upgrade, after first start, after two minutes idle and after
+  a restart. All counts must be identical.
+- C. The same run from a 0.2.0-wiped copy shows the restore path brings the data
+  back.
+- D. The commit the upgrade evidence ran on is the commit the installer was built
+  from. Any runtime change after the evidence means rerunning it.
+- E. A fresh install works end to end. Start from an empty workspace, run the first
+  start, import matches, then restart. The counts must stay the same at every step.
+  This is the owner's own path.
+- F. The owner gives explicit permission to publish.
