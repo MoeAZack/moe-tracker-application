@@ -199,6 +199,8 @@ export interface Schedule {
   linkedGoalIds?: string[];
   progressLinkedAt?: string;
   progressLinkedBy?: string;
+  /** Set when the session was linked from a PRACC slot, so later maps of the same session may join it. */
+  progressLinkedAutomatically?: boolean;
   /** Links a Team Talk to its Debrief (or vice versa) without merging their distinct event types. */
   linkedReviewEventId?: string;
 }

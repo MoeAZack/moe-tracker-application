@@ -14,6 +14,7 @@ import { refreshCoachingWorkflow } from './coaching';
 import { purgeExpiredRosterPlayers } from '../roster';
 import { applyScheduleEdit, normalizeScheduleRow, removeScheduleRows, repeatedHourlyScheduleRows } from '../schedule';
 import { findExactRoundEvidenceDuplicate, findExactSourceDuplicate, purgeMatchGraph, isDuplicateQuarantined, purgeRemovedRoundReferences, refreshDuplicateQuarantine, stableRoundReplacement } from '../matchIntegrity';
+import { autoLinkPracticeSession } from '../practiceSessionProgress';
 import { buildCalibratedPlayerRatings } from '../calibratedPlayerRatings';
 
 // Core data + match logging: full payload, reset, settings, generic upsert/remove,
@@ -500,6 +501,7 @@ export function registerDataRoutes(app: Express, options: { websiteSummaryOnly?:
       if (plannedRounds) applyRoundReplacement(db, match.id, plannedRounds);
       refreshDuplicateQuarantine(db, timestamp);
       match = db.matches.find((entry: any) => entry.id === match.id);
+      autoLinkPracticeSession(db, match.id, actor, timestamp);
 
       refreshCoachingWorkflow(db, actor);
       await saveDB(db);
