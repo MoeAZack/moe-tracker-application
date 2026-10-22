@@ -17,7 +17,7 @@ const events = [
   { sequence: 2, victimTeam: 'theirs', killerPlayerId: 'p-b', victimPlayerId: 'p-g', sourceRow: 1 },
 ];
 const evidence = (reviewStatus: string) => ({
-  schemaVersion: 1, reviewStatus, confidence: 'medium', eventsComplete: true, openingEventComplete: true, events,
+  schemaVersion: 1, reviewStatus, confidence: 'medium', ourAverageLoadout: 4800, enemyAverageLoadout: 900, eventsComplete: true, openingEventComplete: true, events,
   players: [{ playerId: 'p-a', displayName: 'Alpha' }, { playerId: 'p-f', displayName: 'Foxtrot' }, { playerId: 'p-b', displayName: 'Bravo' }, { playerId: 'p-g', displayName: 'Golf' }],
 });
 function fixture() {
@@ -26,7 +26,7 @@ function fixture() {
     matches: [{ id: 'auto-1', date: '2026-10-21', opponent: 'Nova', map: 'Lotus', type: 'Scrim', automation: { mode: 'partial-round-review', roundsNeedingReview: [2] } }],
     rounds: [
       { id: 'r1', matchId: 'auto-1', roundNo: 1, side: 'Att', result: 'W', screenshotEvidence: evidence('confirmed') },
-      { id: 'r2', matchId: 'auto-1', roundNo: 2, side: 'Att', result: 'W', screenshotEvidence: evidence('review-required'), advantageEvidence: { schemaVersion: 1, source: 'screenshot', status: 'partial', states: [] } },
+      { id: 'r2', matchId: 'auto-1', roundNo: 2, side: 'Att', result: 'W', buy: '', enemyBuy: 'Coach note', screenshotEvidence: evidence('review-required'), advantageEvidence: { schemaVersion: 1, source: 'screenshot', status: 'partial', states: [] } },
     ],
     authKeys: [{ id: 'player-1', keyHash: crypto.createHash('sha256').update(playerKey).digest('hex'), label: 'Read only player', role: 'player' }],
   };
@@ -76,7 +76,7 @@ describe('accepting a deferred round over HTTP', () => {
     const db = await stored(token);
     const round = db.rounds.find((row: any) => row.matchId === 'auto-1' && row.roundNo === 2);
     expect(round).toMatchObject({
-      id: 'r2', firstKillBy: 'Alpha', firstDeathBy: 'Foxtrot',
+      id: 'r2', firstKillBy: 'Alpha', firstDeathBy: 'Foxtrot', buy: 'Full', enemyBuy: 'Coach note',
       screenshotEvidence: { reviewStatus: 'confirmed', acceptedBy: expect.any(String), acceptedAt: expect.any(String) },
       advantageEvidence: { status: 'complete', source: 'screenshot' },
     });
