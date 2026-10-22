@@ -4,6 +4,8 @@ import { buildLocalCorrectionModel, learnedAliasesFromCorrections, ocrHealthSumm
 const DB_NAME = 'moetracker-ocr-learning';
 const DB_VERSION = 1;
 const MAX_CORRECTIONS = 50_000;
+// Kept reads (up to 90 a save) have their own cap so they never push out corrections.
+const MAX_KEPT_READS = 20_000;
 const MAX_OUTCOMES = 10_000;
 const ENABLED_KEY = 'moetracker-ocr-learning-enabled';
 const memoryCorrections = new Map<string, OcrCorrectionSample>();
@@ -45,13 +47,13 @@ async function readAll<T>(storeName: 'corrections' | 'outcomes', fallback: Map<s
   db.close(); return rows;
 }
 
-async function prune(storeName: 'corrections' | 'outcomes', limit: number) {
+async function prune(storeName: 'corrections' | 'outcomes', limit: number, counts: (row: any) => boolean = () => true) {
   const db = await openDb(); if (!db) return;
   const rows = await new Promise<any[]>((resolve) => {
     const request = db.transaction(storeName, 'readonly').objectStore(storeName).getAll();
     request.onsuccess = () => resolve(request.result || []); request.onerror = () => resolve([]);
   });
-  const excess = rows.sort((a, b) => String(b.recordedAt).localeCompare(String(a.recordedAt))).slice(limit);
+  const excess = rows.filter(counts).sort((a, b) => String(b.recordedAt).localeCompare(String(a.recordedAt))).slice(limit);
   if (excess.length) await new Promise<void>((resolve) => {
     const transaction = db.transaction(storeName, 'readwrite'); const store = transaction.objectStore(storeName);
     for (const row of excess) store.delete(row.id);
@@ -60,10 +62,14 @@ async function prune(storeName: 'corrections' | 'outcomes', limit: number) {
   db.close();
 }
 
+function pruneCorrections() {
+  void prune('corrections', MAX_CORRECTIONS, row => !row.kept).then(() => prune('corrections', MAX_KEPT_READS, row => !!row.kept));
+}
+
 export async function recordOcrCorrections(samples: OcrCorrectionSample[]) {
   if (!learningEnabled()) return;
   for (const sample of samples) memoryCorrections.set(sample.id, structuredClone(sample));
-  if (samples.length) { await putMany('corrections', samples); void prune('corrections', MAX_CORRECTIONS); }
+  if (samples.length) { await putMany('corrections', samples); pruneCorrections(); }
 }
 
 export async function recordOcrSessionOutcome(outcome: OcrSessionOutcome) {
@@ -123,7 +129,7 @@ export async function importRecoveredOcrLearning(bridge: RecoveryBridge | undefi
   // unless they already chose again on this one.
   if (recovered.learningEnabled === false && (store.learningSwitch?.() ?? null) === null) store.setLearningEnabled?.(false);
   await bridge.confirmRecoveredOcrLearning(recovered.ports);
-  if (added.corrections) void prune('corrections', MAX_CORRECTIONS);
+  if (added.corrections) pruneCorrections();
   if (added.outcomes) void prune('outcomes', MAX_OUTCOMES);
   return added;
 }
