@@ -42,7 +42,7 @@ describe('rounds deferred by an automatic save', () => {
     };
     const { payload } = buildAutomaticCaptureImport(extracted, current, 'deferred-capture');
     expect(payload!.match.automation).toMatchObject({ roundsNeedingReview: [7] });
-    const match = { ...payload!.match, reviewConfirmation: { alliedSideConfirmed: true } };
+    const match = payload!.match;
     const response = await request(coach, '/api/save-match', { match, statsUpdate: { operation: 'replace', stats: payload!.stats }, rounds: payload!.roundRows });
     expect(response.status).toBe(200); const saved = (await response.json()).match;
     const data = await (await request(coach, '/api/data')).json();
