@@ -11,6 +11,7 @@ import { mergeScoreboardFallback, shouldRequestCloudFallback } from '../../lib/o
 import { OCR_LEARNING_VERSION, rosterWithLearnedAliases } from '../../lib/ocrLearning';
 import { getOcrLearningState, recordOcrSessionOutcome } from '../utils/ocrLearningStore';
 import { captureRosterFromIdentity } from '../../lib/identityResolver';
+import { captureHolder, holdCapture, releaseCapture } from '../utils/captureLock';
 
 const RETRY_AFTER_MS = 5 * 60 * 1000;
 
@@ -34,9 +35,13 @@ export default function DesktopReplayAutomation({ data, role, onProcessed, onSav
     const processNext = async () => {
       if (!active || busy.current) return;
       busy.current = true;
+      let heldCapture: string | null = null;
       try {
-        const pending = (await window.moeDesktop!.listScoreboards()).find(item => Date.now() - (attempted.current.get(item.id) || 0) >= RETRY_AFTER_MS);
+        // A capture the coach has open in the scrim import modal is theirs until they save or close it.
+        const pending = (await window.moeDesktop!.listScoreboards()).find(item => Date.now() - (attempted.current.get(item.id) || 0) >= RETRY_AFTER_MS && captureHolder(item.id) !== 'review');
         if (!pending) return;
+        if (pending.capture && !holdCapture(pending.id, 'automatic')) return;
+        heldCapture = pending.capture ? pending.id : null;
         attempted.current.set(pending.id, Date.now());
         if (pending.capture) {
           const session = await window.moeDesktop!.readCaptureSession(pending.id);
@@ -129,7 +134,7 @@ export default function DesktopReplayAutomation({ data, role, onProcessed, onSav
         await onProcessed();
       } catch (error) {
         await reportDesktopDiagnostic('automatic-scoreboard-processing', error);
-      } finally { busy.current = false; }
+      } finally { if (heldCapture) releaseCapture(heldCapture, 'automatic'); busy.current = false; }
     };
     const initial = window.setTimeout(() => void processNext(), 1_000);
     const interval = window.setInterval(() => void processNext(), 5_000);
