@@ -1,5 +1,5 @@
 import React, { useEffect, useMemo, useState } from 'react';
-import { CheckCircle2, Film, LoaderCircle, Square, Upload, Users } from 'lucide-react';
+import { CheckCircle2, Film, ListPlus, LoaderCircle, Square, Upload, Users } from 'lucide-react';
 import type { ScreenshotReviewDraft, TrackerData, VodSubmission as VodSubmissionRecord, VodTimelineEvidence } from '../types';
 import { extractScoreboardLocally } from '../utils/localScoreboard';
 import { apiFetch } from '../utils/api';
@@ -10,11 +10,13 @@ import {
   vodImportStore,
   clampPercent,
   overallVodPercent,
+  splitVodLinks,
   startVodBatchImport,
   useVodImportState,
   type VodProgress,
 } from '../utils/vodImportRunner';
 import { activeResourceNames } from '../../lib/resourceCatalog';
+import VodImportQueue from './VodImportQueue';
 
 export { boundaryTimelinePlayers } from '../utils/vodImportRunner';
 
@@ -112,6 +114,7 @@ export default function VodSubmission({ data, role, onRefresh }: Props) {
   const activeRoster = useMemo(() => (data.rosterPlayers || []).filter(player => !player.retiredAt), [data.rosterPlayers]);
   const matches = useMemo(() => [...(data.matches || [])].sort((a, b) => `${b.date}:${b.id}`.localeCompare(`${a.date}:${a.id}`)), [data.matches]);
   const chosenMatch = matches.find(match => match.id === matchId);
+  const queuedLinkCount = localVod ? 1 : splitVodLinks(vodUrl).length;
 
   const load = async () => {
     const response = await apiFetch('/api/vod-submissions');
@@ -140,10 +143,6 @@ export default function VodSubmission({ data, role, onRefresh }: Props) {
   useEffect(() => {
     if (!importState.runCount) return;
     void load().catch(() => null);
-    if (vodImportStore.getSnapshot().progress?.status === 'done') {
-      setVodUrl('');
-      setLocalVod(null);
-    }
   }, [importState.runCount]);
   // Personal-flow progress only; the automatic import has its own window-level listener in vodImportRunner.
   useEffect(
@@ -237,12 +236,10 @@ export default function VodSubmission({ data, role, onRefresh }: Props) {
   };
   const autoImportAllGames = async (sourceOverride?: { path: string; name: string; expectedGames?: number; vodUrl?: string }) => {
     const chosenLocal = sourceOverride ? { path: sourceOverride.path, name: sourceOverride.name } : localVod;
-    const chosenUrl = sourceOverride?.vodUrl ?? vodUrl.trim();
-    if (!window.moeDesktop || (!chosenUrl && !chosenLocal) || role !== 'coach' || (vodPerspective === 'player' && !vodPovPlayerId)) return;
-    // The runner owns the import so it keeps going, with visible progress, after this tab unmounts.
-    await startVodBatchImport({
-      vodUrl: chosenUrl,
-      local: chosenLocal,
+    // A local video takes the typed link as its source link; without one, every pasted link is its own VOD.
+    const links = sourceOverride ? [sourceOverride.vodUrl ?? ''] : chosenLocal ? [vodUrl.trim()] : splitVodLinks(vodUrl);
+    if (!window.moeDesktop || (!links.some(Boolean) && !chosenLocal) || role !== 'coach' || (vodPerspective === 'player' && !vodPovPlayerId)) return;
+    const shared = {
       expectedGames: sourceOverride?.expectedGames || Number.parseInt(expectedGames, 10) || 1,
       date,
       perspective: vodPerspective,
@@ -252,7 +249,14 @@ export default function VodSubmission({ data, role, onRefresh }: Props) {
       matches,
       playerStats: data.playerStats,
       onSaved: onRefresh,
-    });
+    };
+    // The runner owns the queue so imports keep going, with visible progress, after this tab unmounts.
+    const runs = links.map(link => startVodBatchImport({ ...shared, vodUrl: link, local: chosenLocal }));
+    if (!sourceOverride) {
+      setVodUrl('');
+      setLocalVod(null);
+    }
+    await Promise.all(runs);
   };
   const submit = async () => {
     if (!draft || selectedRows.length !== 5 || (!vodUrl.trim() && !localVod)) return;
@@ -382,12 +386,13 @@ export default function VodSubmission({ data, role, onRefresh }: Props) {
             </label>
           )}
           <div className="mt-3 grid gap-3 sm:grid-cols-[minmax(0,1fr)_auto_110px_auto]">
-            <input
-              aria-label="Automatic multi-game VOD link"
+            <textarea
+              aria-label="VOD links, one per line"
+              rows={queuedLinkCount > 1 ? Math.min(5, queuedLinkCount) : 1}
               value={vodUrl}
               onChange={event => setVodUrl(event.target.value)}
-              placeholder={localVod ? `Optional source link · using ${localVod.name}` : 'youtube.com/live/… or any full YouTube link'}
-              className="ui-field min-h-11 px-3"
+              placeholder={localVod ? `Optional source link · using ${localVod.name}` : 'youtube.com/live/… · paste several links, one per line, to queue them'}
+              className="ui-field min-h-11 resize-y px-3 py-2.5"
             />
             <button type="button" onClick={() => void chooseLocalVod()} disabled={!!busy} className="ui-button min-h-11 px-4 text-sm">
               <Upload className="h-4 w-4" />
@@ -408,11 +413,12 @@ export default function VodSubmission({ data, role, onRefresh }: Props) {
             </label>
             <button
               type="button"
-              disabled={!!busy || importState.running || (!vodUrl.trim() && !localVod) || (vodPerspective === 'player' && !vodPovPlayerId)}
+              disabled={!!busy || (!vodUrl.trim() && !localVod) || (vodPerspective === 'player' && !vodPovPlayerId)}
               onClick={() => void autoImportAllGames()}
               className="ui-button ui-button-primary min-h-11 px-5 text-sm disabled:opacity-40"
             >
-              {importState.running ? <LoaderCircle className="h-4 w-4 animate-spin" /> : <Film className="h-4 w-4" />} Detect and import all games
+              {importState.running ? <ListPlus className="h-4 w-4" /> : <Film className="h-4 w-4" />}
+              {importState.running ? (queuedLinkCount > 1 ? `Add ${queuedLinkCount} videos to the queue` : 'Add to the queue') : queuedLinkCount > 1 ? `Import ${queuedLinkCount} videos` : 'Detect and import all games'}
             </button>
           </div>
           {localVod && (
@@ -421,6 +427,10 @@ export default function VodSubmission({ data, role, onRefresh }: Props) {
               <input type="date" value={date} onChange={event => setDate(event.target.value)} className="ui-field mt-1 min-h-10 w-full px-3 text-sm" />
             </label>
           )}
+          <p className="mt-2 text-xs text-slate-400">
+            Several videos run one after another on this PC. Each video uses the games count and perspective above.
+          </p>
+          <VodImportQueue queue={importState.queue} />
           {importState.progress && (
             <VodProgressPanel progress={importState.progress} onCancel={importState.running ? () => void cancelVodImport() : undefined} />
           )}
