@@ -24,3 +24,15 @@ Cloud OCR is disabled by default. A coach may enable **Local first, Gemini only 
 `npm run test:ocr-corpus` validates the labelled corpus and prints its coverage gaps. `-- --require-complete` is the future release gate once private, consented screenshots fill every declared target. Private screenshots and player identifiers are not committed; the repository stores labels/coverage metadata and the reusable backtest harness.
 
 Required expansion currently includes 1600×900, competitive layout, overtime, and Windows scaling at 125%, 150%, and 200%. Accuracy claims must be reported per field and must include false-accept rate, not only the percentage of populated cells.
+
+## Measuring a change: field report and cell diff
+
+Any OCR change is measured the same way, on the private corpus, on the coach's PC:
+
+1. Run the backtest at the current main (the baseline) and at the change (the candidate):
+   `node scripts/backtest-capture-browser.mjs <out-dir> <Scrim-* folders…>`
+2. Compare them: `npm run ocr:report -- <candidate-dir> --baseline <baseline-dir>`.
+   The report lists every cell that changed and exits 1 if any did. A change that claims "no regressions" needs zero cell diffs; a change meant to improve reading lists exactly the cells it fixed.
+3. The same report gives per-field accuracy against the labels: for each field, how many cells were read correctly, how many were read wrong (**false accepts**: a value the app would save unless a coach catches it), how many were left empty for the coach, and the false-accept rate (wrong ÷ values given). It also splits these by resolution, Windows scale and layout, so a gap at 1600×900 or 150 % shows on its own.
+
+Hand labels live in `tests/fixtures/capture-ground-truth.json`. More labels come for free from matches that were captured and also have an accepted replay: `node scripts/replay-joined-labels.mjs <db.json> <labels.json>` writes one label session per such match (score, round results, each allied player's agent and K/D/A from the replay), and `--labels <labels.json>` grades the run against them. Those labels come from the team's own database, so the script refuses to write them inside the repository. A replay-joined label has no in-game name, so each one is paired with the output row nearest its K/D/A; a tie is left unpaired and reported rather than guessed.
