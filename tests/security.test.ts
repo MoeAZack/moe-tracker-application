@@ -11,13 +11,13 @@ describe('security invariants', () => {
   });
 
   it('drops credential fields from settings updates', () => {
-    const parsed = settingsSchema.parse({ teamName: 'TEAM', gridApiKey: 'do-not-store' });
-    expect(parsed).toEqual({ teamName: 'TEAM' });
+    const parsed = settingsSchema.parse({ teamName: 'Synthetic Squad', gridApiKey: 'do-not-store' });
+    expect(parsed).toEqual({ teamName: 'Synthetic Squad' });
   });
 
   it('stores access-key digests instead of plaintext', () => {
-    expect(hashAccessKey('TEAM-PLAY-1234')).toMatch(/^[a-f0-9]{64}$/);
-    expect(hashAccessKey('TEAM-PLAY-1234')).not.toContain('TEAM-PLAY');
+    expect(hashAccessKey('MT-PLAY-1234')).toMatch(/^[a-f0-9]{64}$/);
+    expect(hashAccessKey('MT-PLAY-1234')).not.toContain('MT-PLAY');
   });
 
   it('does not contain the removed published credentials', () => {

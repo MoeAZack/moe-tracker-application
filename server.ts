@@ -372,9 +372,9 @@ export async function createApp(serveFrontend = true) {
         return res.status(400).json({ error: 'Player access must be linked to an active roster identity.' });
       }
 
-      // Generate a nice random key like TEAM-PLAY-XXXXXX
+      // Generate a nice random key like MT-PLAY-XXXXXX
       const rand = crypto.randomBytes(16).toString('hex').toUpperCase();
-      const generatedKey = `TEAM-${role === 'coach' ? 'COACH' : 'PLAY'}-${rand}`;
+      const generatedKey = `MT-${role === 'coach' ? 'COACH' : 'PLAY'}-${rand}`;
 
       const newKey = {
         id: uid(),
