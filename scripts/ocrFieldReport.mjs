@@ -9,7 +9,7 @@
 // falseAcceptRate = falseAccept / (correct + falseAccept): of the values the
 // run was willing to give, how many were wrong. Accuracy alone hides this.
 
-export const PLAYER_FIELDS = ['name', 'agent', 'kills', 'deaths', 'assists'];
+export const PLAYER_FIELDS = ['name', 'agent', 'kills', 'deaths', 'assists', 'fk', 'fd', 'plants', 'defuses'];
 
 const normalizeName = value => String(value ?? '').normalize('NFKC').toLowerCase().replace(/[^\p{L}\p{N}]+/gu, '');
 const blank = value => value === null || value === undefined || value === '';
@@ -48,6 +48,8 @@ export function labelledCells(session, rowLabels = [], output = null) {
     if (player.name !== undefined) cells.push({ field: 'name', row, truth: player.name });
     if (player.agent !== undefined) cells.push({ field: 'agent', row, truth: player.agent });
     if (Array.isArray(player.kda)) ['kills', 'deaths', 'assists'].forEach((field, index) => cells.push({ field, row, truth: player.kda[index] }));
+    // Other scoreboard columns, keyed by the output field name (replay-joined labels carry fk, fd, plants, defuses).
+    for (const [field, truth] of Object.entries(player.stats || {})) if (PLAYER_FIELDS.includes(field)) cells.push({ field, row, truth });
   });
   (session.rounds || []).forEach(round => cells.push({ field: 'roundResult', row: round.roundNo, truth: round.result }));
   // A row label overrides the session label for that cell with an explicit acceptable set (null = abstaining is fine).
