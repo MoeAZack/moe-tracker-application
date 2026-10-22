@@ -7,11 +7,18 @@ import { apiFetch } from './api';
 // component, so switching tabs threw away its progress and the link to the
 // running job. It now lives here, at module level, for the life of the window:
 // leaving the tab neither stops the import nor hides its progress.
+//
+// Several VODs can be queued. They run one at a time, in the order added,
+// because each one downloads and scans a whole video on this machine.
 
 export type VodProgress = { owner: 'batch' | 'personal'; step: number; stepPercent: number | null; message: string; status: 'working' | 'ready' | 'done' | 'error' };
 export type VodBatchGame = { map: string; score: string; status: string };
+export type VodQueueStatus = 'waiting' | 'running' | 'done' | 'error' | 'removed';
+export type VodQueueItem = { id: string; label: string; expectedGames: number; status: VodQueueStatus; message: string; games: VodBatchGame[] };
 export type VodImportState = {
+  /** True from the first queued VOD until the queue is empty. */
   running: boolean;
+  queue: VodQueueItem[];
   progress: VodProgress | null;
   message: string;
   batchResult: VodBatchGame[];
@@ -44,6 +51,15 @@ export type VodBatchImportInput = {
   playerStats: TrackerData['playerStats'];
   onSaved?: () => Promise<void> | void;
 };
+export const vodSourceLabel = (input: Pick<VodBatchImportInput, 'vodUrl' | 'local'>) => input.local?.name || input.vodUrl;
+
+/** Every link in a pasted list (one per line, or separated by spaces or commas). Text with no link stays one entry. */
+export function splitVodLinks(text: string): string[] {
+  const trimmed = text.trim();
+  if (!trimmed) return [];
+  const links = trimmed.match(/https?:\/\/[^\s,]+/gi);
+  return links ? [...new Set(links)] : [trimmed];
+}
 type Desktop = NonNullable<typeof window.moeDesktop>;
 export type VodImportDeps = {
   desktop: Pick<Desktop, 'discoverVodGames' | 'readVodFrame' | 'analyzeVod' | 'releaseVodAnalysis' | 'cancelVodAnalysis'> & Partial<Pick<Desktop, 'onVodAnalysisProgress'>>;
@@ -51,20 +67,35 @@ export type VodImportDeps = {
   extractScoreboard: typeof extractScoreboardLocally;
 };
 
-const initialState = (): VodImportState => ({ running: false, progress: null, message: '', batchResult: [], sourceLabel: null, startedAt: null, finishedAt: null, runCount: 0, dismissed: false });
+const initialState = (): VodImportState => ({ running: false, queue: [], progress: null, message: '', batchResult: [], sourceLabel: null, startedAt: null, finishedAt: null, runCount: 0, dismissed: false });
 let state: VodImportState = initialState();
 const listeners = new Set<() => void>();
 const progressContext = { gameIndex: 0, totalGames: 1 };
 let progressUnsubscribe: (() => void) | null = null;
+type Pending = { id: string; input: VodBatchImportInput; deps: VodImportDeps; runCountAtQueue: number; resolve: (completed: boolean) => void };
+let pending: Pending[] = [];
+let nextQueueId = 1;
 
 const setState = (patch: Partial<VodImportState>) => { state = { ...state, ...patch }; for (const listener of listeners) listener(); };
 const setProgress = (progress: VodProgress) => setState({ progress });
+const updateQueueItem = (id: string, patch: Partial<VodQueueItem>) => setState({ queue: state.queue.map(item => item.id === id ? { ...item, ...patch } : item) });
 
 export const vodImportStore = {
   getSnapshot: () => state,
   subscribe: (listener: () => void) => { listeners.add(listener); return () => { listeners.delete(listener); }; },
   dismiss: () => { if (!state.running) setState({ dismissed: true }); },
-  reset: () => { progressUnsubscribe?.(); progressUnsubscribe = null; state = initialState(); for (const listener of listeners) listener(); },
+  reset: () => { progressUnsubscribe?.(); progressUnsubscribe = null; pending.forEach(item => item.resolve(false)); pending = []; state = initialState(); for (const listener of listeners) listener(); },
+  /** Takes a VOD that has not started yet out of the queue. The running one is stopped with cancelVodImport. */
+  remove: (id: string) => {
+    const item = pending.find(entry => entry.id === id);
+    if (!item) return false;
+    pending = pending.filter(entry => entry !== item);
+    updateQueueItem(id, { status: 'removed', message: 'Removed before it started.' });
+    item.resolve(false);
+    return true;
+  },
+  /** Hides finished and removed VODs from the queue list. */
+  clearFinished: () => setState({ queue: state.queue.filter(item => item.status === 'waiting' || item.status === 'running') }),
 };
 export const useVodImportState = () => useSyncExternalStore(vodImportStore.subscribe, vodImportStore.getSnapshot, vodImportStore.getSnapshot);
 
@@ -114,14 +145,57 @@ export const cancelVodImport = async (deps: VodImportDeps | null = defaultDeps()
   return !!result?.cancelled;
 };
 
-/** Starts the multi-game import unless one is already running. Resolves when it ends; never rejects. */
-export async function startVodBatchImport(input: VodBatchImportInput, deps: VodImportDeps | null = defaultDeps()): Promise<boolean> {
-  if (!deps || state.running || (!input.vodUrl && !input.local)) return false;
+/**
+ * Adds a VOD to the import queue and starts the queue if it is idle. Resolves
+ * with true once this VOD's games are all saved, false if it failed or was
+ * removed; never rejects.
+ */
+export function startVodBatchImport(input: VodBatchImportInput, deps: VodImportDeps | null = defaultDeps()): Promise<boolean> {
+  if (!deps || (!input.vodUrl && !input.local)) return Promise.resolve(false);
+  const id = `vod-${nextQueueId++}`;
+  const done = new Promise<boolean>(resolve => { pending.push({ id, input, deps, runCountAtQueue: state.runCount, resolve }); });
+  const label = vodSourceLabel(input);
+  setState({ dismissed: false, queue: [...state.queue, { id, label, expectedGames: Math.max(1, Math.min(12, input.expectedGames || 1)), status: 'waiting', message: state.running ? 'Waiting for the video before it.' : 'Starting…', games: [] }] });
+  if (!state.running) void drainQueue();
+  return done;
+}
+
+// Runs queued VODs one after another until none are left.
+async function drainQueue() {
+  setState({ running: true });
+  try {
+    while (pending.length) {
+      const next = pending.shift()!;
+      updateQueueItem(next.id, { status: 'running', message: 'Importing…' });
+      const input = next.runCountAtQueue === state.runCount ? next.input : await withLatestData(next.input, next.deps);
+      const completed = await runOneImport(input, next.deps);
+      updateQueueItem(next.id, { status: completed ? 'done' : 'error', message: state.message, games: [...state.batchResult] });
+      next.resolve(completed);
+    }
+  } finally {
+    setState({ running: false });
+  }
+}
+
+// An earlier VOD in the queue may have created matches since this one was
+// queued. Link against the saved data, not the snapshot taken when it was added.
+async function withLatestData(input: VodBatchImportInput, deps: VodImportDeps): Promise<VodBatchImportInput> {
+  try {
+    const response = await deps.apiFetch('/api/data');
+    if (!response.ok) return input;
+    const latest = await response.json();
+    return Array.isArray(latest?.matches) && Array.isArray(latest?.playerStats) ? { ...input, matches: latest.matches, playerStats: latest.playerStats } : input;
+  } catch {
+    return input;
+  }
+}
+
+async function runOneImport(input: VodBatchImportInput, deps: VodImportDeps): Promise<boolean> {
   ensureProgressListener(deps);
   const { desktop } = deps; const chosenLocal = input.local; const chosenUrl = input.vodUrl;
   progressContext.gameIndex = 0; progressContext.totalGames = 1;
   setState({
-    running: true, dismissed: false, batchResult: [], finishedAt: null, startedAt: new Date().toISOString(), sourceLabel: chosenLocal?.name || chosenUrl,
+    dismissed: false, batchResult: [], finishedAt: null, startedAt: new Date().toISOString(), sourceLabel: vodSourceLabel(input),
     message: chosenLocal ? 'Reading the retained local video and finding every game…' : 'Downloading once, then finding every completed match scoreboard…',
     progress: { owner: 'batch', step: 0, stepPercent: chosenLocal ? 100 : 0, message: chosenLocal ? 'Local video ready · download skipped.' : 'Preparing the VOD…', status: 'working' },
   });
@@ -193,7 +267,7 @@ export async function startVodBatchImport(input: VodBatchImportInput, deps: VodI
     if (saved) await Promise.resolve(input.onSaved?.()).catch(() => null);
   } finally {
     if (cacheId) await desktop.releaseVodAnalysis({ cacheId, completed }).catch(() => null);
-    setState({ running: false, finishedAt: new Date().toISOString(), runCount: state.runCount + 1 });
+    setState({ finishedAt: new Date().toISOString(), runCount: state.runCount + 1 });
   }
   return completed;
 }

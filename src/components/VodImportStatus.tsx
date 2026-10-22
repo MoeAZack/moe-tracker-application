@@ -9,7 +9,8 @@ export default function VodImportStatus({ hidden, onOpen }: { hidden?: boolean; 
   if (hidden || !state.progress || state.dismissed) return null;
   const { progress } = state; const overall = overallVodPercent(progress);
   const failed = progress.status === 'error'; const done = !state.running && progress.status === 'done';
-  const label = state.running ? `Importing video · ${VOD_STEPS[progress.step] || 'Working'} · ${overall}%` : failed ? 'Video import stopped' : done ? 'Video import complete' : 'Video import ended';
+  const waiting = state.queue.filter(item => item.status === 'waiting').length;
+  const label = state.running ? `Importing video · ${VOD_STEPS[progress.step] || 'Working'} · ${overall}%${waiting ? ` · ${waiting} more queued` : ''}` : failed ? 'Video import stopped' : done ? 'Video import complete' : 'Video import ended';
   const tone = failed ? 'border-rose-300/25 bg-rose-400/10 text-rose-100' : done ? 'border-emerald-300/25 bg-emerald-300/10 text-emerald-100' : 'border-cyan-300/25 bg-cyan-300/10 text-cyan-100';
   return <div role="status" aria-live="polite" className={`mx-auto flex w-full max-w-7xl flex-wrap items-center gap-3 rounded-xl border px-4 py-2 text-xs ${tone}`}>
     {state.running ? <LoaderCircle className="h-4 w-4 shrink-0 animate-spin" /> : <Film className="h-4 w-4 shrink-0" />}
