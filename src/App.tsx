@@ -23,6 +23,7 @@ const Dashboard = lazy(() => import('./components/Dashboard'));
 const CalendarGoals = lazy(() => import('./components/CalendarGoals'));
 const MatchLogRounds = lazy(() => import('./components/MatchLogRounds'));
 const MapBestStats = lazy(() => import('./components/MapBestStats'));
+const PlaybookStrategies = lazy(() => import('./components/PlaybookStrategies'));
 const TeamCompositions = lazy(() => import('./components/TeamCompositions'));
 const PlayerSoloTracker = lazy(() => import('./components/PlayerSoloTracker'));
 const SettingsControl = lazy(() => import('./components/SettingsControl'));
@@ -45,7 +46,7 @@ const SystemReadinessPanel = lazy(() => import('./components/SystemReadinessPane
 import {
   ShieldAlert, RefreshCw, Trophy, Calendar, Swords, Compass,
   Layers, Users, Settings as SettingsIcon, Image, Activity, Sparkles,
-  Film, Crosshair, Coins, FileCheck2, GitCompareArrows, Upload, X, Bot
+  Film, Crosshair, Coins, FileCheck2, GitCompareArrows, Upload, X, Bot, BookOpen,
 } from 'lucide-react';
 import { notify } from './utils/appDialogs';
 import AppDialogHost from './components/AppDialogHost';
@@ -482,6 +483,7 @@ export default function App() {
     { id: 'comparisons', label: 'Tryout comparisons', icon: GitCompareArrows },
     { id: 'calendar', label: 'Schedule & Goals', icon: Calendar },
     { id: 'aitactical', label: 'Coach Workspace', icon: Sparkles },
+    { id: 'strats', label: 'Strategies', icon: BookOpen },
     { id: 'comps', label: 'Compositions', icon: Layers },
     { id: 'lineups', label: 'Lineup Library', icon: Crosshair },
     { id: 'aihub', label: 'AI tools', icon: Bot },
@@ -817,9 +819,12 @@ export default function App() {
               <AITacticalHub data={coachReviewData || analyticsData} theme={theme} onUpsert={handleUpsert} onRemove={handleRemove} />
             )}
             {activeTab === 'maps' && analyticsData && desktopMode && (
-              <MapBestStats data={analyticsData} evidenceData={workspaceData || data} theme={theme} onUpsert={handleUpsert} onRemove={handleRemove} />
+              <MapBestStats data={analyticsData} theme={theme} />
             )}
             {activeTab === 'maps' && analyticsData && !desktopMode && <WebsiteMapSummary data={analyticsData} theme={theme} />}
+            {activeTab === 'strats' && workspaceData && (
+              <PlaybookStrategies data={workspaceData} theme={theme} onUpsert={handleUpsert} onRemove={handleRemove} />
+            )}
             {activeTab === 'comps' && analyticsData && (
               <TeamCompositions data={analyticsData} theme={theme} />
             )}

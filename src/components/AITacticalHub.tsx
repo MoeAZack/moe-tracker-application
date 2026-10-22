@@ -1,14 +1,15 @@
 import React, { useState, useMemo } from 'react';
-import { TrackerData, Strat } from '../types';
-import { Sparkles, Brain, Zap, UserCheck, Check, Trash2, Loader2, Target, Users, ArrowUpRight, Compass, Swords, ClipboardList, Send, AlertTriangle, Activity } from 'lucide-react';
+import { TrackerData } from '../types';
+import { Sparkles, Brain, UserCheck, Check, Loader2, Target, Users, ArrowUpRight, Compass, ClipboardList, AlertTriangle, Activity } from 'lucide-react';
 import { apiFetch } from '../utils/api';
 import { headshotRate } from '../../lib/analyticsEvidence';
 import { DEFAULT_MINIMUM_METRIC_SAMPLES } from '../../lib/metricTrust';
 import { agentProficiency, buildPeriodMetrics, clutchPublication, emptyPeriodMetrics, gatedUntradedRate, kpiRecommendation, type AgentProficiency } from '../../lib/tacticalHubMetrics';
-import { percentageBarClass, percentageSurfaceClass, percentageTextClass } from '../utils/percentageColor';
+import { percentageSurfaceClass, percentageTextClass } from '../utils/percentageColor';
 import { playerAggregationKey } from '../../lib/identitySnapshot';
 import { notify } from '../utils/appDialogs';
 import { CLOUD_AI_OFF_MESSAGE, cloudAiActionBlocked, cloudAiErrorMessage, useCloudAiAvailable } from '../utils/cloudAi';
+import { stratSide } from '../../lib/stratbook';
 
 interface ComponentProps {
   data: TrackerData;
@@ -317,13 +318,13 @@ export default function AITacticalHub({ data, theme, onUpsert, onRemove }: Compo
       
       await onUpsert('Strats', {
         map: selectedMap,
-        side: selectedSide,
+        side: stratSide(selectedSide),
         name: editedName,
         notes: fullNotes,
         active: 'TRUE'
       });
       
-      notify('Strategy successfully saved to your active Team Playbook!');
+      notify('Strategy saved to Playbook → Strategies.');
       setGeneratedStrat(null);
       setCustomFocus('');
     } catch (err) {
@@ -333,28 +334,6 @@ export default function AITacticalHub({ data, theme, onUpsert, onRemove }: Compo
     }
   };
 
-  // Strategy performance calculations
-  const strategyStats = useMemo(() => {
-    const roundsList = data.rounds || [];
-    const statsMap: Record<string, { won: number; total: number }> = {};
-
-    roundsList.forEach((r) => {
-      if (!r.strategies) return;
-      const stratsRun = r.strategies.split(', ').filter(Boolean);
-      stratsRun.forEach((s) => {
-        const cleanName = s.trim();
-        if (!statsMap[cleanName]) {
-          statsMap[cleanName] = { won: 0, total: 0 };
-        }
-        statsMap[cleanName].total++;
-        if (r.result === 'W') {
-          statsMap[cleanName].won++;
-        }
-      });
-    });
-
-    return statsMap;
-  }, [data.rounds]);
 
   // Opening Duel conversions
   const entryStats = useMemo(() => {
@@ -777,67 +756,9 @@ export default function AITacticalHub({ data, theme, onUpsert, onRemove }: Compo
               </div>
             )}
 
-            {/* Existing Playbook with Stats */}
-            <div className={`p-6 rounded-2xl border ${theme.border} ${theme.bg} space-y-4`}>
-              <div className="flex justify-between items-center border-b border-white/5 pb-3">
-                <div className="flex items-center gap-2">
-                  <ClipboardList className="w-4 h-4 text-gray-400" />
-                  <h3 className="font-black text-xs uppercase tracking-wider text-gray-200">Active Stratbook ({data.strats.length})</h3>
-                </div>
-                <span className="text-[9px] font-mono text-gray-400 uppercase">Live performance indexed</span>
-              </div>
-
-              {data.strats.length === 0 ? (
-                <div className="text-center py-8">
-                  <p className="text-xs text-gray-400 italic">No strategies added to the playbook yet. Generate one above or create custom ones in settings!</p>
-                </div>
-              ) : (
-                <div className="space-y-3.5 max-h-[500px] overflow-y-auto pr-1">
-                  {data.strats.map((strat: Strat) => {
-                    const stats = strategyStats[strat.name] || { won: 0, total: 0 };
-                    const winrate = stats.total > 0 ? Math.round((stats.won / stats.total) * 100) : 0;
-                    const performanceColor = percentageSurfaceClass(stats.total > 0 ? winrate : null);
-
-                    return (
-                      <div key={strat.id} className="p-4 rounded-xl border border-white/5 bg-black/25 hover:border-white/10 transition-all flex flex-col md:flex-row justify-between items-start md:items-center gap-4">
-                        <div className="space-y-1.5 flex-1">
-                          <div className="flex items-center gap-2 flex-wrap">
-                            <span className="text-xs font-black text-white">{strat.name}</span>
-                            <span className="text-[8px] bg-[#ff4655]/10 border border-[#ff4655]/15 text-[#ff4655] px-1.5 py-0.5 rounded font-mono font-bold uppercase">{strat.map}</span>
-                            <span className={`text-[8px] px-1.5 py-0.5 rounded font-mono font-bold uppercase border ${strat.side === 'Attack' ? 'text-blue-400 bg-blue-500/5 border-blue-500/10' : 'text-orange-400 bg-orange-500/5 border-orange-500/10'}`}>{strat.side}</span>
-                          </div>
-                          {strat.notes && (
-                            <p className="text-[10px] text-gray-400 leading-relaxed font-mono line-clamp-2 white-space-pre">{strat.notes.replace(/\*\*.*\*\*/g, '').replace(/concept/i, '').trim()}</p>
-                          )}
-                        </div>
-
-                        <div className="flex items-center gap-4 shrink-0 w-full md:w-auto justify-between md:justify-end border-t md:border-t-0 border-white/5 pt-2.5 md:pt-0">
-                          <div className="flex items-center gap-3">
-                            <div className="text-right">
-                              <span className="text-[9px] uppercase font-bold text-gray-400 font-mono block">Scrim Winrate</span>
-                              <span className={`text-xs font-black font-mono ${percentageTextClass(stats.total > 0 ? winrate : null)}`}>
-                                {stats.total > 0 ? `${winrate}%` : '-'}
-                              </span>
-                            </div>
-                            <div className="w-16 h-1.5 bg-white/5 rounded-full overflow-hidden">
-                              <div className={`h-full ${percentageBarClass(stats.total > 0 ? winrate : null)}`} style={{ width: `${winrate}%` }} />
-                            </div>
-                            <span className="text-[9px] font-mono text-gray-500">({stats.total} rounds)</span>
-                          </div>
-
-                          <button
-                            onClick={() => onRemove('Strats', strat.id)}
-                            className="p-1.5 bg-white/5 hover:bg-red-500/10 text-gray-400 hover:text-red-400 border border-white/5 rounded transition-all cursor-pointer"
-                            title="Remove Strategy"
-                          >
-                            <Trash2 className="w-3.5 h-3.5" />
-                          </button>
-                        </div>
-                      </div>
-                    );
-                  })}
-                </div>
-              )}
+            <div className={`p-4 rounded-2xl border ${theme.border} ${theme.bg} flex flex-wrap items-center justify-between gap-3`}>
+              <p className="text-sm text-slate-300">Saved strategies, their runs and their tagged rounds live in Playbook → Strategies.</p>
+              <a href="#/strategies" className="rounded-lg border border-white/10 bg-white/5 px-3 py-1.5 text-xs font-semibold text-white hover:bg-white/10">Open strategies ({data.strats.length})</a>
             </div>
           </div>
         </div>

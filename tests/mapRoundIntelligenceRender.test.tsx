@@ -32,7 +32,7 @@ describe('map round intelligence panel', () => {
         { id: 'r3', matchId: 'm1', roundNo: 3, side: 'Attack', result: 'L', buy: 'Half', enemyBuy: 'Full' },
       ],
     };
-    const html = renderToStaticMarkup(<MapBestStats data={data} theme={{ text: 'text-red' }} onUpsert={async () => null} onRemove={async () => null} />);
+    const html = renderToStaticMarkup(<MapBestStats data={data} theme={{ text: 'text-red' }} />);
     expect(html).toContain('Pistol ATT');
     expect(html).toContain('Pistol DEF');
     expect(html).toContain('Anti-eco ATT');

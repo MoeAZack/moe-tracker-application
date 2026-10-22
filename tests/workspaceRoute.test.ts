@@ -131,6 +131,10 @@ describe('workspace destinations', () => {
     expect(web.find(entry => entry.destination === 'Matches')!.tabs).toEqual(['matches', 'vodsubmit']);
     const player = workspaceDestinations(navWorkspaceTabs({ desktopMode: true, role: 'player', showTryoutComparisons: false, activeTab: 'dashboard' }));
     expect(player.map(entry => entry.destination)).not.toContain('Settings');
+    expect(player.flatMap(entry => entry.tabs)).not.toContain('strats');
+    expect(web.flatMap(entry => entry.tabs)).not.toContain('strats');
+    const desktop = workspaceDestinations(navWorkspaceTabs({ desktopMode: true, role: 'coach', showTryoutComparisons: false, activeTab: 'dashboard' }));
+    expect(desktop.find(entry => entry.destination === 'Playbook')!.tabs).toEqual(['strats', 'comps', 'lineups', 'aihub']);
   });
 
   it('reopens the section last used in a destination, else its first section', () => {
