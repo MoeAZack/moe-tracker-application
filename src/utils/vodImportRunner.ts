@@ -152,9 +152,11 @@ export const cancelVodImport = async (deps: VodImportDeps | null = defaultDeps()
  */
 export function startVodBatchImport(input: VodBatchImportInput, deps: VodImportDeps | null = defaultDeps()): Promise<boolean> {
   if (!deps || (!input.vodUrl && !input.local)) return Promise.resolve(false);
+  // The same video pasted again while it is still waiting or importing would only import it twice.
+  const label = vodSourceLabel(input);
+  if (state.queue.some(item => item.label === label && (item.status === 'waiting' || item.status === 'running'))) return Promise.resolve(false);
   const id = `vod-${nextQueueId++}`;
   const done = new Promise<boolean>(resolve => { pending.push({ id, input, deps, runCountAtQueue: state.runCount, resolve }); });
-  const label = vodSourceLabel(input);
   setState({ dismissed: false, queue: [...state.queue, { id, label, expectedGames: Math.max(1, Math.min(12, input.expectedGames || 1)), status: 'waiting', message: state.running ? 'Waiting for the video before it.' : 'Starting…', games: [] }] });
   if (!state.running) void drainQueue();
   return done;
@@ -168,7 +170,8 @@ async function drainQueue() {
       const next = pending.shift()!;
       updateQueueItem(next.id, { status: 'running', message: 'Importing…' });
       const input = next.runCountAtQueue === state.runCount ? next.input : await withLatestData(next.input, next.deps);
-      const completed = await runOneImport(input, next.deps);
+      // runOneImport reports its own failures; this only guards the queue against an unexpected throw.
+      const completed = await runOneImport(input, next.deps).catch(() => false);
       updateQueueItem(next.id, { status: completed ? 'done' : 'error', message: state.message, games: [...state.batchResult] });
       next.resolve(completed);
     }
