@@ -12,7 +12,7 @@ import DuplicateReviewPanel from './DuplicateReviewPanel';
 import { activeResourceNames } from '../../lib/resourceCatalog';
 import { 
   Swords, Plus, Edit2, Trash2, Video, FileText, BarChart3, HelpCircle, 
-  Save, Trash, Shuffle, RefreshCw, Zap, Globe, AlertCircle, ShieldAlert, Check,
+  Save, Trash, Shuffle, RefreshCw, AlertCircle, ShieldAlert, Check,
   Sparkles, Send, Copy, Loader2, ArrowUpRight
 } from 'lucide-react';
 import { confirmDialog, notify } from '../utils/appDialogs';
@@ -58,26 +58,6 @@ export default function MatchLogRounds({ data, theme, onSaveMatch, onRemove, onS
 
   // Selected Match for sub-actions
   const [selectedMatch, setSelectedMatch] = useState<Match | null>(null);
-
-  // --- API MATCH IMPORT STATE ---
-  const [importModalOpen, setImportModalOpen] = useState(false);
-  const [importMethod, setImportMethod] = useState<'vlr' | 'grid'>('grid');
-  const [importMatchId, setImportMatchId] = useState('');
-  const [importingState, setImportingState] = useState(false);
-  const [importError, setImportError] = useState<string | null>(null);
-  const [importSuccess, setImportSuccess] = useState(false);
-  const [importedIdPending, setImportedIdPending] = useState<string | null>(null);
-
-  // Auto-select pending imported match when database updates
-  useEffect(() => {
-    if (importedIdPending && data.matches && data.matches.length > 0) {
-      const found = data.matches.find(m => m.id === importedIdPending || m.vlrMatchId === importedIdPending);
-      if (found) {
-        setSelectedMatch(found);
-        setImportedIdPending(null);
-      }
-    }
-  }, [data.matches, importedIdPending]);
 
   // --- MODALS ---
   const [matchModalOpen, setMatchModalOpen] = useState(false);
@@ -341,58 +321,6 @@ export default function MatchLogRounds({ data, theme, onSaveMatch, onRemove, onS
     setVetoEditorOpen(false);
   };
 
-  // --- API IMPORTER MUTATION ---
-  const handleImportMatchSubmit = async (e: React.FormEvent) => {
-    e.preventDefault();
-    const cleanId = importMatchId.trim();
-    if (!cleanId) {
-      setImportError('Please provide a valid Match or Series ID.');
-      return;
-    }
-
-    setImportingState(true);
-    setImportError(null);
-    setImportSuccess(false);
-
-    try {
-      const endpoint = importMethod === 'grid' ? '/api/import-grid-match' : '/api/import-vlr-match';
-      const response = await apiFetch(endpoint, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ matchId: cleanId })
-      });
-
-      if (!response.ok) {
-        const errorData = await response.json();
-        throw new Error(errorData.error || 'The import operation failed.');
-      }
-
-      const result = await response.json();
-      setImportSuccess(true);
-      
-      if (result.matchId) {
-        setImportedIdPending(result.matchId);
-      } else {
-        setImportedIdPending(cleanId);
-      }
-
-      if (onRefreshDatabase) {
-        await onRefreshDatabase();
-      }
-
-      setTimeout(() => {
-        setImportModalOpen(false);
-        setImportMatchId('');
-        setImportSuccess(false);
-      }, 1500);
-
-    } catch (err: any) {
-      setImportError(err.message || 'An error occurred during import.');
-    } finally {
-      setImportingState(false);
-    }
-  };
-
   return (
     <div className="space-y-6">
       {/* Top action controller row */}
@@ -403,13 +331,6 @@ export default function MatchLogRounds({ data, theme, onSaveMatch, onRemove, onS
         </div>
 
         <div className="flex items-center gap-2">
-          <button
-            onClick={() => setImportModalOpen(true)}
-            className="flex items-center gap-1.5 px-3 py-1.5 text-xs font-bold rounded bg-[#ff4655]/10 border border-[#ff4655]/30 hover:bg-[#ff4655]/20 text-[#ff4655] cursor-pointer transition-all font-mono"
-          >
-            <Zap className="w-3.5 h-3.5" /> API MATCH IMPORTER
-          </button>
-          
           <button
             onClick={handleOpenAddMatch}
             className={`flex items-center gap-1.5 px-3 py-1.5 text-xs font-bold rounded ${theme.primaryBg} text-white cursor-pointer hover:opacity-90 transition-opacity`}
@@ -1728,163 +1649,6 @@ export default function MatchLogRounds({ data, theme, onSaveMatch, onRemove, onS
         </div>
       )}
 
-      {/* --- DUAL METHOD API MATCH IMPORTER MODAL --- */}
-      {importModalOpen && (
-        <div className="fixed inset-0 bg-black/85 flex items-center justify-center z-50 p-4 animate-fadeIn">
-          <div className={`w-full max-w-lg p-6 rounded-2xl border ${isLight ? 'bg-white text-slate-800 border-slate-200' : 'bg-[#0f1923] text-white border-white/10'} space-y-5`}>
-            
-            {/* Header */}
-            <div className="flex justify-between items-center border-b border-white/10 pb-3">
-              <div className="flex items-center gap-2">
-                <Zap className="w-5 h-5 text-[#ff4655]" />
-                <div>
-                  <h4 className="text-sm font-black tracking-wider uppercase font-mono">VALORANT Match Importer</h4>
-                  <p className="text-[10px] text-gray-400 font-mono">Integrated Analytics Data Ingestion Engine</p>
-                </div>
-              </div>
-              <button
-                onClick={() => {
-                  if (!importingState) {
-                    setImportModalOpen(false);
-                    setImportError(null);
-                  }
-                }}
-                disabled={importingState}
-                className="text-gray-400 hover:text-white font-bold disabled:opacity-30"
-              >
-                ✕
-              </button>
-            </div>
-
-            {/* Importer Form */}
-            <form onSubmit={handleImportMatchSubmit} className="space-y-4">
-              
-              {/* Method Selector */}
-              <div className="space-y-2">
-                <label className="text-[10px] uppercase font-black text-gray-400 font-mono block">Select Ingestion Pipeline</label>
-                <div className="grid grid-cols-2 gap-3 font-mono">
-                  {/* GRID Option */}
-                  <button
-                    type="button"
-                    onClick={() => setImportMethod('grid')}
-                    disabled={importingState}
-                    className={`p-3 rounded-lg border text-left transition-all relative flex flex-col gap-1.5 cursor-pointer ${
-                      importMethod === 'grid'
-                        ? 'border-rose-500 bg-rose-500/10 text-white'
-                        : 'border-white/5 bg-black/20 text-gray-400 hover:text-white'
-                    }`}
-                  >
-                    <div className="flex items-center gap-2">
-                      <Zap className={`w-4 h-4 ${importMethod === 'grid' ? 'text-rose-400' : 'text-gray-500'}`} />
-                      <span className="text-xs font-black uppercase">GRID.GG API</span>
-                    </div>
-                    <span className="text-[9px] text-gray-500 leading-tight">Imports live round events, economics & auto-detects player overthrows.</span>
-                    {importMethod === 'grid' && (
-                      <span className="absolute top-2 right-2 bg-rose-500 text-white font-black text-[8px] px-1 rounded">ACTIVE</span>
-                    )}
-                  </button>
-
-                  {/* VLR Option */}
-                  <button
-                    type="button"
-                    disabled
-                    className={`p-3 rounded-lg border text-left transition-all relative flex flex-col gap-1.5 cursor-pointer ${
-                      importMethod === 'vlr'
-                        ? 'border-cyan-500 bg-cyan-500/10 text-white'
-                        : 'border-white/5 bg-black/20 text-gray-400 hover:text-white'
-                    }`}
-                  >
-                    <div className="flex items-center gap-2">
-                      <Globe className={`w-4 h-4 ${importMethod === 'vlr' ? 'text-cyan-400' : 'text-gray-500'}`} />
-                      <span className="text-xs font-black uppercase">VLR.GG API</span>
-                    </div>
-                    <span className="text-[9px] text-gray-500 leading-tight">Disabled: team-side mapping and duplicate protection are not verified.</span>
-                  </button>
-                </div>
-              </div>
-
-              {/* Match ID Input */}
-              <div className="space-y-1.5">
-                <label className="text-[10px] uppercase font-black text-gray-400 font-mono block">
-                  {importMethod === 'grid' ? 'GRID Series / Match ID' : 'VLR Match ID'}
-                </label>
-                <div className="relative">
-                  <input
-                    type="text"
-                    required
-                    disabled={importingState}
-                    placeholder={importMethod === 'grid' ? "e.g. series-1829 or 3091" : "e.g. 10928 or 11255"}
-                    value={importMatchId}
-                    onChange={(e) => setImportMatchId(e.target.value)}
-                    className="w-full p-2.5 bg-black/40 text-white rounded-lg border border-white/10 text-xs font-mono placeholder-gray-600 focus:border-[#ff4655]"
-                  />
-                </div>
-                <p className="text-[9px] text-gray-500 font-mono leading-relaxed">
-                  {importMethod === 'grid' 
-                    ? "Connects directly to Riot Games' telemetry system to extract performance matrices and flag throws."
-                    : "Parses match stats, map drafts, scorelines, and player KDA values from competitive public endpoints."}
-                </p>
-              </div>
-
-              {/* Status & Loader */}
-              {importingState && (
-                <div className="p-4 bg-black/35 rounded-xl border border-white/5 font-mono text-[10px] text-gray-300 space-y-2">
-                  <div className="flex items-center gap-2 text-rose-400 font-bold animate-pulse">
-                    <RefreshCw className="w-3.5 h-3.5 animate-spin" />
-                    <span>INGESTING REAL-TIME ESPORTS DATA...</span>
-                  </div>
-                  <div className="space-y-1 text-gray-500 text-[9px]">
-                    <p className="text-emerald-400">✓ Connected to secure API gateway.</p>
-                    <p className="text-emerald-400">✓ Verified client-key handshake header.</p>
-                    <p className="text-emerald-400 animate-pulse">🔄 Analyzing rounds, combat timelines, and overthrows...</p>
-                    <p>⏳ Syncing data with database JSON storage...</p>
-                  </div>
-                </div>
-              )}
-
-              {/* Feedback messages */}
-              {importError && (
-                <div className="p-3 bg-rose-500/10 border border-rose-500/20 text-rose-400 text-xs rounded-lg font-mono flex items-center gap-2">
-                  <AlertCircle className="w-4 h-4 shrink-0" />
-                  <span>Import failed: {importError}</span>
-                </div>
-              )}
-
-              {importSuccess && (
-                <div className="p-3 bg-emerald-500/10 border border-emerald-500/20 text-emerald-400 text-xs rounded-lg font-mono flex items-center gap-2">
-                  <Check className="w-4 h-4 shrink-0" />
-                  <span>Match ingested and parsed successfully! Synchronizing interface...</span>
-                </div>
-              )}
-
-              {/* Form buttons */}
-              {!importingState && !importSuccess && (
-                <div className="flex justify-end gap-2 border-t border-white/5 pt-3">
-                  <button
-                    type="button"
-                    onClick={() => {
-                      setImportModalOpen(false);
-                      setImportError(null);
-                    }}
-                    className="px-4 py-2 bg-slate-500/10 hover:bg-slate-500/20 text-xs font-bold rounded cursor-pointer text-gray-400 hover:text-white font-mono"
-                  >
-                    CANCEL
-                  </button>
-                  <button
-                    type="submit"
-                    className={`px-4 py-2 ${theme.primaryBg} text-xs font-bold rounded text-white font-mono flex items-center gap-1.5`}
-                  >
-                    <Zap className="w-3.5 h-3.5" />
-                    START INGESTION
-                  </button>
-                </div>
-              )}
-
-            </form>
-
-          </div>
-        </div>
-      )}
     </div>
   );
 }

@@ -90,14 +90,6 @@ export function registerIntegrationRoutes(app: Express) {
     }
   });
 
-  // GET writable calendars
-  app.get('/api/list-calendars', (req, res) => {
-    res.json([
-      { id: 'primary', name: 'Primary Calendar' },
-      { id: 'scrims@group.calendar.google.com', name: 'Esports Scrims' }
-    ]);
-  });
-
   const calendarUnavailable = (_req: any, res: any) => res.status(503).json({
     disabled: true, wrote: false, eventId: null,
     error: 'Calendar sync is unavailable until a real provider adapter and authorization gate are implemented.',
