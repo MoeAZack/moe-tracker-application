@@ -599,37 +599,33 @@ Acceptance evidence:
   certificate is configured locally or in the GitHub release environment. It is
   a local test candidate only; the workflow will not publish it as trusted.
 
-## Withdrawn: v0.2.0 (2026-10-22), pending incident review
+## Incident review: v0.2.0 match deletions (2026-10-22)
 
-v0.2.0 was withdrawn on 2026-10-22 at the owner's request while an incident is
-reviewed. On the owner's PC, shortly after the upgrade from a 0.1.x workspace
-(storage schema 14), the workspace lost all its matches, player stats, rounds,
-coaching signals, ratings and analytics. The evidence artifact count dropped from
-196 to 0, while the artifact sidecar files on disk were left intact. Settings,
-roster, schedule and secrets were unchanged. The owner chose a clean setup over
-restoring that workspace.
+On 2026-10-22, shortly after the owner upgraded a 0.1.x workspace (storage schema
+14) to v0.2.0, the workspace lost all its matches, player stats, rounds, coaching
+signals, ratings and analytics. Settings, roster, schedule and secrets were
+unchanged.
 
-What is known so far:
+The review closed it as user action, not a data-loss bug in 0.2.0:
 
-- A synthetic schema-14 workspace upgraded through the same 0.2.0 build keeps all
-  of its data, so the migration alone does not explain the loss.
-- The loss came from 8 separate saves, one per match, 1 to 3 seconds apart. That
-  matches the match purge (`purgeMatchGraph`) run once per match through match
-  deletion. No 0.2.0 code deletes matches in a loop, so these may have been
-  deliberate deletions. The owner has been asked to confirm.
-- Either way, 0.2.0 has no audit record of a match deletion, takes no backup
-  before the last matches go, and has no undo. The gate below covers those gaps.
+- A synthetic, populated schema-14 workspace upgraded through the same 0.2.0
+  build keeps all of its data.
+- The loss came from 8 separate saves, one per match, 1 to 3 seconds apart, each a
+  match purge (`purgeMatchGraph`) through Match Review's Delete. Delete
+  confirmation was on, so each one was confirmed. The owner confirmed he deleted
+  the matches one by one.
 
-Gaps in H5 that this review showed, whatever the cause:
+The review found these gaps, which the gate below covers:
 
-- The upgrade evidence above ran `scripts/workspace-upgrade-check.mts` at #99.
-  The release was built later, after #100 and #101 changed code that runs during
-  migration. H5 was not rerun at the release commit.
-- The check reads and saves the store module directly. It never starts the
-  installed app, so a write made by a startup path after migration is invisible
-  to it.
-- The `windows-lifecycle` CI job upgrades an empty workspace, not a populated
-  schema-14 one.
+- No audit record of a match deletion.
+- No backup before the last matches go, and no undo.
+- After a delete, Match Review selects the next match, so its Delete button sits
+  in the same place and repeated clicks delete match after match.
+- The H5 upgrade evidence ran at #99 rather than the release commit, exercised the
+  store module rather than the installed app's first start, and the
+  `windows-lifecycle` CI job upgrades an empty workspace only.
+
+Whether v0.2.0 stays published is the owner's decision.
 
 ## Gate for any 0.2.1
 
@@ -644,8 +640,7 @@ No 0.2.1 (or later) installer is published until all of these pass:
     and the duplicate review's discard, leaves a durable audit entry per purge
     (who, which match, when) and a backup written before the last match goes.
     It fails on the 0.2.0 code.
-  If the deletions turn out not to be the owner's, whatever issued them gets its
-  own test. The fix also carries these store guards, each with a test that fails
+  The fix also carries these store guards, each with a test that fails
   without it:
   - An ordinary save that takes non-empty matches, rounds or player stats (as
     stored in the current index) to empty is refused unless the caller passes an
@@ -664,8 +659,8 @@ No 0.2.1 (or later) installer is published until all of these pass:
   Matches, rounds, player stats, evidence artifacts and coaching signals are
   counted before the upgrade, after first start, after two minutes idle and after
   a restart. All counts must be identical.
-- C. The same run from a 0.2.0-wiped copy shows the restore path brings the data
-  back.
+- C. On a copy whose matches were all deleted, the undo and the backup restore each
+  bring every count back.
 - D. The commit the upgrade evidence ran on is the commit the installer was built
   from. Any runtime change after the evidence means rerunning it.
 - E. A fresh install works end to end. Start from an empty workspace, run the first
