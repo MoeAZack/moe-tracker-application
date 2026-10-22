@@ -22,6 +22,7 @@ const { matchEndOffer } = require('./match-end-offer.cjs');
 const { isTrustedSenderUrl, sessionIsFresh } = require('./session-security.cjs');
 const { loginCredentials } = require('./session-credentials.cjs');
 const { publicSession, apiRequestFilter, createSessionHeaderInjector } = require('./renderer-session.cjs');
+const { normalizeVodPerformance, MAX_OCR_WORKERS } = require('./vod-performance.cjs');
 const { analyzeVodTimeline, normalizeTimelinePlayers, discoverVodGames, releaseVodSource, createReviewClips, readOwnedVodFrame, sweepOrphanedVodDirectories } = require('./vod-timeline-analyzer.cjs');
 const { launchScrimCapture } = require('./capture-launch.cjs');
 const { createIngestionJob, updateIngestionJob: evolveIngestionJob, recoverInterruptedJobs, publicIngestionJob } = require('./ingestion-jobs.cjs');
@@ -138,6 +139,7 @@ async function ensureRuntime() {
   }
   protectConfigSecrets(config);
   config.capturePaused = config.capturePaused === true;
+  config.vodPerformance = normalizeVodPerformance(config.vodPerformance);
   config.capturePreferences = { profile: 'fullscreen-windowed', display: 'primary', notification: 'open-review', offlineQueue: true, matchEndOffer: 'notify', elevated: false, ...(config.capturePreferences || {}) };
   if (!config.deviceId) {
     config.deviceId = `desktop-${crypto.randomUUID()}`;
@@ -514,6 +516,7 @@ async function desktopStatus() {
     deviceName: runtime.config.deviceName,
     retentionDays: runtime.config.retentionDays,
     startWithWindows: !!runtime.config.startWithWindows,
+    vodPerformance: { ...normalizeVodPerformance(runtime.config.vodPerformance), cpus: require('node:os').availableParallelism?.() || require('node:os').cpus().length, maxOcrWorkers: MAX_OCR_WORKERS },
     role: runtime.config.role || 'coach',
     teamName: runtime.config.cloudPairing?.owner?.teamName || runtime.config.cloudPairing?.owner?.teamId || null,
     capture: { state: captureState, paused: !!runtime.config.capturePaused, preferences: runtime.config.capturePreferences, safety: 'post-match-only', lastError: collector?.error || null },
@@ -746,7 +749,7 @@ handleTrusted('desktop:analyze-vod', async (event, input = {}) => {
   const controller = new AbortController(); activeVodAnalyses.set(jobKey, controller); if (cached?.jobId) activeIngestionControllers.set(cached.jobId, controller);
   try {
     const checkpointFile = cached ? path.join(cached.directory, `checkpoint-${Math.max(0, Number(input.startMs) || 0)}-${Math.max(0, Number(input.endMs) || 0)}.json`) : null;
-    const result = await analyzeVodTimeline({ vodUrl: String(input.vodUrl || '').trim(), localPath, players, povPlayerName: String(input.povPlayerName || '').trim() || null, observerMode: input.observerMode === true, startMs: Number(input.startMs) || 0, endMs: Number(input.endMs) || null, sourceKind: cached?.downloaded ? 'youtube' : undefined, videoId: cached?.videoId || null, sourceSha256: cached?.sourceSha256 || null }, { progress, signal: controller.signal, workRoot: path.join(runtime.paths.local, 'Vod Analysis'), checkpointFile });
+    const result = await analyzeVodTimeline({ vodUrl: String(input.vodUrl || '').trim(), localPath, players, povPlayerName: String(input.povPlayerName || '').trim() || null, observerMode: input.observerMode === true, startMs: Number(input.startMs) || 0, endMs: Number(input.endMs) || null, sourceKind: cached?.downloaded ? 'youtube' : undefined, videoId: cached?.videoId || null, sourceSha256: cached?.sourceSha256 || null }, { progress, signal: controller.signal, workRoot: path.join(runtime.paths.local, 'Vod Analysis'), checkpointFile, performance: normalizeVodPerformance(runtime.config.vodPerformance), log: line => console.warn(`[vod-analysis] ${line}`) });
     if (cached?.jobId) await updateIngestionJob(cached.jobId, { status: 'ready', stage: 'analyzed', percent: 100, checkpoint: { stage: 'analyzed', startMs: Number(input.startMs) || 0, endMs: Number(input.endMs) || null } }); return result;
   } catch (error) { if (cached?.jobId) await updateIngestionJob(cached.jobId, { status: controller.signal.aborted ? 'cancelled' : 'failed', stage: 'analysis-failed', message: String(error?.message || error) }); throw error; } finally { activeVodAnalyses.delete(jobKey); if (cached?.jobId) activeIngestionControllers.delete(cached.jobId); if (localPath && !cached) approvedVodPaths.delete(localPath); }
 });
@@ -782,6 +785,11 @@ handleTrusted('desktop:sync-now', syncNow);
 handleTrusted('desktop:pair-device', (event, input) => { requireTrustedSender(event); return pairDevice(input || {}); });
 handleTrusted('desktop:set-sync-mode', async (_event, mode) => { if (!['offline-first', 'connected'].includes(mode)) throw new Error('Unknown synchronization mode.'); if (mode === 'connected' && !runtime.config.cloudPairing) throw new Error('Pair this device before enabling connected sync.'); runtime.config.mode = mode; await saveRuntimeConfig(); return { mode }; });
 handleTrusted('desktop:set-retention-days', async (_event, value) => { const days = Number(value); if (!Number.isInteger(days) || days < 1 || days > 365) throw new Error('Retention must be between 1 and 365 days.'); runtime.config.retentionDays = days; await saveRuntimeConfig(); await configureCollector(); return { retentionDays: days }; });
+handleTrusted('desktop:set-vod-performance', async (_event, input = {}) => {
+  const workers = input.ocrWorkers === 'auto' ? 'auto' : Number(input.ocrWorkers);
+  if (workers !== 'auto' && !(Number.isInteger(workers) && workers >= 1 && workers <= MAX_OCR_WORKERS)) throw new Error(`OCR threads must be Auto or 1 to ${MAX_OCR_WORKERS}.`);
+  runtime.config.vodPerformance = normalizeVodPerformance({ ...runtime.config.vodPerformance, ocrWorkers: workers, ...(typeof input.hardwareDecode === 'boolean' ? { hardwareDecode: input.hardwareDecode } : {}) }); await saveRuntimeConfig(); return runtime.config.vodPerformance;
+});
 handleTrusted('desktop:set-start-with-windows', async (_event, enabled) => { runtime.config.startWithWindows = enabled === true; await saveRuntimeConfig(); applyLoginPreference(); return { startWithWindows: runtime.config.startWithWindows }; });
 handleTrusted('desktop:set-capture-paused', async (_event, paused) => { runtime.config.capturePaused = paused === true; await saveRuntimeConfig(); createTray(); return { paused: runtime.config.capturePaused }; });
 handleTrusted('desktop:set-capture-preferences', async (_event, input = {}) => {

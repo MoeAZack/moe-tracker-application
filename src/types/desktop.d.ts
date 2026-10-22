@@ -7,6 +7,7 @@ type DesktopStatus = {
   deviceName: string;
   retentionDays: number;
   startWithWindows: boolean;
+  vodPerformance: { ocrWorkers: 'auto' | number; hardwareDecode: boolean; cpus: number; maxOcrWorkers: number };
   role: string;
   teamName: string | null;
   capture: { state: 'waiting-for-valorant' | 'match-detected' | 'capture-ready' | 'capturing' | 'review-required' | 'uploading' | 'synchronized' | 'paused' | 'error'; paused: boolean; preferences: { profile: 'fullscreen' | 'fullscreen-windowed' | 'windowed'; display: string; notification: 'open-review' | 'notify-only' | 'silent'; offlineQueue: boolean; elevated?: boolean }; safety: 'post-match-only'; lastError: string | null };
@@ -62,6 +63,7 @@ declare global {
       setSyncMode(mode: 'offline-first' | 'connected'): Promise<{ mode: 'offline-first' | 'connected' }>;
       setRetentionDays(days: number): Promise<{ retentionDays: number }>;
       setStartWithWindows(enabled: boolean): Promise<{ startWithWindows: boolean }>;
+      setVodPerformance(input: { ocrWorkers: 'auto' | number; hardwareDecode?: boolean }): Promise<{ ocrWorkers: 'auto' | number; hardwareDecode: boolean }>;
       setCapturePaused(paused: boolean): Promise<{ paused: boolean }>;
       setCapturePreferences(input: { profile: 'fullscreen' | 'fullscreen-windowed' | 'windowed'; display: string; notification: 'open-review' | 'notify-only' | 'silent'; offlineQueue: boolean; elevated?: boolean; matchEndOffer?: 'notify' | 'off' }): Promise<DesktopStatus['capture']['preferences']>;
       disconnectDevice(): Promise<{ disconnected: boolean }>;

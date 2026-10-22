@@ -44,7 +44,8 @@
     "stage0:recovery": "pwsh -NoProfile -File scripts/stage0-recovery-bootstrap.ps1",
     "stage2:audit": "tsx scripts/stage2-catalog-audit.mts",
     "check": "npm run lint && npm run verify:runtime && npm test && npm run build",
-    "ocr:report": "node scripts/ocr-field-report.mjs"
+    "ocr:report": "node scripts/ocr-field-report.mjs",
+    "vod:compare": "node scripts/vod-speed-compare.cjs"
   },
   "dependencies": {
     "@fontsource/inter": "^5.3.0",

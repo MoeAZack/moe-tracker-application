@@ -18,6 +18,7 @@ import {
   Workflow,
 } from 'lucide-react';
 import { confirmDialog } from '../utils/appDialogs';
+import VodPerformanceSettings from './VodPerformanceSettings';
 
 export default function DesktopDeviceSettings() {
   const bridge = typeof window === 'undefined' ? undefined : window.moeDesktop;
@@ -199,6 +200,11 @@ export default function DesktopDeviceSettings() {
           </p>
         </div>
       </div>
+      <VodPerformanceSettings
+        value={status?.vodPerformance}
+        disabled={!!busy}
+        onChange={input => run('vod-performance', async () => ({ ...(await bridge.setVodPerformance(input)), message: 'VOD import speed saved. It applies to the next game analysed.' }))}
+      />
       <div className="grid gap-2 sm:grid-cols-2 xl:grid-cols-3">
         <DeviceButton
           icon={Image}

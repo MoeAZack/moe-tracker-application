@@ -40,6 +40,7 @@ contextBridge.exposeInMainWorld('moeDesktop', Object.freeze({
   setSyncMode: (mode) => ipcRenderer.invoke('desktop:set-sync-mode', mode),
   setRetentionDays: (days) => ipcRenderer.invoke('desktop:set-retention-days', days),
   setStartWithWindows: (enabled) => ipcRenderer.invoke('desktop:set-start-with-windows', enabled),
+  setVodPerformance: (input) => ipcRenderer.invoke('desktop:set-vod-performance', input),
   setCapturePaused: (paused) => ipcRenderer.invoke('desktop:set-capture-paused', paused),
   setCapturePreferences: (input) => ipcRenderer.invoke('desktop:set-capture-preferences', input),
   disconnectDevice: () => ipcRenderer.invoke('desktop:disconnect-device'),
