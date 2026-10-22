@@ -52,6 +52,11 @@ describe('OCR per-field report', () => {
     expect(report.byCondition['1600x900 · 150% · custom'].map).toMatchObject({ falseAccept: 1, falseAcceptRate: 1 });
   });
 
+  it('groups a resampled run under the resolution the pipeline read, not the label\'s', () => {
+    const run = { ...output([]), captureDiagnostics: { resolution: '1600x900' } };
+    expect(Object.keys(fieldReport({ sessions: [session('s1', { players: [] })] }, { s1: run }).byCondition)).toEqual(['1600x900 · 100% · custom']);
+  });
+
   it('grades round results when the labels have them', () => {
     const report = fieldReport({ sessions: [session('s1', { players: [], rounds: [{ roundNo: 1, result: 'W' }, { roundNo: 2, result: 'L' }, { roundNo: 3, result: 'W' }] })] }, { s1: output([], undefined, [{ roundNo: 1, result: 'W' }, { roundNo: 2, result: 'W' }]) });
     expect(report.fields.roundResult).toMatchObject({ labelled: 3, correct: 1, falseAccept: 1, abstained: 1 });
