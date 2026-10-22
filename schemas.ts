@@ -194,7 +194,10 @@ export const practiceBlockSplitSchema = z.object({
   id: rosterId, name: rosterName, remainingName: rosterName.optional(), matchIds: z.array(z.string().trim().min(1).max(200)).min(1).max(99),
 }).strict();
 export const practiceBlockMergeSchema = z.object({ ids: z.array(rosterId).min(2).max(20), name: rosterName }).strict();
-export const practiceSessionLinkSchema = z.object({ scheduleId: rosterId, matchIds: z.array(z.string().trim().min(1).max(200)).min(1).max(100), goalIds: z.array(z.string().trim().min(1).max(200)).max(100).optional(), name: rosterName.optional() }).strict();
+// Schedule ids are short app ids (manual events) or provider ids, not UUIDs.
+const scheduleId = z.string().trim().min(1).max(200);
+export const practiceSessionLinkSchema = z.object({ scheduleId, matchIds: z.array(z.string().trim().min(1).max(200)).min(1).max(100), goalIds: z.array(z.string().trim().min(1).max(200)).max(100).optional(), name: rosterName.optional() }).strict();
+export const practiceSummarySharedSchema = z.object({ scheduleId, shared: z.boolean() }).strict();
 export const tryoutDecisionNoteSchema = z.object({ id: rosterId.optional(), playerId: rosterId, text: z.string().trim().min(1).max(5000) }).strict();
 export const tryoutDecisionNoteRemoveSchema = z.object({ id: rosterId }).strict();
 

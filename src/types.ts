@@ -203,6 +203,9 @@ export interface Schedule {
   progressLinkedAutomatically?: boolean;
   /** Links a Team Talk to its Debrief (or vice versa) without merging their distinct event types. */
   linkedReviewEventId?: string;
+  /** When the coach sent this session's practice summary to the team. */
+  summarySharedAt?: string;
+  summarySharedBy?: string;
 }
 
 export interface AttendanceCheckIn {

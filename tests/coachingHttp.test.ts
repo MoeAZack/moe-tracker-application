@@ -79,6 +79,11 @@ describe('coaching workflow HTTP contract', () => {
     expect((await request(coach, '/api/map-images/Ascent', { image: 'data:image/png;base64,PHN2Zz4=' })).status).toBe(400);
     expect((await request(coach, '/api/map-images/Ascent', { image: `data:image/svg+xml;base64,${png.toString('base64')}` })).status).toBe(400);
     expect((await request(player, '/api/map-images/Ascent')).status).toBe(204);
+    // One byte over the 3 MB cap is refused and nothing is stored; exactly the cap is accepted.
+    const atCap = Buffer.concat([png, Buffer.alloc(3 * 1024 * 1024 - png.length)]);
+    expect((await request(coach, '/api/map-images/Ascent', { image: `data:image/png;base64,${Buffer.concat([atCap, Buffer.alloc(1)]).toString('base64')}` })).status).toBe(413);
+    expect((await request(coach, '/api/map-images/Ascent')).status).toBe(204);
+    expect((await request(coach, '/api/map-images/Bind', { image: `data:image/png;base64,${atCap.toString('base64')}` })).status).toBe(200);
     const stored = await request(coach, '/api/map-images/Ascent', { image }); expect(stored.status).toBe(200);
     expect(await stored.json()).toEqual({ map: 'ascent', type: 'image/png', bytes: png.length });
     const read = await request(player, '/api/map-images/ascent'); expect(read.status).toBe(200);
@@ -94,6 +99,26 @@ describe('coaching workflow HTTP contract', () => {
     expect((await request(player, '/api/practice-sessions/link', body)).status).toBe(403);
     const coach = await login(adminKey); const response = await request(coach, '/api/practice-sessions/link', body); expect(response.status).toBe(200);
     const result = await response.json(); expect(result).toMatchObject({ session: { linkedGoalIds: ['goal-1'] }, block: { matchIds: ['m1'] }, progress: { linked: true } });
+  });
+  it('lets only a coach mark a linked session\'s practice summary as sent, and take it back', async () => {
+    const scheduleId = '00000000-0000-4000-8000-000000000020'; const coach = await login(adminKey); const player = await login(playerKey);
+    expect((await request(coach, '/api/practice-sessions/summary-shared', { scheduleId, shared: true })).status).toBe(409);
+    expect((await request(coach, '/api/practice-sessions/link', { scheduleId, matchIds: ['m1'] })).status).toBe(200);
+    expect((await request(player, '/api/practice-sessions/summary-shared', { scheduleId, shared: true })).status).toBe(403);
+    expect((await request(coach, '/api/practice-sessions/summary-shared', { scheduleId: '00000000-0000-4000-8000-000000000099', shared: true })).status).toBe(404);
+    expect((await request(coach, '/api/practice-sessions/summary-shared', { scheduleId, shared: 'yes' })).status).toBe(400);
+    const sent = await request(coach, '/api/practice-sessions/summary-shared', { scheduleId, shared: true }); expect(sent.status).toBe(200);
+    const stored = async () => JSON.parse(await fs.readFile(dbPath, 'utf8')).schedule.find((item: any) => item.id === scheduleId);
+    expect((await sent.json()).summarySharedAt).toEqual((await stored()).summarySharedAt);
+    expect((await stored()).summarySharedBy).toBeTruthy();
+    expect((await request(coach, '/api/practice-sessions/summary-shared', { scheduleId, shared: false })).status).toBe(200);
+    expect(await stored()).not.toHaveProperty('summarySharedAt');
+  });
+  it('links a session the coach made by hand, whose id is a short app id rather than a UUID', async () => {
+    const db = fixture(); db.schedule.push({ id: 'x1abc234', date: '2026-10-20', primary: 'Scrim block', attendance: {} }); await fs.writeFile(dbPath, JSON.stringify(db));
+    const coach = await login(adminKey);
+    expect((await request(coach, '/api/practice-sessions/link', { scheduleId: 'x1abc234', matchIds: ['m1'] })).status).toBe(200);
+    expect((await request(coach, '/api/practice-sessions/summary-shared', { scheduleId: 'x1abc234', shared: true })).status).toBe(200);
   });
   it('links an automatically saved capture to the PRACC session it was played in', async () => {
     const db = fixture(); db.schedule.push({ id: 'pracc-slot', source: 'pracc', date: '2026-10-20', startTime: '20:00', durationMinutes: 120, primary: 'Practice vs Nova', secondary: '', attendance: {} }); await fs.writeFile(dbPath, JSON.stringify(db));

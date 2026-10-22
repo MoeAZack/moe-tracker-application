@@ -19,6 +19,17 @@ export function registerComparisonRoutes(app: Express) {
     if (!coach(req, res)) return; const body = validate(schemas.practiceSessionLinkSchema, req.body, res); if (!body) return;
     try { const db = await readDB(); const result = linkPracticeSession(db, body, actor(req), undefined, withCurrentScreenshotMetrics); refreshCoachingWorkflow(db, actor(req)); await saveDB(db); res.json(result); } catch (error: any) { res.status(error.status || 500).json({ error: error.message }); }
   });
+  // Marks a session's practice summary as sent to the team (or not), which takes it off the inbox.
+  app.post('/api/practice-sessions/summary-shared', async (req, res) => {
+    if (!coach(req, res)) return; const body = validate(schemas.practiceSummarySharedSchema, req.body, res); if (!body) return;
+    try {
+      const db = await readDB(); const session = (db.schedule || []).find((item: any) => item.id === body.scheduleId);
+      if (!session) return res.status(404).json({ error: 'Practice session was not found.' });
+      if (!session.practiceBlockId) return res.status(409).json({ error: 'Link this session to its matches before sending a summary.' });
+      if (body.shared) Object.assign(session, { summarySharedAt: new Date().toISOString(), summarySharedBy: actor(req) }); else { delete session.summarySharedAt; delete session.summarySharedBy; }
+      await saveDB(db); res.json({ scheduleId: session.id, summarySharedAt: session.summarySharedAt || null });
+    } catch (error: any) { res.status(error.status || 500).json({ error: error.message }); }
+  });
   app.post('/api/practice-blocks/save', async (req, res) => {
     if (!coach(req, res)) return; const body = validate(schemas.practiceBlockSaveSchema, req.body, res); if (!body) return;
     try { const db = await readDB(); const block = savePracticeBlock(db, body, actor(req)); refreshCoachingWorkflow(db, actor(req)); await saveDB(db); res.json(block); } catch (error: any) { res.status(error.status || 500).json({ error: error.message }); }
