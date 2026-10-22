@@ -4,10 +4,10 @@ Draft for the GitHub release text. Not published: publishing needs the owner's
 explicit permission for this version (gate F in `PRE-0.2-RELEASE-HARDENING.md`),
 after gates B to E pass on the owner's PC.
 
-## 0.2.0 was withdrawn
+## What happened with 0.2.0
 
-0.2.0 was withdrawn on 22 October 2026 while an incident was reviewed. On the
-owner's PC, soon after upgrading from 0.1.x, a workspace lost all of its
+On 22 October 2026 an incident with 0.2.0 was reviewed. On the owner's PC,
+soon after upgrading from 0.1.x, a workspace lost all of its
 matches, player stats and rounds. The review found that those matches were
 deleted one by one through Match Review, not by the upgrade. It also found that
 0.2.0 gave no protection against that: no record of who deleted a match, no
@@ -15,6 +15,8 @@ backup before the last match went, and no undo. It found a separate bug too: a
 0.1.x workspace that had a season archive could not start 0.2.0 at all.
 
 0.2.1 fixes all of these. If you installed 0.2.0, install 0.2.1 over it.
+
+<!-- Say "withdrawn" here only if the owner has pulled the 0.2.0 release by the time this is published. -->
 
 ## Your data is safer
 
@@ -30,8 +32,9 @@ backup before the last match went, and no undo. It found a separate bug too: a
 - **No save can quietly empty the workspace.** A save that would remove every
   match, round or player stat is refused unless it comes from an action that
   means it (deleting the last match, a reset, a season archive, a restore).
-- **Upgrades keep a copy first.** The first save after an upgrade keeps the
-  previous workspace file unchanged next to it.
+- **Upgrading from 0.1.x keeps a copy first.** Before the first save, the
+  previous workspace file is kept unchanged next to it. (0.2.0 and 0.2.1 use
+  the same storage format, so going from 0.2.0 to 0.2.1 needs no copy.)
 - **A damaged or missing workspace file is never replaced by an empty one.** A
   damaged file is set aside unchanged. If the file is missing on a computer that
   had a workspace, the app opens a recovery screen: restore a backup, or start
@@ -90,5 +93,6 @@ backup before the last match went, and no undo. It found a separate bug too: a
   links that the deletion removed stay removed.
 - The deletion record is kept on the desktop. On the website, the list of
   deleted matches is the record.
-- OCR at resolutions other than 1920×1080 and 1600×900 is not measured yet, nor
-  Windows display scaling other than 100%.
+- OCR below 1920×1080 was measured only on 1920×1080 captures resampled to
+  1600×900, not on real 1600×900 captures. Other resolutions, and Windows
+  display scaling other than 100%, are not measured yet.
