@@ -3,6 +3,7 @@
 // accuracy is the accuracy coaches get.
 import { createBrowserLocalTesseractAdapter } from '../lib/localOcrEngine';
 import { extractCaptureSession, type CaptureImage } from '../lib/captureSessionPipeline';
+import type { LocalCorrectionModel } from '../lib/ocrLearning';
 
 const loadImage = async (capture: CaptureImage) => {
   const image = new Image();
@@ -28,10 +29,10 @@ export async function resampleCapture(capture: CaptureImage, width: number, heig
   return { ...capture, mediaType: 'image/png', base64: canvas.toDataURL('image/png').split(',')[1] };
 }
 
-(window as any).__runCaptureBacktest = async (payload: { captures: CaptureImage[]; rosterPlayers?: Array<{ id?: string; displayName: string }>; resample?: { width: number; height: number } | null }) => {
+(window as any).__runCaptureBacktest = async (payload: { captures: CaptureImage[]; rosterPlayers?: Array<{ id?: string; displayName: string }>; resample?: { width: number; height: number } | null; correctionModel?: LocalCorrectionModel }) => {
   const adapter = await createBrowserLocalTesseractAdapter();
   try {
     const captures = payload.resample ? await Promise.all(payload.captures.map(capture => resampleCapture(capture, payload.resample!.width, payload.resample!.height))) : payload.captures;
-    return await extractCaptureSession({ captures, rosterPlayers: payload.rosterPlayers || [], adapter, loadImage });
+    return await extractCaptureSession({ captures, rosterPlayers: payload.rosterPlayers || [], adapter, loadImage, correctionModel: payload.correctionModel });
   } finally { await adapter.terminate(); }
 };

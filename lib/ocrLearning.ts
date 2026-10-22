@@ -174,6 +174,23 @@ export function applyLocalCorrection(model: LocalCorrectionModel | undefined, fi
   return candidates.length === 1 ? candidates[0].corrected : value;
 }
 
+export const CORRECTED_STAT_FIELDS: readonly OcrLearningField[] = ['agent', 'kills', 'deaths', 'assists', 'fk', 'fd', 'plants', 'defuses', 'trades'];
+
+/**
+ * Applies learned per-cell corrections to scoreboard rows. A rule applies
+ * only to the same OCR model, layout, resolution and cell (row and field) it
+ * was learned on, so a capture session and a single uploaded screenshot of
+ * the same scoreboard get the same corrections.
+ */
+export function applyLearnedCorrections<T extends Record<string, any>>(rows: readonly T[], model: LocalCorrectionModel | undefined, context: { sourceModel?: string; layout: string; resolution: string }): T[] {
+  if (!model?.rules.length) return rows.map(row => ({ ...row }));
+  return rows.map((row, index) => {
+    const corrected: Record<string, any> = { ...row };
+    for (const field of CORRECTED_STAT_FIELDS) corrected[field] = applyLocalCorrection(model, field, corrected[field], { ...context, sourceRegion: `player.${index}.${field}` });
+    return corrected as T;
+  });
+}
+
 /** Suggest a prior opponent only from a unique enemy-player roster overlap. */
 export function suggestOpponentFromEnemyRoster(players: readonly any[], matches: readonly any[]) {
   const enemy = new Set(players.filter(player => !player?.include).map(player => normalizeCaptureName(player?.extractedName || player?.name)).filter(Boolean));
