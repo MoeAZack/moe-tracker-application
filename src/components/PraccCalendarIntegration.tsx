@@ -17,7 +17,7 @@ export default function PraccCalendarIntegration({ onRefresh }: { onRefresh: () 
       const result = await response.json().catch(() => ({}));
       if (typeof result.configured === 'boolean') { setStatus(result); if (typeof result.url === 'string') setUrl(result.url); }
       if (!response.ok) throw new Error(result.error || 'PRACC calendar sync failed.');
-      setMessage(action === 'disconnect' ? 'PRACC feed disconnected. Imported schedule entries were kept.' : `PRACC calendar synced · ${result.imported || 0} added · ${result.updated || 0} refreshed${result.cancelled ? ` · ${result.cancelled} cancelled` : ''}.`);
+      setMessage(action === 'disconnect' ? 'PRACC feed disconnected. Imported schedule entries were kept.' : `PRACC calendar synced · ${result.imported || 0} added · ${result.updated || 0} refreshed${result.cancelled ? ` · ${result.cancelled} cancelled` : ''}${result.flagged ? ` · ${result.flagged} kept for you to check, because PRACC dropped them but they have your notes or attendance` : ''}.`);
       await onRefresh();
     } catch (error: any) { setMessage(error.message || 'PRACC calendar sync failed.'); await load().catch(() => undefined); }
     finally { setBusy(''); }

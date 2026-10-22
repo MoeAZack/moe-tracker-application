@@ -121,7 +121,7 @@ export function toWebsiteTrackerData(db: Record<string, any>, role: 'coach' | 'p
     coachingSignals: role === 'coach' ? structuredClone(safe.coachingSignals || []) : [],
     coachingActions: structuredClone(safe.coachingActions || []),
     dashboardViews: role === 'coach' ? structuredClone(safe.dashboardViews || []) : [],
-    schedule: (safe.schedule || []).map((item: any) => selectFields(item, ['id', 'date', 'kind', 'primary', 'secondary', 'notes', 'coachNotes', 'attendance', 'calendarKey', 'startTime', 'allDay', 'durationMinutes', 'repeatSeriesId', 'repeatIndex', 'repeatCount', 'attendanceEnabled', 'requiredPlayerIds', 'attendanceCheckIns', 'source', 'sourceEventId', 'practiceBlockId', 'linkedGoalIds', 'progressLinkedAt', 'linkedReviewEventId'])),
+    schedule: (safe.schedule || []).map((item: any) => selectFields(item, ['id', 'date', 'kind', 'primary', 'secondary', 'notes', 'coachNotes', 'attendance', 'calendarKey', 'startTime', 'allDay', 'durationMinutes', 'repeatSeriesId', 'repeatIndex', 'repeatCount', 'attendanceEnabled', 'requiredPlayerIds', 'attendanceCheckIns', 'source', 'sourceEventId', 'sourceStatus', 'sourceStatusAt', 'practiceBlockId', 'linkedGoalIds', 'progressLinkedAt', 'linkedReviewEventId'])),
     attendanceCredits: structuredClone(safe.attendanceCredits || []),
     goals: (safe.goals || []).map((item: any) => selectFields(item, ['id', 'date', 'goal', 'notes', 'status', 'owner', 'ownerPlayerId', 'matchId', 'roundId', 'evidenceClipId', 'sourceSignalId', 'coachingActionId', 'dueBlockId'])),
     matches: (safe.matches || []).filter((item: any) => !quarantinedMatchIds.has(item.id)).map((item: any) => ({

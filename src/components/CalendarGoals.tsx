@@ -473,6 +473,7 @@ export default function CalendarGoals({ data, theme, role, onUpsert, onRemove, o
                       <div>
                         <h5 className="text-base font-black tracking-tight">{sched.primary}</h5>
                         <p className="mt-1 flex items-center gap-1 text-[10px] font-bold text-cyan-200"><Clock className="h-3 w-3" /> {sched.allDay ? 'All day · Main goal' : `${sched.startTime || 'Time not set'} Cairo`} {sched.source === 'pracc' ? '· Pracc' : ''}</p>
+                        {sched.source === 'pracc' && sched.sourceStatus && <p className="mt-1 inline-flex rounded-full border border-amber-400/30 bg-amber-400/10 px-2 py-0.5 text-[10px] font-bold text-amber-200">{sched.sourceStatus === 'cancelled' ? 'Cancelled in PRACC' : 'No longer in PRACC'} · kept because it has your notes or attendance</p>}
                         {sched.secondary && (
                           <p className="text-xs text-gray-400 font-mono mt-0.5">{sched.secondary}</p>
                         )}
@@ -656,6 +657,7 @@ export default function CalendarGoals({ data, theme, role, onUpsert, onRemove, o
             </div>
 
             {editingSchedule.source === 'pracc' && <p className="rounded-lg border border-cyan-400/20 bg-cyan-400/5 p-3 text-[10px] leading-relaxed text-cyan-100">PRACC owns the date, time, title and event details. They refresh automatically. Category, attendance and coach notes remain under your control.</p>}
+            {editingSchedule.source === 'pracc' && editingSchedule.sourceStatus && <p role="status" className="rounded-lg border border-amber-400/30 bg-amber-400/10 p-3 text-[10px] leading-relaxed text-amber-100">{editingSchedule.sourceStatus === 'cancelled' ? 'PRACC cancelled this event.' : 'This event is no longer in your PRACC feed.'} It was kept because it has your notes, players or attendance. Delete it yourself if it is no longer needed.</p>}
 
             <div className="grid grid-cols-2 gap-2 rounded-xl border border-white/10 bg-black/10 p-1" role="group" aria-label="Event type">
               <button type="button" disabled={editingSchedule.source === 'pracc'} aria-pressed={Boolean(editingSchedule.allDay)} onClick={() => setEditingSchedule({ ...editingSchedule, allDay: true, attendanceEnabled: false })} className={`min-h-12 rounded-lg px-3 text-xs font-bold disabled:opacity-50 ${editingSchedule.allDay ? 'bg-cyan-400/15 text-cyan-100' : 'text-gray-400 hover:text-white'}`}><CalendarDays className="mr-1.5 inline h-4 w-4" /> Full day · Main goal</button>
