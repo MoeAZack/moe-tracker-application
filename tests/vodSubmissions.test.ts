@@ -36,6 +36,14 @@ describe('player VOD submission integration', () => {
     expect(db.playerStats).toHaveLength(5);
   });
 
+  it('links by the shared match header only when the saved match also holds all five players', () => {
+    // Same date, map, opponent and score, but only four of the five players: a header can repeat, so it is not this game.
+    const db = fixture(); db.playerStats = db.playerStats.slice(0, 4).map((row: any) => ({ ...row, playerId: undefined, player: `other-${row.id}`, displayNameSnapshot: `other-${row.id}` }));
+    const submission = integrateVodSubmission(db, input, 'caelia', ids, '2026-10-18T14:00:00Z');
+    expect(submission).toMatchObject({ linkedMatchId: 'new-match', linkMode: 'new-match' });
+    expect(db.matches.map((match: any) => match.id)).toEqual(['m1', 'new-match']);
+  });
+
   it('replaces a uniquely matching anonymous scoreboard row with the accepted roster identity', () => {
     const db = fixture();
     db.playerStats = players.map((observed, index) => ({ id: `anonymous-${index}`, matchId: 'm1', player: `Anonymous player ${index + 1}`, displayNameSnapshot: `player-${Math.random().toString(16).slice(2)}`, agent: 'Unknown', kAtt: null, kDef: null, dAtt: null, dDef: null, aAtt: null, aDef: null, kills: observed.kills, deaths: observed.deaths, assists: observed.assists }));

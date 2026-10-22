@@ -1,7 +1,7 @@
 import type { Match, PlayerStats, VodSubmission, VodSubmissionPlayer, VodTimelineEvidence } from '../src/types';
 import evidenceModule from '../desktop/vod-timeline-evidence.cjs';
 import { deriveRoundAdvantage } from './roundAdvantage';
-import { findPhysicalMatchCandidates } from './physicalMatchIdentity';
+import { findMatchCandidates, normalizedMatchName, similarMatchName } from './matchIdentity';
 import { captureRosterFromIdentity } from './identityResolver';
 import { refreshDuplicateQuarantine } from './matchIntegrity';
 
@@ -16,27 +16,8 @@ type SubmissionInput = {
 
 const METRIC_FIELDS = ['kills', 'deaths', 'assists', 'acs', 'adr', 'hs', 'fk', 'fd', 'plants', 'defuses', 'trades'] as const;
 
-export function normalizeVodName(value: string) {
-  return String(value || '').normalize('NFKD').replace(/[\u0300-\u036f]/g, '').toLocaleLowerCase().replace(/[^a-z0-9]/g, '');
-}
-
-function editDistance(left: string, right: string) {
-  const previous = Array.from({ length: right.length + 1 }, (_, index) => index);
-  for (let row = 1; row <= left.length; row += 1) {
-    const current = [row];
-    for (let column = 1; column <= right.length; column += 1) current[column] = Math.min(current[column - 1] + 1, previous[column] + 1, previous[column - 1] + (left[row - 1] === right[column - 1] ? 0 : 1));
-    previous.splice(0, previous.length, ...current);
-  }
-  return previous[right.length];
-}
-
-export function similarVodName(left: string, right: string) {
-  const a = normalizeVodName(left); const b = normalizeVodName(right);
-  if (!a || !b) return false;
-  if (a === b) return true;
-  if (Math.min(a.length, b.length) < 4) return false;
-  return editDistance(a, b) <= Math.max(1, Math.floor(Math.max(a.length, b.length) * .2));
-}
+export const normalizeVodName = (value: string) => normalizedMatchName(value);
+export const similarVodName = (left: string, right: string) => similarMatchName(left, right);
 
 function resolveFive(db: any, rows: SubmissionInput['players']): VodSubmissionPlayer[] {
   // Known aliases (coach corrections, tryout aliases, accepted names) count, so a fix made once applies to VOD too.
@@ -65,14 +46,6 @@ function hasUniqueKdaCoverage(db: any, matchId: string, players: VodSubmissionPl
   });
 }
 
-function identityMatches(input: SubmissionInput, match: Match) {
-  const sameDate = match.date === input.date;
-  const sameMap = !input.map || !match.map || normalizeVodName(match.map) === normalizeVodName(input.map);
-  const sameOpponent = !input.opponent || !match.opponent || similarVodName(input.opponent, match.opponent);
-  const sameScore = input.ourScore === null || input.theirScore === null || match.ourScore === null || match.ourScore === undefined || match.theirScore === null || match.theirScore === undefined || (match.ourScore === input.ourScore && match.theirScore === input.theirScore);
-  return sameDate && sameMap && sameOpponent && sameScore;
-}
-
 function appearanceType(db: any, playerId: string) {
   if ((db.coreMemberships || []).some((member: any) => member.playerId === playerId && !member.endedAt)) return 'core';
   if ((db.tryoutBatches || []).some((batch: any) => batch.status === 'active' && batch.candidatePlayerIds?.includes(playerId))) return 'tryout';
@@ -97,8 +70,9 @@ export function integrateVodSubmission(db: any, input: SubmissionInput, actorNam
   const rosterIds = new Set(players.map(row => row.rosterPlayerId));
   if (requested && [...rosterIds].filter(id => matchRosterIds(db, requested.id).has(id)).length < 5 && !hasUniqueKdaCoverage(db, requested.id, players)) throw Object.assign(new Error('The selected match does not contain the same five-player roster or five unique K/D/A rows. Choose the correct match or create a new VOD entry.'), { status: 409 });
   const incomingIdentityRows = players.map(player => ({ playerId: player.rosterPlayerId, player: player.rosterDisplayName }));
-  const physical = !requested ? findPhysicalMatchCandidates(db, { date: input.date, map: input.map || '', opponent: input.opponent || '', ourScore: input.ourScore, theirScore: input.theirScore } as Match, incomingIdentityRows) : [];
-  const automatic = !requested ? (physical.length ? physical : (db.matches || []).filter((match: Match) => identityMatches(input, match) && [...rosterIds].every(id => matchRosterIds(db, match.id).has(id)))) : [];
+  // One shared identity answer; a header-only candidate must also hold all five players.
+  const found = !requested ? findMatchCandidates(db, input, { stats: incomingIdentityRows, unknownMatches: true }) : { basis: null, matches: [] };
+  const automatic = found.basis === 'header' ? found.matches.filter((match: Match) => [...rosterIds].every(id => matchRosterIds(db, match.id).has(id))) : found.matches;
   let match: Match | undefined = requested || (automatic.length === 1 ? automatic[0] : undefined);
   const createdMatch = !match;
   if (!match) {
