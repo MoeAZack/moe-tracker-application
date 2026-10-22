@@ -603,11 +603,18 @@ Acceptance evidence:
 
 v0.2.0 was withdrawn on 2026-10-22 at the owner's request. The first start of the
 public 0.2.0 installer on a 0.1.x workspace (storage schema 14) migrated the store
-to schema 15 and, about 12 seconds later, wrote a `db.json` without its matches,
-player stats, rounds, coaching signals, ratings and analytics. The evidence
-artifact count dropped from 196 to 0, while the artifact sidecar files on disk
-were left intact. Settings, roster, schedule and secrets were unchanged. The
+to schema 15. Within about 12 seconds the app had written a `db.json` without its
+matches, player stats, rounds, coaching signals, ratings and analytics. The
+evidence artifact count dropped from 196 to 0, while the artifact sidecar files on
+disk were left intact. Settings, roster, schedule and secrets were unchanged. The
 owner chose a clean setup over restoring that workspace.
+
+A synthetic schema-14 workspace upgraded through the same 0.2.0 build keeps all
+of its data, so the migration alone does not explain the loss. The only code path
+that reproduces the exact result is the match purge (`purgeMatchGraph`), run once
+per match through match deletion or the duplicate review's discard. What issued
+those deletions on the owner's PC is still open. The release stays withdrawn until
+that is known, because without it nobody can say another 0.2.0 install is safe.
 
 Why H5 did not catch it:
 
@@ -624,14 +631,22 @@ Why H5 did not catch it:
 
 No 0.2.1 (or later) installer is published until all of these pass:
 
-- A. The fix includes a synthetic, populated schema-14 fixture. It must contain
-  matches, player stats, rounds, coaching signals, ratings and at least one
-  externalized evidence artifact. The test reproduces the loss on the 0.2.0 code,
-  passes with the fix, and runs the built server's first-start sequence, not only
-  `readDB`/`saveDB`. The fix also carries these store guards, each with a test
-  that fails without it:
-  - An ordinary save that takes non-empty matches, rounds or player stats to empty
-    is refused.
+- A. The fix carries two tests.
+  - A1, upgrade regression: a synthetic, populated schema-14 fixture (matches,
+    player stats, rounds, coaching signals, ratings, at least one externalized
+    evidence artifact) runs through the built server's first-start sequence, not
+    only `readDB`/`saveDB`, and every count is unchanged afterwards.
+  - A2, purge burst: deleting every match in a row, through both match deletion
+    and the duplicate review's discard, leaves a durable audit entry per purge
+    (who, which match, when) and a backup written before the last match goes.
+    It fails on the 0.2.0 code.
+  If the actor behind the owner's loss is found, the fix covers it with its own
+  test. The fix also carries these store guards, each with a test that fails
+  without it:
+  - An ordinary save that takes non-empty matches, rounds or player stats (as
+    stored in the current index) to empty is refused unless the caller passes an
+    explicit destructive flag.
+  - The first save from a schema older than 15 takes a backup first.
   - Resetting metrics takes a private backup first (or quarantines) and fails
     closed.
   - A missing `db.json` is not silently replaced by an empty store when the
