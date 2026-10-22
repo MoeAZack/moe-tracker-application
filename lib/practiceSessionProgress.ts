@@ -50,6 +50,39 @@ export function linkPracticeSession(db: any, input: { scheduleId: string; matchI
   return { session, block, progress: practiceSessionProgress(progressView(db), session.id, now) };
 }
 
+/**
+ * Link an automatically saved match to the PRACC session it was played in.
+ * The first map links only when it is the session's single confident match;
+ * later maps join a block this function started. A coach-made link is never
+ * changed, and a quarantined duplicate never links.
+ */
+export function autoLinkPracticeSession(db: any, matchId: string, actor: string, now = new Date().toISOString()) {
+  const match = (db.matches || []).find((item: any) => item.id === matchId);
+  const scheduleId = match?.automation?.praccScheduleId;
+  if (!scheduleId || match.duplicateReview?.status === 'quarantined') return null;
+  const session = (db.schedule || []).find((item: any) => item.id === scheduleId && item.source === 'pracc');
+  if (!session) return null;
+  const confident = confidentMatchesForSession(session, (db.matches || []).filter((item: any) => item.duplicateReview?.status !== 'quarantined'));
+  if (!confident.some(item => item.id === matchId)) return null;
+  let matchIds: string[];
+  if (!session.practiceBlockId) {
+    if (confident.length !== 1) return null;
+    matchIds = [matchId];
+  } else {
+    if (!session.progressLinkedAutomatically) return null;
+    const block = (db.practiceBlocks || []).find((item: any) => item.id === session.practiceBlockId);
+    if (!block || block.matchIds.includes(matchId)) return null;
+    matchIds = [...block.matchIds, matchId];
+  }
+  if ((db.practiceBlocks || []).some((block: any) => block.id !== session.practiceBlockId && block.matchIds?.includes(matchId))) return null;
+  // Linking is a convenience on top of a save that already succeeded; it never fails that save.
+  try {
+    const result = linkPracticeSession(db, { scheduleId, matchIds, goalIds: session.linkedGoalIds || [] }, actor, now);
+    session.progressLinkedAutomatically = true;
+    return result;
+  } catch { return null; }
+}
+
 export function practiceSessionProgress(data: Pick<TrackerData, 'schedule' | 'practiceBlocks' | 'matches' | 'playerStats' | 'rounds' | 'rosterPlayers' | 'settings' | 'goals' | 'coachingSignals'>, scheduleId: string, now = new Date().toISOString()) {
   const session = (data.schedule || []).find(item => item.id === scheduleId);
   if (!session) return null;
