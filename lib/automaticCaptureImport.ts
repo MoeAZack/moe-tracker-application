@@ -50,10 +50,12 @@ export function buildAutomaticCaptureImport(extracted: any, data: TrackerData, c
     attW, attL, defW, defL, ourScore: extracted.meta.ourScore, theirScore: extracted.meta.theirScore,
     pistolAtt: pistol.find(item => item.side === 'Att')?.result || '', pistolDef: pistol.find(item => item.side === 'Def')?.result || '',
     bonusAtt: bonus.find(item => item.side === 'Att')?.result || '', bonusDef: bonus.find(item => item.side === 'Def')?.result || '',
-    notes: 'Automatically saved from a complete, internally consistent local capture. Editable by staff.',
+    notes: decision.roundsNeedingReview.length
+      ? `Automatically saved from a consistent local capture. Round${decision.roundsNeedingReview.length === 1 ? '' : 's'} ${decision.roundsNeedingReview.join(', ')} still need${decision.roundsNeedingReview.length === 1 ? 's' : ''} review; until then only the result counts. Editable by staff.`
+      : 'Automatically saved from a complete, internally consistent local capture. Editable by staff.',
     source: 'scrim-import', sourceMetadata, reviewConfirmation: { alliedSideConfirmed: true },
     rosterContext: { kind: included.every((player: any) => player.matchedPlayerId) ? 'mixed' : 'unclassified' },
-    automation: { mode: 'complete-capture-consensus', editable: true, reasons: decision.reasons, opponentSuggestion: opponentSuggestion || null, praccScheduleId: praccSlot?.scheduleId || null },
+    automation: { mode: decision.roundsNeedingReview.length ? 'partial-round-review' : 'complete-capture-consensus', editable: true, reasons: decision.reasons, roundsNeedingReview: decision.roundsNeedingReview, opponentSuggestion: opponentSuggestion || null, praccScheduleId: praccSlot?.scheduleId || null },
     screenshotEvidence: { schemaVersion: 1, captureId, diagnostics: extracted.captureDiagnostics || null, scoreboardPlayers: extracted.players.map((player: any) => ({ name: player.extractedName, agent: player.agent || null, kills: numberOrNull(player.kills), deaths: numberOrNull(player.deaths), assists: numberOrNull(player.assists), fk: numberOrNull(player.fk), trades: numberOrNull(player.trades), plants: numberOrNull(player.plants), defuses: numberOrNull(player.defuses), allied: !!player.include })) },
   };
   const stats = included.map((player: any) => ({
@@ -63,6 +65,8 @@ export function buildAutomaticCaptureImport(extracted: any, data: TrackerData, c
     kills: numberOrNull(player.kills), deaths: numberOrNull(player.deaths), assists: numberOrNull(player.assists), acs: numberOrNull(player.acs), adr: numberOrNull(player.adr), hs: numberOrNull(player.hs), fk: numberOrNull(player.fk), fd: numberOrNull(player.fd), performanceScore: numberOrNull(player.performanceScore), trades: numberOrNull(player.trades), plants: numberOrNull(player.plants), defuses: numberOrNull(player.defuses), ...(player.headToHead ? { headToHead: player.headToHead } : {}), sourceMetadata,
   }));
   const economyLabel = (value: unknown, evidence: any, team: 'ours' | 'theirs') => {
+    // An unconfirmed round keeps its raw evidence for review but labels nothing from it.
+    if (evidence?.reviewStatus !== 'confirmed') return '';
     const equipment = classifyTeamEquipment(evidence?.players || [], team);
     const label = equipment !== 'unknown' ? equipment : classifyAverageLoadout(value);
     return label === 'unknown' ? '' : label[0].toUpperCase() + label.slice(1);
