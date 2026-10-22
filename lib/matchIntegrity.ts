@@ -24,7 +24,8 @@ function filterArray(db: MutableTracker, key: string, predicate: (item: any) => 
  * surrounding adapter/intake containers and unrelated device credentials. */
 function pruneMatchOwnedTree(value: any, matchId: string): { value: any; removed: number; empty: boolean } {
   if (!value || typeof value !== 'object') return { value, removed: 0, empty: false };
-  if (text(value.matchId) === matchId || text(value.linkedMatchId) === matchId || text(value.requestedMatchId) === matchId) {
+  if (text(value.matchId) === matchId || text(value.linkedMatchId) === matchId || text(value.requestedMatchId) === matchId
+    || text(value.targetMatchId) === matchId) {
     return { value: undefined, removed: 1, empty: true };
   }
   if (Array.isArray(value)) {

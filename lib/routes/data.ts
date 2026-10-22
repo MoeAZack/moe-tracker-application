@@ -16,6 +16,7 @@ import { applyScheduleEdit, normalizeScheduleRow, removeScheduleRows, repeatedHo
 import { findExactRoundEvidenceDuplicate, findExactSourceDuplicate, purgeMatchGraph, isDuplicateQuarantined, purgeRemovedRoundReferences, refreshDuplicateQuarantine, stableRoundReplacement } from '../matchIntegrity';
 import { autoLinkPracticeSession } from '../practiceSessionProgress';
 import { buildCalibratedPlayerRatings } from '../calibratedPlayerRatings';
+import { linkLocalCaptureToReplay } from './replayIntake';
 
 // Core data + match logging: full payload, reset, settings, generic upsert/remove,
 // and match/round/veto saves. Protected routes (registered after the auth middleware).
@@ -502,6 +503,11 @@ export function registerDataRoutes(app: Express, options: { websiteSummaryOnly?:
       refreshDuplicateQuarantine(db, timestamp);
       match = db.matches.find((entry: any) => entry.id === match.id);
       autoLinkPracticeSession(db, match.id, actor, timestamp);
+      // A local-only desktop has no paired-device summary upload, so register
+      // the capture's scoreboard here; a replay from this PC then joins this
+      // match by its exact ten-player K/D/A evidence.
+      const user = (req as any).user;
+      if (user?.actorId) linkLocalCaptureToReplay(db, match.id, user);
 
       refreshCoachingWorkflow(db, actor);
       await saveDB(db);

@@ -174,6 +174,47 @@ function sanitizedScoreboardEvidence(value: any) {
   return { schemaVersion: 1, captureId: typeof value.captureId === 'string' ? value.captureId.slice(0, 128) : null, scoreboardPlayers };
 }
 
+/**
+ * Register an accepted capture's ten-row scoreboard as the pairing record for
+ * its own match, then pair it with this device's replays. A unique exact
+ * ten-player K/D/A match attaches the replay to that match instead of a
+ * date/map/score guess. The paired-device summary route and the local desktop
+ * save both use it, so both install modes join capture and replay the same way.
+ */
+function registerCaptureScoreboard(db: any, store: ReplayStore, input: { deviceId: string; match: any; scoreboardEvidence: any; capturedAt: string; createdAt: string; user: Actor }) {
+  const { deviceId, match, scoreboardEvidence, user } = input;
+  const extraction = { map: match.map, ourScore: match.ourScore, theirScore: match.theirScore, confident: true,
+    players: scoreboardEvidence.scoreboardPlayers.map((row: any) => ({ name: row.name, agent: row.agent, kills: row.kills, deaths: row.deaths, assists: row.assists, fk: row.fk, trades: row.trades, plants: row.plants, defuses: row.defuses })) };
+  const rosterPlayers = (db.rosterPlayers || []).filter((player: any) => !player.retiredAt).map((player: any) => ({ id: player.id, displayName: player.displayName }));
+  const draft: any = buildScreenshotReviewDraft(extraction, { model: 'accepted-local-capture', provider: 'tesseract-local', capturedAt: input.capturedAt, rosterPlayers });
+  draft.stats = draft.stats.map((stat: any, index: number) => ({ ...stat, screenshotTeam: scoreboardEvidence.scoreboardPlayers[index].allied ? 'ours' : 'theirs' }));
+  const imageSha256 = contentHash(scoreboardEvidence); const id = screenshotRecordId(deviceId, `${match.id}:${imageSha256}`);
+  store.screenshots[id] = { id, deviceId, imageSha256, createdAt: input.createdAt, createdBy: user.actorId, status: 'pending', reviewRequired: true, draft, replaySha256: null, suggestions: [], reason: 'Waiting for one matching replay from this desktop.', targetMatchId: match.id };
+  pairReplayScreenshots(store);
+  const linked = store.screenshots[id].replaySha256;
+  if (linked && !autoFinalizeDesktopReplay(db, store, linked, user)) refreshAcceptedReplay(db, store, linked, match.id, user);
+  return store.screenshots[id];
+}
+
+/**
+ * Local desktop counterpart of the paired-device summary route. After a
+ * capture is saved through /api/save-match, register its scoreboard so a
+ * replay from this PC pairs with it. Needs the collector's device id
+ * (DESKTOP_DEVICE_ID) and ten complete scoreboard rows; otherwise nothing is
+ * registered. Quarantined copies are never paired.
+ */
+export function linkLocalCaptureToReplay(db: any, matchId: string, user: Actor) {
+  const deviceId = process.env.APP_DESKTOP === 'true' ? String(process.env.DESKTOP_DEVICE_ID || '') : '';
+  if (!/^desktop-[0-9a-f-]{36}$/i.test(deviceId)) return null;
+  const match = (db.matches || []).find((item: any) => item.id === matchId);
+  if (!match || match.duplicateReview?.status === 'quarantined') return null;
+  let scoreboardEvidence: any = null;
+  try { scoreboardEvidence = sanitizedScoreboardEvidence(match.screenshotEvidence); } catch { return null; }
+  if (!scoreboardEvidence) return null;
+  const now = new Date().toISOString();
+  return registerCaptureScoreboard(db, replayStore(db), { deviceId, match, scoreboardEvidence, capturedAt: match.sourceMetadata?.capturedAt || now, createdAt: now, user });
+}
+
 function actorForDevice(device: DeviceRecord): Actor {
   return { actorId: device.owner.actorId, role: device.owner.role, playerId: device.owner.playerId || undefined, username: device.owner.role === 'coach' ? 'Desktop coach' : 'Desktop player' };
 }
@@ -824,21 +865,8 @@ export function registerReplayDeviceUploadRoute(app: Express) {
       }
       const updatedAt = new Date().toISOString();
       if (existingRecord?.digest !== digest) db.engineAdapters.screenshot[matchId] = { schemaVersion: 1, status: 'accepted', matchId, digest, revision: Number(existingRecord?.revision || 0) + 1, updatedAt, sourceDeviceId: device.id };
-      if (scoreboardEvidence) {
-        const extraction = { map: safeMatch.map, ourScore: safeMatch.ourScore, theirScore: safeMatch.theirScore, confident: true,
-          players: scoreboardEvidence.scoreboardPlayers.map((row: any) => ({ name: row.name, agent: row.agent, kills: row.kills, deaths: row.deaths, assists: row.assists, fk: row.fk, trades: row.trades, plants: row.plants, defuses: row.defuses })) };
-        const rosterPlayers = (db.rosterPlayers || []).filter((player: any) => !player.retiredAt).map((player: any) => ({ id: player.id, displayName: player.displayName }));
-        const draft: any = buildScreenshotReviewDraft(extraction, { model: 'accepted-local-capture', provider: 'tesseract-local', capturedAt: safeMatch.sourceMetadata?.capturedAt || body.updatedAt || updatedAt, rosterPlayers });
-        draft.stats = draft.stats.map((stat: any, index: number) => ({ ...stat, screenshotTeam: scoreboardEvidence.scoreboardPlayers[index].allied ? 'ours' : 'theirs' }));
-        const imageSha256 = contentHash(scoreboardEvidence); const id = screenshotRecordId(device.id, `${matchId}:${imageSha256}`);
-        store.screenshots[id] = { id, deviceId: device.id, imageSha256, createdAt: updatedAt, createdBy: device.owner.actorId, status: 'pending', reviewRequired: true, draft, replaySha256: null, suggestions: [], reason: 'Waiting for one matching replay from this desktop.', targetMatchId: matchId };
-        pairReplayScreenshots(store);
-        const linked = store.screenshots[id].replaySha256;
-        if (linked) {
-          const deviceActor = actorForDevice(device);
-          if (!autoFinalizeDesktopReplay(db, store, linked, deviceActor)) refreshAcceptedReplay(db, store, linked, matchId, deviceActor);
-        }
-      }
+      if (scoreboardEvidence) registerCaptureScoreboard(db, store, { deviceId: device.id, match: safeMatch, scoreboardEvidence,
+        capturedAt: safeMatch.sourceMetadata?.capturedAt || body.updatedAt || updatedAt, createdAt: updatedAt, user: actorForDevice(device) });
       device.lastSeenAt = updatedAt; await saveDB(db); res.status(existingRecord ? 200 : 201).json({ accepted: true, idempotent: existingRecord?.digest === digest, revision: db.engineAdapters.screenshot[matchId].revision, replayIntegrated: !!db.engineAdapters.replay?.[matchId] });
     } catch (error: any) { res.status(error?.status || 400).json({ error: error?.message || 'Screenshot summary could not be synchronized.' }); }
   });

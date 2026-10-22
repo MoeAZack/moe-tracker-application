@@ -216,6 +216,68 @@ describe('screenshot-first authenticated workflow', () => {
     expect(rows).toHaveLength(5); expect(rows.map((item: any) => item.id).sort()).toEqual(Array.from({ length: 5 }, (_, index) => `existing-stat-${index}`));
     expect(stored.engineAdapters.replay['existing-match'].status).toBe('accepted');
   });
+  describe('local-only desktop capture', () => {
+    const capturedMatch = () => ({ date: '2026-10-18', type: 'Scrim', opponent: 'Fixture', map: 'Haven', ourScore: 13, theirScore: 9, reviewConfirmation: { alliedSideConfirmed: true },
+      sourceMetadata: { method: 'screenshot', capturedAt: '2026-10-18T18:59:00.000Z' },
+      screenshotEvidence: { schemaVersion: 1, captureId: 'local-capture', scoreboardPlayers: raw().players.map((player, index) => ({ name: player.name, agent: player.agent, kills: player.kills, deaths: player.deaths, assists: player.assists, fk: 0, trades: null, plants: 0, defuses: 0, allied: index >= 5 })) } });
+    const saveCapture = async (coach: string) => {
+      const response = await request('/api/save-match', coach, { match: capturedMatch(), statsUpdate: { operation: 'preserve' } });
+      expect(response.status).toBe(200); return (await response.json()).match.id as string;
+    };
+
+    it.each(['capture first', 'replay first'])('joins the saved capture and this PC\'s replay into one match (%s)', async order => {
+      const deviceId = `desktop-${crypto.randomUUID()}`; vi.stubEnv('DESKTOP_DEVICE_ID', deviceId);
+      const coach = await login();
+      let matchId = '';
+      if (order === 'capture first') matchId = await saveCapture(coach);
+      expect((await request('/api/desktop/replay-evidence', coach, envelope(deviceId))).status).toBe(201);
+      if (order === 'replay first') matchId = await saveCapture(coach);
+      const { readDB } = await import('../lib/store'); const stored = await readDB();
+      expect(stored.matches).toHaveLength(1);
+      expect(stored.matches[0]).toMatchObject({ id: matchId, opponent: 'Fixture' });
+      expect(stored.engineAdapters.replay[matchId]).toMatchObject({ status: 'accepted' });
+      expect(Object.values(stored.replayIntake.screenshots)).toEqual([expect.objectContaining({ targetMatchId: matchId, status: 'linked', replaySha256: hash, automaticMatchId: matchId })]);
+    });
+
+    it('does not register a quarantined re-capture, so a replay can only join the original', async () => {
+      const deviceId = `desktop-${crypto.randomUUID()}`; vi.stubEnv('DESKTOP_DEVICE_ID', deviceId);
+      const coach = await login();
+      // Ten or more rounds with identified kill lists give both captures the same game fingerprint.
+      const rounds = Array.from({ length: 22 }, (_, index) => ({ roundNo: index + 1, side: index < 12 ? 'Att' : 'Def', result: index < 13 ? 'W' : 'L', winBy: 'Elimination',
+        screenshotEvidence: { schemaVersion: 1, reviewStatus: 'review-required', players: [{ playerId: 'name:a', displayName: 'Alpha' }, { playerId: 'name:b', displayName: 'Bravo' }], events: [{ sequence: 1, killerPlayerId: 'name:a', victimPlayerId: 'name:b' }] } }));
+      const save = async (captureId: string) => {
+        const match = capturedMatch(); match.screenshotEvidence = { ...match.screenshotEvidence, captureId };
+        const response = await request('/api/save-match', coach, { match, statsUpdate: { operation: 'preserve' }, rounds });
+        expect(response.status).toBe(200); return (await response.json()).match;
+      };
+      const original = await save('local-capture'); const recapture = await save('local-capture-again');
+      expect(original.duplicateReview ?? null).toBeNull();
+      expect(recapture.duplicateReview).toMatchObject({ status: 'quarantined' });
+      const { readDB } = await import('../lib/store');
+      expect(Object.values((await readDB()).replayIntake.screenshots)).toEqual([expect.objectContaining({ targetMatchId: original.id })]);
+    });
+
+    it('registers nothing without the collector device id, so the replay waits for review', async () => {
+      const coach = await login(); const deviceId = `desktop-${crypto.randomUUID()}`;
+      await saveCapture(coach);
+      expect((await request('/api/desktop/replay-evidence', coach, envelope(deviceId))).status).toBe(201);
+      const { readDB } = await import('../lib/store'); const stored = await readDB();
+      expect(stored.replayIntake.screenshots).toEqual({});
+      expect(stored.engineAdapters?.replay || {}).toEqual({});
+      expect(stored.matches).toHaveLength(1);
+    });
+
+    it('removes the capture pairing record when its match is deleted, so the replay cannot recreate it', async () => {
+      const deviceId = `desktop-${crypto.randomUUID()}`; vi.stubEnv('DESKTOP_DEVICE_ID', deviceId);
+      const coach = await login(); const matchId = await saveCapture(coach);
+      const { readDB } = await import('../lib/store');
+      expect(Object.values((await readDB()).replayIntake.screenshots)).toHaveLength(1);
+      expect((await request('/api/remove', coach, { sheet: 'Matches', id: matchId })).status).toBe(200);
+      expect((await readDB()).replayIntake.screenshots).toEqual({});
+      expect((await request('/api/desktop/replay-evidence', coach, envelope(deviceId))).status).toBe(201);
+      expect((await readDB()).matches).toEqual([]);
+    });
+  });
   it('lets coaches delete individual scoreboard drafts and replay evidence without deleting saved match rows', async () => {
     const coach = await login(); const player = await login('player-key');
     const device = await (await request('/api/replay-intake/devices/enroll', coach, { name: 'Cleanup PC' })).json();
