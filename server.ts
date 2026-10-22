@@ -19,6 +19,7 @@ import { registerReplayDeviceRoutes, registerReplayDeviceUploadRoute } from './l
 import { registerPortablePackageRoutes } from './lib/routes/portablePackages';
 import { registerComparisonRoutes } from './lib/routes/comparisons';
 import { registerCoachingRoutes } from './lib/routes/coaching';
+import { buildInfo } from './lib/buildInfo';
 
 // Google Sign-In config (dormant unless GOOGLE_CLIENT_ID is set — password auth always works).
 const GOOGLE_CLIENT_ID = process.env.GOOGLE_CLIENT_ID || '';
@@ -78,7 +79,9 @@ export async function createApp(serveFrontend = true) {
 
   // GET health status for Sheets integration check
   app.get('/api/health', (req, res) => {
-    res.json({ status: 'ok', time: new Date().toISOString(), build: process.env.APP_REVISION || 'development' });
+    const info = buildInfo();
+    // `build` stays for existing health checks; it is the same value as `revision`.
+    res.json({ status: 'ok', time: new Date().toISOString(), build: info.revision, ...info });
   });
 
   // POST validate and authenticate access keys
