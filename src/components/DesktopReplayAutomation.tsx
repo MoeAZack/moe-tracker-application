@@ -66,7 +66,7 @@ export default function DesktopReplayAutomation({ data, role, onProcessed, onSav
                 return recognitions;
               },
             });
-            let automatic = buildAutomaticCaptureImport(extracted, data, session.captureId);
+            let automatic = buildAutomaticCaptureImport(extracted, data, session.captureId, pending.modifiedAt);
             const fallbackMode = data.settings.ai?.ocrFallback || 'local-only';
             if (!automatic.payload && shouldRequestCloudFallback(fallbackMode, 2, automatic.decision.reasons.length)) {
               const scoreboard = session.captures.find(item => item.kind === 'scoreboard');
@@ -75,7 +75,7 @@ export default function DesktopReplayAutomation({ data, role, onProcessed, onSav
                 const fallback = await response.json().catch(() => ({}));
                 if (response.ok) {
                   extracted = mergeScoreboardFallback(extracted, fallback, data.settings?.maps || []);
-                  automatic = buildAutomaticCaptureImport(extracted, data, session.captureId);
+                  automatic = buildAutomaticCaptureImport(extracted, data, session.captureId, pending.modifiedAt);
                 }
               }
             }

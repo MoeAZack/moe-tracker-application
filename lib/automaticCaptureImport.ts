@@ -3,6 +3,7 @@ import { autonomousCaptureDecision } from './ocrAutonomy';
 import { classifyAverageLoadout, classifyTeamEquipment } from './scrimRoundAnalytics';
 import { suggestOpponentFromEnemyRoster } from './ocrLearning';
 import { deriveRoundAdvantage } from './roundAdvantage';
+import { praccSlotAt } from './praccMatchContext';
 
 const numberOrNull = (value: unknown) => value === null || value === undefined || value === '' || !Number.isFinite(Number(value)) ? null : Number(value);
 
@@ -19,7 +20,7 @@ const sideForRound = (roundNo: number, firstHalf: 'Att' | 'Def') => {
   return roundNo % 2 === 1 ? firstHalf : opposite;
 };
 
-export function buildAutomaticCaptureImport(extracted: any, data: TrackerData, captureId: string | null) {
+export function buildAutomaticCaptureImport(extracted: any, data: TrackerData, captureId: string | null, capturedAt: string | null = null) {
   const maps = data.settings?.maps || [];
   const decision = autonomousCaptureDecision(extracted, maps, data.playerStats || []);
   if (!decision.automatic || !decision.map || !extracted.startingSide.firstHalf) return { decision, payload: null };
@@ -40,15 +41,19 @@ export function buildAutomaticCaptureImport(extracted: any, data: TrackerData, c
   const activeTryoutIds = new Set((data.tryoutBatches || []).filter(batch => batch.status === 'active').flatMap(batch => batch.candidatePlayerIds));
   const sourceMetadata = { ...extracted.sourceMetadata, model: `${extracted.sourceMetadata?.model || 'tesseract-local'}+${decision.map ? 'autonomous-v1' : 'review'}` };
   const opponentSuggestion = suggestOpponentFromEnemyRoster(extracted.players, data.matches || []);
+  // The game was played when it was captured, not when OCR finished. A PRACC
+  // booking covering that moment names the date and the opponent.
+  const playedAt = capturedAt && Number.isFinite(Date.parse(capturedAt)) ? new Date(capturedAt) : new Date();
+  const praccSlot = praccSlotAt(data.schedule, playedAt);
   const match = {
-    date: cairoDate(), type: 'Scrim', opponent: opponentSuggestion?.opponent || 'Unknown opponent', map: decision.map,
+    date: praccSlot?.date || cairoDate(playedAt), type: 'Scrim', opponent: praccSlot?.opponent || opponentSuggestion?.opponent || 'Unknown opponent', map: decision.map,
     attW, attL, defW, defL, ourScore: extracted.meta.ourScore, theirScore: extracted.meta.theirScore,
     pistolAtt: pistol.find(item => item.side === 'Att')?.result || '', pistolDef: pistol.find(item => item.side === 'Def')?.result || '',
     bonusAtt: bonus.find(item => item.side === 'Att')?.result || '', bonusDef: bonus.find(item => item.side === 'Def')?.result || '',
     notes: 'Automatically saved from a complete, internally consistent local capture. Editable by staff.',
-    source: 'scrim-import', sourceMetadata, reviewConfirmation: { alliedSideConfirmed: true, automatic: true },
+    source: 'scrim-import', sourceMetadata, reviewConfirmation: { alliedSideConfirmed: true },
     rosterContext: { kind: included.every((player: any) => player.matchedPlayerId) ? 'mixed' : 'unclassified' },
-    automation: { mode: 'complete-capture-consensus', editable: true, reasons: decision.reasons, opponentSuggestion: opponentSuggestion || null },
+    automation: { mode: 'complete-capture-consensus', editable: true, reasons: decision.reasons, opponentSuggestion: opponentSuggestion || null, praccScheduleId: praccSlot?.scheduleId || null },
     screenshotEvidence: { schemaVersion: 1, captureId, diagnostics: extracted.captureDiagnostics || null, scoreboardPlayers: extracted.players.map((player: any) => ({ name: player.extractedName, agent: player.agent || null, kills: numberOrNull(player.kills), deaths: numberOrNull(player.deaths), assists: numberOrNull(player.assists), fk: numberOrNull(player.fk), trades: numberOrNull(player.trades), plants: numberOrNull(player.plants), defuses: numberOrNull(player.defuses), allied: !!player.include })) },
   };
   const stats = included.map((player: any) => ({
