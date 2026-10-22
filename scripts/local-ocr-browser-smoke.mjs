@@ -42,7 +42,6 @@ const server = spawn(process.execPath, ['build/server.cjs'], {
     ...process.env,
     NODE_ENV: 'production',
     PORT: String(port),
-    USE_FIRESTORE: 'false',
     ADMIN_PASSWORD: 'browser-smoke-admin-secret-123',
     JWT_SECRET: 'browser-smoke-jwt-secret-12345',
   },

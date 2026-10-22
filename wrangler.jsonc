@@ -8,9 +8,7 @@
 	],
 	"vars": {
 		"NODE_ENV": "production",
-		"CLOUDFLARE_WORKER": "true",
-		"USE_FIRESTORE": "false",
-		"GOOGLE_CLIENT_ID": ""
+		"CLOUDFLARE_WORKER": "true"
 	},
 	"d1_databases": [
 		{

@@ -30,7 +30,7 @@ describe('build identity', () => {
     vi.resetModules();
     tempDir = await fs.mkdtemp(path.join(os.tmpdir(), 'moetracker-health-'));
     const dbPath = path.join(tempDir, 'db.json'); await fs.writeFile(dbPath, JSON.stringify({ matches: [], rounds: [], playerStats: [] }));
-    for (const [key, value] of Object.entries({ NODE_ENV: 'test', USE_FIRESTORE: 'false', DB_PATH: dbPath, ADMIN_PASSWORD: 'health-test-master-secret-24-chars', JWT_SECRET: 'health-test-session-secret-24-chars', GOOGLE_CLIENT_ID: '', APP_REVISION: 'deadbeef1234', APP_VERSION: '0.2.0', APP_DESKTOP: 'true' })) vi.stubEnv(key, value);
+    for (const [key, value] of Object.entries({ NODE_ENV: 'test', DB_PATH: dbPath, ADMIN_PASSWORD: 'health-test-master-secret-24-chars', JWT_SECRET: 'health-test-session-secret-24-chars', APP_REVISION: 'deadbeef1234', APP_VERSION: '0.2.0', APP_DESKTOP: 'true' })) vi.stubEnv(key, value);
     const { createApp } = await import('../server');
     const app = await createApp(false);
     server = await new Promise<Server>(resolve => { const instance = app.listen(0, '127.0.0.1', () => resolve(instance)); });

@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useRef } from 'react';
+import React, { useState } from 'react';
 import { Key, ArrowRight, HelpCircle, AlertCircle } from 'lucide-react';
 import Logo from './Logo';
 import { apiFetch } from '../utils/api';
@@ -15,8 +15,6 @@ export default function LoginScreen({ onLoginSuccess }: LoginScreenProps) {
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [showHelp, setShowHelp] = useState(true);
-  const [googleClientId, setGoogleClientId] = useState<string>('');
-  const googleBtnRef = useRef<HTMLDivElement>(null);
 
   const finishLogin = (json: any) => {
     localStorage.setItem('team_tracker_key', json.key);
@@ -25,59 +23,6 @@ export default function LoginScreen({ onLoginSuccess }: LoginScreenProps) {
     onLoginSuccess(json.key, json.role, json.username);
   };
 
-  const handleGoogleCredential = async (credential: string) => {
-    setLoading(true);
-    setError(null);
-    try {
-      const resp = await apiFetch('/api/auth/google', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ credential })
-      });
-      const json = await resp.json();
-      if (!resp.ok) throw new Error(json.error || 'Google sign-in failed.');
-      finishLogin(json);
-    } catch (err: any) {
-      setError(err.message || 'Google sign-in failed.');
-    } finally {
-      setLoading(false);
-    }
-  };
-
-  // Discover whether Google Sign-In is enabled on the server.
-  useEffect(() => {
-    let cancelled = false;
-    apiFetch('/api/config')
-      .then((r) => (r.ok ? r.json() : null))
-      .then((cfg) => { if (!cancelled && cfg?.googleEnabled && cfg.googleClientId) setGoogleClientId(cfg.googleClientId); })
-      .catch(() => {});
-    return () => { cancelled = true; };
-  }, []);
-
-  // Load Google Identity Services and render the button once we have a client id.
-  useEffect(() => {
-    if (!googleClientId) return;
-    const render = () => {
-      const g = (window as any).google;
-      if (!g?.accounts?.id || !googleBtnRef.current) return;
-      g.accounts.id.initialize({
-        client_id: googleClientId,
-        callback: (resp: any) => handleGoogleCredential(resp.credential)
-      });
-      googleBtnRef.current.innerHTML = '';
-      g.accounts.id.renderButton(googleBtnRef.current, { theme: 'filled_black', size: 'large', width: 320, text: 'signin_with', shape: 'pill' });
-    };
-    if ((window as any).google?.accounts?.id) { render(); return; }
-    let script = document.getElementById('gis-script') as HTMLScriptElement | null;
-    if (script) { script.addEventListener('load', render); return; }
-    script = document.createElement('script');
-    script.id = 'gis-script';
-    script.src = 'https://accounts.google.com/gsi/client';
-    script.async = true;
-    script.defer = true;
-    script.onload = render;
-    document.body.appendChild(script);
-  }, [googleClientId]);
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -178,18 +123,6 @@ export default function LoginScreen({ onLoginSuccess }: LoginScreenProps) {
           <button role="tab" type="button" onClick={() => { setMode('player'); setError(null); }} className={`ui-button min-h-11 text-sm font-bold ${mode === 'player' ? 'ui-button-primary' : ''}`} aria-selected={mode === 'player'}>Player</button>
           <button role="tab" type="button" onClick={() => { setMode('coach'); setError(null); }} className={`ui-button min-h-11 text-sm font-bold ${mode === 'coach' ? 'ui-button-primary' : ''}`} aria-selected={mode === 'coach'}>Coach / access key</button>
         </div>
-
-        {/* Google Sign-In (only when configured on the server) */}
-        {mode === 'coach' && googleClientId && (
-          <div className="space-y-3">
-            <div ref={googleBtnRef} className="flex justify-center min-h-[40px]" />
-            <div className="flex items-center gap-3 text-[9px] uppercase tracking-widest text-gray-600">
-              <div className="h-px flex-1 bg-white/10" />
-              or use a coach password/access key
-              <div className="h-px flex-1 bg-white/10" />
-            </div>
-          </div>
-        )}
 
         {/* Form */}
         <form onSubmit={handleSubmit} className="space-y-4 text-left">

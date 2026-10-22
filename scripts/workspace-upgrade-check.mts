@@ -69,7 +69,7 @@ async function freePort() {
 async function readThroughServer(dbPath: string) {
   const port = await freePort(); const origin = `http://127.0.0.1:${port}`;
   const adminPassword = crypto.randomBytes(24).toString('hex');
-  const child = spawn(process.execPath, ['build/server.cjs'], { env: { ...process.env, NODE_ENV: 'production', HOST: '127.0.0.1', PORT: String(port), USE_FIRESTORE: 'false', DB_PATH: dbPath, APP_DESKTOP: 'true', ADMIN_PASSWORD: adminPassword, JWT_SECRET: crypto.randomBytes(24).toString('hex'), PRIVATE_BACKUP_DIR: path.join(path.dirname(dbPath), '..', 'backups') }, stdio: ['ignore', 'ignore', 'pipe'] });
+  const child = spawn(process.execPath, ['build/server.cjs'], { env: { ...process.env, NODE_ENV: 'production', HOST: '127.0.0.1', PORT: String(port), DB_PATH: dbPath, APP_DESKTOP: 'true', ADMIN_PASSWORD: adminPassword, JWT_SECRET: crypto.randomBytes(24).toString('hex'), PRIVATE_BACKUP_DIR: path.join(path.dirname(dbPath), '..', 'backups') }, stdio: ['ignore', 'ignore', 'pipe'] });
   let errors = ''; child.stderr!.on('data', chunk => { errors = (errors + chunk).slice(-2000); });
   try {
     for (let attempt = 0; attempt < 200; attempt++) { try { if ((await fetch(`${origin}/api/health`)).ok) break; } catch {} await new Promise(resolve => setTimeout(resolve, 100)); }
@@ -138,7 +138,7 @@ if (isMain) {
   const firstRead = contentSummary(await readThroughServer(dbPath));
   const secondRead = contentSummary(await readThroughServer(dbPath));
   // One save through the store: the write path every change takes in 0.2.0.
-  const save = spawnSync(process.execPath, ['--import', 'tsx', '-e', "const { readDB, saveDB } = await import('./lib/store.ts'); await saveDB(await readDB());"], { env: { ...process.env, USE_FIRESTORE: 'false', DB_PATH: dbPath }, encoding: 'utf8' });
+  const save = spawnSync(process.execPath, ['--import', 'tsx', '-e', "const { readDB, saveDB } = await import('./lib/store.ts'); await saveDB(await readDB());"], { env: { ...process.env, DB_PATH: dbPath }, encoding: 'utf8' });
   if (save.status !== 0) throw new Error(`Saving the copy failed: ${save.stderr.slice(-400)}`);
   const afterRead = contentSummary(await readThroughServer(dbPath));
   const migrated = await readOfflineSnapshot(dbPath);

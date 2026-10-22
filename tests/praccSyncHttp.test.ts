@@ -18,7 +18,7 @@ const post = (token: string, url: string, body: unknown) => realFetch(`${origin}
 
 beforeAll(async () => {
   vi.resetModules(); tempDir = await fs.mkdtemp(path.join(os.tmpdir(), 'moetracker-pracc-')); dbPath = path.join(tempDir, 'db.json');
-  for (const [key, value] of Object.entries({ NODE_ENV: 'test', USE_FIRESTORE: 'false', DB_PATH: dbPath, ADMIN_PASSWORD: adminKey, JWT_SECRET: 'pracc-sync-session-secret-at-least-24-chars', CRON_SECRET: 'pracc-sync-cron-secret-at-least-24-characters', GEMINI_API_KEY: 'test', GOOGLE_CLIENT_ID: '' })) vi.stubEnv(key, value);
+  for (const [key, value] of Object.entries({ NODE_ENV: 'test', DB_PATH: dbPath, ADMIN_PASSWORD: adminKey, JWT_SECRET: 'pracc-sync-session-secret-at-least-24-chars', CRON_SECRET: 'pracc-sync-cron-secret-at-least-24-characters', GEMINI_API_KEY: 'test' })) vi.stubEnv(key, value);
   await fs.writeFile(dbPath, JSON.stringify(createSeed()));
   // PRACC is faked; every other request (the test's own HTTP calls) is real.
   vi.stubGlobal('fetch', async (input: any, init?: any) => {

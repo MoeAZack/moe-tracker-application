@@ -16,7 +16,7 @@ const call = (token: string, method: string, body?: unknown) => fetch(`${origin}
 
 beforeAll(async () => {
   vi.resetModules(); folder = await fs.mkdtemp(path.join(os.tmpdir(), 'moe-vod-http-')); const dbPath = path.join(folder, 'db.json');
-  for (const [key, value] of Object.entries({ NODE_ENV: 'test', USE_FIRESTORE: 'false', DB_PATH: dbPath, ADMIN_PASSWORD: coachKey, JWT_SECRET: 'vod-session-secret-at-least-24-characters', GOOGLE_CLIENT_ID: '' })) vi.stubEnv(key, value);
+  for (const [key, value] of Object.entries({ NODE_ENV: 'test', DB_PATH: dbPath, ADMIN_PASSWORD: coachKey, JWT_SECRET: 'vod-session-secret-at-least-24-characters' })) vi.stubEnv(key, value);
   const db: any = createSeed(); db.rosterPlayers = roster; db.authKeys = [
     { id: 'p1', keyHash: crypto.createHash('sha256').update(playerKey).digest('hex'), credentialType: 'access-key', label: 'caelia', role: 'player', playerId: 'player-1' },
     { id: 'p2', keyHash: crypto.createHash('sha256').update(otherKey).digest('hex'), credentialType: 'access-key', label: 'dexle', role: 'player', playerId: 'player-2' },

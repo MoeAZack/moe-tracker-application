@@ -25,7 +25,7 @@ async function displayedAccount(token: string) {
 
 beforeEach(async () => {
   vi.resetModules(); tempDir = await fs.mkdtemp(path.join(os.tmpdir(), 'moe-adapters-')); dbPath = path.join(tempDir, 'db.json');
-  for (const [key, value] of Object.entries({ NODE_ENV: 'test', USE_FIRESTORE: 'false', DB_PATH: dbPath, ADMIN_PASSWORD: adminKey, JWT_SECRET: jwtSecret, GOOGLE_CLIENT_ID: '' })) vi.stubEnv(key, value);
+  for (const [key, value] of Object.entries({ NODE_ENV: 'test', DB_PATH: dbPath, ADMIN_PASSWORD: adminKey, JWT_SECRET: jwtSecret })) vi.stubEnv(key, value);
   await fs.writeFile(dbPath, JSON.stringify({ settings: {}, matches: [{ id: 'm1' }, { id: 'm2' }], rosterPlayers: [{ id: 'p1', displayName: 'Alpha' }, { id: 'p2', displayName: 'Bravo' }], coreMemberships: [], seasonArchives: [], vodReviews: [], authKeys: [
     { id: 'player-key', keyHash: crypto.createHash('sha256').update(playerKey).digest('hex'), label: 'Alpha', role: 'player', playerId: 'p1' },
     { id: 'other-key', keyHash: crypto.createHash('sha256').update(otherPlayerKey).digest('hex'), label: 'Bravo', role: 'player', playerId: 'p2' },

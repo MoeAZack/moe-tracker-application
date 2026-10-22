@@ -329,9 +329,9 @@ describe('roster HTTP and concurrency boundary', () => {
       }],
     }));
     for (const [key, value] of Object.entries({
-      NODE_ENV: 'test', USE_FIRESTORE: 'false', DB_PATH: dbPath,
+      NODE_ENV: 'test', DB_PATH: dbPath,
       ADMIN_PASSWORD: adminKey, JWT_SECRET: 'test-session-secret-at-least-24-characters',
-      GEMINI_API_KEY: 'test-no-external-calls', GOOGLE_CLIENT_ID: '',
+      GEMINI_API_KEY: 'test-no-external-calls',
     })) vi.stubEnv(key, value);
     const { createApp } = await import('../server');
     const app = await createApp(false);
@@ -390,10 +390,6 @@ describe('roster HTTP and concurrency boundary', () => {
     expect(stored.playerStats[0].playerId).toBeUndefined();
     expect(stored.identityCorrectionBatches[0]).toMatchObject({ revertedBy: 'Administrator (Master)' });
 
-    expect((await coachPost('/api/access/add', { email: 'player@example.com', role: 'player' })).status).toBe(400);
-    const googleAccessResponse = await coachPost('/api/access/add', { email: 'player@example.com', role: 'player', playerId: created.id });
-    expect(googleAccessResponse.status).toBe(200);
-    expect(await googleAccessResponse.json()).toContainEqual(expect.objectContaining({ email: 'player@example.com', role: 'player', playerId: created.id }));
     const keyResponse = await fetch(`${origin}/api/keys/create`, { method: 'POST', headers: { Authorization: `Bearer ${coachToken}`, 'Content-Type': 'application/json' }, body: JSON.stringify({ label: 'Stable player', role: 'player', playerId: created.id }) });
     expect(keyResponse.status).toBe(200); const playerAccess = await keyResponse.json(); const activePlayerSession = await login(playerAccess.key);
     expect((await fetch(`${origin}/api/data`, { headers: { Authorization: `Bearer ${activePlayerSession}` } })).status).toBe(200);
@@ -409,7 +405,7 @@ describe('roster HTTP and concurrency boundary', () => {
     tempDir = await fs.mkdtemp(path.join(os.tmpdir(), 'moetracker-roster-stale-'));
     const dbPath = path.join(tempDir, 'db.json');
     await fs.writeFile(dbPath, JSON.stringify(createSeed()));
-    vi.stubEnv('USE_FIRESTORE', 'false');
+    
     vi.stubEnv('DB_PATH', dbPath);
     const { readDB, saveDB } = await import('../lib/store');
     const first = await readDB();

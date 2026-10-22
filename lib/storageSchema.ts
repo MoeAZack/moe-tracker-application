@@ -10,11 +10,7 @@ export const STORAGE_SCHEMA_VERSION = 15;
 export const MAX_ENTITY_BYTES = 840 * 1024;
 export const MAX_DOCUMENT_BYTES = 900 * 1024;
 export const MAX_JSON_DATABASE_BYTES = 64 * 1024 * 1024;
-export const FIRESTORE_CHUNK_BYTES = 480 * 1024;
-// Firestore Commit is capped at 10 MiB. Stay well below it for protobuf, document
-// name, transform, and index overhead rather than batching by operation count only.
-export const FIRESTORE_BATCH_SAFE_BYTES = 7 * 1024 * 1024;
-export const FIRESTORE_BATCH_MAX_WRITES = 350;
+export const STORAGE_CHUNK_BYTES = 480 * 1024;
 
 const GROWTH_ARRAYS = new Set(['matches', 'playerStats', 'vodSubmissions', 'seasonArchives']);
 const GROWTH_TREES = new Set(['replayIntake', 'engineAdapters', 'analyticsBuilds']);
@@ -40,14 +36,6 @@ export type EncodedDocument = {
   id: string;
   payload: Record<string, unknown>;
 };
-
-export function planRevisionActivation(currentVersion: number | null, expected: number | undefined, mode: 'ordinary' | 'initialize' | 'replace') {
-  const exists = currentVersion !== null;
-  const current = currentVersion || 0;
-  if (mode === 'initialize' && exists) throw Object.assign(new Error('Firestore was initialized concurrently.'), { status: 409 });
-  if (mode === 'ordinary' && (expected === undefined || current !== expected)) throw Object.assign(new Error('Data changed while this request was being processed. Please retry.'), { status: 409 });
-  return current + 1;
-}
 
 function bytes(value: unknown) {
   const serialized = JSON.stringify(value);
@@ -140,29 +128,9 @@ export function validateTrackerState(input: any, options: { jsonFile?: boolean }
   }
   const total = bytes(input);
   if (options.jsonFile && total > MAX_JSON_DATABASE_BYTES) throw storageError(`JSON database exceeds the ${MAX_JSON_DATABASE_BYTES}-byte development limit.`);
-  // Encoding performs the final per-leaf and per-document checks used by Firestore.
-  encodeFirestoreDocuments(input);
+  // Encoding performs the final per-record and per-document size checks.
+  encodeStorageDocuments(input);
   return input;
-}
-
-export function estimatedFirestoreWriteBytes(document: EncodedDocument, revisionId: string) {
-  // JSON bytes are a lower bound for the wire payload. The fixed allowance plus
-  // 7 MiB ceiling supplies margin for Firestore's protobuf and index encoding.
-  return bytes({ revisionId, ...document.payload }) + Buffer.byteLength(document.id) + 2048;
-}
-
-export function planFirestoreWriteBatches(documents: EncodedDocument[], revisionId: string) {
-  const batches: EncodedDocument[][] = []; let current: EncodedDocument[] = []; let currentBytes = 0;
-  for (const document of documents) {
-    const writeBytes = estimatedFirestoreWriteBytes(document, revisionId);
-    if (writeBytes > FIRESTORE_BATCH_SAFE_BYTES) throw storageError('A Firestore write exceeds the safe commit-byte budget.');
-    if (current.length && (current.length >= FIRESTORE_BATCH_MAX_WRITES || currentBytes + writeBytes > FIRESTORE_BATCH_SAFE_BYTES)) {
-      batches.push(current); current = []; currentBytes = 0;
-    }
-    current.push(document); currentBytes += writeBytes;
-  }
-  if (current.length) batches.push(current);
-  return batches;
 }
 
 function emitValue(docs: EncodedDocument[], topKey: string, path: Array<string | number>, value: unknown) {
@@ -170,7 +138,7 @@ function emitValue(docs: EncodedDocument[], topKey: string, path: Array<string |
   if (normalized === OMIT) return;
   assertEntity(normalized, `${topKey}${path.map(part => `[${String(part)}]`).join('')}`);
   const payload = { schemaVersion: STORAGE_SCHEMA_VERSION, topKey, path, kind: 'value', value: normalized };
-  if (bytes(payload) > MAX_DOCUMENT_BYTES) throw storageError(`Encoded Firestore document for ${topKey} exceeds its safe document limit.`);
+  if (bytes(payload) > MAX_DOCUMENT_BYTES) throw storageError(`Encoded storage record for ${topKey} exceeds its safe document limit.`);
   docs.push({ id: stableId([topKey, path]), payload });
 }
 
@@ -187,7 +155,7 @@ function emitGrowthTree(docs: EncodedDocument[], topKey: string, value: any, pat
   }
 }
 
-export function encodeFirestoreDocuments(input: Record<string, any>): EncodedDocument[] {
+export function encodeStorageDocuments(input: Record<string, any>): EncodedDocument[] {
   const docs: EncodedDocument[] = [];
   for (const [topKey, rawValue] of Object.entries(input)) {
     const normalized = normalizeJsonValue(rawValue);
@@ -205,8 +173,8 @@ export function encodeFirestoreDocuments(input: Record<string, any>): EncodedDoc
       const chunks: string[] = [];
       // Slice conservatively by code units, then shrink any multi-byte overflow.
       for (let offset = 0; offset < serialized.length;) {
-        let end = Math.min(serialized.length, offset + FIRESTORE_CHUNK_BYTES);
-        while (Buffer.byteLength(serialized.slice(offset, end), 'utf8') > FIRESTORE_CHUNK_BYTES) end -= 1024;
+        let end = Math.min(serialized.length, offset + STORAGE_CHUNK_BYTES);
+        while (Buffer.byteLength(serialized.slice(offset, end), 'utf8') > STORAGE_CHUNK_BYTES) end -= 1024;
         chunks.push(serialized.slice(offset, end)); offset = end;
       }
       docs.push({ id: stableId([topKey, 'chunks']), payload: { schemaVersion: STORAGE_SCHEMA_VERSION, topKey, path: [], kind: 'chunks', count: chunks.length, sha256: crypto.createHash('sha256').update(serialized).digest('hex') } });
@@ -214,39 +182,4 @@ export function encodeFirestoreDocuments(input: Record<string, any>): EncodedDoc
     }
   }
   return docs;
-}
-
-function setPath(root: any, path: Array<string | number>, value: unknown) {
-  if (path.length === 0) return value;
-  let cursor = root;
-  for (let index = 0; index < path.length - 1; index += 1) cursor = cursor[path[index]];
-  cursor[path[path.length - 1]] = value;
-  return root;
-}
-
-export function decodeFirestoreDocuments(docs: EncodedDocument[]) {
-  const output: Record<string, any> = {};
-  const ordered = [...docs].sort((left, right) => {
-    const a = left.payload.path as any[]; const b = right.payload.path as any[];
-    return a.length - b.length;
-  });
-  const chunkMeta = new Map<string, any>();
-  const chunks = new Map<string, string[]>();
-  for (const { payload } of ordered) {
-    if (Number(payload.schemaVersion) > STORAGE_SCHEMA_VERSION) throw storageError('Firestore state uses a newer unsupported schema.', 409);
-    const topKey = String(payload.topKey); const path = payload.path as Array<string | number>;
-    if (payload.kind === 'chunks') { chunkMeta.set(topKey, payload); chunks.set(topKey, []); continue; }
-    if (path?.[0] === '__chunk') { (chunks.get(topKey) || [])[Number(path[1])] = String(payload.value); continue; }
-    if (payload.kind === 'container') {
-      const container = payload.container === 'array' ? [] : {};
-      if (path.length === 0) output[topKey] = container; else setPath(output[topKey], path, container);
-    } else if (path.length === 0) output[topKey] = payload.value;
-    else setPath(output[topKey], path, payload.value);
-  }
-  for (const [topKey, meta] of chunkMeta) {
-    const serialized = (chunks.get(topKey) || []).join('');
-    if ((chunks.get(topKey) || []).length !== Number(meta.count) || crypto.createHash('sha256').update(serialized).digest('hex') !== meta.sha256) throw storageError(`Chunked Firestore value ${topKey} failed integrity validation.`, 500);
-    output[topKey] = JSON.parse(serialized);
-  }
-  return ensureStorageSchema(output);
 }

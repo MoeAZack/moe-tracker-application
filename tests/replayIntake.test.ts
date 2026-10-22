@@ -26,7 +26,7 @@ function evidenceEnvelope(sha256: string, size: number, deviceId: string, artifa
 
 beforeEach(async () => {
   vi.resetModules(); tempDir = await fs.mkdtemp(path.join(os.tmpdir(), 'moetracker-replay-intake-')); dbPath = path.join(tempDir, 'db.json'); replayDir = path.join(tempDir, 'private');
-  for (const [key, value] of Object.entries({ NODE_ENV: 'test', APP_DESKTOP: 'true', USE_FIRESTORE: 'false', DB_PATH: dbPath, REPLAY_STORAGE_DIR: replayDir, REPLAY_LEGACY_RAW_UPLOAD_ENABLED: 'true', REPLAY_DAILY_FILES: '1', VRFKIT_RETAINED_JOB_COUNT: '1', ADMIN_PASSWORD: adminKey, JWT_SECRET: jwtSecret, GOOGLE_CLIENT_ID: '' })) vi.stubEnv(key, value);
+  for (const [key, value] of Object.entries({ NODE_ENV: 'test', APP_DESKTOP: 'true', DB_PATH: dbPath, REPLAY_STORAGE_DIR: replayDir, REPLAY_LEGACY_RAW_UPLOAD_ENABLED: 'true', REPLAY_DAILY_FILES: '1', VRFKIT_RETAINED_JOB_COUNT: '1', ADMIN_PASSWORD: adminKey, JWT_SECRET: jwtSecret })) vi.stubEnv(key, value);
   await fs.writeFile(dbPath, JSON.stringify({
     settings: {}, matches: [], seasonArchives: [], rosterPlayers: [{ id: 'p1', displayName: 'Player One', retiredAt: null }],
     authKeys: [{ id: 'player-key', keyHash: crypto.createHash('sha256').update(playerKey).digest('hex'), label: 'Player One', role: 'player', playerId: 'p1' }], allowedUsers: [],
@@ -52,6 +52,19 @@ describe('private replay intake', () => {
     const first = await jsonRequest('/api/desktop/replay-evidence', coach, envelope); expect(first.status).toBe(201); expect(await first.json()).toMatchObject({ sha256: hash, parserStatus: 'parsed-review-required', reviewStatus: 'review-required', idempotent: false });
     const retry = await jsonRequest('/api/desktop/replay-evidence', coach, envelope); expect(retry.status).toBe(200); expect(await retry.json()).toMatchObject({ sha256: hash, idempotent: true });
     const stored = JSON.parse(await fs.readFile(dbPath, 'utf8')); expect(Object.keys(stored.replayIntake.blobs)).toEqual([hash]); expect(Object.keys(stored.replayIntake.parserJobs)).toHaveLength(1); expect(stored.replayIntake.blobs[hash].rawObject).toBeNull();
+  });
+
+  it('answers the removed Google Cloud Storage raw fallback with 410 for an enrolled device', async () => {
+    const coach = await login(adminKey);
+    const enrollment = await (await jsonRequest('/api/replay-intake/devices/enroll', coach, { name: 'Old collector PC' })).json();
+    const headers = { 'Content-Type': 'application/json', 'X-Device-Id': enrollment.device.id, 'X-Device-Token': enrollment.credential };
+    for (const route of ['/api/replay-intake/raw/initiate', '/api/replay-intake/raw/finalize']) {
+      const response = await fetch(`${origin}${route}`, { method: 'POST', headers, body: JSON.stringify({ sha256: 'e'.repeat(64), size: 100, originalName: 'old.vrf', uploadId: 'u1' }) });
+      expect(response.status).toBe(410);
+      expect((await response.json()).error).toMatch(/raw replay fallback was removed/);
+    }
+    const stored = JSON.parse(await fs.readFile(dbPath, 'utf8'));
+    expect(stored.replayIntake.blobs).toEqual({}); expect(stored.replayIntake.rawSessions || {}).toEqual({});
   });
 
   it('accepts the exact previously shipped parser artifact for queued migration evidence', async () => {

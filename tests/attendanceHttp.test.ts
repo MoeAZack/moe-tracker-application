@@ -29,7 +29,7 @@ async function login(key: string) {
 
 beforeAll(async () => {
   vi.resetModules(); tempDir = await fs.mkdtemp(path.join(os.tmpdir(), 'moetracker-attendance-')); dbPath = path.join(tempDir, 'db.json');
-  for (const [key, value] of Object.entries({ NODE_ENV: 'test', USE_FIRESTORE: 'false', DB_PATH: dbPath, ADMIN_PASSWORD: adminKey, JWT_SECRET: 'attendance-session-secret-at-least-24-characters', CRON_SECRET: 'attendance-cron-secret-at-least-24-characters', GEMINI_API_KEY: 'test', GOOGLE_CLIENT_ID: '' })) vi.stubEnv(key, value);
+  for (const [key, value] of Object.entries({ NODE_ENV: 'test', DB_PATH: dbPath, ADMIN_PASSWORD: adminKey, JWT_SECRET: 'attendance-session-secret-at-least-24-characters', CRON_SECRET: 'attendance-cron-secret-at-least-24-characters', GEMINI_API_KEY: 'test' })) vi.stubEnv(key, value);
   await fs.writeFile(dbPath, JSON.stringify(fixture())); const { createApp } = await import('../server'); const app = await createApp(false);
   server = await new Promise<Server>(resolve => { const instance = app.listen(0, '127.0.0.1', () => resolve(instance)); }); origin = `http://127.0.0.1:${(server.address() as AddressInfo).port}`;
 }, 15_000);

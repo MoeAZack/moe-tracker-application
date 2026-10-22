@@ -41,7 +41,7 @@ const mappings = [
 
 beforeEach(async () => {
   vi.resetModules(); tempDir = await fs.mkdtemp(path.join(os.tmpdir(), 'moetracker-replay-review-')); dbPath = path.join(tempDir, 'db.json');
-  for (const [key, entry] of Object.entries({ NODE_ENV: 'test', USE_FIRESTORE: 'false', DB_PATH: dbPath, REPLAY_STORAGE_DIR: path.join(tempDir, 'private'), ADMIN_PASSWORD: adminKey, JWT_SECRET: 'review-session-secret-at-least-24-characters', GOOGLE_CLIENT_ID: '' })) vi.stubEnv(key, entry);
+  for (const [key, entry] of Object.entries({ NODE_ENV: 'test', DB_PATH: dbPath, REPLAY_STORAGE_DIR: path.join(tempDir, 'private'), ADMIN_PASSWORD: adminKey, JWT_SECRET: 'review-session-secret-at-least-24-characters' })) vi.stubEnv(key, entry);
   await fs.writeFile(dbPath, JSON.stringify({
     settings: {}, matches: [{ id: 'm1', date: '2026-10-03', type: 'Scrim', opponent: 'Redacted', map: 'Haven', rosterContext: { kind: 'core' } }], playerStats: [], seasonArchives: [],
     rosterPlayers: [{ id: 'p1', displayName: 'Alpha', retiredAt: null }, { id: 'p2', displayName: 'Bravo', retiredAt: null }], coreMemberships: [{ id: 'c1', playerId: 'p1', joinedAt: '2026-01-01' }, { id: 'c2', playerId: 'p2', joinedAt: '2026-01-01' }],

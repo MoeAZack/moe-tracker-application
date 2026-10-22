@@ -14,7 +14,7 @@ beforeAll(async () => {
   vi.resetModules();
   tempDir = await fs.mkdtemp(path.join(os.tmpdir(), 'moetracker-website-data-'));
   const dbPath = path.join(tempDir, 'db.json');
-  vi.stubEnv('DB_PATH', dbPath); vi.stubEnv('EVIDENCE_ARTIFACT_DIR', path.join(tempDir, 'evidence')); vi.stubEnv('USE_FIRESTORE', 'false');
+  vi.stubEnv('DB_PATH', dbPath); vi.stubEnv('EVIDENCE_ARTIFACT_DIR', path.join(tempDir, 'evidence')); 
   await fs.writeFile(dbPath, JSON.stringify({
     ...createSeed(), rosterPlayers: recaptureRoster(),
     matches: [recaptureMatch('a', 'first'), recaptureMatch('b', 'second')],
