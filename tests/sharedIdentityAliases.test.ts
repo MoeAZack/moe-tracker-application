@@ -27,6 +27,22 @@ describe('one identity source for capture, replay and VOD', () => {
     expect(captureRosterFromIdentity(data).flatMap(player => player.aliases)).not.toContain('Shared');
   });
 
+  it('ignores observed names no coach accepted: quarantined copies and automatic saves', () => {
+    const data = {
+      rosterPlayers: roster,
+      matches: [{ id: 'reviewed' }, { id: 'copy', duplicateReview: { status: 'quarantined' } }, { id: 'auto', automation: { mode: 'complete-capture-consensus' } }],
+      playerStats: [
+        { id: 'a', matchId: 'reviewed', playerId: 'player-1', player: 'Reviewed Name' },
+        { id: 'b', matchId: 'copy', playerId: 'player-1', player: 'Imposter' },
+        { id: 'c', matchId: 'auto', playerId: 'player-2', player: 'StandInGuy' },
+      ],
+    };
+    const aliases = captureRosterFromIdentity(data).flatMap(player => player.aliases);
+    expect(aliases).toContain('Reviewed Name');
+    expect(aliases).not.toContain('Imposter');
+    expect(aliases).not.toContain('StandInGuy');
+  });
+
   it('lets a coach correction resolve a VOD name the fuzzy match alone would reject', () => {
     const db: any = createSeed(); db.rosterPlayers = structuredClone(roster); db.matches = []; db.playerStats = [];
     const players = roster.map((player, index) => ({ observedName: index === 0 ? 'Qwerty Main' : player.displayName, agent: 'Jett', kills: 10, deaths: 10, assists: 2, acs: 200, adr: 130, hs: 20, fk: 1, fd: 1 }));
