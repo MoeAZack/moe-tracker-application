@@ -10,6 +10,7 @@ import { percentageTextClass } from '../utils/percentageColor';
 import { activeResourceNames, buildResourceCatalog, canonicalResourceName } from '../../lib/resourceCatalog';
 import { bestMapInsight, buildBestMaps, buildMapStatsTable, sideRoundsComplete, teamKdComplete } from '../../lib/mapBestScores';
 import { confirmDialog } from '../utils/appDialogs';
+import { DEFAULT_MINIMUM_METRIC_SAMPLES, metricSampleGate } from '../../lib/metricTrust';
 
 interface ComponentProps {
   data: TrackerData;
@@ -63,6 +64,7 @@ export default function MapBestStats({ data, evidenceData = data, theme, onUpser
   // --- BEST MAP CALCULATOR WEIGHTED ---
   const calculatedBestMaps = useMemo(() => buildBestMaps(data, mapStatsTable), [data, mapStatsTable]);
   const insight = bestMapInsight(calculatedBestMaps, data.settings);
+  const minimumMapSamples = data.settings.stats?.lowSample || DEFAULT_MINIMUM_METRIC_SAMPLES;
 
   // --- TACTICAL LOSS & THROW ANALYTICS ---
   const throwStats = useMemo(() => {
@@ -353,7 +355,7 @@ export default function MapBestStats({ data, evidenceData = data, theme, onUpser
         })}
       </div>
 
-      <ReplayMatchLog data={data} theme={theme} title="Map replay history" description="Accepted practice maps feed the pool table and calculator from this same reviewed match evidence." />
+      <ReplayMatchLog data={data} theme={theme} title="Map replay history" description="Matches whose screenshot or replay evidence you accepted. The pool table and calculator below count every recorded match on each map, including ones entered by hand." />
 
       {/* VIEW: MAP POOL STATS */}
       {activeSubTab === 'stats' && (
@@ -387,6 +389,8 @@ export default function MapBestStats({ data, evidenceData = data, theme, onUpser
                   const defWr = sides && (s.defW + s.defL) > 0 ? ((s.defW / (s.defW + s.defL)) * 100).toFixed(0) : null;
                   const kd = teamKdComplete(s) && s.deaths > 0 ? (s.kills / s.deaths).toFixed(2) : '-';
                   const roundIntel = roundIntelligenceByMap.get(mName);
+                  // A raw rate from a handful of maps is shown, but marked and left uncoloured.
+                  const smallSample = metricSampleGate(played, minimumMapSamples).confidence === 'low';
 
                   return (
                     <tr key={mName} className="hover:bg-white/5">
@@ -396,7 +400,8 @@ export default function MapBestStats({ data, evidenceData = data, theme, onUpser
                         <span className="text-emerald-400 font-bold">{s.actualWon}</span> / <span className="text-rose-400 font-bold">{s.actualLost}</span> / {s.actualDrawn}
                       </td>
                       <td className="py-3.5 px-3 text-center font-black text-sm">
-                        <span className={weightedPlayed > 0 ? percentageTextClass(Number(winrate)) : 'text-slate-500'}>{weightedPlayed > 0 ? `${winrate}%` : '—'}</span>
+                        <span className={weightedPlayed > 0 ? smallSample ? 'text-slate-300' : percentageTextClass(Number(winrate)) : 'text-slate-500'}>{weightedPlayed > 0 ? `${winrate}%` : '—'}</span>
+                        {weightedPlayed > 0 && smallSample && <span className="mt-0.5 block text-[9px] font-semibold normal-case text-amber-300">Small sample · {played} of {minimumMapSamples} maps</span>}
                       </td>
                       <td className={`border-l border-white/5 py-3.5 px-3 text-center font-bold ${attWr !== null ? percentageTextClass(Number(attWr)) : 'text-slate-500'}`}>{attWr !== null ? `${attWr}%` : '—'}</td><td className={`py-3.5 px-3 text-center font-bold ${defWr !== null ? percentageTextClass(Number(defWr)) : 'text-slate-500'}`}>{defWr !== null ? `${defWr}%` : '—'}</td>
                       <td className={`border-l border-white/5 py-3.5 px-3 text-center ${percentageTextClass(conversionPercentage(roundIntel?.pistolBySide.attack))}`}>{conversionText(roundIntel?.pistolBySide.attack)}</td><td className={`py-3.5 px-3 text-center ${percentageTextClass(conversionPercentage(roundIntel?.pistolBySide.defense))}`}>{conversionText(roundIntel?.pistolBySide.defense)}</td>
@@ -475,7 +480,7 @@ export default function MapBestStats({ data, evidenceData = data, theme, onUpser
               <h5 className="text-xs uppercase font-black tracking-widest text-[#ff4655] font-mono">Experimental best-map insight</h5>
               <p className="text-xs text-gray-300 leading-relaxed font-mono">
                 Your highest experimental score is <strong className="text-white font-black">{insight.map}</strong> (Score Index of {insight.score}, {insight.ledger.coveragePercent}% of weight observed){insight.wr !== null ? `, with a ${insight.wr}% raw win rate across ${insight.n} recorded instances` : ''}{insight.playerPerformance !== null ? ` and ${insight.playerPerformance}% equal-weight player form from ${insight.contributingPlayers} players` : ''}.
-                {insight.kd !== null && Number(insight.kd) >= 1.1 ? ` Strong team KD ratio of ${insight.kd} on this map suggests robust map geometry familiarity & clean defensive anchor rotations.` : ''}
+                {insight.kd !== null ? ` Team K/D on this map is ${insight.kd}.` : ''}
                 {' '}Treat this as a descriptive, unvalidated pointer for veto discussion, not a recommendation.
               </p>
             </div>

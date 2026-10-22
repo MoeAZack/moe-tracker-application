@@ -869,7 +869,7 @@ export default function SettingsControl({ data, theme, onSaveSettings, onRefresh
                       onChange={e => setLowSample(Number(e.target.value))}
                       className="w-full p-2.5 bg-black/20 text-white border border-white/10 rounded"
                     />
-                    <p className="text-[9px] text-gray-500 leading-relaxed mt-0.5">Maps with this many matches or fewer are clearly marked as a small sample.</p>
+                    <p className="text-[9px] text-gray-500 leading-relaxed mt-0.5">Maps with fewer matches than this are marked as a small sample, and their composite scores stay hidden.</p>
                   </div>
                 </div>
 
