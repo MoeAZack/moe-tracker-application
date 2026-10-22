@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { OCR_LEARNING_VERSION, applyLearnedCorrections, type LocalCorrectionModel } from '../lib/ocrLearning';
+import { OCR_LEARNING_VERSION, applyLearnedCorrections, buildLocalCorrectionModel, correctionSamplesFromAcceptedEdit, type LocalCorrectionModel } from '../lib/ocrLearning';
 import { correctionModelFingerprint } from '../src/utils/localScoreboard';
 
 const rule = (extra: Partial<LocalCorrectionModel['rules'][number]> = {}) => ({ field: 'kills' as const, predicted: 7, corrected: 17, confirmations: 2, sourceModel: 'local-v1', layout: 'custom', resolution: '1920x1080', sourceRegion: 'player.1.kills', ...extra });
@@ -49,5 +49,26 @@ describe('single uploaded screenshot', () => {
       const selection = { names: { left: 0, top: 0, width: 1, height: 1 }, kda: { left: 0, top: 0, width: 1, height: 1 } };
       expect((await extractScoreboardLocally(file([2]), [], selection, { trackJob: false })).draft.stats.map((row: any) => row.kills)).toEqual([7, 7]);
     } finally { vi.unstubAllGlobals(); vi.doUnmock('../src/utils/ocrLearningStore'); vi.doUnmock('../lib/localOcrEngine'); vi.resetModules(); }
+  });
+});
+
+describe('where the rules come from', () => {
+  const edit = (captureId: string, source: Record<string, unknown> = { source: 'scrim-import', sourceMetadata: { method: 'screenshot', model: 'local-v1' } }) => correctionSamplesFromAcceptedEdit({
+    beforeMatch: { id: `m-${captureId}`, map: 'Ascent', screenshotEvidence: { captureId, diagnostics: { layout: 'custom', resolution: '1920x1080' } }, ...source },
+    beforeStats: [{ player: 'Player1', kills: 20 }, { player: 'Player2', kills: 7 }],
+    nextMatch: { id: `m-${captureId}`, map: 'Ascent' },
+    nextStats: [{ player: 'Player1', kills: 20 }, { player: 'Player2', kills: 17 }],
+    nextScoreboardRows: [0, 1],
+  });
+  it('applies a correction only once a coach has accepted the same fix on three captures', () => {
+    const twice = buildLocalCorrectionModel([...edit('c1'), ...edit('c2')]);
+    expect(applyLearnedCorrections(rows, twice, context).map(row => row.kills)).toEqual([7, 7]);
+    const thrice = buildLocalCorrectionModel([...edit('c1'), ...edit('c2'), ...edit('c3')]);
+    expect(applyLearnedCorrections(rows, thrice, context).map(row => row.kills)).toEqual([7, 17]);
+  });
+  it('learns nothing from edits to a match that was not read by OCR', () => {
+    const manual = ['c1', 'c2', 'c3'].flatMap(id => edit(id, { source: 'manual', sourceMetadata: { method: 'manual' }, screenshotEvidence: undefined }));
+    expect(manual).toEqual([]);
+    expect(applyLearnedCorrections(rows, buildLocalCorrectionModel(manual), context)).toEqual(rows);
   });
 });
