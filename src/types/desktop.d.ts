@@ -56,7 +56,7 @@ declare global {
       cancelVodAnalysis(): Promise<{ cancelled: boolean }>;
       createReviewClips(input: { vodUrl?: string; localPath?: string; moments: Array<{ timestampMs: number; startMs?: number; endMs?: number; label: string }> }): Promise<Array<{ id: string; fileName: string; path: string; label: string; startMs: number; endMs: number }>>;
       openReviewClip(fileName: string): Promise<{ opened: boolean }>;
-      onVodAnalysisProgress(callback: (progress: { stage: string; percent: number | null; message: string }) => void): () => void;
+      onVodAnalysisProgress(callback: (progress: { stage: string; percent: number | null; message: string; gamePercent?: number; stageIndex?: number; stageCount?: number; stageLabel?: string }) => void): () => void;
       onIngestionProgress(callback: (progress: { jobId: string; source: string; status: string; stage: string; percent: number | null; message: string }) => void): () => void;
       deleteReplay(replayPath: string): Promise<{ deleted: boolean; message: string }>;
       syncNow(): Promise<{ state: string; message: string }>;

@@ -12,7 +12,7 @@ import { normalizedMatchName } from '../../lib/matchIdentity';
 // Several VODs can be queued. They run one at a time, in the order added,
 // because each one downloads and scans a whole video on this machine.
 
-export type VodProgress = { owner: 'batch' | 'personal'; step: number; stepPercent: number | null; message: string; status: 'working' | 'ready' | 'done' | 'error' };
+export type VodProgress = { owner: 'batch' | 'personal'; step: number; stepPercent: number | null; message: string; status: 'working' | 'ready' | 'done' | 'error'; detail?: string };
 export type VodBatchGame = { map: string; score: string; status: string };
 export type VodQueueStatus = 'waiting' | 'running' | 'done' | 'error' | 'removed';
 export type VodQueueItem = { id: string; label: string; expectedGames: number; status: VodQueueStatus; message: string; games: VodBatchGame[] };
@@ -37,10 +37,25 @@ export type VodImportState = {
 
 export const VOD_STEPS = ['Download video', 'Find games', 'Read scoreboards', 'Analyze timelines', 'Save results'];
 export const clampPercent = (input: number) => Math.max(0, Math.min(100, Math.round(input)));
+// Share of the whole import each step takes; analysis is most of the time.
+export const VOD_STEP_WEIGHTS = [15, 10, 5, 65, 5];
 export const overallVodPercent = (progress: VodProgress) => {
+  if (progress.status === 'done') return 100;
+  const before = VOD_STEP_WEIGHTS.slice(0, progress.step).reduce((sum, weight) => sum + weight, 0);
   const stagePart = progress.stepPercent === null ? 0 : progress.stepPercent / 100;
-  return progress.status === 'done' ? 100 : clampPercent((progress.step + stagePart) / VOD_STEPS.length * 100);
+  return clampPercent(before + (VOD_STEP_WEIGHTS[progress.step] ?? 0) * stagePart);
 };
+
+/**
+ * Progress inside one running import only moves forward: a later step never
+ * hands back to an earlier one, and within a step the bar never shrinks.
+ */
+export function nextVodProgress(previous: VodProgress | null, next: VodProgress): VodProgress {
+  if (!previous || previous.owner !== next.owner || previous.status !== 'working' || next.status !== 'working') return next;
+  if (next.step < previous.step) return { ...next, step: previous.step, stepPercent: previous.stepPercent };
+  if (next.step > previous.step) return next;
+  return { ...next, stepPercent: next.stepPercent === null ? previous.stepPercent : Math.max(previous.stepPercent ?? 0, next.stepPercent) };
+}
 
 type Roster = Array<{ id: string; displayName: string; aliases?: string[] }>;
 export type VodBatchImportInput = {
@@ -86,7 +101,12 @@ const askTeamPick = (pick: VodTeamPick) => new Promise<TeamPickAnswer>(resolve =
 let nextQueueId = 1;
 
 const setState = (patch: Partial<VodImportState>) => { state = { ...state, ...patch }; for (const listener of listeners) listener(); };
-const setProgress = (progress: VodProgress) => setState({ progress });
+const setProgress = (progress: VodProgress) => setState({ progress: nextVodProgress(state.progress, progress) });
+// Saving a game between analyses stays inside "Analyze timelines"; only the
+// last save moves the import to "Save results".
+const savingProgress = (index: number, total: number): VodProgress => index + 1 < total
+  ? { owner: 'batch', step: 3, stepPercent: (index + 1) / total * 100, message: `Saving game ${index + 1}/${total}…`, status: 'working', detail: `Game ${index + 1} of ${total} · saving` }
+  : { owner: 'batch', step: 4, stepPercent: 50, message: `Saving game ${index + 1}/${total}…`, status: 'working' };
 const updateQueueItem = (id: string, patch: Partial<VodQueueItem>) => setState({ queue: state.queue.map(item => item.id === id ? { ...item, ...patch } : item) });
 
 export const vodImportStore = {
@@ -160,8 +180,11 @@ const ensureProgressListener = (deps: VodImportDeps) => {
     if (progress.stage === 'download') setProgress({ owner: 'batch', step: 0, stepPercent: raw, message: progress.message, status: 'working' });
     else if (progress.stage === 'discover') setProgress({ owner: 'batch', step: 1, stepPercent: raw, message: progress.message, status: 'working' });
     else {
-      const combined = raw === null ? null : ((progressContext.gameIndex + raw / 100) / Math.max(1, progressContext.totalGames)) * 100;
-      setProgress({ owner: 'batch', step: 3, stepPercent: combined, message: progress.message, status: 'working' });
+      // The scan reports one game; place it among the games of this VOD.
+      const game = typeof progress.gamePercent === 'number' ? clampPercent(progress.gamePercent) : raw;
+      const combined = game === null ? null : ((progressContext.gameIndex + game / 100) / Math.max(1, progressContext.totalGames)) * 100;
+      const detail = `Game ${progressContext.gameIndex + 1} of ${progressContext.totalGames}${progress.stageIndex && progress.stageCount ? ` · stage ${progress.stageIndex} of ${progress.stageCount}: ${progress.stageLabel}` : ''}`;
+      setProgress({ owner: 'batch', step: 3, stepPercent: combined, message: progress.message, status: 'working', detail });
     }
   });
 };
@@ -274,7 +297,7 @@ async function runOneImport(input: VodBatchImportInput, deps: VodImportDeps): Pr
         const players = boundaryTimelinePlayers(activeRoster, linked);
         const evidence = await desktop.analyzeVod({ vodUrl: normalizedVodUrl, cacheId, startMs: boundary.timestampMs, endMs, players, observerMode: perspective === 'coach', ...(perspective === 'player' && selectedPovName ? { povPlayerName: selectedPovName } : {}) });
         const publicTimeline = stripRawText(evidence); const boundaryFrame = await desktop.readVodFrame({ cacheId, frame: boundary.frame }); const frame = fileFromBase64(boundaryFrame.base64, `vod-game-start-${index + 1}.png`, boundaryFrame.mediaType);
-        setProgress({ owner: 'batch', step: 4, stepPercent: Math.round(index / boundaries.length * 100), message: `Saving game ${index + 1}/${boundaries.length}…`, status: 'working' }); const response = await deps.apiFetch('/api/vod-submissions', { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ vodUrl: normalizedVodUrl, imageSha256: await sha256File(frame), ...(linked ? { matchId: linked.id } : {}), coachTeamEvidence: true, date: dateKey, map: boundary.map, opponent: linked?.opponent || null, ourScore: linked?.ourScore ?? null, theirScore: linked?.theirScore ?? null, players: [], timelineEvidence: publicTimeline }) });
+        setProgress(savingProgress(index, boundaries.length)); const response = await deps.apiFetch('/api/vod-submissions', { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ vodUrl: normalizedVodUrl, imageSha256: await sha256File(frame), ...(linked ? { matchId: linked.id } : {}), coachTeamEvidence: true, date: dateKey, map: boundary.map, opponent: linked?.opponent || null, ourScore: linked?.ourScore ?? null, theirScore: linked?.theirScore ?? null, players: [], timelineEvidence: publicTimeline }) });
         const payload = await response.json(); if (!response.ok) throw new Error(payload.error || `Game ${index + 1} could not be integrated.`);
         const unnamed = players.length === 0; if (unnamed) unnamedGames += 1;
         imported.push({ map: mapName, score: linked && typeof linked.ourScore === 'number' ? `${linked.ourScore}–${linked.theirScore}` : 'Score pending', status: `${payload.submission.linkMode === 'new-match' ? 'Timeline imported · scoreboard pending' : 'Linked and timeline imported'}${unnamed ? ' · players not named yet' : ''}` });
@@ -306,7 +329,7 @@ async function runOneImport(input: VodBatchImportInput, deps: VodImportDeps): Pr
         const ours = new Set(selected); const players = !selected.length ? [] : game.draft.stats.map((row, rowIndex) => ({ name: row.extractedName, team: ours.has(rowIndex) ? 'ours' as const : 'theirs' as const, expectedKills: row.kills, expectedDeaths: row.deaths })).filter(row => row.name).slice(0, 10);
         const evidence = await desktop.analyzeVod({ vodUrl: normalizedVodUrl, cacheId, startMs, endMs, players, observerMode: perspective === 'coach', ...(perspective === 'player' && selectedPovName ? { povPlayerName: selectedPovName } : {}) });
         const publicTimeline = stripRawText(evidence);
-        setProgress({ owner: 'batch', step: 4, stepPercent: Math.round(index / detected.length * 100), message: `Saving game ${index + 1}/${detected.length}…`, status: 'working' }); const response = await deps.apiFetch('/api/vod-submissions', { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ vodUrl: normalizedVodUrl, imageSha256: game.imageSha256, ...(linked ? { matchId: linked.id } : {}), coachTeamEvidence: true, ...(newPlayers ? { addObservedPlayers: true } : {}), date: dateKey, map: game.draft.match.map, opponent: linked?.opponent || null, ourScore: game.draft.match.ourScore, theirScore: game.draft.match.theirScore, players: rows.map(row => ({ observedName: row.extractedName, agent: row.agent, kills: value(row.kills), deaths: value(row.deaths), assists: value(row.assists), acs: value(row.acs), adr: value(row.adr), hs: value(row.hs), fk: value(row.fk), fd: value(row.fd), plants: value(row.plants), defuses: value(row.defuses), trades: value(row.trades) })), timelineEvidence: publicTimeline }) });
+        setProgress(savingProgress(index, detected.length)); const response = await deps.apiFetch('/api/vod-submissions', { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ vodUrl: normalizedVodUrl, imageSha256: game.imageSha256, ...(linked ? { matchId: linked.id } : {}), coachTeamEvidence: true, ...(newPlayers ? { addObservedPlayers: true } : {}), date: dateKey, map: game.draft.match.map, opponent: linked?.opponent || null, ourScore: game.draft.match.ourScore, theirScore: game.draft.match.theirScore, players: rows.map(row => ({ observedName: row.extractedName, agent: row.agent, kills: value(row.kills), deaths: value(row.deaths), assists: value(row.assists), acs: value(row.acs), adr: value(row.adr), hs: value(row.hs), fk: value(row.fk), fd: value(row.fd), plants: value(row.plants), defuses: value(row.defuses), trades: value(row.trades) })), timelineEvidence: publicTimeline }) });
         const payload = await response.json(); if (!response.ok) throw new Error(payload.error || `Game ${index + 1} could not be integrated.`);
         const added: string[] = payload.submission.integration?.addedPlayers || []; added.forEach(name => addedPlayers.add(name));
         imported.push({ map: game.draft.match.map, score: `${game.draft.match.ourScore}–${game.draft.match.theirScore}`, status: `${payload.submission.linkMode === 'new-match' ? 'New match created' : 'Linked to existing match'}${added.length ? ` · ${added.length} new player${added.length === 1 ? '' : 's'} added` : ''}${selected.length ? '' : ' · players not named'}` });

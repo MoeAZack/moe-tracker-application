@@ -5,6 +5,7 @@ const fsp = require('node:fs/promises');
 const path = require('node:path');
 const os = require('node:os');
 const { aggregateVideoEvidence, applyVisualTemplates } = require('./vod-timeline-evidence.cjs');
+const { gameProgressReporter, regionProgress } = require('./vod-progress.cjs');
 const { normalizeVodPerformance, resolveOcrWorkers, sampledRange, regionDecodeArgs, combinedDecodeArgs } = require('./vod-performance.cjs');
 
 const MAX_DURATION_SECONDS = 4 * 60 * 60;
@@ -335,7 +336,7 @@ async function sampleRegions(file, specs, durationSeconds, progress, signal, ran
     catch (error) { throwIfAborted(signal); log(`decode: ${attempt.hardwareDecode ? 'hardware' : 'single software'} decode failed (${String(error?.message || error).split('\n')[0]}); falling back`); progress?.({ stage: 'sampling', percent: null, message: attempt.hardwareDecode ? 'Hardware decode failed; continuing with software decode…' : 'Combined decode failed; sampling one HUD region at a time…' }); }
   }
   const frames = {};
-  for (const spec of specs) frames[spec.key] = await decoders.single(file, spec, durationSeconds, progress, signal, range);
+  for (const [index, spec] of specs.entries()) frames[spec.key] = await decoders.single(file, spec, durationSeconds, regionProgress(progress, index, specs.length), signal, range);
   log('decode: per-region software'); return frames;
 }
 
@@ -410,7 +411,7 @@ function inferPovPlayer(snapshots, players) {
 }
 
 async function analyzeVodTimeline(input, options = {}) {
-  const progress = options.progress; const workRoot = options.workRoot || path.join(require('node:os').tmpdir(), 'moetracker-vod');
+  const progress = gameProgressReporter(options.progress); const workRoot = options.workRoot || path.join(require('node:os').tmpdir(), 'moetracker-vod');
   await fsp.mkdir(workRoot, { recursive: true }); await ensureDiskSpace(workRoot, options.minimumFreeBytes || MIN_FREE_BYTES);
   const controller = new AbortController(); const externalAbort = () => controller.abort(options.signal?.reason || new Error('VOD analysis was cancelled.'));
   if (options.signal?.aborted) externalAbort(); else options.signal?.addEventListener('abort', externalAbort, { once: true });
