@@ -76,7 +76,7 @@ const MAX_RECOVERY_BYTES = 64 * 1024 * 1024;
  * Serves the read-only page on an old port and resolves with what the page
  * posts back. Requests without the one-time token are refused.
  */
-function startStrandedOriginServer(port, { host = '127.0.0.1', token = crypto.randomBytes(16).toString('hex') } = {}) {
+function startStrandedOriginServer(port, { host = '127.0.0.1', token = crypto.randomBytes(16).toString('hex'), maxBytes = MAX_RECOVERY_BYTES } = {}) {
   const pagePath = `/__moe-recover-${token}`;
   const postPath = `${pagePath}/rows`;
   let settle;
@@ -88,7 +88,7 @@ function startStrandedOriginServer(port, { host = '127.0.0.1', token = crypto.ra
     }
     if (request.method === 'POST' && request.url === postPath) {
       const chunks = []; let size = 0;
-      request.on('data', chunk => { size += chunk.length; if (size > MAX_RECOVERY_BYTES) { request.destroy(); settle.reject(new Error('Recovered learning data is too large.')); } else chunks.push(chunk); });
+      request.on('data', chunk => { size += chunk.length; if (size > maxBytes) { request.destroy(); settle.reject(new Error('Recovered learning data is too large.')); } else chunks.push(chunk); });
       request.on('end', () => {
         response.writeHead(204).end();
         try { settle.resolve(JSON.parse(Buffer.concat(chunks).toString('utf8'))); }
@@ -116,12 +116,67 @@ function rowsWithIds(rows) {
  */
 function combineStrandedLearning(results) {
   const corrections = new Map(); const outcomes = new Map();
+  // Results come newest origin first; the newest origin's switch is the
+  // coach's latest choice.
+  let learningEnabled = null;
   for (const result of results) {
     if (!result) continue;
+    if (learningEnabled === null && typeof result.learningEnabled === 'boolean') learningEnabled = result.learningEnabled;
     if (result.learningEnabled !== false) for (const row of rowsWithIds(result.corrections)) if (!corrections.has(row.id)) corrections.set(row.id, row);
     for (const row of rowsWithIds(result.outcomes)) if (!outcomes.has(row.id)) outcomes.set(row.id, row);
   }
-  return { corrections: [...corrections.values()], outcomes: [...outcomes.values()] };
+  return { learningEnabled, corrections: [...corrections.values()], outcomes: [...outcomes.values()] };
 }
 
-module.exports = { DEFAULT_LOCAL_PORT, isPortFree, chooseLocalPort, strandedOriginPorts, startStrandedOriginServer, combineStrandedLearning };
+const NOTHING_RECOVERED = Object.freeze({ ports: [], learningEnabled: null, corrections: [], outcomes: [] });
+
+/**
+ * The main-process side of the one-time recovery. `listOrigins` gives the
+ * IndexedDB folder names with their modified times; `openPage(url)` loads a
+ * page in a hidden window and resolves with a function that closes it.
+ */
+function createStrandedLearningRecovery({ currentPort, config, saveConfig, listOrigins, openPage, isFree = isPortFree, startServer = startStrandedOriginServer, timeoutMs = 15_000, warn = () => {} }) {
+  let pending = null; let offered = [];
+  async function read() {
+    // The current origin is live again; if the port ever changes, its rows
+    // must be read like any other old origin's.
+    const recovered = (config.recoveredLearningOrigins || []).map(Number);
+    if (recovered.includes(currentPort)) { config.recoveredLearningOrigins = recovered.filter(port => port !== currentPort); await saveConfig(); }
+    const folders = await listOrigins().catch(() => []);
+    const modified = new Map();
+    const ports = strandedOriginPorts(folders.map(folder => folder.name), { currentPort, recovered: config.recoveredLearningOrigins || [] });
+    for (const folder of folders) { const port = Number(ORIGIN_FOLDER.exec(String(folder.name))?.[1]); if (port) modified.set(port, Number(folder.modifiedMs) || 0); }
+    ports.sort((left, right) => (modified.get(right) || 0) - (modified.get(left) || 0));
+    const results = []; const read = [];
+    for (const port of ports) {
+      if (!await isFree(port)) continue;
+      let server; let close; let timer;
+      try {
+        server = await startServer(port);
+        close = await openPage(server.url);
+        const result = await Promise.race([server.result, new Promise((_, reject) => { timer = setTimeout(() => reject(new Error('Timed out reading an old origin.')), timeoutMs); })]);
+        if (result?.error) throw new Error(result.error);
+        results.push(result); read.push(port);
+      } catch (error) {
+        warn(`port ${port}: ${error.message}`);
+      } finally {
+        clearTimeout(timer);
+        await Promise.resolve(close?.()).catch(() => {});
+        await server?.close();
+      }
+    }
+    return { ports: read, ...combineStrandedLearning(results) };
+  }
+  return {
+    start() { pending = read().catch(error => { warn(error.message); return NOTHING_RECOVERED; }); return pending; },
+    async take() { const recovered = await (pending || NOTHING_RECOVERED); offered = recovered.ports; return recovered; },
+    async confirm(ports) {
+      const confirmed = (Array.isArray(ports) ? ports : []).map(Number).filter(port => offered.includes(port));
+      config.recoveredLearningOrigins = [...new Set([...(config.recoveredLearningOrigins || []), ...confirmed])];
+      await saveConfig();
+      return { recorded: confirmed.length };
+    },
+  };
+}
+
+module.exports = { DEFAULT_LOCAL_PORT, MAX_RECOVERY_BYTES, isPortFree, chooseLocalPort, strandedOriginPorts, startStrandedOriginServer, combineStrandedLearning, createStrandedLearningRecovery };
