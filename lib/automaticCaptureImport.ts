@@ -1,8 +1,7 @@
 import type { TrackerData } from '../src/types';
 import { autonomousCaptureDecision } from './ocrAutonomy';
-import { classifyAverageLoadout, classifyTeamEquipment } from './scrimRoundAnalytics';
 import { suggestOpponentFromEnemyRoster } from './ocrLearning';
-import { deriveRoundAdvantage } from './roundAdvantage';
+import { captureRoundRows, captureSideTallies, sideForRound } from './captureRoundRows';
 import { praccSlotAt } from './praccMatchContext';
 
 const numberOrNull = (value: unknown) => value === null || value === undefined || value === '' || !Number.isFinite(Number(value)) ? null : Number(value);
@@ -13,33 +12,13 @@ function cairoDate(instant = new Date()) {
   return `${value.year}-${value.month}-${value.day}`;
 }
 
-const sideForRound = (roundNo: number, firstHalf: 'Att' | 'Def') => {
-  const opposite = firstHalf === 'Att' ? 'Def' : 'Att';
-  if (roundNo <= 12) return firstHalf;
-  if (roundNo <= 24) return opposite;
-  return roundNo % 2 === 1 ? firstHalf : opposite;
-};
-
-/** Buy label for one side of a round. An unconfirmed round keeps its raw evidence for review but labels nothing from it. */
-export function roundEconomyLabel(evidence: any, team: 'ours' | 'theirs') {
-  if (evidence?.reviewStatus !== 'confirmed') return '';
-  const equipment = classifyTeamEquipment(evidence?.players || [], team);
-  const label = equipment !== 'unknown' ? equipment : classifyAverageLoadout(team === 'ours' ? evidence?.ourAverageLoadout : evidence?.enemyAverageLoadout);
-  return label === 'unknown' ? '' : label[0].toUpperCase() + label.slice(1);
-}
-
 export function buildAutomaticCaptureImport(extracted: any, data: TrackerData, captureId: string | null, capturedAt: string | null = null) {
   const maps = data.settings?.maps || [];
   const decision = autonomousCaptureDecision(extracted, maps, data.playerStats || []);
   if (!decision.automatic || !decision.map || !extracted.startingSide.firstHalf) return { decision, payload: null };
   const firstHalf = extracted.startingSide.firstHalf as 'Att' | 'Def';
   const rounds = extracted.rounds as any[];
-  let attW = 0; let attL = 0; let defW = 0; let defL = 0;
-  for (const round of rounds) {
-    const side = sideForRound(round.roundNo, firstHalf);
-    if (round.result === 'W') side === 'Att' ? attW++ : defW++;
-    if (round.result === 'L') side === 'Att' ? attL++ : defL++;
-  }
+  const { attW, attL, defW, defL } = captureSideTallies(rounds, firstHalf);
   const result = (roundNo: number) => rounds.find(round => round.roundNo === roundNo)?.result || '';
   const special = (roundNo: number) => ({ side: sideForRound(roundNo, firstHalf), result: result(roundNo) });
   const pistol = [special(1), special(13)];
@@ -72,6 +51,6 @@ export function buildAutomaticCaptureImport(extracted: any, data: TrackerData, c
     agent: player.agent || '', kAtt: null, kDef: null, dAtt: null, dDef: null, aAtt: null, aDef: null,
     kills: numberOrNull(player.kills), deaths: numberOrNull(player.deaths), assists: numberOrNull(player.assists), acs: numberOrNull(player.acs), adr: numberOrNull(player.adr), hs: numberOrNull(player.hs), fk: numberOrNull(player.fk), fd: numberOrNull(player.fd), performanceScore: numberOrNull(player.performanceScore), trades: numberOrNull(player.trades), plants: numberOrNull(player.plants), defuses: numberOrNull(player.defuses), ...(player.headToHead ? { headToHead: player.headToHead } : {}), sourceMetadata,
   }));
-  const roundRows = rounds.map(round => ({ roundNo: round.roundNo, side: sideForRound(round.roundNo, firstHalf), result: round.result, winBy: round.winBy || '', buy: roundEconomyLabel(round.screenshotEvidence, 'ours'), enemyBuy: roundEconomyLabel(round.screenshotEvidence, 'theirs'), screenshotEvidence: round.screenshotEvidence, advantageEvidence: deriveRoundAdvantage({ source: 'screenshot', complete: round.screenshotEvidence?.reviewStatus === 'confirmed' && round.screenshotEvidence?.eventsComplete === true, winner: round.result, events: (round.screenshotEvidence?.events || []).map((event: any) => ({ sequence: event.sequence, victimTeam: event.victimTeam })) }) }));
+  const roundRows = captureRoundRows(rounds, firstHalf);
   return { decision, payload: { match, stats, roundRows } };
 }
