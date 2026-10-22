@@ -101,3 +101,15 @@ describe('evidence link destination', () => {
     }
   });
 });
+
+describe('website match log focus', () => {
+  it('lists the linked match first and marks it', async () => {
+    const { renderToStaticMarkup } = await import('react-dom/server');
+    const { createElement } = await import('react');
+    const { default: WebsiteMatchLog } = await import('../src/components/WebsiteMatchLog');
+    const data: any = { matches: [{ id: 'new', date: '2026-10-21', opponent: 'Newer' }, { id: 'old', date: '2026-10-01', opponent: 'Linked' }], playerStats: [] };
+    const html = renderToStaticMarkup(createElement(WebsiteMatchLog, { data, theme: { cardBg: '', border: '' }, focusMatchId: 'old' }));
+    expect(html.indexOf('Linked')).toBeLessThan(html.indexOf('Newer'));
+    expect(html).toMatch(/aria-current="true"[^>]*>\s*<div><h2[^>]*>Linked/);
+  });
+});

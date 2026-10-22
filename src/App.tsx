@@ -735,7 +735,7 @@ export default function App() {
                 onDuplicateReview={handleDuplicateReview}
               />
             )}
-            {activeTab === 'matches' && workspaceData && !desktopMode && <WebsiteMatchLog data={workspaceData} theme={theme} />}
+            {activeTab === 'matches' && workspaceData && !desktopMode && <WebsiteMatchLog data={workspaceData} theme={theme} focusMatchId={reviewMatchId} />}
             {activeTab === 'replays' && data && (
               <ReplayWorkspace data={workspaceData || data} role={role} preferredMatchId={reviewMatchId} preferredRoundNo={reviewRoundNo} onAccepted={fetchDatabase} onManualFallback={(item) => { setManualReplayDraft(item.draft as ScreenshotReviewDraft); setActiveTab('matches'); }} />
             )}
