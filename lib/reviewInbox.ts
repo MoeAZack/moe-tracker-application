@@ -39,3 +39,37 @@ export function buildReviewInbox(data: any, pending: { captures?: number; replay
   if (findings.length) items.push({ id: 'findings', kind: 'finding', title: `${findings.length} coaching finding${findings.length === 1 ? '' : 's'} to triage`, detail: 'New findings, or findings waiting for more evidence, in Coach Workspace.', target: { surface: 'coaching' } });
   return items;
 }
+
+export interface InboxGroup {
+  id: string;
+  title: string;
+  detail: string;
+  items: InboxItem[];
+}
+
+const GROUP_TITLES: Partial<Record<InboxItem['kind'], (count: number) => [string, string]>> = {
+  duplicate: count => [`${count} possible duplicate copies`, 'Each is left out of stats until you keep both or discard the copy.'],
+  rounds: count => [`${count} matches with rounds to review`, 'Rounds an automatic save could not settle. Their detail counts once reviewed.'],
+};
+
+/**
+ * The inbox as the coach sees it: per-match items of the same kind collapse
+ * into one group, so a busy scrim day reads as a few things to do rather than
+ * a long list. A kind with one item stays a single entry.
+ */
+export function groupReviewInbox(items: InboxItem[]): InboxGroup[] {
+  const groups: InboxGroup[] = [];
+  const byKind = new Map<InboxItem['kind'], InboxGroup>();
+  for (const item of items) {
+    const sameKind = items.filter(other => other.kind === item.kind);
+    const title = GROUP_TITLES[item.kind];
+    if (sameKind.length < 2 || !title) { groups.push({ id: item.id, title: item.title, detail: item.detail, items: [item] }); continue; }
+    const existing = byKind.get(item.kind);
+    if (existing) { existing.items.push(item); continue; }
+    const [groupTitle, detail] = title(sameKind.length);
+    const group = { id: `group:${item.kind}`, title: groupTitle, detail, items: [item] };
+    byKind.set(item.kind, group);
+    groups.push(group);
+  }
+  return groups;
+}

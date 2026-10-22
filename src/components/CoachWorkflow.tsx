@@ -6,6 +6,7 @@ import {
   ChevronUp,
   Download,
   RefreshCw,
+  SlidersHorizontal,
   Trash2,
   X,
 } from "lucide-react";
@@ -67,15 +68,9 @@ export default function CoachWorkflow({
   const [view, setView] = useState(() =>
     normalizeDashboardView(undefined, owner),
   );
-  const [signalFilters, setSignalFilters] = useState({
-    side: "",
-    economy: "",
-    player: "",
-    agent: "",
-    composition: "",
-    status: "",
-    type: "",
-  });
+  const [signalFilters, setSignalFilters] = useState(EMPTY_SIGNAL_FILTERS);
+  const [filtersOpen, setFiltersOpen] = useState(false);
+  const activeFilters = countActiveFilters(view.filters, signalFilters);
   const load = async (refresh = false) => {
     setBusy("refresh");
     try {
@@ -458,168 +453,199 @@ export default function CoachWorkflow({
           )}
         </div>
       </header>
-      <div className="grid gap-3 rounded-xl border border-white/10 bg-black/10 p-3 lg:grid-cols-6">
-        <label className="text-[10px] uppercase tracking-wider text-slate-400">
-          Preset
-          <select
-            className="ui-field mt-1 h-10 w-full px-2 text-xs"
-            value={view.preset}
-            onChange={(event) => selectPreset(event.target.value)}
+      <div className="space-y-3 rounded-xl border border-white/10 bg-black/10 p-3">
+        <div className="flex flex-wrap items-end gap-3">
+          <label className="text-[10px] uppercase tracking-wider text-slate-400">
+            Preset
+            <select
+              className="ui-field mt-1 h-10 w-full px-2 text-xs"
+              value={view.preset}
+              onChange={(event) => selectPreset(event.target.value)}
+            >
+              {Object.keys(DASHBOARD_PRESETS).map((key) => (
+                <option key={key} value={key}>
+                  {key.replaceAll("-", " ")}
+                </option>
+              ))}
+            </select>
+          </label>
+          <button
+            type="button"
+            className="ui-button min-h-10 px-3 text-xs"
+            aria-expanded={filtersOpen}
+            aria-controls="coach-workspace-filters"
+            onClick={() => setFiltersOpen((open) => !open)}
           >
-            {Object.keys(DASHBOARD_PRESETS).map((key) => (
-              <option key={key} value={key}>
-                {key.replaceAll("-", " ")}
-              </option>
-            ))}
-          </select>
-        </label>
-        <Filter
-          label="Block"
-          value={view.filters.blockId || ""}
-          onChange={(value) =>
-            setView((current) => ({
-              ...current,
-              filters: { ...current.filters, blockId: value || null },
-            }))
-          }
-          options={summaries.map((summary) => [summary.blockId, summary.name])}
-        />
-        <Filter
-          label="Map"
-          value={view.filters.map || ""}
-          onChange={(value) =>
-            setView((current) => ({
-              ...current,
-              filters: { ...current.filters, map: value || null },
-            }))
-          }
-          options={Array.from(
-            new Set<string>(
-              summaries.flatMap((summary) => summary.header.maps),
-            ),
-          ).map((map) => [map, map])}
-        />
-        <Filter
-          label="Source"
-          value={view.filters.source || ""}
-          onChange={(value) =>
-            setView((current) => ({
-              ...current,
-              filters: { ...current.filters, source: value || null },
-            }))
-          }
-          options={Array.from(
-            new Set<string>(
-              summaries.flatMap((summary) => summary.header.sources),
-            ),
-          ).map((value) => [value, value])}
-        />
-        <Filter
-          label="Confidence"
-          value={view.filters.confidence || ""}
-          onChange={(value) =>
-            setView((current) => ({
-              ...current,
-              filters: { ...current.filters, confidence: value || null },
-            }))
-          }
-          options={["high", "medium", "low"].map((value) => [value, value])}
-        />
-        <div className="flex items-end">
-          <span className="w-full rounded-lg border border-amber-300/20 bg-amber-300/[0.06] px-3 py-2.5 text-xs text-amber-100">
+            <SlidersHorizontal className="h-4 w-4" aria-hidden="true" />
+            Filter{activeFilters ? ` · ${activeFilters} on` : ""}
+          </button>
+          {activeFilters > 0 && (
+            <button
+              type="button"
+              className="ui-button min-h-10 px-3 text-xs"
+              onClick={() => {
+                setView((current) => ({
+                  ...current,
+                  filters: { ...current.filters, blockId: null, map: null, source: null, confidence: null },
+                }));
+                setSignalFilters(EMPTY_SIGNAL_FILTERS);
+              }}
+            >
+              Clear filters
+            </button>
+          )}
+          <span className="ml-auto rounded-lg border border-amber-300/20 bg-amber-300/[0.06] px-3 py-2.5 text-xs text-amber-100">
             {unresolved.length} unresolved review item
             {unresolved.length === 1 ? "" : "s"}
           </span>
         </div>
-        <Filter
-          label="Signal type"
-          value={signalFilters.type}
-          onChange={(value) =>
-            setSignalFilters((current) => ({ ...current, type: value }))
-          }
-          options={Array.from(
-            new Set<string>(workflow.signals.map((signal) => signal.type)),
-          ).map((value) => [value, value.replaceAll("-", " ")])}
-        />
-        <Filter
-          label="Status"
-          value={signalFilters.status}
-          onChange={(value) =>
-            setSignalFilters((current) => ({ ...current, status: value }))
-          }
-          options={Array.from(
-            new Set<string>(workflow.signals.map((signal) => signal.status)),
-          ).map((value) => [value, value])}
-        />
-        <Filter
-          label="Side"
-          value={signalFilters.side}
-          onChange={(value) =>
-            setSignalFilters((current) => ({ ...current, side: value }))
-          }
-          options={["ATT", "DEF"].map((value) => [value, value])}
-        />
-        <Filter
-          label="Economy"
-          value={signalFilters.economy}
-          onChange={(value) =>
-            setSignalFilters((current) => ({ ...current, economy: value }))
-          }
-          options={["full", "anti-eco", "low"].map((value) => [value, value])}
-        />
-        <Filter
-          label="Player"
-          value={signalFilters.player}
-          onChange={(value) =>
-            setSignalFilters((current) => ({ ...current, player: value }))
-          }
-          options={data.rosterPlayers
-            .filter((player) => !player.retiredAt)
-            .map((player) => [player.id, player.displayName])}
-        />
-        <Filter
-          label="Agent"
-          value={signalFilters.agent}
-          onChange={(value) =>
-            setSignalFilters((current) => ({ ...current, agent: value }))
-          }
-          options={data.settings.agents.map((value) => [value, value])}
-        />
-        <Filter
-          label="Composition"
-          value={signalFilters.composition}
-          onChange={(value) =>
-            setSignalFilters((current) => ({ ...current, composition: value }))
-          }
-          options={Array.from(
-            new Set<string>(
-              workflow.signals
-                .map((signal) => signal.context.composition)
-                .filter((value): value is string => !!value),
-            ),
-          ).map((value) => [value, value])}
-        />
-        <div className="flex flex-wrap items-end gap-1">
-          {DASHBOARD_CARDS.filter(
-            (card) => !view.cards.some((item) => item.id === card.id),
-          ).map((card) => (
-            <button
-              key={card.id}
-              className="ui-button min-h-9 px-2 text-[10px]"
-              onClick={() =>
+        {filtersOpen && (
+          <div id="coach-workspace-filters" className="grid gap-3 sm:grid-cols-2 lg:grid-cols-6">
+            <Filter
+              label="Block"
+              value={view.filters.blockId || ""}
+              onChange={(value) =>
                 setView((current) => ({
                   ...current,
-                  cards: [
-                    ...current.cards,
-                    { id: card.id, size: card.sizes[0], minimized: false },
-                  ],
+                  filters: { ...current.filters, blockId: value || null },
                 }))
               }
-            >
-              + {card.label}
-            </button>
-          ))}
-        </div>
+              options={summaries.map((summary) => [summary.blockId, summary.name])}
+            />
+            <Filter
+              label="Map"
+              value={view.filters.map || ""}
+              onChange={(value) =>
+                setView((current) => ({
+                  ...current,
+                  filters: { ...current.filters, map: value || null },
+                }))
+              }
+              options={Array.from(
+                new Set<string>(
+                  summaries.flatMap((summary) => summary.header.maps),
+                ),
+              ).map((map) => [map, map])}
+            />
+            <Filter
+              label="Source"
+              value={view.filters.source || ""}
+              onChange={(value) =>
+                setView((current) => ({
+                  ...current,
+                  filters: { ...current.filters, source: value || null },
+                }))
+              }
+              options={Array.from(
+                new Set<string>(
+                  summaries.flatMap((summary) => summary.header.sources),
+                ),
+              ).map((value) => [value, value])}
+            />
+            <Filter
+              label="Confidence"
+              value={view.filters.confidence || ""}
+              onChange={(value) =>
+                setView((current) => ({
+                  ...current,
+                  filters: { ...current.filters, confidence: value || null },
+                }))
+              }
+              options={["high", "medium", "low"].map((value) => [value, value])}
+            />
+            <Filter
+              label="Signal type"
+              value={signalFilters.type}
+              onChange={(value) =>
+                setSignalFilters((current) => ({ ...current, type: value }))
+              }
+              options={Array.from(
+                new Set<string>(workflow.signals.map((signal) => signal.type)),
+              ).map((value) => [value, value.replaceAll("-", " ")])}
+            />
+            <Filter
+              label="Status"
+              value={signalFilters.status}
+              onChange={(value) =>
+                setSignalFilters((current) => ({ ...current, status: value }))
+              }
+              options={Array.from(
+                new Set<string>(workflow.signals.map((signal) => signal.status)),
+              ).map((value) => [value, value])}
+            />
+            <Filter
+              label="Side"
+              value={signalFilters.side}
+              onChange={(value) =>
+                setSignalFilters((current) => ({ ...current, side: value }))
+              }
+              options={["ATT", "DEF"].map((value) => [value, value])}
+            />
+            <Filter
+              label="Economy"
+              value={signalFilters.economy}
+              onChange={(value) =>
+                setSignalFilters((current) => ({ ...current, economy: value }))
+              }
+              options={["full", "anti-eco", "low"].map((value) => [value, value])}
+            />
+            <Filter
+              label="Player"
+              value={signalFilters.player}
+              onChange={(value) =>
+                setSignalFilters((current) => ({ ...current, player: value }))
+              }
+              options={data.rosterPlayers
+                .filter((player) => !player.retiredAt)
+                .map((player) => [player.id, player.displayName])}
+            />
+            <Filter
+              label="Agent"
+              value={signalFilters.agent}
+              onChange={(value) =>
+                setSignalFilters((current) => ({ ...current, agent: value }))
+              }
+              options={data.settings.agents.map((value) => [value, value])}
+            />
+            <Filter
+              label="Composition"
+              value={signalFilters.composition}
+              onChange={(value) =>
+                setSignalFilters((current) => ({ ...current, composition: value }))
+              }
+              options={Array.from(
+                new Set<string>(
+                  workflow.signals
+                    .map((signal) => signal.context.composition)
+                    .filter((value): value is string => !!value),
+                ),
+              ).map((value) => [value, value])}
+            />
+          </div>
+        )}
+        {editingLayout && (
+          <div className="flex flex-wrap items-end gap-1">
+            {DASHBOARD_CARDS.filter(
+              (card) => !view.cards.some((item) => item.id === card.id),
+            ).map((card) => (
+              <button
+                key={card.id}
+                className="ui-button min-h-9 px-2 text-[10px]"
+                onClick={() =>
+                  setView((current) => ({
+                    ...current,
+                    cards: [
+                      ...current.cards,
+                      { id: card.id, size: card.sizes[0], minimized: false },
+                    ],
+                  }))
+                }
+              >
+                + {card.label}
+              </button>
+            ))}
+          </div>
+        )}
       </div>
       {correction && (
         <section
@@ -1316,6 +1342,24 @@ function Empty({ text }: { text: string }) {
     </p>
   );
 }
+const EMPTY_SIGNAL_FILTERS = {
+  side: "",
+  economy: "",
+  player: "",
+  agent: "",
+  composition: "",
+  status: "",
+  type: "",
+};
+
+/** How many filters are narrowing the workspace, so a closed Filter panel still says so. */
+export function countActiveFilters(
+  viewFilters: { blockId?: string | null; map?: string | null; source?: string | null; confidence?: string | null },
+  signalFilters: Record<string, string>,
+) {
+  return [viewFilters.blockId, viewFilters.map, viewFilters.source, viewFilters.confidence, ...Object.values(signalFilters)].filter(Boolean).length;
+}
+
 function Filter({
   label,
   value,
