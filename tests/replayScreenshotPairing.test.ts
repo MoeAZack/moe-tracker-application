@@ -202,9 +202,9 @@ describe('screenshot-first authenticated workflow', () => {
     const coach = await login(); const deviceId = `desktop-${crypto.randomUUID()}`;
     const { readDB, saveDB } = await import('../lib/store'); const db = await readDB();
     db.matches = [
-      { id: 'held', date: '2026-10-15', map: 'Haven', opponent: 'Earlier', type: 'Scrim', ourScore: 13, theirScore: 9 },
       { id: 'logged', date: '2026-10-15', map: ' HAVEN ', opponent: 'Nova', type: 'Scrim', ourScore: 13, theirScore: 9 },
       { id: 'no-score', date: '2026-10-15', map: 'Haven', opponent: 'Later', type: 'Scrim', ourScore: null, theirScore: null },
+      { id: 'held', date: '2026-10-15', map: 'Haven', opponent: 'Newest', type: 'Scrim', ourScore: 13, theirScore: 9 },
     ] as any;
     (db as any).engineAdapters = { replay: { held: { schema: 'fixture' } } };
     await saveDB(db);
@@ -213,7 +213,7 @@ describe('screenshot-first authenticated workflow', () => {
     expect(await screenshot.json()).toMatchObject({ status: 'linked', automaticMatchId: 'logged' });
     const stored = JSON.parse(await fs.readFile(dbPath, 'utf8'));
     // A match already holding a replay is skipped, an unknown score never proves the game, and nothing new is created.
-    expect(stored.matches.map((item: any) => item.id)).toEqual(['held', 'logged', 'no-score']);
+    expect(stored.matches.map((item: any) => item.id)).toEqual(['logged', 'no-score', 'held']);
     expect(stored.matches.find((item: any) => item.id === 'logged')).toMatchObject({ opponent: 'Nova' });
   });
 
