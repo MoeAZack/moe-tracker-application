@@ -37,5 +37,6 @@ describe('one canonical website address', () => {
     expect(fs.readFileSync('src/components/DesktopDeviceSettings.tsx', 'utf8')).toContain("useState('https://moezack.pages.dev')");
     expect(fs.readFileSync('scripts/cf-deploy.mjs', 'utf8')).toContain("['moezack', 'moetracker-site']");
     expect(fs.readFileSync('cloudflare/worker.ts', 'utf8')).toContain('canonicalRedirect(request) || bindings.ASSETS.fetch(request)');
+    expect(fs.readFileSync('cloudflare/worker.ts', 'utf8')).toContain("path === '/api' || path.startsWith('/api/')");
   });
 });

@@ -14,6 +14,6 @@ const api = httpServerHandler({ port: 3000 });
 export default {
   fetch(request: Request) {
     const path = new URL(request.url).pathname;
-    return path.startsWith('/api/') ? api.fetch(request) : canonicalRedirect(request) || bindings.ASSETS.fetch(request);
+    return path === '/api' || path.startsWith('/api/') ? api.fetch(request) : canonicalRedirect(request) || bindings.ASSETS.fetch(request);
   },
 };
