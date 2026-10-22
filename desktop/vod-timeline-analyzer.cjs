@@ -3,7 +3,9 @@ const crypto = require('node:crypto');
 const fs = require('node:fs');
 const fsp = require('node:fs/promises');
 const path = require('node:path');
+const os = require('node:os');
 const { aggregateVideoEvidence, applyVisualTemplates } = require('./vod-timeline-evidence.cjs');
+const { normalizeVodPerformance, resolveOcrWorkers, sampledRange, regionDecodeArgs, combinedDecodeArgs } = require('./vod-performance.cjs');
 
 const MAX_DURATION_SECONDS = 4 * 60 * 60;
 const MAX_LOCAL_BYTES = 30 * 1024 * 1024 * 1024;
@@ -268,47 +270,122 @@ function visualSignature(frame) {
   return BigInt(`0b${bits}`).toString(16).padStart(16, '0');
 }
 
-async function changedFrames(file, spec, durationSeconds, progress, signal, range = {}) {
-  throwIfAborted(signal);
+// Keeps the most-changed frame per time bucket for one HUD region. Fed raw gray
+// frames in decode order, from either decode path.
+function createChangeCollector(spec, durationSeconds, range, progress, signal, label = spec.label) {
   const frameBytes = spec.width * spec.height; const fps = spec.fps; const buckets = new Map(); let previous = null; let pending = Buffer.alloc(0); let index = 0; let burstRemaining = 0;
-  const filter = `fps=${fps},${spec.crop},scale=${spec.width}:${spec.height}:flags=fast_bilinear,format=gray`;
-  const startSeconds = Math.max(0, Number(range.startMs || 0) / 1000); const endSeconds = Number(range.endMs) > Number(range.startMs || 0) ? Number(range.endMs) / 1000 : null; const sampledDuration = endSeconds ? endSeconds - startSeconds : durationSeconds;
-  const args = ['-hide_banner', '-loglevel', 'error', ...(startSeconds ? ['-ss', String(startSeconds)] : []), '-i', file, ...(endSeconds ? ['-t', String(sampledDuration)] : []), '-an', '-vf', filter, '-f', 'rawvideo', '-pix_fmt', 'gray', 'pipe:1'];
-  const child = spawn(ffmpegPath(), args, { windowsHide: true, stdio: ['ignore', 'pipe', 'pipe'] });
+  const { startSeconds, sampledDuration } = range;
+  return {
+    push(chunk) {
+      pending = Buffer.concat([pending, chunk]);
+      while (pending.length >= frameBytes) {
+        throwIfAborted(signal);
+        const frame = Buffer.from(pending.subarray(0, frameBytes)); pending = pending.subarray(frameBytes); const timestampMs = Math.round(startSeconds * 1000 + index / fps * 1000); index += 1;
+        const difference = frameDifference(previous, frame); const changed = difference >= spec.threshold;
+        if (changed) burstRemaining = Math.max(burstRemaining, spec.burstFrames || 0);
+        if (changed || burstRemaining > 0) {
+          const bucket = Math.min(spec.maxCandidates - 1, Math.floor(timestampMs / Math.max(1, durationSeconds * 1000) * spec.maxCandidates)); const existing = buckets.get(bucket);
+          if (!existing || difference > existing.difference) buckets.set(bucket, { timestampMs, pixels: frame, difference });
+          if (!changed) burstRemaining -= 1;
+        }
+        previous = frame;
+        if (progress && index % 100 === 0) progress({ stage: 'sampling', percent: Math.min(99, Math.round((timestampMs / 1000 - startSeconds) / Math.max(1, sampledDuration) * 100)), message: `Sampling ${label} across the selected game…` });
+      }
+    },
+    frames() { return [...buckets.values()].sort((a, b) => a.timestampMs - b.timestampMs).map(({ difference: _difference, ...frame }) => frame); },
+  };
+}
+
+async function runDecode(args, outputs, signal) {
+  const highest = Math.max(2, ...outputs.map(output => output.fd)); const stdio = Array.from({ length: highest + 1 }, (_, fd) => fd === 2 || outputs.some(output => output.fd === fd) ? 'pipe' : 'ignore');
+  const child = spawn(ffmpegPath(), args, { windowsHide: true, stdio });
   const onAbort = () => child.kill(); signal?.addEventListener('abort', onAbort, { once: true });
   let stderr = ''; child.stderr.on('data', chunk => { stderr += String(chunk); });
-  for await (const chunk of child.stdout) {
-    pending = Buffer.concat([pending, chunk]);
-    while (pending.length >= frameBytes) {
-      throwIfAborted(signal);
-      const frame = Buffer.from(pending.subarray(0, frameBytes)); pending = pending.subarray(frameBytes); const timestampMs = Math.round(startSeconds * 1000 + index / fps * 1000); index += 1;
-      const difference = frameDifference(previous, frame); const changed = difference >= spec.threshold;
-      if (changed) burstRemaining = Math.max(burstRemaining, spec.burstFrames || 0);
-      if (changed || burstRemaining > 0) {
-        const bucket = Math.min(spec.maxCandidates - 1, Math.floor(timestampMs / Math.max(1, durationSeconds * 1000) * spec.maxCandidates)); const existing = buckets.get(bucket);
-        if (!existing || difference > existing.difference) buckets.set(bucket, { timestampMs, pixels: frame, difference });
-        if (!changed) burstRemaining -= 1;
-      }
-      previous = frame;
-      if (index % 100 === 0) progress?.({ stage: 'sampling', percent: Math.min(99, Math.round((timestampMs / 1000 - startSeconds) / Math.max(1, sampledDuration) * 100)), message: `Sampling ${spec.label} across the selected game…` });
-    }
+  const closed = new Promise((resolve, reject) => { child.on('error', reject); child.on('close', resolve); });
+  try {
+    // Every pipe is drained at the same time so ffmpeg never blocks on a full one.
+    await Promise.all(outputs.map(async output => { for await (const chunk of child.stdio[output.fd]) output.collector.push(chunk); }));
+    const code = await closed; throwIfAborted(signal);
+    if (code !== 0) throw new Error(stderr.trim() || 'FFmpeg could not sample the VOD.');
+  } catch (error) { child.kill(); await closed.catch(() => {}); throw error; } finally { signal?.removeEventListener('abort', onAbort); }
+}
+
+async function changedFrames(file, spec, durationSeconds, progress, signal, range = {}) {
+  throwIfAborted(signal);
+  const sampled = sampledRange(range, durationSeconds); const collector = createChangeCollector(spec, durationSeconds, sampled, progress, signal);
+  await runDecode(regionDecodeArgs(file, spec, sampled), [{ fd: 1, collector }], signal);
+  return collector.frames();
+}
+
+async function changedFramesTogether(file, specs, durationSeconds, progress, signal, range = {}, { hardwareDecode = false } = {}) {
+  throwIfAborted(signal);
+  const sampled = sampledRange(range, durationSeconds);
+  const collectors = specs.map((spec, index) => createChangeCollector(spec, durationSeconds, sampled, index === 0 ? progress : null, signal, 'HUD regions'));
+  await runDecode(combinedDecodeArgs(file, specs, sampled, { hardwareDecode }), collectors.map((collector, index) => ({ fd: 3 + index, collector })), signal);
+  return Object.fromEntries(specs.map((spec, index) => [spec.key, collectors[index].frames()]));
+}
+
+// Candidate frames for every region. Tries one decode for all regions (with
+// hardware decode when switched on), then one software decode, then the
+// original one-decode-per-region path. All three produce the same frames.
+async function sampleRegions(file, specs, durationSeconds, progress, signal, range = {}, performance = {}, log = () => {}, decoders = { together: changedFramesTogether, single: changedFrames }) {
+  const attempts = [...(performance.hardwareDecode ? [{ hardwareDecode: true }] : []), ...(performance.singleDecode === false ? [] : [{ hardwareDecode: false }])];
+  for (const attempt of attempts) {
+    try { const frames = await decoders.together(file, specs, durationSeconds, progress, signal, range, attempt); log(`decode: single${attempt.hardwareDecode ? ' hardware' : ' software'}`); return frames; }
+    catch (error) { throwIfAborted(signal); log(`decode: ${attempt.hardwareDecode ? 'hardware' : 'single software'} decode failed (${String(error?.message || error).split('\n')[0]}); falling back`); progress?.({ stage: 'sampling', percent: null, message: attempt.hardwareDecode ? 'Hardware decode failed; continuing with software decode…' : 'Combined decode failed; sampling one HUD region at a time…' }); }
   }
-  const code = await new Promise((resolve, reject) => { child.on('error', reject); child.on('close', resolve); }); signal?.removeEventListener('abort', onAbort); throwIfAborted(signal);
-  if (code !== 0) throw new Error(stderr.trim() || 'FFmpeg could not sample the VOD.');
-  return [...buckets.values()].sort((a, b) => a.timestampMs - b.timestampMs).map(({ difference: _difference, ...frame }) => frame);
+  const frames = {};
+  for (const spec of specs) frames[spec.key] = await decoders.single(file, spec, durationSeconds, progress, signal, range);
+  log('decode: per-region software'); return frames;
 }
 
 function pgm(frame, width, height) { return Buffer.concat([Buffer.from(`P5\n${width} ${height}\n255\n`), frame]); }
 
-async function recognizeFrames(frames, spec, worker, progress, offset, total, signal, resume = null, saveCheckpoint = null) {
+// OCR workers for one analysis. degrade() drops to a single fresh worker after
+// a failure so the import keeps going.
+async function createOcrPool(count, log = () => {}, tesseract = require('tesseract.js')) {
+  const { createWorker, PSM } = tesseract;
+  const langPath = path.dirname(unpackedExecutable(require.resolve('@tesseract.js-data/eng/4.0.0/eng.traineddata.gz')));
+  const start = async () => { const worker = await createWorker('eng', undefined, { langPath }); await worker.setParameters({ tessedit_pageseg_mode: PSM.SPARSE_TEXT }); return worker; };
+  const pool = { workers: [] };
+  for (let index = 0; index < count; index += 1) {
+    try { pool.workers.push(await start()); }
+    catch (error) { if (!pool.workers.length) throw error; log(`ocr: started ${pool.workers.length} of ${count} workers (${String(error?.message || error)})`); break; }
+  }
+  pool.terminate = async () => { await Promise.allSettled(pool.workers.map(worker => worker.terminate())); pool.workers = []; };
+  pool.degrade = async error => { log(`ocr: worker failed (${String(error?.message || error)}); continuing with 1 worker`); await pool.terminate(); pool.workers = [await start()]; pool.degrade = null; };
+  return pool;
+}
+
+// Reads frames on every pool worker at once but commits results in frame
+// order, so snapshots and checkpoints match a single worker exactly.
+async function recognizeFrames(frames, spec, pool, progress, offset, total, signal, resume = null, saveCheckpoint = null) {
   const keys = frames.map(frame => `${frame.timestampMs}:${visualSignature(frame.pixels)}`); const compatible = resume && Array.isArray(resume.keys) && JSON.stringify(resume.keys) === JSON.stringify(keys);
-  const processed = compatible ? Math.max(0, Math.min(frames.length, Number(resume.processed) || 0)) : 0; const snapshots = compatible && Array.isArray(resume.snapshots) ? structuredClone(resume.snapshots) : [];
-  for (let index = processed; index < frames.length; index += 1) {
-    throwIfAborted(signal);
-    const result = await worker.recognize(pgm(frames[index].pixels, spec.width, spec.height)); const text = String(result.data?.text || '').trim(); const confidence = Number(result.data?.confidence);
+  let committed = compatible ? Math.max(0, Math.min(frames.length, Number(resume.processed) || 0)) : 0; const snapshots = compatible && Array.isArray(resume.snapshots) ? structuredClone(resume.snapshots) : [];
+  const commit = async (index, result) => {
+    const text = String(result.data?.text || '').trim(); const confidence = Number(result.data?.confidence);
     if (text) snapshots.push({ timestampMs: frames[index].timestampMs, text, confidence: Number.isFinite(confidence) ? Math.max(0, Math.min(1, confidence / 100)) : null, visualSignature: visualSignature(frames[index].pixels) });
     if (saveCheckpoint && ((index + 1) % 10 === 0 || index + 1 === frames.length)) await saveCheckpoint({ keys, processed: index + 1, snapshots });
     progress?.({ stage: 'ocr', percent: Math.round((offset + index + 1) / Math.max(1, total) * 100), message: `Reading timeline evidence · ${offset + index + 1}/${total}` });
+  };
+  while (committed < frames.length) {
+    const idle = [...pool.workers]; const done = new Map(); const running = new Set(); let next = committed; let failure = null;
+    const dispatch = () => {
+      while (!failure && idle.length && next < frames.length) {
+        const worker = idle.shift(); const index = next; next += 1;
+        const job = worker.recognize(pgm(frames[index].pixels, spec.width, spec.height)).then(result => { done.set(index, result); idle.push(worker); }, error => { failure = failure || error; }).finally(() => running.delete(job));
+        running.add(job);
+      }
+    };
+    try {
+      dispatch();
+      while (committed < frames.length && !failure) {
+        throwIfAborted(signal);
+        if (!done.has(committed)) { await Promise.race(running); continue; }
+        const result = done.get(committed); done.delete(committed); await commit(committed, result); committed += 1; dispatch();
+      }
+    } finally { if (running.size) await Promise.allSettled([...running]); }
+    if (failure) { throwIfAborted(signal); if (!pool.degrade) throw failure; await pool.degrade(failure); }
   }
   return snapshots;
 }
@@ -354,15 +431,18 @@ async function analyzeVodTimeline(input, options = {}) {
     ];
     const checkpointKey = crypto.createHash('sha256').update(JSON.stringify({ source: input.sourceSha256 || path.resolve(file), startMs: Number(input.startMs) || 0, endMs: Number(input.endMs) || null, players: input.players || [], observerMode: !!input.observerMode, povPlayerName: input.povPlayerName || null })).digest('hex');
     const saved = await readCheckpoint(options.checkpointFile); const checkpoint = saved?.schema === 'moetracker.vod-checkpoint/v1' && saved.key === checkpointKey ? saved : { schema: 'moetracker.vod-checkpoint/v1', key: checkpointKey, specs: {}, updatedAt: null };
-    const candidates = {};
-    for (const spec of specs) candidates[spec.key] = await changedFrames(file, spec, probe.durationSeconds, progress, signal, { startMs: input.startMs, endMs: input.endMs });
-    const total = specs.reduce((sum, spec) => sum + candidates[spec.key].length, 0); progress?.({ stage: 'ocr', percent: 0, message: `Reading ${total} changed HUD frames locally…` });
-    const { createWorker, PSM } = require('tesseract.js');
-    const langPath = path.dirname(unpackedExecutable(require.resolve('@tesseract.js-data/eng/4.0.0/eng.traineddata.gz')));
-    const worker = await createWorker('eng', undefined, { langPath }); await worker.setParameters({ tessedit_pageseg_mode: PSM.SPARSE_TEXT });
+    const performance = { ...normalizeVodPerformance(options.performance), singleDecode: options.performance?.singleDecode !== false }; const log = options.log || (() => {});
+    const candidates = await sampleRegions(file, specs, probe.durationSeconds, progress, signal, { startMs: input.startMs, endMs: input.endMs }, performance, log);
+    const total = specs.reduce((sum, spec) => sum + candidates[spec.key].length, 0);
+    const frameBytes = specs.reduce((sum, spec) => sum + candidates[spec.key].length * spec.width * spec.height, 0);
+    const workerCount = resolveOcrWorkers(performance.ocrWorkers, { cpus: os.availableParallelism?.() || os.cpus().length, freeBytes: os.freemem(), frameBytes });
+    progress?.({ stage: 'ocr', percent: 0, message: `Reading ${total} changed HUD frames locally${workerCount > 1 ? ` on ${workerCount} threads` : ''}…` }); log(`ocr: ${workerCount} worker${workerCount === 1 ? '' : 's'} (setting ${performance.ocrWorkers})`);
+    const pool = await createOcrPool(workerCount, log);
     let offset = 0; const snapshots = {};
-    try { for (const spec of specs) { snapshots[spec.key] = await recognizeFrames(candidates[spec.key], spec, worker, progress, offset, total, signal, checkpoint.specs[spec.key], async state => { checkpoint.specs[spec.key] = state; checkpoint.updatedAt = new Date().toISOString(); await writeCheckpoint(options.checkpointFile, checkpoint); }); offset += candidates[spec.key].length; } }
-    finally { await worker.terminate(); }
+    try { for (const spec of specs) { snapshots[spec.key] = await recognizeFrames(candidates[spec.key], spec, pool, progress, offset, total, signal, checkpoint.specs[spec.key], async state => { checkpoint.specs[spec.key] = state; checkpoint.updatedAt = new Date().toISOString(); await writeCheckpoint(options.checkpointFile, checkpoint); }); offset += candidates[spec.key].length; } }
+    finally { await pool.terminate(); }
+    // Comparison runs (scripts/vod-speed-compare.cjs) hash exactly what was sampled and read.
+    options.inspect?.({ candidates, snapshots: structuredClone(snapshots), ocrWorkers: workerCount });
     if (Array.isArray(input.visualTemplates) && input.visualTemplates.length) for (const spec of specs) snapshots[spec.key] = applyVisualTemplates(snapshots[spec.key], input.visualTemplates);
     const rangeDurationMs = Number(input.endMs) > Number(input.startMs || 0) ? Number(input.endMs) - Number(input.startMs || 0) : probe.durationMs;
     const inferredPov = input.observerMode ? null : (input.povPlayerName || inferPovPlayer(snapshots.povSnapshots || [], input.players || []));
@@ -410,4 +490,4 @@ async function readVodFrame(directory, frame) {
   return { mediaType: 'image/png', base64: (await fsp.readFile(path.join(path.resolve(directory), name))).toString('base64') };
 }
 
-module.exports = { sweepOrphanedVodDirectories, readOwnedVodFrame, readVodFrame, normalizeYoutubeUrl, youtubeVideoId, probeVideo, analyzeVodTimeline, normalizeTimelinePlayers, discoverVodGames, releaseVodSource, createReviewClips, changedFrames, frameDifference, visualSignature, ensureDiskSpace, scoreboardGeometryScore, agentSelectGeometryScore, chooseGameBoundaries, inferPovPlayer };
+module.exports = { sweepOrphanedVodDirectories, readOwnedVodFrame, readVodFrame, normalizeYoutubeUrl, youtubeVideoId, probeVideo, analyzeVodTimeline, normalizeTimelinePlayers, discoverVodGames, releaseVodSource, createReviewClips, changedFrames, changedFramesTogether, sampleRegions, recognizeFrames, createOcrPool, frameDifference, visualSignature, ensureDiskSpace, scoreboardGeometryScore, agentSelectGeometryScore, chooseGameBoundaries, inferPovPlayer };
