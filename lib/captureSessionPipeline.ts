@@ -11,7 +11,7 @@ import { parseLocalRoundRecognitions } from './localRoundOcrEngine';
 import { classifyValorantRoundEvents } from './localRoundEventClassifier';
 import { canonicalScoreboardName, cleanCaptureDisplayName, cleanCaptureMap, inferAlliedScoreboardNames, normalizeCaptureName, inferStartingSide, reconcileCapturedRoundNumbers, scoreFromCompleteRounds } from './scrimCaptureImport';
 import { canonicalKnownMap, consensusDisplayName } from './ocrAutonomy';
-import { applyLocalCorrection, type LocalCorrectionModel, type OcrLearningField } from './ocrLearning';
+import { applyLearnedCorrections, type LocalCorrectionModel } from './ocrLearning';
 import { classifyValorantScoreboardAgents } from './localAgentClassifier';
 import { addSurvivalEvidence, canonicalizeRoundIdentities, enrichObjectiveRows, enrichScreenshotEvents } from './screenshotEvidence';
 import { parseLocalHeadToHeadRecognitions, parseLocalPerformanceRecognitions } from './localPerformanceOcrEngine';
@@ -91,12 +91,7 @@ export async function extractCaptureSession(input: {
   // Portraits keep the calibrated grid. The separator row offset measures the
   // text rows, and a few pixels of it push the 48px portrait crop off its cell.
   const detectedAgents = await classifyValorantScoreboardAgents(scoreboardImage, scoreboardLayout).catch(() => Array<string | null>(10).fill(null));
-  draft.stats = draft.stats.map((player, index) => {
-    const corrected = { ...player, agent: detectedAgents[index] || player.agent } as any;
-    const correctionContext = { sourceModel: draft.sourceMetadata.model, layout: scoreboardLayout, resolution: `${scoreboardImage.naturalWidth}x${scoreboardImage.naturalHeight}` };
-    for (const field of ['agent', 'kills', 'deaths', 'assists', 'fk', 'fd', 'plants', 'defuses', 'trades'] as OcrLearningField[]) corrected[field] = applyLocalCorrection(input.correctionModel, field, corrected[field], { ...correctionContext, sourceRegion: `player.${index}.${field}` });
-    return corrected;
-  });
+  draft.stats = applyLearnedCorrections(draft.stats.map((player, index) => ({ ...player, agent: detectedAgents[index] || player.agent })), input.correctionModel, { sourceModel: draft.sourceMetadata.model, layout: scoreboardLayout, resolution: `${scoreboardImage.naturalWidth}x${scoreboardImage.naturalHeight}` });
   const performanceCapture = captures.find(item => item.kind === 'performance');
   const headToHeadCapture = captures.find(item => item.kind === 'head-to-head');
   const performance = performanceCapture ? await (async () => {
