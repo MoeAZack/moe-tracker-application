@@ -84,6 +84,13 @@ describe('practice summary', () => {
     expect(buildPracticeRecap(db, scheduleId)).toBeNull();
   });
 
+  it('leaves a quarantined duplicate copy out of the match list', () => {
+    const { db } = fixture();
+    db.matches.push({ ...db.matches[0], id: 'm1-copy', duplicateReview: { status: 'quarantined' } });
+    db.practiceBlocks[0].matchIds.push('m1-copy');
+    expect(buildPracticeRecap(db, scheduleId)!.matches.map(match => match.matchId)).toEqual(['m1', 'm2']);
+  });
+
   it('makes no claim from too few rounds', () => {
     const empty: any = { openings: { pistols: { ATT: { wins: 1, samples: 1 }, DEF: { wins: 1, samples: 1 } }, firstThree: { ATT: { wins: 3, samples: 3 }, DEF: { wins: 0, samples: 3 } }, firstKills: 4, firstDeaths: 0, recoveriesAfterFirstDeath: 0, firstDeathSamples: 2 }, advantages: { converted: 1, lost: 2 }, economy: { fullBuyLosses: 3, fullBuyRounds: 4, antiEcoLosses: 1, antiEcoRounds: 1, lowBuyWins: 1, lowBuyRounds: 3 } };
     expect(recapJudgments(empty, 15)).toEqual({ wentWell: [], workOn: [] });
