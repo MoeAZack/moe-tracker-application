@@ -259,6 +259,19 @@ export function materializeScreenshotMetricsFromRoundEvidence(data: { rounds?: R
 }
 
 /**
+ * Rounds an automatic save deferred for review (`automation.roundsNeedingReview`)
+ * were never looked at by a coach, so they feed nothing derived: not the round
+ * log, not plants, not first deaths. Rounds a coach saved from the review
+ * modal keep the existing rule, where a complete opening event is enough.
+ */
+function deferredRoundKeys(matches: readonly any[] | undefined) {
+  const keys = new Set<string>();
+  for (const match of matches || []) for (const roundNo of match?.automation?.roundsNeedingReview || []) keys.add(`${match.id}:${roundNo}`);
+  return keys;
+}
+const deferred = (keys: Set<string>, round: any) => keys.has(`${round?.matchId}:${round?.roundNo}`) && round?.screenshotEvidence?.reviewStatus !== 'confirmed';
+
+/**
  * Fill scoreboard FD totals when every played round has a securely resolved
  * opening event. Legacy captures predate openingEventComplete; source row zero
  * is their conservative proof that no earlier kill row was skipped.
@@ -279,6 +292,7 @@ export function materializeFirstDeathsFromRoundEvidence(
   const allRounds = Array.isArray(data.rounds) ? data.rounds : [];
   const stats = Array.isArray(data.playerStats) ? data.playerStats : [];
   const owned = (stat: any) => options.overwrite || stat.fd === null || stat.fd === undefined || stat.fdDerivedFrom === 'round-evidence';
+  const deferredKeys = deferredRoundKeys(matches);
   for (const match of matches) {
     if (options.matchId && match.id !== options.matchId) continue;
     const matchStats = stats.filter(stat => stat.matchId === match.id);
@@ -289,6 +303,7 @@ export function materializeFirstDeathsFromRoundEvidence(
     let complete = rounds.length > 0 && (expectedRounds === null || rounds.length === expectedRounds);
     for (const round of complete ? rounds : []) {
       const evidence = round.screenshotEvidence;
+      if (deferred(deferredKeys, round)) { complete = false; break; }
       for (const player of evidence?.players || []) if (player?.team === 'ours') observed.add(screenshotPlayerIdentity(player.playerId, player.displayName));
       for (const event of evidence?.events || []) {
         if (event?.killerTeam === 'ours' && event.killerPlayerId) observed.add(screenshotPlayerIdentity(event.killerPlayerId, ''));
@@ -329,13 +344,15 @@ export function materializeFirstDeathsFromRoundEvidence(
  * blanks and never replaces them.
  */
 export function materializeRoundOpeningsFromScreenshotEvidence(
-  data: { rounds?: any[] },
+  data: { rounds?: any[]; matches?: any[] },
   options: { matchId?: string } = {},
 ) {
   let changed = 0;
   const rounds = Array.isArray(data.rounds) ? data.rounds : [];
+  const deferredKeys = deferredRoundKeys(data.matches);
   for (const round of rounds) {
     if (options.matchId && round.matchId !== options.matchId) continue;
+    if (deferred(deferredKeys, round)) continue;
     const evidence = round.screenshotEvidence;
     const first = [...(evidence?.events || [])].sort((a: any, b: any) => Number(a.sequence) - Number(b.sequence))[0];
     const legacyOpening = evidence?.openingEventComplete === undefined
@@ -369,13 +386,15 @@ export function materializeRoundOpeningsFromScreenshotEvidence(
  * a correction and is never replaced by the migration.
  */
 export function materializeRoundPlantsFromScreenshotEvidence(
-  data: { rounds?: any[] },
+  data: { rounds?: any[]; matches?: any[] },
   options: { matchId?: string } = {},
 ) {
   let changed = 0;
   const rounds = Array.isArray(data.rounds) ? data.rounds : [];
+  const deferredKeys = deferredRoundKeys(data.matches);
   for (const round of rounds) {
     if (options.matchId && round.matchId !== options.matchId) continue;
+    if (deferred(deferredKeys, round)) continue;
     if (round.plant !== undefined && round.plant !== null && String(round.plant).trim() !== '') continue;
     const hasPlant = (round.screenshotEvidence?.objectives || []).some((event: any) => event?.type === 'plant');
     if (!hasPlant) continue;
