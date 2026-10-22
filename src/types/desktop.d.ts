@@ -65,7 +65,7 @@ declare global {
       setCapturePaused(paused: boolean): Promise<{ paused: boolean }>;
       setCapturePreferences(input: { profile: 'fullscreen' | 'fullscreen-windowed' | 'windowed'; display: string; notification: 'open-review' | 'notify-only' | 'silent'; offlineQueue: boolean; elevated?: boolean; matchEndOffer?: 'notify' | 'off' }): Promise<DesktopStatus['capture']['preferences']>;
       disconnectDevice(): Promise<{ disconnected: boolean }>;
-      listScoreboards(): Promise<Array<{ id: string; name: string; size: number; modifiedAt: string; mediaType: string; capture?: null | { captureId: string; template: string; requestedRounds: number } }>>;
+      listScoreboards(): Promise<Array<{ id: string; name: string; size: number; modifiedAt: string; mediaType: string; capture?: null | { captureId: string; template: string; requestedRounds: number; missingRounds?: number } }>>;
       readScoreboard(id: string): Promise<{ id: string; imageSha256: string; name: string; mediaType: string; bytes: Uint8Array }>;
       readCaptureSession(id: string): Promise<{ id: string; captureId: string; template: string; requestedRounds: number; captures: Array<{ kind: 'scoreboard' | 'performance' | 'head-to-head' | 'round'; round?: number; name: string; mediaType: string; base64: string }> }>;
       completeScoreboard(id: string): Promise<{ completed: boolean }>;

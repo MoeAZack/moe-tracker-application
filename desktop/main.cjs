@@ -26,6 +26,7 @@ const { analyzeVodTimeline, discoverVodGames, releaseVodSource, createReviewClip
 const { launchScrimCapture } = require('./capture-launch.cjs');
 const { createIngestionJob, updateIngestionJob: evolveIngestionJob, recoverInterruptedJobs, publicIngestionJob } = require('./ingestion-jobs.cjs');
 const { chooseLocalPort, createStrandedLearningRecovery } = require('./local-origin.cjs');
+const { bundledRevision } = require('./build-info.cjs');
 
 let mainWindow;
 let tray;
@@ -221,6 +222,7 @@ async function startLocalServer() {
       catch (error) { void recordLocalCrash('local-integration-secret-decrypt-failed', error, { key }); }
     }
   }
+  const revision = bundledRevision(applicationCodeRoot());
   const child = runNode(entry, [], { env: {
     NODE_ENV: 'production', HOST: '127.0.0.1', PORT: String(runtime.port),
     DB_PATH: runtime.paths.database,
@@ -231,6 +233,7 @@ async function startLocalServer() {
     JWT_SECRET: runtime.config.jwtSecret,
     APP_DESKTOP: 'true',
     APP_VERSION: app.getVersion(),
+    ...(revision ? { APP_REVISION: revision } : {}),
     // The replay collector reports this id; saved captures use it to pair.
     DESKTOP_DEVICE_ID: runtime.config.deviceId,
     ...(runtime.workspaceEstablished ? { DESKTOP_WORKSPACE_ESTABLISHED: 'true' } : {}),
@@ -788,7 +791,7 @@ handleTrusted('desktop:set-capture-preferences', async (_event, input = {}) => {
   runtime.config.capturePreferences = { profile, display, notification, offlineQueue: input.offlineQueue !== false, elevated: input.elevated === true, matchEndOffer: matchEndOfferPreference }; await saveRuntimeConfig(); return runtime.config.capturePreferences;
 });
 handleTrusted('desktop:disconnect-device', async () => { delete runtime.config.cloudPairing; delete runtime.config.identity; runtime.config.mode = 'offline-first'; runtime.config.role = 'coach'; runtime.session = null; runtime.coachSession = null; await saveRuntimeConfig(); return { disconnected: true }; });
-handleTrusted('desktop:list-scoreboards', async () => (await allPendingScoreboards()).map(({ file: _privatePath, capture: privateCapture, ...record }) => ({ ...record, capture: privateCapture ? { captureId: privateCapture.captureId, template: privateCapture.template, requestedRounds: privateCapture.requestedRounds } : null })));
+handleTrusted('desktop:list-scoreboards', async () => (await allPendingScoreboards()).map(({ file: _privatePath, capture: privateCapture, ...record }) => ({ ...record, capture: privateCapture ? { captureId: privateCapture.captureId, template: privateCapture.template, requestedRounds: privateCapture.requestedRounds, missingRounds: privateCapture.missingRounds } : null })));
 handleTrusted('desktop:read-scoreboard', async (_event, id) => {
   if (!/^[a-f0-9]{64}$/.test(String(id || ''))) throw new Error('Unknown scoreboard image.');
   const record = (await allPendingScoreboards()).find(item => item.id === id);

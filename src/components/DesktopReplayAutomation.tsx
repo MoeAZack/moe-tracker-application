@@ -38,7 +38,8 @@ export default function DesktopReplayAutomation({ data, role, onProcessed, onSav
       let heldCapture: string | null = null;
       try {
         // A capture the coach has open in the scrim import modal is theirs until they save or close it.
-        const pending = (await window.moeDesktop!.listScoreboards()).find(item => Date.now() - (attempted.current.get(item.id) || 0) >= RETRY_AFTER_MS && captureHolder(item.id) !== 'review');
+        // A capture missing rounds cannot be read; it waits for the coach to set it aside.
+        const pending = (await window.moeDesktop!.listScoreboards()).find(item => !item.capture?.missingRounds && Date.now() - (attempted.current.get(item.id) || 0) >= RETRY_AFTER_MS && captureHolder(item.id) !== 'review');
         if (!pending) return;
         if (pending.capture && !holdCapture(pending.id, 'automatic')) return;
         heldCapture = pending.capture ? pending.id : null;
