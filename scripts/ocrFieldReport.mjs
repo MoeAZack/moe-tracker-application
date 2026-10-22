@@ -97,7 +97,8 @@ export function fieldReport(corpus, outputs) {
   for (const session of corpus.sessions || []) {
     const output = outputs[session.captureId];
     if (!output) { missing.push(session.captureId); continue; }
-    const condition = `${session.resolution} · ${session.windowsScalePercent}% · ${session.layout}`;
+    // The resolution the pipeline actually read (a resampled run differs from the label's capture).
+    const condition = `${output.captureDiagnostics?.resolution || session.resolution} · ${session.windowsScalePercent}% · ${session.layout}`;
     pairRows(session.players, output.players || []).forEach((row, index) => { if (row === null) unpaired.push({ captureId: session.captureId, player: index }); });
     for (const cell of labelledCells(session, corpus.rowLabels, output)) {
       const read = readCell(output, cell.field, cell.row);

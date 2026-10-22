@@ -11,9 +11,27 @@ const loadImage = async (capture: CaptureImage) => {
   return image;
 };
 
-(window as any).__runCaptureBacktest = async (payload: { captures: CaptureImage[]; rosterPlayers?: Array<{ id?: string; displayName: string }> }) => {
+/**
+ * Coverage for resolutions the corpus was not captured at: every image is
+ * redrawn at the target size (smoothed, as a scaled game render would be)
+ * and re-encoded as PNG before the unchanged pipeline reads it. A real
+ * client at that resolution renders text natively, so this approximates it.
+ */
+export async function resampleCapture(capture: CaptureImage, width: number, height: number): Promise<CaptureImage> {
+  const image = await loadImage(capture);
+  if (image.naturalWidth === width && image.naturalHeight === height) return capture;
+  const canvas = document.createElement('canvas'); canvas.width = width; canvas.height = height;
+  const context = canvas.getContext('2d');
+  if (!context) throw new Error('Canvas is unavailable for resampling.');
+  context.imageSmoothingEnabled = true; context.imageSmoothingQuality = 'high';
+  context.drawImage(image, 0, 0, width, height);
+  return { ...capture, mediaType: 'image/png', base64: canvas.toDataURL('image/png').split(',')[1] };
+}
+
+(window as any).__runCaptureBacktest = async (payload: { captures: CaptureImage[]; rosterPlayers?: Array<{ id?: string; displayName: string }>; resample?: { width: number; height: number } | null }) => {
   const adapter = await createBrowserLocalTesseractAdapter();
   try {
-    return await extractCaptureSession({ captures: payload.captures, rosterPlayers: payload.rosterPlayers || [], adapter, loadImage });
+    const captures = payload.resample ? await Promise.all(payload.captures.map(capture => resampleCapture(capture, payload.resample!.width, payload.resample!.height))) : payload.captures;
+    return await extractCaptureSession({ captures, rosterPlayers: payload.rosterPlayers || [], adapter, loadImage });
   } finally { await adapter.terminate(); }
 };
