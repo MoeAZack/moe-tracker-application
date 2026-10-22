@@ -2,6 +2,7 @@ import { useSyncExternalStore } from 'react';
 import type { ScreenshotReviewDraft, TrackerData } from '../types';
 import { extractScoreboardLocally } from './localScoreboard';
 import { apiFetch } from './api';
+import { normalizedMatchName } from '../../lib/matchIdentity';
 
 // The automatic multi-game VOD import used to run inside the VOD tab's React
 // component, so switching tabs threw away its progress and the link to the
@@ -15,6 +16,8 @@ export type VodProgress = { owner: 'batch' | 'personal'; step: number; stepPerce
 export type VodBatchGame = { map: string; score: string; status: string };
 export type VodQueueStatus = 'waiting' | 'running' | 'done' | 'error' | 'removed';
 export type VodQueueItem = { id: string; label: string; expectedGames: number; status: VodQueueStatus; message: string; games: VodBatchGame[] };
+/** A game whose scoreboard does not name five known players: the coach ticks our five before anyone is added. */
+export type VodTeamPick = { game: number; totalGames: number; map: string; score: string; rows: Array<{ index: number; name: string; agent: string | null; kills: number | null; deaths: number | null; assists: number | null; known: boolean }> };
 export type VodImportState = {
   /** True from the first queued VOD until the queue is empty. */
   running: boolean;
@@ -28,6 +31,8 @@ export type VodImportState = {
   // Bumped once per finished run so views can reload their history.
   runCount: number;
   dismissed: boolean;
+  /** Set while the import waits for the coach to pick our five players. */
+  teamPick: VodTeamPick | null;
 };
 
 export const VOD_STEPS = ['Download video', 'Find games', 'Read scoreboards', 'Analyze timelines', 'Save results'];
@@ -67,13 +72,17 @@ export type VodImportDeps = {
   extractScoreboard: typeof extractScoreboardLocally;
 };
 
-const initialState = (): VodImportState => ({ running: false, queue: [], progress: null, message: '', batchResult: [], sourceLabel: null, startedAt: null, finishedAt: null, runCount: 0, dismissed: false });
+const initialState = (): VodImportState => ({ running: false, queue: [], progress: null, message: '', batchResult: [], sourceLabel: null, startedAt: null, finishedAt: null, runCount: 0, dismissed: false, teamPick: null });
 let state: VodImportState = initialState();
 const listeners = new Set<() => void>();
 const progressContext = { gameIndex: 0, totalGames: 1 };
 let progressUnsubscribe: (() => void) | null = null;
 type Pending = { id: string; input: VodBatchImportInput; deps: VodImportDeps; runCountAtQueue: number; resolve: (completed: boolean) => void };
 let pending: Pending[] = [];
+type TeamPickAnswer = number[] | null | 'cancel';
+let teamPickResolver: ((answer: TeamPickAnswer) => void) | null = null;
+const settleTeamPick = (answer: TeamPickAnswer) => { const resolve = teamPickResolver; teamPickResolver = null; if (resolve) { setState({ teamPick: null }); resolve(answer); } };
+const askTeamPick = (pick: VodTeamPick) => new Promise<TeamPickAnswer>(resolve => { teamPickResolver = resolve; setState({ teamPick: pick, dismissed: false }); });
 let nextQueueId = 1;
 
 const setState = (patch: Partial<VodImportState>) => { state = { ...state, ...patch }; for (const listener of listeners) listener(); };
@@ -84,7 +93,18 @@ export const vodImportStore = {
   getSnapshot: () => state,
   subscribe: (listener: () => void) => { listeners.add(listener); return () => { listeners.delete(listener); }; },
   dismiss: () => { if (!state.running) setState({ dismissed: true }); },
-  reset: () => { progressUnsubscribe?.(); progressUnsubscribe = null; pending.forEach(item => item.resolve(false)); pending = []; state = initialState(); for (const listener of listeners) listener(); },
+  /**
+   * The coach's answer to the team pick: five scoreboard rows, or null to save
+   * the game without naming anyone. Anything else is refused.
+   */
+  answerTeamPick: (rows: number[] | null) => {
+    const pick = state.teamPick;
+    if (!pick || !teamPickResolver) return false;
+    if (rows && (new Set(rows).size !== 5 || rows.length !== 5 || rows.some(index => !pick.rows.some(row => row.index === index)))) return false;
+    settleTeamPick(rows ? [...rows].sort((a, b) => a - b) : null);
+    return true;
+  },
+  reset: () => { settleTeamPick('cancel'); progressUnsubscribe?.(); progressUnsubscribe = null; pending.forEach(item => item.resolve(false)); pending = []; state = initialState(); for (const listener of listeners) listener(); },
   /** Takes a VOD that has not started yet out of the queue. The running one is stopped with cancelVodImport. */
   remove: (id: string) => {
     const item = pending.find(entry => entry.id === id);
@@ -108,18 +128,13 @@ const sha256File = async (file: File) => [...new Uint8Array(await crypto.subtle.
 const stripRawText = (evidence: unknown) => JSON.parse(JSON.stringify(evidence, (key, item) => key === 'rawText' ? undefined : item));
 
 /**
- * Our five scoreboard rows. Five roster matches decide it. Otherwise, when
- * every roster match sits in the top five rows (our team on the end screen),
- * those five rows are ours and each unmatched one is a new player under the
- * name the scoreboard shows. Anything else is not ours to guess.
+ * Scoreboard rows that name a known player: a roster match, or exactly a name
+ * this import already saved as ours. Near misses are not guessed here; the
+ * coach is asked again.
  */
-export function ourScoreboardRows(stats: ReadonlyArray<{ extractedName?: string | null; rosterMatch?: { status?: string } }>): { rows: number[]; newPlayers: number } | null {
-  const matched = stats.map((row, index) => row.rosterMatch?.status === 'matched' ? index : -1).filter(index => index >= 0);
-  if (matched.length === 5) return { rows: matched, newPlayers: 0 };
-  if (stats.length !== 10 || matched.some(index => index >= 5)) return null;
-  const top = [0, 1, 2, 3, 4];
-  if (top.some(index => String(stats[index].extractedName || '').trim().length < 2)) return null;
-  return { rows: top, newPlayers: 5 - matched.length };
+export function knownScoreboardRows(stats: ReadonlyArray<{ extractedName?: string | null; rosterMatch?: { status?: string } }>, oursThisRun: readonly string[]) {
+  const ours = new Set(oursThisRun.map(name => normalizedMatchName(name)).filter(Boolean));
+  return stats.map((row, index) => row.rosterMatch?.status === 'matched' || ours.has(normalizedMatchName(row.extractedName)) ? index : -1).filter(index => index >= 0);
 }
 
 export function boundaryTimelinePlayers(activeRoster: readonly { displayName: string }[], linkedMatch: any) {
@@ -155,6 +170,8 @@ const defaultDeps = (): VodImportDeps | null => window.moeDesktop ? { desktop: w
 
 export const cancelVodImport = async (deps: VodImportDeps | null = defaultDeps()) => {
   if (!state.running || !deps) return false;
+  // Waiting on the coach is this window's own step; cancelling ends it here.
+  if (teamPickResolver) { settleTeamPick('cancel'); return true; }
   const result = await deps.desktop.cancelVodAnalysis().catch(() => null);
   if (result?.cancelled && state.progress) setProgress({ ...state.progress, message: 'Cancelling safely…' });
   return !!result?.cancelled;
@@ -223,17 +240,17 @@ async function runOneImport(input: VodBatchImportInput, deps: VodImportDeps): Pr
     const requestedGames = Math.max(1, Math.min(12, input.expectedGames || 1));
     const discovery = await desktop.discoverVodGames({ ...(chosenUrl ? { vodUrl: chosenUrl } : {}), expectedGames: requestedGames, mapNames: input.mapNames, ...(chosenLocal ? { localPath: chosenLocal.path } : {}) }); cacheId = discovery.cacheId; const normalizedVodUrl = discovery.vodUrl || chosenUrl;
     setProgress({ owner: 'batch', step: 2, stepPercent: 0, message: 'Reading detected scoreboard candidates…', status: 'working' });
-    const detected: Array<{ timestampMs: number; draft: ScreenshotReviewDraft; imageSha256: string; selected: number[]; newPlayers: number }> = [];
+    const detected: Array<{ timestampMs: number; draft: ScreenshotReviewDraft; imageSha256: string }> = [];
     const signatures = new Set<string>();
     for (let index = 0; index < discovery.games.length; index += 1) {
       setProgress({ owner: 'batch', step: 2, stepPercent: Math.round(index / Math.max(1, discovery.games.length) * 100), message: `Reading scoreboard candidate ${index + 1}/${discovery.games.length}…`, status: 'working' });
       try {
         const frame = await desktop.readVodFrame({ cacheId, frame: discovery.games[index].frame }); const image = fileFromBase64(frame.base64, `vod-scoreboard-${index + 1}.png`, frame.mediaType);
-        const extracted = await deps.extractScoreboard(image, activeRoster, undefined, { trackJob: false }); const ours = ourScoreboardRows(extracted.draft.stats);
-        if (!ours) continue; const selected = ours.rows;
-        if (extracted.draft.stats.length !== 10 || extracted.draft.match.ourScore === null || extracted.draft.match.theirScore === null || !extracted.draft.match.map) continue;
-        const signature = `${extracted.draft.match.map.toLocaleLowerCase()}:${extracted.draft.match.ourScore}:${extracted.draft.match.theirScore}:${selected.map(rowIndex => `${extracted.draft.stats[rowIndex].matchedPlayerId || extracted.draft.stats[rowIndex].extractedName.toLocaleLowerCase('en')}:${extracted.draft.stats[rowIndex].kills}:${extracted.draft.stats[rowIndex].deaths}`).sort().join('|')}`;
-        if (signatures.has(signature)) continue; signatures.add(signature); detected.push({ timestampMs: discovery.games[index].timestampMs, draft: extracted.draft, imageSha256: extracted.imageSha256, selected, newPlayers: ours.newPlayers });
+        const extracted = await deps.extractScoreboard(image, activeRoster, undefined, { trackJob: false });
+        // Every name must be read so the coach can pick our five; the roster no longer has to know them.
+        if (extracted.draft.stats.length !== 10 || extracted.draft.stats.some(row => String(row.extractedName || '').trim().length < 2) || extracted.draft.match.ourScore === null || extracted.draft.match.theirScore === null || !extracted.draft.match.map) continue;
+        const signature = `${extracted.draft.match.map.toLocaleLowerCase()}:${extracted.draft.match.ourScore}:${extracted.draft.match.theirScore}:${extracted.draft.stats.map(row => `${row.matchedPlayerId || row.extractedName.toLocaleLowerCase('en')}:${row.kills}:${row.deaths}`).sort().join('|')}`;
+        if (signatures.has(signature)) continue; signatures.add(signature); detected.push({ timestampMs: discovery.games[index].timestampMs, draft: extracted.draft, imageSha256: extracted.imageSha256 });
       } catch { /* Geometry and identity gates intentionally discard non-scoreboard candidates. */ }
     }
     detected.sort((left, right) => left.timestampMs - right.timestampMs);
@@ -265,21 +282,32 @@ async function runOneImport(input: VodBatchImportInput, deps: VodImportDeps): Pr
       const unnamedNote = unnamedGames ? ` No player names were known for ${unnamedGames === imported.length ? (imported.length === 1 ? 'this game' : 'these games') : `${unnamedGames} of them`}, so kills, deaths, trades and KAST are not credited to anyone yet. Players are added automatically from the end-of-game scoreboard when a VOD shows one; you can also add them under Roster and import this VOD again.` : '';
       setState({ message: `${imported.length} game${imported.length === 1 ? '' : 's'} separated and integrated. This VOD did not show complete post-match scoreboards, so unavailable totals remain pending instead of being guessed.${unnamedNote}`, progress: { owner: 'batch', step: 4, stepPercent: 100, message: `${imported.length} games saved successfully.`, status: 'done' } });
     } else {
-      const addedPlayers = new Set<string>();
+      const addedPlayers = new Set<string>(); const oursThisRun: string[] = [];
       for (let index = 0; index < detected.length; index += 1) {
-        const game = detected[index]; const rows = game.selected.map(rowIndex => game.draft.stats[rowIndex]); const rosterIds = new Set(rows.map(row => row.matchedPlayerId).filter(Boolean));
+        const game = detected[index];
+        // Five known names decide our side. Otherwise the coach ticks our five; position on the board proves nothing.
+        const known = knownScoreboardRows(game.draft.stats, oursThisRun);
+        let selected: number[] = known.length === 5 ? known : [];
+        if (known.length !== 5) {
+          setProgress({ owner: 'batch', step: 3, stepPercent: Math.round(index / detected.length * 100), message: `Waiting for you: tick your five players for game ${index + 1}/${detected.length} · ${game.draft.match.map}.`, status: 'working' });
+          const answer = await askTeamPick({ game: index + 1, totalGames: detected.length, map: game.draft.match.map || 'Unknown map', score: `${game.draft.match.ourScore}–${game.draft.match.theirScore}`, rows: game.draft.stats.map((row, rowIndex) => ({ index: rowIndex, name: row.extractedName, agent: row.agent, kills: value(row.kills), deaths: value(row.deaths), assists: value(row.assists), known: known.includes(rowIndex) })) });
+          if (answer === 'cancel') throw new Error('The import was cancelled while it waited for you to pick your players.');
+          selected = answer || [];
+        }
+        const newPlayers = selected.some(rowIndex => !known.includes(rowIndex));
+        const rows = selected.map(rowIndex => game.draft.stats[rowIndex]); oursThisRun.push(...rows.map(row => row.extractedName)); const rosterIds = new Set(rows.map(row => row.matchedPlayerId).filter(Boolean));
         const possibleMatches = matches.filter(candidate => candidate.date === dateKey && candidate.map?.toLocaleLowerCase() === game.draft.match.map?.toLocaleLowerCase() && candidate.ourScore === game.draft.match.ourScore && candidate.theirScore === game.draft.match.theirScore && [...rosterIds].every(id => playerStats.some(stat => stat.matchId === candidate.id && stat.playerId === id)));
         // A game with new players is not yet in any saved match, so it never links.
-        const linked = !game.newPlayers && possibleMatches.length === 1 ? possibleMatches[0] : null; const reliableBoundaries = discovery.boundaries?.length === detected.length ? discovery.boundaries : null;
+        const linked = selected.length && !newPlayers && possibleMatches.length === 1 ? possibleMatches[0] : null; const reliableBoundaries = discovery.boundaries?.length === detected.length ? discovery.boundaries : null;
         const startMs = reliableBoundaries?.[index]?.timestampMs ?? (index ? Math.min(game.timestampMs, detected[index - 1].timestampMs + 60_000) : 0); const endMs = reliableBoundaries?.[index + 1]?.timestampMs ?? game.timestampMs;
         progressContext.gameIndex = index; progressContext.totalGames = detected.length; setProgress({ owner: 'batch', step: 3, stepPercent: Math.round(index / detected.length * 100), message: `Analyzing game ${index + 1}/${detected.length} · ${game.draft.match.map}…`, status: 'working' });
-        const ours = new Set(game.selected); const players = game.draft.stats.map((row, rowIndex) => ({ name: row.extractedName, team: ours.has(rowIndex) ? 'ours' as const : 'theirs' as const, expectedKills: row.kills, expectedDeaths: row.deaths })).filter(row => row.name).slice(0, 10);
+        const ours = new Set(selected); const players = !selected.length ? [] : game.draft.stats.map((row, rowIndex) => ({ name: row.extractedName, team: ours.has(rowIndex) ? 'ours' as const : 'theirs' as const, expectedKills: row.kills, expectedDeaths: row.deaths })).filter(row => row.name).slice(0, 10);
         const evidence = await desktop.analyzeVod({ vodUrl: normalizedVodUrl, cacheId, startMs, endMs, players, observerMode: perspective === 'coach', ...(perspective === 'player' && selectedPovName ? { povPlayerName: selectedPovName } : {}) });
         const publicTimeline = stripRawText(evidence);
-        setProgress({ owner: 'batch', step: 4, stepPercent: Math.round(index / detected.length * 100), message: `Saving game ${index + 1}/${detected.length}…`, status: 'working' }); const response = await deps.apiFetch('/api/vod-submissions', { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ vodUrl: normalizedVodUrl, imageSha256: game.imageSha256, ...(linked ? { matchId: linked.id } : {}), coachTeamEvidence: true, ...(game.newPlayers ? { addObservedPlayers: true } : {}), date: dateKey, map: game.draft.match.map, opponent: linked?.opponent || null, ourScore: game.draft.match.ourScore, theirScore: game.draft.match.theirScore, players: rows.map(row => ({ observedName: row.extractedName, agent: row.agent, kills: value(row.kills), deaths: value(row.deaths), assists: value(row.assists), acs: value(row.acs), adr: value(row.adr), hs: value(row.hs), fk: value(row.fk), fd: value(row.fd), plants: value(row.plants), defuses: value(row.defuses), trades: value(row.trades) })), timelineEvidence: publicTimeline }) });
+        setProgress({ owner: 'batch', step: 4, stepPercent: Math.round(index / detected.length * 100), message: `Saving game ${index + 1}/${detected.length}…`, status: 'working' }); const response = await deps.apiFetch('/api/vod-submissions', { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ vodUrl: normalizedVodUrl, imageSha256: game.imageSha256, ...(linked ? { matchId: linked.id } : {}), coachTeamEvidence: true, ...(newPlayers ? { addObservedPlayers: true } : {}), date: dateKey, map: game.draft.match.map, opponent: linked?.opponent || null, ourScore: game.draft.match.ourScore, theirScore: game.draft.match.theirScore, players: rows.map(row => ({ observedName: row.extractedName, agent: row.agent, kills: value(row.kills), deaths: value(row.deaths), assists: value(row.assists), acs: value(row.acs), adr: value(row.adr), hs: value(row.hs), fk: value(row.fk), fd: value(row.fd), plants: value(row.plants), defuses: value(row.defuses), trades: value(row.trades) })), timelineEvidence: publicTimeline }) });
         const payload = await response.json(); if (!response.ok) throw new Error(payload.error || `Game ${index + 1} could not be integrated.`);
         const added: string[] = payload.submission.integration?.addedPlayers || []; added.forEach(name => addedPlayers.add(name));
-        imported.push({ map: game.draft.match.map, score: `${game.draft.match.ourScore}–${game.draft.match.theirScore}`, status: `${payload.submission.linkMode === 'new-match' ? 'New match created' : 'Linked to existing match'}${added.length ? ` · ${added.length} new player${added.length === 1 ? '' : 's'} added` : ''}` });
+        imported.push({ map: game.draft.match.map, score: `${game.draft.match.ourScore}–${game.draft.match.theirScore}`, status: `${payload.submission.linkMode === 'new-match' ? 'New match created' : 'Linked to existing match'}${added.length ? ` · ${added.length} new player${added.length === 1 ? '' : 's'} added` : ''}${selected.length ? '' : ' · players not named'}` });
         setState({ batchResult: [...imported] });
       }
       const addedNote = addedPlayers.size ? ` ${addedPlayers.size} new player${addedPlayers.size === 1 ? ' was' : 's were'} added from the scoreboard names with their stats. They are tryouts under Roster: promote the ones you keep to core, and archive the rest (their matches stay).` : '';

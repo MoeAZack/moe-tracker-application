@@ -13,6 +13,7 @@ import { reportDesktopDiagnostic } from './utils/desktopDiagnostics';
 import DesktopReplayAutomation from './components/DesktopReplayAutomation';
 import ReviewContextBar from './components/ReviewContextBar';
 import VodImportStatus from './components/VodImportStatus';
+import VodTeamPick from './components/VodTeamPick';
 import { projectCurrentPlayerAnalytics } from '../lib/activePlayerAnalytics';
 import { projectReviewContext } from '../lib/reviewContext';
 import { destinationEntryTab, evidenceReviewTab, focusReviewContext, navWorkspaceTabs, parseWorkspaceRoute, workspaceSectionTab, resolveWorkspaceTab, routableWorkspaceTabs, syncWorkspaceRoute, workspaceDestination, workspaceDestinations, type WorkspaceDestination, type WorkspaceRoute, type WorkspaceTabId } from './utils/workspaceRoute';
@@ -749,6 +750,7 @@ export default function App() {
 
           {/* Tab Router Switch */}
           {desktopMode && <VodImportStatus hidden={activeTab === 'vodsubmit'} onOpen={() => setActiveTab('vodsubmit')} />}
+          {desktopMode && <VodTeamPick />}
           {desktopMode && data && ['matches', 'replays', 'vod', 'economy', 'aitactical'].includes(activeTab) && <ReviewContextBar data={workspaceData || data} value={{ matchId: reviewMatchId, roundNo: reviewRoundNo }} onChange={value => { setReviewMatchId(value.matchId); setReviewRoundNo(value.roundNo); }} onNavigate={tab => setActiveTab(tab)} />}
           {activeSections.length > 1 && <nav aria-label={`${activeDestination} sections`} className="flex flex-wrap gap-2 border-b border-white/10 pb-3">
             {activeSections.map(section => {
