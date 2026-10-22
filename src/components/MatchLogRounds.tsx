@@ -16,6 +16,7 @@ import { partitionScreenshotRows } from '../../lib/screenshotRosterDraft';
 import { activeTryoutPhase, newWorkspaceMatchContext, resolvePhaseAlias } from '../utils/tryoutWorkspace';
 import { buildOpponentHistory } from '../../lib/opponentHistory';
 import DuplicateReviewPanel from './DuplicateReviewPanel';
+import RecentlyDeletedMatches from './RecentlyDeletedMatches';
 import { activeResourceNames } from '../../lib/resourceCatalog';
 import { Swords, Plus, FileText, BarChart3, Save, Shuffle, Sparkles } from 'lucide-react';
 import { confirmDialog, notify } from '../utils/appDialogs';
@@ -109,11 +110,14 @@ export default function MatchLogRounds({ data, theme, onSaveMatch, onRemove, onS
   const sites = data.settings.sites || ['A', 'B', 'C'];
   const vetoActions = data.settings.vetoActions || ['ban', 'pick', 'decider'];
 
-  // Select a match automatically when opening the view
+  // Select a match automatically when opening the view, once. After a delete
+  // nothing is selected, so the Delete button never lands on the next match.
+  const autoSelected = useRef(false);
   useEffect(() => {
     const requested = reviewMatchId ? matches.find(match => match.id === reviewMatchId) : null;
     if (requested && requested.id !== selectedMatch?.id) setSelectedMatch(requested);
-    else if (matches.length > 0 && !selectedMatch) setSelectedMatch(matches[0]);
+    else if (matches.length > 0 && !selectedMatch && !autoSelected.current) setSelectedMatch(matches[0]);
+    if (matches.length > 0) autoSelected.current = true;
   }, [matches, reviewMatchId, selectedMatch]);
 
   const statsForSelectedMatch = useMemo(() => {
@@ -259,7 +263,8 @@ export default function MatchLogRounds({ data, theme, onSaveMatch, onRemove, onS
   };
 
   const handleDeleteMatch = async (id: string) => {
-    if (data.settings.confirmOnDelete && !(await confirmDialog('Delete this match, round logs, player metrics, and vetoes?', { destructive: true, confirmLabel: 'Delete' }))) return;
+    // Always confirmed, whatever the delete-confirmation setting says.
+    if (!(await confirmDialog('Delete this match with its round log, player stats and veto? It moves to Recently deleted, where you can restore it.', { destructive: true, confirmLabel: 'Delete match' }))) return;
     await onRemove('Matches', id);
     setSelectedMatch(null);
   };
@@ -405,6 +410,7 @@ export default function MatchLogRounds({ data, theme, onSaveMatch, onRemove, onS
               No matches recorded.
             </div>
           )}
+          <RecentlyDeletedMatches isLight={isLight} refreshKey={matches.map(match => match.id).join(',')} onRestored={() => onRefreshDatabase?.()} />
         </div>
 
         {/* Right Side: Active Selected Match details (Tabs, Tables, Logs) */}

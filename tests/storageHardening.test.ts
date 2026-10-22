@@ -1,3 +1,4 @@
+import { markDestructiveSave } from '../lib/destructiveSave';
 import crypto from 'crypto';
 import fs from 'fs/promises';
 import os from 'os';
@@ -168,7 +169,7 @@ describe('private backup and exact restore', () => {
     expect(files).toContain('state.json.enc'); expect(files).not.toContain('state.json');
     const stored = await fs.readFile(path.join(made.directory, 'state.json.enc'), 'utf8');
     expect(stored).not.toContain('kept'); expect(stored).not.toContain('super-secret-value');
-    const changed = await readDB(); changed.matches = []; await saveDB(changed);
+    const changed = await readDB(); changed.matches = []; markDestructiveSave(changed); await saveDB(changed);
     await expect(backup.restorePrivateBackup(made.directory)).resolves.toMatchObject({ restored: true });
     const restored = await readDB(); expect(restored.matches).toEqual([{ id: 'kept' }]); expect(restored.secrets).toMatchObject({ HENRIK_API_KEY: 'super-secret-value' });
     process.env.PRIVATE_BACKUP_KEY = 'a-different-device-key-material';
@@ -191,7 +192,7 @@ describe('private backup and exact restore', () => {
     const backup = await import('../lib/privateBackup');
     const made = await backup.createPrivateBackup({ reason: 'test' });
     expect(made.manifest.replayBlobs).toMatchObject({ embedded: false });
-    const changed = await readDB(); changed.matches.push({ id: 'delete-on-restore' }); changed.playerStats = []; await saveDB(changed);
+    const changed = await readDB(); changed.matches.push({ id: 'delete-on-restore' }); changed.playerStats = []; markDestructiveSave(changed); await saveDB(changed);
     await expect(backup.restorePrivateBackup(made.directory, { dryRun: true })).resolves.toMatchObject({ dryRun: true, metadataValid: true, blobInventoryComplete: true, readyForRestore: true });
     await expect(backup.restorePrivateBackup(made.directory)).resolves.toMatchObject({ restored: true, completeReplacement: true });
     const restored = await readDB(); expect(restored.matches).toEqual([{ id: 'kept' }]); expect(restored.playerStats).toEqual([{ id: 'omitted-later', matchId: 'kept' }]);

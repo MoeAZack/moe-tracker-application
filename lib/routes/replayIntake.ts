@@ -1305,7 +1305,11 @@ export async function registerReplayDeviceRoutes(app: Express) {
     } catch (error: any) { res.status(error?.status || 400).json({ error: error?.message || 'Replay evidence could not be accepted.' }); }
   });
 
-  if (process.env.CLOUDFLARE_WORKER !== 'true') await recoverParserQueue();
+  if (process.env.CLOUDFLARE_WORKER !== 'true') {
+    // A lost or damaged workspace must not stop the server: the app needs it running to offer recovery.
+    try { await recoverParserQueue(); }
+    catch (error: any) { if (error?.code !== 'WORKSPACE_DATABASE_MISSING' && error?.code !== 'WORKSPACE_DATABASE_UNREADABLE') throw error; console.warn(`[replay] parser queue recovery skipped: ${error.message}`); }
+  }
 }
 
 export const replayIntakeInternals = {

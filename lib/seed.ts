@@ -214,6 +214,7 @@ export function createSeed() {
     tryoutDecisionNotes: [],
     identityCorrectionBatches: [],
     seasonArchives: [],
+    removedMatches: [],
     secrets,
     schedule,
     attendanceCredits: [],

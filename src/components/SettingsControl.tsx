@@ -1050,14 +1050,14 @@ export default function SettingsControl({ data, theme, onSaveSettings, onRefresh
                     </div>
                     <div>
                       <h5 className="text-xs font-bold font-mono text-rose-500 uppercase">Danger Zone — Reset Database Metrics</h5>
-                      <p className="text-xs text-gray-400 mt-1">Permanently erase all matches, player stats, round histories, vetos, schedule items, team goals, and strategy logs. Your customized roster players, maps, and theme settings will be preserved.</p>
+                      <p className="text-xs text-gray-400 mt-1">Erase all matches, player stats, round histories, vetos, schedule items, team goals, and strategy logs. A recovery backup of everything is taken first, and nothing is erased if it fails. Roster players, maps, and theme settings are kept.</p>
                     </div>
                   </div>
 
                   <button
                     type="button"
                     onClick={async () => {
-                      if (!(await confirmDialog("CRITICAL WARNING: Are you absolutely sure you want to wipe all statistics and logs? This will delete all matches, player stats, rounds, schedule, goals, strategies, and solo queue records. This action cannot be undone.", { destructive: true, confirmLabel: 'Wipe everything' }))) {
+                      if (!(await confirmDialog("CRITICAL WARNING: Are you absolutely sure you want to wipe all statistics and logs? This will delete all matches, player stats, rounds, schedule, goals, strategies, and solo queue records. A recovery backup is taken first.", { destructive: true, confirmLabel: 'Wipe everything' }))) {
                         return;
                       }
                       
@@ -1070,7 +1070,7 @@ export default function SettingsControl({ data, theme, onSaveSettings, onRefresh
                           throw new Error('Reset request failed on server.');
                         }
                         
-                        notify('Database metrics successfully reset to fresh status.');
+                        notify('Database metrics reset. Everything erased is kept in a recovery backup.');
                         window.location.reload();
                       } catch (err: any) {
                         notify(err.message || 'Wipe operation failed.', 'error');

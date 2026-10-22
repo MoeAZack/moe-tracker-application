@@ -50,6 +50,7 @@ import {
 } from 'lucide-react';
 import { notify } from './utils/appDialogs';
 import AppDialogHost from './components/AppDialogHost';
+import WorkspaceRecovery from './components/WorkspaceRecovery';
 
 const DESTINATION_ICONS: Record<WorkspaceDestination, typeof Trophy> = {
   Home: Trophy, Matches: Swords, Team: Compass, Players: Users, Coaching: Sparkles, Playbook: Layers, Settings: SettingsIcon,
@@ -71,6 +72,8 @@ export default function App() {
   const [data, setData] = useState<TrackerData | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
+  // Set when the local workspace file is missing or damaged: the app offers recovery instead of an empty workspace.
+  const [workspaceUnavailable, setWorkspaceUnavailable] = useState(false);
   
   // Navigation
   const [activeTab, setActiveTab] = useState<WorkspaceTabId>(() => parseWorkspaceRoute(window.location.hash).tab);
@@ -154,9 +157,14 @@ export default function App() {
   const fetchDatabase = async () => {
     try {
       const res = await apiFetch(desktopMode ? '/api/data' : '/api/website-summary');
+      if (res.status === 503) {
+        const body = await res.json().catch(() => ({}));
+        if (body.code === 'WORKSPACE_DATABASE_MISSING' || body.code === 'WORKSPACE_DATABASE_UNREADABLE') { setWorkspaceUnavailable(true); setError(null); return; }
+      }
       if (!res.ok) throw new Error('Failed to retrieve tracker state.');
       const json = await res.json();
       setData(json);
+      setWorkspaceUnavailable(false);
       setError(null);
     } catch (err: any) {
       setError(err.message || 'Database fetch error.');
@@ -731,6 +739,7 @@ export default function App() {
 
         {/* Main Workspace Frame */}
         <main id="main-content" tabIndex={-1} className="flex-grow p-4 sm:p-6 lg:p-8 overflow-hidden max-w-7xl w-full mx-auto flex flex-col gap-6">
+          {workspaceUnavailable && desktopMode && role === 'coach' && <WorkspaceRecovery onRecovered={fetchDatabase} />}
           {error && (
             <div className="p-4 bg-rose-500/10 border border-rose-500/20 text-rose-400 text-sm rounded-lg font-mono text-center flex items-center justify-center gap-2">
               <ShieldAlert className="w-4 h-4 shrink-0" />

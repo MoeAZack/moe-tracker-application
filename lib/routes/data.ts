@@ -1,5 +1,7 @@
 import type { Express } from 'express';
-import { readDB, saveDB } from '../store';
+import { markDestructiveSave } from '../destructiveSave';
+import { appendMatchRemovalLog, readDB, saveDB, usesLocalWorkspaceFiles } from '../store';
+import { createPrivateBackup } from '../privateBackup';
 import { uid, validate } from '../utils';
 import { postDiscordReport } from '../services';
 import { normalizeBoard } from '../strategyBoard';
@@ -14,11 +16,12 @@ import { attendancePolicy, attendanceStatus, attendanceSummary, attendanceWindow
 import { refreshCoachingWorkflow } from './coaching';
 import { purgeExpiredRosterPlayers } from '../roster';
 import { applyScheduleEdit, normalizeScheduleRow, removeScheduleRows, repeatedHourlyScheduleRows } from '../schedule';
-import { findExactRoundEvidenceDuplicate, findExactSourceDuplicate, purgeMatchGraph, isDuplicateQuarantined, purgeRemovedRoundReferences, refreshDuplicateQuarantine, stableRoundReplacement } from '../matchIntegrity';
+import { findExactRoundEvidenceDuplicate, findExactSourceDuplicate, isDuplicateQuarantined, purgeRemovedRoundReferences, refreshDuplicateQuarantine, stableRoundReplacement } from '../matchIntegrity';
 import { autoLinkPracticeSession } from '../practiceSessionProgress';
 import { acceptRoundEvidence } from '../roundEvidenceAcceptance';
 import { buildCalibratedPlayerRatings } from '../calibratedPlayerRatings';
 import { linkLocalCaptureToReplay } from './replayIntake';
+import { quarantineMatch, removalNeedsBackup, removedMatchSummaries, restoreRemovedMatch } from '../matchRemoval';
 
 // Core data + match logging: full payload, reset, settings, generic upsert/remove,
 // and match/round/veto saves. Protected routes (registered after the auth middleware).
@@ -30,6 +33,24 @@ export function registerDataRoutes(app: Express, options: { websiteSummaryOnly?:
   };
   const conflict = (message: string, details: Record<string, unknown>) => Object.assign(new Error(message), { status: 409, details });
   const sendError = (res: any, err: any) => res.status(err.status || 500).json({ error: err.message, ...(err.details || {}) });
+
+  /**
+   * Every match removal keeps the whole match in "Recently deleted", takes a
+   * recovery backup before the last match goes or when removals come in a
+   * burst, and is written to the removal log once saved.
+   */
+  const removeMatchKeepingCopy = async (db: any, matchId: string, req: any, route: 'remove' | 'duplicate-discard') => {
+    const actor = req.user?.username || 'Unknown coach';
+    const backupReason = removalNeedsBackup(db, matchId);
+    const backup = backupReason && usesLocalWorkspaceFiles() ? await createPrivateBackup({ reason: `pre-match-removal-${backupReason}`, state: db }) : null;
+    const entry = quarantineMatch(db, matchId, { actor, route, ...(backup ? { backupId: backup.id } : {}) });
+    markDestructiveSave(db);
+    return { entry, backupId: backup?.id ?? null };
+  };
+  const logRemoval = async (action: 'removed' | 'restored', entry: any, extra: Record<string, unknown> = {}) => {
+    try { await appendMatchRemovalLog({ at: new Date().toISOString(), action, entryId: entry.id, matchId: entry.matchId, actor: action === 'removed' ? entry.removedBy : entry.restoredBy, route: entry.route, summary: entry.summary, ...extra }); }
+    catch (error: any) { console.warn('[match-removal] audit log write failed:', error?.message || error); }
+  };
 
   /** Validate a round replacement without mutating the database. */
   const planRoundReplacement = (db: any, matchId: string, rows: any[]) => {
@@ -45,6 +66,8 @@ export function registerDataRoutes(app: Express, options: { websiteSummaryOnly?:
     purgeRemovedRoundReferences(db, matchId, new Set(replacement.map((round: any) => round.id)));
     db.rounds = (db.rounds || []).filter((r: any) => r.matchId !== matchId);
     db.rounds.push(...replacement);
+    // The caller sent this match's complete round list, and it is empty.
+    if (!replacement.length) markDestructiveSave(db);
     materializeRoundOpeningsFromScreenshotEvidence(db, { matchId });
     materializeRoundPlantsFromScreenshotEvidence(db, { matchId });
     // Fill-only: coach-entered or scoreboard FD values are never replaced, and
@@ -85,6 +108,8 @@ export function registerDataRoutes(app: Express, options: { websiteSummaryOnly?:
       const authenticatedPlayerId = (req as any).user?.playerId ?? null;
       res.json(options.websiteSummaryOnly ? toWebsiteTrackerData(db, role, authenticatedPlayerId) : toPublicTrackerData(db, role, authenticatedPlayerId));
     } catch (err: any) {
+      // A lost or unreadable database is reported as such, so the app can offer recovery.
+      if (err?.code === 'WORKSPACE_DATABASE_MISSING' || err?.code === 'WORKSPACE_DATABASE_UNREADABLE') return res.status(503).json({ error: err.message, code: err.code });
       res.status(500).json({ error: err.message });
     }
   });
@@ -103,7 +128,12 @@ export function registerDataRoutes(app: Express, options: { websiteSummaryOnly?:
   // POST reset all metrics and logs
   app.post('/api/reset-metrics', async (req, res) => {
     try {
+      if (!usesLocalWorkspaceFiles()) return res.status(409).json({ error: 'Reset is only available in the desktop app, where a recovery backup is kept first.' });
       const db = await readDB();
+      // Never a silent wipe: the whole workspace goes into a recovery backup
+      // first, and if that backup fails nothing is erased.
+      const backup = await createPrivateBackup({ reason: 'pre-reset-metrics', state: db });
+      markDestructiveSave(db);
       db.matches = [];
       db.playerStats = [];
       db.soloq = [];
@@ -118,7 +148,7 @@ export function registerDataRoutes(app: Express, options: { websiteSummaryOnly?:
       db.coachingActions = [];
       refreshCoachingWorkflow(db, (req as any).user?.username || 'Unknown coach');
       await saveDB(db);
-      res.json({ success: true, message: 'All database metrics and logs have been reset.' });
+      res.json({ success: true, backupId: backup.id, message: `All database metrics and logs have been reset. Everything erased is in recovery backup ${backup.id}.` });
     } catch (err: any) {
       res.status(500).json({ error: err.message });
     }
@@ -356,10 +386,11 @@ export function registerDataRoutes(app: Express, options: { websiteSummaryOnly?:
         return res.status(400).json({ error: `Invalid sheet: ${sheet}` });
       }
 
-      let matchPurge = null;
+      let matchPurge = null; let removal: Awaited<ReturnType<typeof removeMatchKeepingCopy>> | null = null;
       if (sheet === 'Matches') {
         if (!(db.matches || []).some((match: any) => match.id === id)) return res.status(404).json({ error: 'Match was not found.' });
-        matchPurge = purgeMatchGraph(db, id);
+        removal = await removeMatchKeepingCopy(db, id, req, 'remove');
+        matchPurge = removal.entry.purge;
         // Deleting an original releases its quarantined copy in the same write.
         refreshDuplicateQuarantine(db);
       } else db[key] = db[key].filter((x: any) => x.id !== id);
@@ -376,10 +407,34 @@ export function registerDataRoutes(app: Express, options: { websiteSummaryOnly?:
         refreshCoachingWorkflow(db, (req as any).user?.username || 'Unknown coach');
       }
       await saveDB(db);
-      res.json({ success: true, ...(matchPurge ? { matchPurge } : {}) });
+      if (removal) await logRemoval('removed', removal.entry, { backupId: removal.backupId });
+      res.json({ success: true, ...(matchPurge ? { matchPurge } : {}), ...(removal ? { removedMatchEntryId: removal.entry.id, backupId: removal.backupId } : {}) });
     } catch (err: any) {
       res.status(err.status || 500).json({ error: err.message });
     }
+  });
+
+  // "Recently deleted": matches removed from the workspace, kept whole until restored.
+  app.get('/api/removed-matches', async (req, res) => {
+    try {
+      if (!requireCoach(req, res)) return;
+      res.json({ removedMatches: removedMatchSummaries(await readDB()) });
+    } catch (err: any) { sendError(res, err); }
+  });
+
+  app.post('/api/removed-matches/restore', async (req, res) => {
+    try {
+      if (!requireCoach(req, res)) return;
+      const body = validate(schemas.removedMatchRestoreSchema, req.body, res); if (!body) return;
+      const db = await readDB(); const actor = (req as any).user?.username || 'Unknown coach';
+      const entry = restoreRemovedMatch(db, body.entryId, { actor });
+      refreshDuplicateQuarantine(db);
+      db.calibratedPlayerRatings = buildCalibratedPlayerRatings(withCurrentScreenshotMetrics(db));
+      refreshCoachingWorkflow(db, actor);
+      await saveDB(db);
+      await logRemoval('restored', entry);
+      res.json({ success: true, matchId: entry.matchId, restoredAt: entry.restoredAt });
+    } catch (err: any) { sendError(res, err); }
   });
 
   // POST remove schedule (including mocked calendar handling)
@@ -506,6 +561,8 @@ export function registerDataRoutes(app: Express, options: { websiteSummaryOnly?:
       if (savedStats) {
         db.playerStats = db.playerStats.filter((stat: any) => stat.matchId !== match.id);
         db.playerStats.push(...savedStats);
+        // An explicit replacement with no rows is the coach clearing this match's stats.
+        if (!savedStats.length) markDestructiveSave(db);
       }
       if (plannedRounds) applyRoundReplacement(db, match.id, plannedRounds);
       refreshDuplicateQuarantine(db, timestamp);
@@ -594,13 +651,14 @@ export function registerDataRoutes(app: Express, options: { websiteSummaryOnly?:
       if (match.duplicateReview?.status !== 'quarantined') return res.status(409).json({ error: 'This match is not waiting on a duplicate review.' });
       const actor = (req as any).user?.username || 'Unknown coach';
       const timestamp = new Date().toISOString();
-      let matchPurge = null;
-      if (body.decision === 'discard-this') matchPurge = purgeMatchGraph(db, match.id);
+      let matchPurge = null; let removal: Awaited<ReturnType<typeof removeMatchKeepingCopy>> | null = null;
+      if (body.decision === 'discard-this') { removal = await removeMatchKeepingCopy(db, match.id, req, 'duplicate-discard'); matchPurge = removal.entry.purge; }
       else match.duplicateReview = { ...match.duplicateReview, status: 'kept-distinct', resolvedAt: timestamp, resolvedBy: actor };
       refreshDuplicateQuarantine(db, timestamp);
       refreshCoachingWorkflow(db, actor);
       await saveDB(db);
-      res.json({ success: true, decision: body.decision, duplicateReview: body.decision === 'keep-both' ? match.duplicateReview : null, matchPurge });
+      if (removal) await logRemoval('removed', removal.entry, { backupId: removal.backupId });
+      res.json({ success: true, decision: body.decision, duplicateReview: body.decision === 'keep-both' ? match.duplicateReview : null, matchPurge, ...(removal ? { removedMatchEntryId: removal.entry.id, backupId: removal.backupId } : {}) });
     } catch (err: any) {
       sendError(res, err);
     }

@@ -4,7 +4,7 @@ import { createReadStream } from 'fs';
 import path from 'path';
 import { pipeline } from 'stream/promises';
 import { Transform } from 'stream';
-import { DB_PATH, hydrateFromEvidenceVault, missingEvidenceArtifacts, readDB, readDBIndex, replaceDB } from './store';
+import { DB_PATH, hydrateFromEvidenceVault, missingEvidenceArtifacts, privateBackupRoot, readDB, readDBIndex, replaceDB } from './store';
 import { STORAGE_SCHEMA_VERSION, validateTrackerState } from './storageSchema';
 import { assertSeasonArchivesStorageSize } from './roster';
 
@@ -18,7 +18,7 @@ async function sha256File(file: string) {
   return hash.digest('hex');
 }
 
-function backupRoot() { return path.resolve(process.env.PRIVATE_BACKUP_DIR || path.join(path.dirname(DB_PATH), 'private-backups')); }
+const backupRoot = privateBackupRoot;
 function replayRoot() { return path.resolve(process.env.REPLAY_STORAGE_DIR || path.join(path.dirname(DB_PATH), 'private-replays')); }
 
 async function replayInventory(state: any) {
@@ -126,6 +126,26 @@ export async function createPrivateBackup(options: { reason?: string; directory?
   return { id, directory, manifest };
 }
 
+/** Backups in the private root, newest first, as their manifests describe them. */
+export async function listPrivateBackups() {
+  const entries = await fs.readdir(backupRoot(), { withFileTypes: true }).catch(() => []);
+  const backups: Array<{ id: string; createdAt: string; reason: string }> = [];
+  for (const entry of entries) {
+    if (!entry.isDirectory()) continue;
+    try {
+      const manifest = JSON.parse(await fs.readFile(path.join(backupRoot(), entry.name, 'manifest.json'), 'utf8'));
+      if (manifest?.format === PRIVATE_BACKUP_FORMAT && manifest.id === entry.name) backups.push({ id: manifest.id, createdAt: String(manifest.createdAt), reason: String(manifest.reason || '') });
+    } catch { /* unrelated or incomplete folder */ }
+  }
+  return backups.sort((left, right) => right.createdAt.localeCompare(left.createdAt));
+}
+
+/** Restore one backup from the private root by id. */
+export async function restorePrivateBackupById(id: string) {
+  if (!/^[A-Za-z0-9-]{1,120}$/.test(id) || !(await listPrivateBackups()).some(backup => backup.id === id)) throw Object.assign(new Error('That recovery backup was not found.'), { status: 404 });
+  return restorePrivateBackup(path.join(backupRoot(), id));
+}
+
 export async function validatePrivateBackup(directory: string) {
   const root = path.resolve(directory);
   const manifest = JSON.parse(await fs.readFile(path.join(root, 'manifest.json'), 'utf8'));
@@ -171,15 +191,17 @@ export async function restorePrivateBackup(directory: string, options: { dryRun?
   // Restore is the recovery path for a workspace whose evidence is damaged, so
   // it must not depend on the current state hydrating. When an artifact is
   // missing or corrupt, the pre-restore snapshot keeps the stored index as-is.
-  let current: any; let preRestoreScope: 'complete' | 'index-only' = 'complete';
+  let current: any; let preRestoreScope: 'complete' | 'index-only' | 'none' = 'complete';
   try { current = await readDB(); }
   catch (error: any) {
-    if (!/Evidence artifact/.test(String(error?.message || ''))) throw error;
-    current = await readDBIndex(); preRestoreScope = 'index-only';
+    // A lost or unreadable database (kept aside, never seeded over) is exactly what a restore is for.
+    if (error?.code === 'WORKSPACE_DATABASE_MISSING' || error?.code === 'WORKSPACE_DATABASE_UNREADABLE') { current = null; preRestoreScope = 'none'; }
+    else if (!/Evidence artifact/.test(String(error?.message || ''))) throw error;
+    else { current = await readDBIndex(); preRestoreScope = 'index-only'; }
   }
-  const before = await createPrivateBackup({ reason: `pre-restore${preRestoreScope === 'index-only' ? '-index-only' : ''}:${validated.manifest.id}`, state: current });
-  await replaceDB({ ...validated.state, secrets: { ...(validated.state.secrets || {}), ...(current.secrets || {}) } });
-  return { dryRun: false, restored: true, backupId: validated.manifest.id, preRestoreBackupId: before.id, preRestoreScope, completeReplacement: true };
+  const before = current ? await createPrivateBackup({ reason: `pre-restore${preRestoreScope === 'index-only' ? '-index-only' : ''}:${validated.manifest.id}`, state: current }) : null;
+  await replaceDB({ ...validated.state, secrets: { ...(validated.state.secrets || {}), ...(current?.secrets || {}) } });
+  return { dryRun: false, restored: true, backupId: validated.manifest.id, preRestoreBackupId: before?.id ?? null, preRestoreScope, completeReplacement: true };
 }
 
 export async function reconcileReplayBlobInventory() {

@@ -1,3 +1,4 @@
+import { markDestructiveSave } from './destructiveSave';
 import crypto from 'node:crypto';
 import { identityExactKey } from './identityResolver';
 import { externalizeEvidenceArtifacts } from './evidenceArtifacts';
@@ -93,7 +94,7 @@ export const SEASON_COLLECTION_POLICY = {
     'attendanceCredits', 'coachingSignals', 'coachingActions',
     'evidenceFusionResolutions', 'calibratedPlayerRatings',
   ],
-  retain: ['seasonArchives', 'lineups', 'authKeys', 'allowedUsers', 'engineAdapters', 'dashboardViews'],
+  retain: ['seasonArchives', 'removedMatches', 'lineups', 'authKeys', 'allowedUsers', 'engineAdapters', 'dashboardViews'],
   retainAndSnapshotReferences: ['strats'],
 } as const;
 
@@ -195,6 +196,8 @@ export function archiveAndResetSeason(
     db.settings.activeTryoutBatchId = null;
     removeArchivedAdapters(db, archive.engineAdapters);
     removeArchivedAccessIdentities(db, archive.accessIdentities);
+    // The season's matches now live in its archive, so this save may leave none.
+    markDestructiveSave(db);
     return archive;
   } catch (error) {
     for (const key of Object.keys(db)) delete db[key];
@@ -487,6 +490,8 @@ export function deleteRosterPlayer(db: any, playerId: string) {
   db.rosterPlayers = db.rosterPlayers.filter((item: any) => item.id !== playerId);
   db.coreMemberships = db.coreMemberships.filter((item: any) => item.playerId !== playerId);
   db.playerStats = (db.playerStats || []).filter((item: any) => item.playerId !== playerId && !(!item.playerId && sameName(item.displayNameSnapshot || item.player)));
+  // Permanent player deletion is explicit (and retention-driven); it may leave no stats.
+  markDestructiveSave(db);
   db.soloq = (db.soloq || []).filter((item: any) => item.playerId !== playerId && !sameName(item.player));
   db.attendanceCredits = (db.attendanceCredits || []).filter((item: any) => item.playerId !== playerId);
   db.authKeys = (db.authKeys || []).filter((item: any) => item.playerId !== playerId && !(item.role === 'player' && sameName(item.label)));
