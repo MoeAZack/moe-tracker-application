@@ -125,7 +125,9 @@ describe('workspace destinations', () => {
 
   it('leaves out destinations with no visible screen for the website and for players', () => {
     const web = workspaceDestinations(navWorkspaceTabs({ desktopMode: false, role: 'coach', showTryoutComparisons: false, activeTab: 'dashboard' }));
-    expect(web.map(entry => entry.destination)).toEqual(['Home', 'Matches', 'Team', 'Players', 'Coaching']);
+    expect(web.map(entry => entry.destination)).toEqual(['Home', 'Matches', 'Team', 'Players', 'Coaching', 'Playbook']);
+    expect(web.find(entry => entry.destination === 'Playbook')!.tabs).toEqual(['aihub']);
+    expect(web.find(entry => entry.destination === 'Coaching')!.tabs).toEqual(['calendar', 'aitactical']);
     expect(web.find(entry => entry.destination === 'Matches')!.tabs).toEqual(['matches', 'vodsubmit']);
     const player = workspaceDestinations(navWorkspaceTabs({ desktopMode: true, role: 'player', showTryoutComparisons: false, activeTab: 'dashboard' }));
     expect(player.map(entry => entry.destination)).not.toContain('Settings');

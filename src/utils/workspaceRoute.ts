@@ -1,10 +1,10 @@
-export const WORKSPACE_TAB_IDS = ['dashboard', 'calendar', 'matches', 'replays', 'maps', 'comps', 'roster', 'playerstats', 'settings', 'livelogger', 'aitactical', 'vod', 'vodsubmit', 'lineups', 'economy', 'comparisons'] as const;
+export const WORKSPACE_TAB_IDS = ['dashboard', 'calendar', 'matches', 'replays', 'maps', 'comps', 'roster', 'playerstats', 'settings', 'livelogger', 'aitactical', 'vod', 'vodsubmit', 'lineups', 'economy', 'comparisons', 'aihub'] as const;
 export type WorkspaceTabId = typeof WORKSPACE_TAB_IDS[number];
 
 const pathByTab: Record<WorkspaceTabId, string> = {
   dashboard: 'home', calendar: 'schedule', matches: 'match-review', replays: 'replay-evidence', maps: 'map-analysis',
   comps: 'compositions', roster: 'roster', playerstats: 'player-stats', settings: 'settings', livelogger: 'live-logger',
-  aitactical: 'coach-workspace', vod: 'vod-review', vodsubmit: 'vod-submission', lineups: 'lineups', economy: 'economy', comparisons: 'tryouts',
+  aitactical: 'coach-workspace', vod: 'vod-review', vodsubmit: 'vod-submission', lineups: 'lineups', economy: 'economy', comparisons: 'tryouts', aihub: 'ai-tools',
 };
 /** The seven sidebar destinations. Each screen belongs to exactly one; a destination with several screens shows them as sections. */
 export const WORKSPACE_DESTINATIONS = ['Home', 'Matches', 'Team', 'Players', 'Coaching', 'Playbook', 'Settings'] as const;
@@ -12,7 +12,7 @@ export type WorkspaceDestination = typeof WORKSPACE_DESTINATIONS[number];
 const destinationByTab: Record<WorkspaceTabId, WorkspaceDestination> = {
   dashboard: 'Home', matches: 'Matches', replays: 'Matches', vod: 'Matches', vodsubmit: 'Matches', livelogger: 'Matches',
   economy: 'Team', maps: 'Team', roster: 'Players', playerstats: 'Players', comparisons: 'Players',
-  calendar: 'Coaching', aitactical: 'Coaching', comps: 'Playbook', lineups: 'Playbook', settings: 'Settings',
+  calendar: 'Coaching', aitactical: 'Coaching', comps: 'Playbook', lineups: 'Playbook', aihub: 'Playbook', settings: 'Settings',
 };
 export const workspaceDestination = (tab: WorkspaceTabId): WorkspaceDestination => destinationByTab[tab];
 
@@ -81,8 +81,8 @@ export function focusReviewContext(current: ReviewContext, matchId: string | nul
   return { matchId, roundNo: matchId && matchId === current.matchId ? current.roundNo : null };
 }
 
-const WEB_SURFACE_TABS: ReadonlySet<WorkspaceTabId> = new Set(['dashboard', 'calendar', 'matches', 'vodsubmit', 'economy', 'aitactical', 'maps', 'roster', 'playerstats', 'comparisons']);
-const COACH_ONLY_TABS: ReadonlySet<WorkspaceTabId> = new Set(['settings', 'livelogger', 'vod', 'aitactical', 'roster']);
+const WEB_SURFACE_TABS: ReadonlySet<WorkspaceTabId> = new Set(['dashboard', 'calendar', 'matches', 'vodsubmit', 'economy', 'aitactical', 'aihub', 'maps', 'roster', 'playerstats', 'comparisons']);
+const COACH_ONLY_TABS: ReadonlySet<WorkspaceTabId> = new Set(['settings', 'livelogger', 'vod', 'aitactical', 'aihub', 'roster']);
 
 /**
  * Tabs a link may open: the surface (desktop or web) and the role decide.

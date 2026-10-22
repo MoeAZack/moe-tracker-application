@@ -25,7 +25,7 @@ describe('reduced website surface', () => {
   it('loads the summary API and limits website navigation to retained portal areas', () => {
     const app = fs.readFileSync(new URL('../src/App.tsx', import.meta.url), 'utf8');
     expect(app).toContain("desktopMode ? '/api/data' : '/api/website-summary'");
-    expect(routableWorkspaceTabs({ desktopMode: false, role: 'coach' })).toEqual(['dashboard', 'calendar', 'matches', 'maps', 'roster', 'playerstats', 'aitactical', 'vodsubmit', 'economy', 'comparisons']);
+    expect(routableWorkspaceTabs({ desktopMode: false, role: 'coach' })).toEqual(['dashboard', 'calendar', 'matches', 'maps', 'roster', 'playerstats', 'aitactical', 'vodsubmit', 'economy', 'comparisons', 'aihub']);
     expect(app).toContain("desktopMode && role === 'coach'");
     expect(app).toContain('desktopMode && scrimOpen');
   });

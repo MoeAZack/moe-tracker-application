@@ -45,7 +45,7 @@ const SystemReadinessPanel = lazy(() => import('./components/SystemReadinessPane
 import {
   ShieldAlert, RefreshCw, Trophy, Calendar, Swords, Compass,
   Layers, Users, Settings as SettingsIcon, Image, Activity, Sparkles,
-  Film, Crosshair, Coins, FileCheck2, GitCompareArrows, Upload, X
+  Film, Crosshair, Coins, FileCheck2, GitCompareArrows, Upload, X, Bot
 } from 'lucide-react';
 import { notify } from './utils/appDialogs';
 import AppDialogHost from './components/AppDialogHost';
@@ -484,6 +484,7 @@ export default function App() {
     { id: 'aitactical', label: 'Coach Workspace', icon: Sparkles },
     { id: 'comps', label: 'Compositions', icon: Layers },
     { id: 'lineups', label: 'Lineup Library', icon: Crosshair },
+    { id: 'aihub', label: 'AI tools', icon: Bot },
     { id: 'settings', label: 'Settings', icon: SettingsIcon },
   ] as const;
 
@@ -810,8 +811,10 @@ export default function App() {
             {activeTab === 'aitactical' && analyticsData && (
               <div className="space-y-8">
                 <CoachWorkflow data={analyticsData} role={role} preferredMatchId={reviewMatchId} onRefresh={fetchDatabase} onFocusMatch={focusReview} onOpenMatch={(matchId, roundNo) => { focusReview(matchId, roundNo); setActiveTab(evidenceReviewTab(routableTabs)); }} />
-                <AITacticalHub data={coachReviewData || analyticsData} theme={theme} onUpsert={handleUpsert} onRemove={handleRemove} />
               </div>
+            )}
+            {activeTab === 'aihub' && analyticsData && (
+              <AITacticalHub data={coachReviewData || analyticsData} theme={theme} onUpsert={handleUpsert} onRemove={handleRemove} />
             )}
             {activeTab === 'maps' && analyticsData && desktopMode && (
               <MapBestStats data={analyticsData} evidenceData={workspaceData || data} theme={theme} onUpsert={handleUpsert} onRemove={handleRemove} />

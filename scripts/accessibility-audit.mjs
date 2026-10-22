@@ -62,6 +62,13 @@ async function auditDesktopWorkspaces() {
     await audit(page, `desktop ${name.toLowerCase()} with selected round`);
   }
 
+  // The AI hub is its own Playbook section, no longer stacked under Coach Workspace.
+  await open('#/ai-tools'); await page.getByRole('heading', { name: 'AI Coaching Hub' }).waitFor();
+  check(await nav('Playbook').getAttribute('aria-current') === 'page', 'AI tools did not open under Playbook.');
+  await audit(page, 'desktop ai tools');
+  await open('#/coach-workspace'); await page.waitForTimeout(500);
+  check(await page.getByRole('heading', { name: 'AI Coaching Hub' }).count() === 0, 'Coach Workspace still shows the AI hub.');
+
   // #/tryouts opens Tryout comparisons even though the nav entry is hidden by default.
   await open('#/tryouts'); await page.waitForTimeout(500);
   check(page.url().includes('#/tryouts'), `#/tryouts redirected to ${page.url()}.`);

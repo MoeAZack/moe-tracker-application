@@ -10,7 +10,7 @@ import { chromium } from 'playwright-core';
 const root = process.cwd();
 const browserPaths = [process.env.LOCAL_OCR_BROWSER, 'C:/Program Files/Google/Chrome/Application/chrome.exe', 'C:/Program Files (x86)/Microsoft/Edge/Application/msedge.exe'].filter(Boolean);
 // The smoke signs in as a coach, so the coach's website destinations and their sections must all be present.
-const retained = ['Home', 'Matches', 'Team', 'Players', 'Coaching'];
+const retained = ['Home', 'Matches', 'Team', 'Players', 'Coaching', 'Playbook'];
 const sections = { Matches: ['Match Review', 'VOD Submission'], Team: ['Economy', 'Map Analysis'], Players: ['Roster', 'Player Stats'], Coaching: ['Schedule & Goals', 'Coach Workspace'] };
 const desktopOnly = ['Replay Evidence', 'VOD Review', 'Lineup Library', 'Live Logger', 'Compositions', 'Settings', 'Import scoreboard', 'Scrim Auto-Import'];
 
