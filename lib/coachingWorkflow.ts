@@ -177,6 +177,26 @@ export function createCoachingAction(input: { signal: CoachingSignal; title?: st
   return { schema: COACHING_WORKFLOW_VERSION, id: stableId(['action', input.signal.id, now]), sourceSignalId: input.signal.id, sourceFingerprint: input.signal.fingerprint, evidence: structuredClone(input.signal.evidence), title: input.title?.trim() || input.signal.title, kind: input.kind, ownerIds: [...new Set(input.ownerIds)], dueBlockId: input.dueBlockId || null, dueDate: input.dueDate || null, priority: input.priority, visibility: input.visibility, state: 'assigned', check: input.check || buildActionCheck(input.signal), outcome: null, createdAt: now, updatedAt: now, audit: [{ at: now, by: actor, from: null, to: 'assigned' }] };
 }
 
+export const ROUND_TASK_KINDS = ['player-feedback', 'team-task', 'vod-review', 'strategy-board'] as const satisfies readonly CoachingAction['kind'][];
+
+/**
+ * A task made straight from a reviewed round ("Player1: hold the trade on B
+ * main"). It has no review signal behind it, so it carries no metric check: a
+ * coach resolves it by hand. The round stays attached as its evidence.
+ */
+export function createRoundTask(input: { match: { id: string; map?: string; opponent?: string }; roundNo: number; roundId: string | null; vodSeconds?: number | null; title: string; kind: (typeof ROUND_TASK_KINDS)[number]; ownerIds: string[]; dueDate?: string; priority: CoachingAction['priority']; visibility: CoachingAction['visibility'] }, actor: string, now = new Date().toISOString()): CoachingAction {
+  const title = input.title.trim();
+  if (!title) throw Object.assign(new Error('Write what the task is.'), { status: 400 });
+  if (!Number.isInteger(input.roundNo) || input.roundNo < 1 || input.roundNo > 100) throw Object.assign(new Error('Choose a round between 1 and 100.'), { status: 400 });
+  return {
+    schema: COACHING_WORKFLOW_VERSION, id: stableId(['round-task', input.match.id, String(input.roundNo), title, now]), sourceSignalId: '', sourceFingerprint: `round:${input.match.id}:${input.roundNo}`,
+    evidence: { matchIds: [input.match.id], ...(input.roundId ? { roundIds: [input.roundId] } : {}), sourceTypes: ['coach-review'], confidence: 'high' },
+    sourceRound: { matchId: input.match.id, roundNo: input.roundNo, roundId: input.roundId, map: String(input.match.map || 'Unknown map'), opponent: String(input.match.opponent || 'Unknown opponent'), vodSeconds: typeof input.vodSeconds === 'number' && Number.isFinite(input.vodSeconds) ? input.vodSeconds : null },
+    title: title.slice(0, 160), kind: input.kind, ownerIds: [...new Set(input.ownerIds)], dueBlockId: null, dueDate: input.dueDate || null, priority: input.priority, visibility: input.visibility,
+    state: input.ownerIds.length ? 'assigned' : 'planned', check: null, outcome: null, createdAt: now, updatedAt: now, audit: [{ at: now, by: actor, from: null, to: input.ownerIds.length ? 'assigned' : 'planned' }],
+  };
+}
+
 const METRIC_POLICIES: Record<CoachingSignal['type'], { direction: 'increase' | 'decrease'; relativeTarget: number; minimumSamples: number; minimumDelta: number }> = {
   'pistol-conversion': { direction: 'increase', relativeTarget: 1.2, minimumSamples: 2, minimumDelta: 10 },
   'full-buy-loss': { direction: 'decrease', relativeTarget: .8, minimumSamples: 2, minimumDelta: 1 },

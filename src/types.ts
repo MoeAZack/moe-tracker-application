@@ -364,6 +364,8 @@ export interface CoachingAction {
   evidence: CoachingSignal['evidence'];
   title: string;
   kind: 'player-feedback' | 'team-task' | 'vod-review' | 'strategy-board' | 'map-plan' | 'schedule-objective' | 'next-block-check';
+  /** Set on a task the coach made straight from a reviewed round; such tasks have no source signal and no metric check. */
+  sourceRound?: { matchId: string; roundNo: number; roundId: string | null; map: string; opponent: string; vodSeconds: number | null };
   ownerIds: string[];
   dueBlockId: string | null;
   dueDate: string | null;

@@ -173,12 +173,10 @@ export default function CoachWorkflow({
     (signal) => !["dismissed", "converted-to-action"].includes(signal.status),
   );
   const visibleSignalIds = new Set(filteredSignals.map((signal) => signal.id));
-  const activeActions = (workflow?.actions || []).filter(
-    (action) =>
-      !["resolved", "cancelled"].includes(action.state) &&
-      (!role ||
-        role !== "coach" ||
-        visibleSignalIds.has(action.sourceSignalId)),
+  const activeActions = openActionsInView(
+    workflow?.actions || [],
+    visibleSignalIds,
+    role,
   );
   const queueSignals = signalFilters.status
     ? filteredSignals
@@ -1013,6 +1011,20 @@ function renderCard(
               {action.ownerIds.length || "team"} owner
               {action.ownerIds.length === 1 ? "" : "s"}
             </p>
+            {action.sourceRound && (
+              <button
+                type="button"
+                className="mt-1 text-left text-xs text-cyan-300 hover:underline"
+                onClick={() =>
+                  onOpenMatch(
+                    action.sourceRound!.matchId,
+                    action.sourceRound!.roundNo,
+                  )
+                }
+              >
+                {roundTaskOrigin(action)} · open the round
+              </button>
+            )}
             {action.outcome && (
               <p className="mt-2 text-xs text-cyan-200">
                 Next-block result: {action.outcome.status} ·{" "}
@@ -1255,6 +1267,33 @@ function renderCard(
   );
 }
 
+/** Open actions for this view: a coach sees those from the visible review items plus every task made from a round. */
+export function openActionsInView(
+  actions: CoachingAction[],
+  visibleSignalIds: ReadonlySet<unknown>,
+  role: string | null | undefined,
+) {
+  return actions.filter(
+    (action) =>
+      !["resolved", "cancelled"].includes(action.state) &&
+      (!role ||
+        role !== "coach" ||
+        visibleSignalIds.has(action.sourceSignalId) ||
+        // Tasks made from a round have no review signal behind them.
+        !!action.sourceRound),
+  );
+}
+
+export function roundTaskOrigin(action: CoachingAction) {
+  const source = action.sourceRound;
+  if (!source) return "";
+  const at =
+    source.vodSeconds === null
+      ? ""
+      : ` at ${Math.floor(source.vodSeconds / 60)}:${String(Math.floor(source.vodSeconds % 60)).padStart(2, "0")} in the VOD`;
+  return `From round ${source.roundNo} on ${source.map} vs ${source.opponent}${at}`;
+}
+
 function PlayerActions({
   actions,
   onReload,
@@ -1292,6 +1331,7 @@ function PlayerActions({
             <p className="font-semibold">{action.title}</p>
             <p className="mt-1 text-xs text-slate-400">
               {action.state.replaceAll("-", " ")}
+              {action.sourceRound ? ` · ${roundTaskOrigin(action)}` : ""}
             </p>
             <div className="mt-2 flex gap-2">
               <button

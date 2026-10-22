@@ -3,6 +3,7 @@ import { AlertTriangle, Check, ChevronDown, ChevronRight, CirclePlay, Clapperboa
 import type { TrackerData } from '../types';
 import { buildRecurringReviewPatterns, buildRoundReviewCards, type ReviewClassificationType, type RoundReviewCard } from '../../lib/roundReviewCockpit';
 import { apiFetch } from '../utils/api';
+import RoundTaskForm from './RoundTaskForm';
 
 interface Props {
   data: TrackerData;
@@ -398,6 +399,7 @@ export default function RoundReviewCockpit({ data, matchId, onRefresh, onSelectR
                       ))}
                     </div>
                   )}
+                  <RoundTaskForm data={data} matchId={card.match.id} roundNo={card.round.roundNo} onCreated={onRefresh} />
                   {decisions.length > 0 && (
                     <p className="text-xs text-slate-600">
                       {decisions.filter(item => item.status === 'confirmed').length} confirmed · {decisions.filter(item => item.status === 'dismissed').length}{' '}

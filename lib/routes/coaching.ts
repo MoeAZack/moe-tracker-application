@@ -1,6 +1,6 @@
 import type { Express, Request, Response } from 'express';
 import type { CoachingAction, CoachingSignal } from '../../src/types';
-import { buildAllPracticeBlockSummaries, coachingContextMatches, createCoachingAction, evaluateAction, generateReviewSignalDrafts, generateRoundReviewSignalDrafts, migrateLegacyActionChecks, normalizeDashboardView, reconcileReviewSignals, signalIdentity, transitionSignal } from '../coachingWorkflow';
+import { ROUND_TASK_KINDS, buildAllPracticeBlockSummaries, coachingContextMatches, createCoachingAction, createRoundTask, evaluateAction, generateReviewSignalDrafts, generateRoundReviewSignalDrafts, migrateLegacyActionChecks, normalizeDashboardView, reconcileReviewSignals, signalIdentity, transitionSignal } from '../coachingWorkflow';
 import { readDB, saveDB } from '../store';
 import { buildEvidenceFusionReport, upsertEvidenceResolution, type EvidenceSource } from '../evidenceFusion';
 import { recomputeAcceptedMatchAggregates, withCurrentScreenshotMetrics } from '../aggregateVersioning';
@@ -98,6 +98,26 @@ export function registerCoachingRoutes(app: Express) {
       const action = createCoachingAction({ signal: source, title: text(req.body?.title, 160), kind: req.body?.kind || 'team-task', ownerIds, dueBlockId: text(req.body?.dueBlockId, 120) || undefined, dueDate: text(req.body?.dueDate, 20) || undefined, priority: ['high', 'normal', 'low'].includes(req.body?.priority) ? req.body.priority : 'normal', visibility: ['private', 'staff', 'team'].includes(req.body?.visibility) ? req.body.visibility : 'staff' }, actor(req));
       const goal = buildCoachingGoal({ signal: source, action, matches: db.matches || [], rounds: db.rounds || [], rosterPlayers: db.rosterPlayers || [] }); action.goalId = goal.id;
       db.coachingActions ||= []; db.coachingActions.push(action); db.goals ||= []; db.goals.push(goal); const index = db.coachingSignals.findIndex((item: CoachingSignal) => item.id === source.id); db.coachingSignals[index] = transitionSignal(source, 'converted-to-action', actor(req)); await saveDB(db); res.status(201).json({ action, goal, signal: db.coachingSignals[index] });
+    } catch (error: any) { res.status(error.status || 500).json({ error: error.message }); }
+  });
+
+  // A task straight from a reviewed round, for one or more players or the whole team.
+  app.post('/api/coaching/round-tasks', async (req, res) => {
+    if (!requireCoach(req, res)) return;
+    try {
+      const db = await readDB();
+      const match = (db.matches || []).find((item: any) => item.id === text(req.body?.matchId, 160)); if (!match) return res.status(404).json({ error: 'That match no longer exists.' });
+      const roundNo = Number(req.body?.roundNo); const round = (db.rounds || []).find((item: any) => item.matchId === match.id && item.roundNo === roundNo);
+      const roster = new Set((db.rosterPlayers || []).filter((player: any) => !player.retiredAt).map((player: any) => player.id));
+      const ownerIds = Array.isArray(req.body?.ownerIds) ? [...new Set<string>(req.body.ownerIds.filter((id: unknown) => typeof id === 'string' && roster.has(id)))] : [];
+      if (Array.isArray(req.body?.ownerIds) && ownerIds.length !== new Set(req.body.ownerIds).size) return res.status(400).json({ error: 'Assign the task only to active roster players.' });
+      const max = Math.max(1, Number(db.settings?.coachingThresholds?.maxActiveActionsPerPlayer || 5));
+      const overloaded = ownerIds.find((id: string) => (db.coachingActions || []).filter((action: CoachingAction) => action.ownerIds.includes(id) && !['resolved', 'cancelled'].includes(action.state)).length >= max);
+      if (overloaded) return res.status(409).json({ error: `${(db.rosterPlayers || []).find((player: any) => player.id === overloaded)?.displayName || 'This player'} already has ${max} open coaching tasks. Resolve one first.` });
+      const kind = (ROUND_TASK_KINDS as readonly string[]).includes(req.body?.kind) ? req.body.kind : 'team-task';
+      const vodSeconds = typeof req.body?.vodSeconds === 'number' && Number.isFinite(req.body.vodSeconds) && req.body.vodSeconds >= 0 ? req.body.vodSeconds : null;
+      const action = createRoundTask({ match, roundNo, roundId: round?.id || null, vodSeconds, title: text(req.body?.title, 160), kind, ownerIds, dueDate: /^\d{4}-\d{2}-\d{2}$/.test(text(req.body?.dueDate, 10)) ? text(req.body.dueDate, 10) : undefined, priority: ['high', 'normal', 'low'].includes(req.body?.priority) ? req.body.priority : 'normal', visibility: ['private', 'staff', 'team'].includes(req.body?.visibility) ? req.body.visibility : ownerIds.length ? 'team' : 'staff' }, actor(req));
+      db.coachingActions ||= []; db.coachingActions.push(action); await saveDB(db); res.status(201).json({ action });
     } catch (error: any) { res.status(error.status || 500).json({ error: error.message }); }
   });
 
