@@ -214,6 +214,7 @@ async function startLocalServer() {
     ADMIN_PASSWORD: runtime.config.adminPassword,
     JWT_SECRET: runtime.config.jwtSecret,
     APP_DESKTOP: 'true',
+    APP_VERSION: app.getVersion(),
     ...integrationEnvironment,
   }});
   serverProcess = child;

@@ -512,7 +512,7 @@ export default function App() {
             <Logo size={52} className="shrink-0 drop-shadow-[0_0_12px_rgba(92,232,244,0.28)]" />
             <div className="min-w-0 flex-1">
               <span className="block whitespace-nowrap text-[18px] font-black uppercase italic leading-tight tracking-[-0.045em]">MOE TRACKER</span>
-              <span className="text-[9px] font-mono text-gray-500 tracking-widest uppercase block -mt-1">SCRIM ENGINE · v{__APP_VERSION__}</span>
+              <span title={`Build ${__APP_REVISION__}`} className="text-[9px] font-mono text-gray-500 tracking-widest uppercase block -mt-1">SCRIM ENGINE · v{__APP_VERSION__}</span>
             </div>
           </div>
           
@@ -611,7 +611,7 @@ export default function App() {
             <Logo size={40} className="shrink-0" />
             <div className="min-w-0">
               <span className="block whitespace-nowrap text-base font-black uppercase italic leading-tight tracking-[-0.04em]">MOE TRACKER</span>
-              <span className="text-[8px] font-mono text-gray-500 tracking-widest block -mt-1 font-bold">SCRIM ENGINE · v{__APP_VERSION__}</span>
+              <span title={`Build ${__APP_REVISION__}`} className="text-[8px] font-mono text-gray-500 tracking-widest block -mt-1 font-bold">SCRIM ENGINE · v{__APP_VERSION__}</span>
             </div>
           </div>
 
