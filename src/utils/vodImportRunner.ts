@@ -247,9 +247,11 @@ async function runOneImport(input: VodBatchImportInput, deps: VodImportDeps): Pr
       try {
         const frame = await desktop.readVodFrame({ cacheId, frame: discovery.games[index].frame }); const image = fileFromBase64(frame.base64, `vod-scoreboard-${index + 1}.png`, frame.mediaType);
         const extracted = await deps.extractScoreboard(image, activeRoster, undefined, { trackJob: false });
-        // Every name must be read so the coach can pick our five; the roster no longer has to know them.
-        if (extracted.draft.stats.length !== 10 || extracted.draft.stats.some(row => String(row.extractedName || '').trim().length < 2) || extracted.draft.match.ourScore === null || extracted.draft.match.theirScore === null || !extracted.draft.match.map) continue;
-        const signature = `${extracted.draft.match.map.toLocaleLowerCase()}:${extracted.draft.match.ourScore}:${extracted.draft.match.theirScore}:${extracted.draft.stats.map(row => `${row.matchedPlayerId || row.extractedName.toLocaleLowerCase('en')}:${row.kills}:${row.deaths}`).sort().join('|')}`;
+        // With five roster matches our side is known, so an unreadable opponent name doesn't matter.
+        // Otherwise every name must be read so the coach can pick our five.
+        const unreadableName = extracted.draft.stats.some(row => String(row.extractedName || '').trim().length < 2);
+        if (extracted.draft.stats.length !== 10 || (unreadableName && knownScoreboardRows(extracted.draft.stats, []).length !== 5) || extracted.draft.match.ourScore === null || extracted.draft.match.theirScore === null || !extracted.draft.match.map) continue;
+        const signature = `${extracted.draft.match.map.toLocaleLowerCase()}:${extracted.draft.match.ourScore}:${extracted.draft.match.theirScore}:${extracted.draft.stats.map(row => `${row.matchedPlayerId || String(row.extractedName || '').toLocaleLowerCase('en')}:${row.kills}:${row.deaths}`).sort().join('|')}`;
         if (signatures.has(signature)) continue; signatures.add(signature); detected.push({ timestampMs: discovery.games[index].timestampMs, draft: extracted.draft, imageSha256: extracted.imageSha256 });
       } catch { /* Geometry and identity gates intentionally discard non-scoreboard candidates. */ }
     }

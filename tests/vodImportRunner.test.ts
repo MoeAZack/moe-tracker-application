@@ -239,6 +239,51 @@ describe('VOD import runner survives leaving the VOD tab', () => {
     } finally { discovery.games = []; }
   });
 
+  it('a game saved without names never links to a saved match, even one with the same date, map and score', async () => {
+    const names = Array.from({ length: 10 }, (_, index) => `Name${index}`);
+    const board = { imageSha256: 'd'.repeat(64), draft: { match: { map: 'Ascent', ourScore: 13, theirScore: 4 }, stats: names.map(extractedName => ({ extractedName, rosterMatch: { status: 'unmatched' }, matchedPlayerId: null, agent: null, kills: 10, deaths: 10, assists: 1 })) } };
+    discovery.games = [{ timestampMs: 280_000, frame: 'g1' }] as any;
+    try {
+      const h = harness(); (h.deps as any).extractScoreboard = vi.fn().mockResolvedValue(board);
+      const run = startVodBatchImport(input({ expectedGames: 1, matches: [{ id: 'saved', date: '2026-10-20', map: 'Ascent', ourScore: 13, theirScore: 4 }] as any, playerStats: [{ matchId: 'saved', playerId: 'p1' }] as any }), h.deps);
+      for (let i = 0; i < 50 && !vodImportStore.getSnapshot().teamPick; i += 1) await new Promise(resolve => setTimeout(resolve, 0));
+      vodImportStore.answerTeamPick(null); await h.finishAnalysis();
+      await expect(run).resolves.toBe(true);
+      const [, init] = (h.apiFetch.mock.calls as any[]).find(([url]) => url === '/api/vod-submissions');
+      const body = JSON.parse(String(init.body));
+      expect(body.matchId).toBeUndefined(); expect(body.players).toEqual([]);
+    } finally { discovery.games = []; }
+  });
+
+  it('keeps a board with an unreadable opponent name when five rows are on the roster, and drops it otherwise', async () => {
+    const roster = ['Alpha', 'Bravo', 'Charlie', 'Delta', 'Echo'].map((displayName, index) => ({ id: `p${index + 1}`, displayName }));
+    const names = ['Alpha', 'Bravo', 'Charlie', 'Delta', 'Echo', 'Foe1', '', 'Foe3', 'Foe4', 'Foe5'];
+    const board = (rostered: number) => ({ imageSha256: 'e'.repeat(64), draft: { match: { map: 'Ascent', ourScore: 13, theirScore: 7 }, stats: names.map((extractedName, index) => ({ extractedName, rosterMatch: { status: index < rostered ? 'matched' : 'unmatched' }, matchedPlayerId: index < rostered ? `p${index + 1}` : null, agent: 'Sova', kills: 15, deaths: 12, assists: 4 })) } });
+    discovery.games = [{ timestampMs: 280_000, frame: 'g1' }] as any;
+    const savedBoundaries = discovery.boundaries; discovery.boundaries = [boundary(0, 'Ascent')];
+    try {
+      const kept = harness(); (kept.deps as any).extractScoreboard = vi.fn().mockResolvedValue(board(5));
+      const keptRun = startVodBatchImport(input({ expectedGames: 1, roster }), kept.deps);
+      await kept.finishAnalysis();
+      await expect(keptRun).resolves.toBe(true);
+      expect(vodImportStore.getSnapshot().teamPick).toBeNull();
+      const [, init] = (kept.apiFetch.mock.calls as any[]).find(([url]) => url === '/api/vod-submissions');
+      const body = JSON.parse(String(init.body));
+      expect(body.players.map((player: any) => player.observedName)).toEqual(names.slice(0, 5));
+      expect(body.ourScore).toBe(13);
+      vodImportStore.reset();
+
+      // Four on the roster: the coach would have to pick from a board missing a name, so the board is not used.
+      const dropped = harness(); (dropped.deps as any).extractScoreboard = vi.fn().mockResolvedValue(board(4));
+      const droppedRun = startVodBatchImport(input({ expectedGames: 1, roster }), dropped.deps);
+      await dropped.finishAnalysis();
+      await expect(droppedRun).resolves.toBe(true);
+      const [, droppedInit] = (dropped.apiFetch.mock.calls as any[]).find(([url]) => url === '/api/vod-submissions');
+      expect(JSON.parse(String(droppedInit.body)).players).toEqual([]);
+      expect(vodImportStore.getSnapshot().batchResult[0].status).toContain('scoreboard pending');
+    } finally { discovery.games = []; discovery.boundaries = savedBoundaries; }
+  });
+
   it('splits a pasted list of links into one VOD each', () => {
     expect(splitVodLinks('https://youtu.be/a\nhttps://youtu.be/b, https://youtu.be/a  https://www.youtube.com/live/c')).toEqual(['https://youtu.be/a', 'https://youtu.be/b', 'https://www.youtube.com/live/c']);
     expect(splitVodLinks('  ')).toEqual([]);
