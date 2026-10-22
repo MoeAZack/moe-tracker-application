@@ -210,6 +210,15 @@ describe('store guards', () => {
     expect(JSON.parse(await fs.readFile(file, 'utf8'))._storage.schemaVersion).toBe(15);
   });
 
+  it('reads a schema-14 workspace with a season archive as a stored index (evidence not loaded) without crashing', async () => {
+    await writeSchema14Workspace(dir, { withArchive: true });
+    const { readDBIndex } = await import('../lib/store');
+    const index = await readDBIndex();
+    // The archive is still in stub form, so it is left for a loaded read to migrate.
+    expect(index.seasonArchives[0].matches.__moeEvidenceArtifact).toBe(1);
+    expect(index.matches).toHaveLength(8);
+  });
+
   it('does not sweep evidence in the process that migrated, when the index references nothing, or when most references vanish', async () => {
     const { dbPath: file, evidenceDir } = await writeSchema14Workspace(dir);
     const ledger = path.join(evidenceDir, '.orphaned-since.json');
@@ -268,6 +277,36 @@ describe('store guards', () => {
     expect(back.engineAdapters.replay['draft-m3']).toEqual({ matchId: 'm3', draft: { note: 'keep' } });
     expect(back.removedMatches[0]).toMatchObject({ matchId: 'm3', restoredBy: 'Coach' });
     expect(back.removedMatches[0].graph).toBeUndefined();
+  });
+
+  it('does not sweep evidence when a write leaves the index referencing nothing, in a process that did not migrate', async () => {
+    // Current schema, so no migration; under four references, so the "most references vanish" rule is off.
+    const note = (tag: string) => tag.padEnd(1100, '.');
+    await fs.writeFile(path.join(dir, 'db.json'), JSON.stringify({ ...fixture(), matches: [{ id: 'only', date: '2026-11-01', map: 'Ascent', opponent: 'OpponentB', roundAnalytics: { note: note('a') } }], playerStats: [], vetos: [],
+      rounds: [1, 2].map(roundNo => ({ id: `only-r${roundNo}`, matchId: 'only', roundNo, screenshotEvidence: { reviewStatus: 'pending', players: [], events: [], note: note(`r${roundNo}`) } })) }));
+    const { readDB, saveDB, storeInternals } = await import('../lib/store');
+    const { markDestructiveSave } = await import('../lib/destructiveSave');
+    await saveDB(await readDB());
+    storeInternals.resetMigrationMark();
+    const evidenceDir = path.join(dir, 'db.json.evidence'); const ledger = path.join(evidenceDir, '.orphaned-since.json');
+    const stored = (await fs.readdir(evidenceDir)).filter(name => name.endsWith('.json.gz'));
+    expect(stored).toHaveLength(3);
+    const ledgerBefore = await fs.readFile(ledger, 'utf8');
+    expect(JSON.parse(ledgerBefore)).toEqual({});
+
+    const empty = await readDB(); empty.matches = []; empty.rounds = []; markDestructiveSave(empty); await saveDB(empty);
+    expect(await fs.readFile(ledger, 'utf8')).toBe(ledgerBefore);
+    expect((await fs.readdir(evidenceDir)).filter(name => name.endsWith('.json.gz'))).toEqual(stored);
+  });
+
+  it('never replaces a missing database when only stored evidence shows a workspace existed', async () => {
+    const evidenceDir = path.join(dir, 'db.json.evidence');
+    await fs.mkdir(evidenceDir, { recursive: true });
+    await fs.writeFile(path.join(evidenceDir, `${'a'.repeat(64)}.json.gz`), 'kept');
+    const { readDB } = await import('../lib/store');
+    await expect(readDB()).rejects.toMatchObject({ status: 503, code: 'WORKSPACE_DATABASE_MISSING', signs: ['stored evidence exists'] });
+    await expect(fs.access(path.join(dir, 'db.json'))).rejects.toMatchObject({ code: 'ENOENT' });
+    expect(await fs.readdir(dir)).toEqual(['db.json.evidence']);
   });
 
   it('never replaces a missing database with an empty one when the workspace existed before', async () => {
