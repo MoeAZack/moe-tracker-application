@@ -119,14 +119,29 @@ export function fieldReport(corpus, outputs) {
   };
 }
 
-/** Every cell a run reports, keyed so two runs line up: meta, player rows and round results. */
+/** Keys that change between two runs of the same code on the same images: the run's own bookkeeping and read timestamps. */
+export const VOLATILE_TOP_LEVEL_KEYS = new Set(['folder', 'seconds']);
+export const VOLATILE_KEYS = new Set(['capturedAt']);
+
+/**
+ * Every scalar leaf a run reports, keyed by its path (meta.map, players.3.kills,
+ * rounds.4.screenshotEvidence.events.0.killer, performance…, headToHead…,
+ * captureDiagnostics.issues.2, …), so two runs line up cell by cell. Array
+ * lengths are cells too, so a missing or extra row is a diff. Only the
+ * volatile keys above are left out.
+ */
 export function outputCells(output) {
   const cells = {};
-  for (const key of ['map', 'ourScore', 'theirScore']) cells[`meta.${key}`] = output.meta?.[key] ?? null;
-  (output.players || []).forEach((player, row) => {
-    for (const [key, value] of Object.entries(player)) if (value === null || ['string', 'number', 'boolean'].includes(typeof value)) cells[`players.${row}.${key}`] = value;
-  });
-  for (const item of output.rounds || []) { cells[`rounds.${item.roundNo}.result`] = item.result || null; cells[`rounds.${item.roundNo}.winBy`] = item.winBy || null; }
+  const walk = (value, path) => {
+    if (value === null || value === undefined || ['string', 'number', 'boolean'].includes(typeof value)) { cells[path] = value ?? null; return; }
+    if (Array.isArray(value)) { cells[`${path}.length`] = value.length; value.forEach((item, index) => walk(item, `${path}.${index}`)); return; }
+    if (typeof value === 'object') {
+      const keys = Object.keys(value).filter(key => !VOLATILE_KEYS.has(key) && !(path === '' && VOLATILE_TOP_LEVEL_KEYS.has(key)));
+      if (!keys.length) cells[path || '.'] = '{}';
+      for (const key of keys) walk(value[key], path ? `${path}.${key}` : key);
+    }
+  };
+  walk(output, '');
   return cells;
 }
 

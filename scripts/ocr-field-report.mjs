@@ -2,7 +2,8 @@
 // cell diff against a baseline run.
 //   node scripts/ocr-field-report.mjs <backtest-out-dir> [--baseline <dir>] [--labels <ground-truth.json>]
 // Output dirs come from scripts/backtest-capture-browser.mjs (one <captureId>.json per session).
-// With --baseline, exits 1 when any cell differs, so "zero cell diffs" is checkable in one command.
+// With --baseline, compares every value the run reports (all scalar leaves and array lengths, except the
+// run folder, its duration and read timestamps) and exits 1 when any differs, so "zero cell diffs" is one command.
 // Prints counts and capture ids only; read values appear for wrong cells, which are OCR output, not labels.
 import { readFile, readdir } from 'node:fs/promises';
 import path from 'node:path';

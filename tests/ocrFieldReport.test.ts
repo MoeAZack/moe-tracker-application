@@ -60,7 +60,7 @@ describe('OCR per-field report', () => {
 
 describe('baseline vs candidate cell diff', () => {
   const base = { s1: output([{ extractedName: 'Player1', kills: 20, agent: 'Jett', rosterMatch: { status: 'matched' } }], undefined, [{ roundNo: 1, result: 'W', winBy: 'Elimination' }]) };
-  it('is empty for identical runs and ignores nested objects', () => {
+  it('is empty for identical runs', () => {
     expect(diffRuns(base, structuredClone(base))).toEqual([]);
   });
   it('names every changed, added or missing cell and session', () => {
@@ -69,9 +69,53 @@ describe('baseline vs candidate cell diff', () => {
     expect(diffRuns(base, candidate)).toEqual([
       { captureId: 's1', cell: 'players.0.fd', baseline: null, candidate: 1 },
       { captureId: 's1', cell: 'players.0.kills', baseline: 20, candidate: 21 },
-      { captureId: 's1', cell: 'rounds.1.result', baseline: 'W', candidate: 'L' },
+      { captureId: 's1', cell: 'rounds.0.result', baseline: 'W', candidate: 'L' },
       { captureId: 's2', cell: '*', baseline: 'missing', candidate: 'present' },
     ]);
+  });
+});
+
+describe('the cell diff covers every part of a run', () => {
+  const full = () => ({
+    folder: 'Scrim-1', seconds: 40,
+    meta: { map: 'Ascent', ourScore: 13, theirScore: 9 }, startingSide: 'Attack',
+    draft: { sourceMetadata: { model: 'local-v1', capturedAt: '2026-10-22T10:00:00Z' }, match: { map: 'Ascent' } },
+    players: [{ extractedName: 'Player1', kills: 20, rosterMatch: { status: 'matched', score: 0.9 } }],
+    rounds: [{ roundNo: 1, result: 'W', winBy: 'Elimination', extractionIssues: ['kill-feed-partial'], screenshotEvidence: {
+      reviewStatus: 'confirmed', confidence: 'high', events: [{ killer: 'Player1', victim: 'OpponentA', weapon: 'Vandal' }], objectives: [{ kind: 'plant', player: 'Player1' }],
+      players: [{ displayName: 'Player1', credits: 3900, weapon: 'Vandal' }] } }],
+    performance: { rows: [{ player: 'Player1', damage: 3200 }] },
+    headToHead: { totals: { kills: 20, deaths: 10, assists: 5 } },
+    captureDiagnostics: { resolution: '1920x1080', issues: ['round-captures-incomplete'] },
+  });
+  const changeOne = (path: string, value: unknown) => {
+    const run: any = full(); const keys = path.split('.'); let node = run;
+    for (const key of keys.slice(0, -1)) node = node[key];
+    node[keys.at(-1)!] = value;
+    return diffRuns({ s: full() }, { s: run }).map((diff: any) => diff.cell);
+  };
+  it.each([
+    ['startingSide', 'Defense'],
+    ['draft.match.map', 'Bind'],
+    ['players.0.rosterMatch.status', 'unmatched'],
+    ['rounds.0.extractionIssues.0', 'kill-feed-missing'],
+    ['rounds.0.screenshotEvidence.reviewStatus', 'review-required'],
+    ['rounds.0.screenshotEvidence.events.0.weapon', 'Phantom'],
+    ['rounds.0.screenshotEvidence.objectives.0.player', 'Player2'],
+    ['rounds.0.screenshotEvidence.players.0.credits', 4100],
+    ['performance.rows.0.damage', 3100],
+    ['headToHead.totals.assists', 6],
+    ['captureDiagnostics.issues.0', 'round-count-score-mismatch'],
+  ])('finds a single change in %s', (path, value) => {
+    expect(changeOne(path, value)).toEqual([path]);
+  });
+  it('counts an extra or missing row as a change', () => {
+    const run: any = full(); run.rounds[0].screenshotEvidence.events.push({ killer: 'OpponentA', victim: 'Player1', weapon: 'Operator' });
+    expect(diffRuns({ s: full() }, { s: run }).map((diff: any) => diff.cell)).toEqual(expect.arrayContaining(['rounds.0.screenshotEvidence.events.length', 'rounds.0.screenshotEvidence.events.1.killer']));
+  });
+  it('ignores only the run folder, its duration and read timestamps', () => {
+    const run: any = full(); run.folder = 'other'; run.seconds = 99; run.draft.sourceMetadata.capturedAt = '2026-10-23T00:00:00Z';
+    expect(diffRuns({ s: full() }, { s: run })).toEqual([]);
   });
 });
 
