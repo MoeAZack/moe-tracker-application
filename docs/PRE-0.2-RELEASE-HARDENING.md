@@ -598,3 +598,72 @@ Acceptance evidence:
 - The local installer remains `NotSigned` because no public code-signing
   certificate is configured locally or in the GitHub release environment. It is
   a local test candidate only; the workflow will not publish it as trusted.
+
+## Incident review: v0.2.0 match deletions (2026-10-22)
+
+On 2026-10-22, shortly after the owner upgraded a 0.1.x workspace (storage schema
+14) to v0.2.0, the workspace lost all its matches, player stats, rounds, coaching
+signals, ratings and analytics. Settings, roster, schedule and secrets were
+unchanged.
+
+The review closed it as user action, not a data-loss bug in 0.2.0:
+
+- A synthetic, populated schema-14 workspace upgraded through the same 0.2.0
+  build keeps all of its data.
+- The loss came from 8 separate saves, one per match, 1 to 3 seconds apart, each a
+  match purge (`purgeMatchGraph`) through Match Review's Delete. Delete
+  confirmation was on, so each one was confirmed. The owner confirmed he deleted
+  the matches one by one.
+
+The review found these gaps, which the gate below covers:
+
+- No audit record of a match deletion.
+- No backup before the last matches go, and no undo.
+- After a delete, Match Review selects the next match, so its Delete button sits
+  in the same place and repeated clicks delete match after match.
+- The H5 upgrade evidence ran at #99 rather than the release commit, exercised the
+  store module rather than the installed app's first start, and the
+  `windows-lifecycle` CI job upgrades an empty workspace only.
+
+Whether v0.2.0 stays published is the owner's decision.
+
+## Gate for any 0.2.1
+
+No 0.2.1 (or later) installer is published until all of these pass:
+
+- A. The fix carries two tests.
+  - A1, upgrade regression: a synthetic, populated schema-14 fixture (matches,
+    player stats, rounds, coaching signals, ratings, at least one externalized
+    evidence artifact) runs through the built server's first-start sequence, not
+    only `readDB`/`saveDB`, and every count is unchanged afterwards.
+  - A2, purge burst: deleting every match in a row, through both match deletion
+    and the duplicate review's discard, leaves a durable audit entry per purge
+    (who, which match, when) and a backup written before the last match goes.
+    It fails on the 0.2.0 code.
+  The fix also carries these store guards, each with a test that fails
+  without it:
+  - An ordinary save that takes non-empty matches, rounds or player stats (as
+    stored in the current index) to empty is refused unless the caller passes an
+    explicit destructive flag.
+  - The first save from a schema older than 15 takes a backup first.
+  - Resetting metrics takes a private backup first (or quarantines) and fails
+    closed.
+  - A missing `db.json` is not silently replaced by an empty store when the
+    workspace existed before.
+  - A damaged `db.json` is quarantined.
+  - The orphaned-evidence sweep never deletes evidence files when the index is
+    empty, when its counts disagree with the previous index, or in the process
+    that just ran a storage migration.
+- B. On the owner's PC, a copy of the real schema-14 workspace (never the live
+  one) is upgraded with the exact candidate installer, with its SHA-256 recorded.
+  Matches, rounds, player stats, evidence artifacts and coaching signals are
+  counted before the upgrade, after first start, after two minutes idle and after
+  a restart. All counts must be identical.
+- C. On a copy whose matches were all deleted, the undo and the backup restore each
+  bring every count back.
+- D. The commit the upgrade evidence ran on is the commit the installer was built
+  from. Any runtime change after the evidence means rerunning it.
+- E. A fresh install works end to end. Start from an empty workspace, run the first
+  start, import matches, then restart. The counts must stay the same at every step.
+  This is the owner's own path.
+- F. The owner gives explicit permission to publish.
