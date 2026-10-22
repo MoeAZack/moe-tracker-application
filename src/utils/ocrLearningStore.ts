@@ -26,13 +26,13 @@ function openDb() {
 
 async function putMany(storeName: 'corrections' | 'outcomes', rows: Array<OcrCorrectionSample | OcrSessionOutcome>) {
   const db = await openDb();
-  if (!db) return;
-  await new Promise<void>((resolve) => {
+  if (!db) return false;
+  const written = await new Promise<boolean>((resolve) => {
     const transaction = db.transaction(storeName, 'readwrite'); const store = transaction.objectStore(storeName);
     for (const row of rows) store.put(structuredClone(row));
-    transaction.oncomplete = () => resolve(); transaction.onerror = () => resolve(); transaction.onabort = () => resolve();
+    transaction.oncomplete = () => resolve(true); transaction.onerror = () => resolve(false); transaction.onabort = () => resolve(false);
   });
-  db.close();
+  db.close(); return written;
 }
 
 async function readAll<T>(storeName: 'corrections' | 'outcomes', fallback: Map<string, T>) {
@@ -88,6 +88,41 @@ export async function learnedExtractionRoster<T extends { id?: string; displayNa
 }
 
 export function setOcrLearningEnabled(enabled: boolean) { try { globalThis.localStorage?.setItem(ENABLED_KEY, String(enabled)); } catch { /* browser storage unavailable */ } }
+
+async function storedIds(storeName: 'corrections' | 'outcomes') {
+  const db = await openDb();
+  if (!db) throw new Error('OCR learning storage is unavailable.');
+  const keys = await new Promise<IDBValidKey[]>((resolve, reject) => {
+    const request = db.transaction(storeName, 'readonly').objectStore(storeName).getAllKeys();
+    request.onsuccess = () => resolve(request.result); request.onerror = () => reject(request.error);
+  });
+  db.close(); return new Set(keys.map(String));
+}
+
+type RecoveryBridge = Pick<NonNullable<Window['moeDesktop']>, 'takeRecoveredOcrLearning' | 'confirmRecoveredOcrLearning'>;
+type RecoveryStore = { storedIds: typeof storedIds; putMany: typeof putMany };
+
+/**
+ * Adds learning rows recovered from earlier launches' local addresses. Rows
+ * already here are left as they are. The old addresses are confirmed only
+ * after the rows are written, so a failed write is retried next launch.
+ */
+export async function importRecoveredOcrLearning(bridge: RecoveryBridge | undefined = globalThis.window?.moeDesktop, store: RecoveryStore = { storedIds, putMany }) {
+  if (!bridge?.takeRecoveredOcrLearning || !bridge.confirmRecoveredOcrLearning) return null;
+  const recovered = await bridge.takeRecoveredOcrLearning();
+  if (!recovered?.ports?.length) return null;
+  const added = { corrections: 0, outcomes: 0 };
+  for (const storeName of ['corrections', 'outcomes'] as const) {
+    const present = await store.storedIds(storeName);
+    const rows = (recovered[storeName] as Array<OcrCorrectionSample | OcrSessionOutcome>).filter(row => row?.id && !present.has(String(row.id)));
+    if (rows.length && !await store.putMany(storeName, rows)) throw new Error('Recovered OCR learning could not be saved.');
+    added[storeName] = rows.length;
+  }
+  await bridge.confirmRecoveredOcrLearning(recovered.ports);
+  if (added.corrections) void prune('corrections', MAX_CORRECTIONS);
+  if (added.outcomes) void prune('outcomes', MAX_OUTCOMES);
+  return added;
+}
 
 export async function resetOcrLearning() {
   memoryCorrections.clear(); memoryOutcomes.clear(); const db = await openDb(); if (!db) return;
