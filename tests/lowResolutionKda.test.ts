@@ -1,8 +1,8 @@
 import { describe, expect, it, vi } from 'vitest';
 import {
   createValorantEndScreenProfile,
-  cropPixels,
   isBelowCalibratedResolution,
+  parseLocalScoreboardRecognitions,
   preprocessRegionPixels,
   readSegmentedKda,
   segmentKdaNumberRectangles,
@@ -73,29 +73,33 @@ describe('K/D/A below the calibrated resolution', () => {
     expect(full.rectangles).toHaveLength(3);
     expect(small.rectangles).toHaveLength(3);
     expect(small.rectangles![0].height).toBeLessThan(full.rectangles![0].height);
-    const crop = cropPixels(small.processed, small.rectangles![1]);
-    expect(crop).toMatchObject({ width: small.rectangles![1].width, height: small.rectangles![1].height });
-    // The thresholded crop holds dark ink on white, ready for the second read.
-    expect([...crop.data].some((value, index) => index % 4 === 0 && value < 128)).toBe(true);
   });
 
-  it('abstains on the whole line when the second read of a downscaled digit disagrees, even at high confidence', async () => {
+  it('abstains on the whole line when the second read of a downscaled digit is a different number, even at high confidence', async () => {
     const { rectangles } = segmentedAt(900 / 1080);
     const read = readers(rectangles!, { text: '6', confidence: 91 }, { text: '4', confidence: 88 });
-    expect(await readSegmentedKda(rectangles!, read, true)).toEqual({ text: '', confidence: 91 });
+    expect(await readSegmentedKda(rectangles!, read, true)).toEqual({ text: '', confidence: 91, reads: '12@93|12@90 6@91|4@88' });
   });
 
-  it('abstains when both reads agree but one is below the low-resolution floor', async () => {
+  it('keeps the line when the second read agrees, whatever its confidence (the usual K/D/A floor still applies later)', async () => {
     const { rectangles } = segmentedAt(900 / 1080);
-    const read = readers(rectangles!, { text: '4', confidence: 92 }, { text: '4', confidence: 61 });
-    expect((await readSegmentedKda(rectangles!, read, true)).text).toBe('');
-  });
-
-  it('keeps the line when both reads of every downscaled number agree confidently', async () => {
-    const { rectangles } = segmentedAt(900 / 1080);
-    const read = readers(rectangles!, { text: '4', confidence: 92 }, { text: '4', confidence: 85 });
-    expect(await readSegmentedKda(rectangles!, read, true)).toEqual({ text: '12/4/3', confidence: 92 });
+    const read = readers(rectangles!, { text: '4', confidence: 74 }, { text: '4', confidence: 52 });
+    expect(await readSegmentedKda(rectangles!, read, true)).toEqual({ text: '12/4/3', confidence: 74, reads: '12@93|12@90 4@74|4@52 3@93|3@90' });
     expect(read.secondary).toHaveBeenCalledTimes(3);
+  });
+
+  it('a second read that finds no number does not overrule the first', async () => {
+    const { rectangles } = segmentedAt(900 / 1080);
+    const read = readers(rectangles!, { text: '4', confidence: 88 }, { text: '', confidence: 30 });
+    expect((await readSegmentedKda(rectangles!, read, true)).text).toBe('12/4/3');
+  });
+
+  it('the parser keeps the reads trace next to the raw K/D/A, and only when there is one', () => {
+    const recognitions = [{ regionId: 'player.0.kda', text: '12/4/3', confidence: 90, reads: '12@93|12@90 4@90|4@85 3@93|3@90' }, { regionId: 'player.1.kda', text: '5/5/5', confidence: 90 }];
+    const draft = parseLocalScoreboardRecognitions(recognitions, { capturedAt: '2026-10-22T00:00:00.000Z', rosterPlayers: [] });
+    const players = (draft as any).stats as Array<{ rawMetrics?: Record<string, string> }>;
+    expect(players[0].rawMetrics?.kdaReads).toBe('12@93|12@90 4@90|4@85 3@93|3@90');
+    expect(players[1].rawMetrics && 'kdaReads' in players[1].rawMetrics).toBe(false);
   });
 
   it('at 1920x1080 reads each number once, exactly as before, and never runs the second read', async () => {
