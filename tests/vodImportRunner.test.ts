@@ -304,6 +304,30 @@ describe('VOD import runner survives leaving the VOD tab', () => {
     expect(details).toContain('Game 1 of 2 · saving');
   });
 
+  it('sends learned map reads to discovery, keeps each game editable, and records maps nobody corrected', async () => {
+    const stored: Record<string, string> = { 'moetracker.vodMapReads.v1': JSON.stringify([{ token: 'havfn', map: 'Haven', kind: 'correction', source: 'old', at: 'then' }]) };
+    vi.stubGlobal('localStorage', { getItem: (key: string) => stored[key] ?? null, setItem: (key: string, value: string) => { stored[key] = value; } });
+    const savedBoundaries = discovery.boundaries;
+    discovery.boundaries = [{ ...boundary(0, 'Haven'), mapSource: 'learned', mapRead: ['havfn'], firedTokens: ['havfn'] }, { ...boundary(300_000, 'Bind'), mapSource: 'read', mapRead: ['bind', 'havfn'], firedTokens: [] }] as any;
+    try {
+      const h = harness(); let saves = 0;
+      h.apiFetch.mockImplementation(async (url: string) => url === '/api/data' ? new Response(JSON.stringify({ matches: [], playerStats: [] }), { status: 200 }) : new Response(JSON.stringify({ submission: { linkMode: 'new-match', linkedMatchId: `match-${++saves}` } }), { status: 200 }));
+      const run = startVodBatchImport(input({ roster: [] }), h.deps);
+      await h.finishAnalysis(); await h.finishAnalysis();
+      await expect(run).resolves.toBe(true);
+      expect((h.desktop.discoverVodGames.mock.calls[0] as any[])[0].mapHints).toEqual([{ token: 'havfn', map: 'Haven' }]);
+      const games = vodImportStore.getSnapshot().batchResult;
+      expect(games.map(game => game.matchId)).toEqual(['match-1', 'match-2']);
+      expect(games[0]).toMatchObject({ map: 'Haven', mapSource: 'learned', firedTokens: ['havfn'] });
+      expect(games[0].status).toContain('map remembered from your correction');
+      expect(vodImportStore.updateGame(1, { map: 'Lotus', edited: true })).toBe(true);
+      expect(vodImportStore.updateGame(5, { map: 'Lotus' })).toBe(false);
+      // Game 2 kept Bind while reading the learned token: one sighting against havfn -> Haven.
+      const samples = JSON.parse(stored['moetracker.vodMapReads.v1']);
+      expect(samples.filter((sample: any) => sample.kind === 'kept')).toEqual([expect.objectContaining({ token: 'havfn', map: 'Bind', source: 'match-2' })]);
+    } finally { discovery.boundaries = savedBoundaries; vi.unstubAllGlobals(); }
+  });
+
   it('splits a pasted list of links into one VOD each', () => {
     expect(splitVodLinks('https://youtu.be/a\nhttps://youtu.be/b, https://youtu.be/a  https://www.youtube.com/live/c')).toEqual(['https://youtu.be/a', 'https://youtu.be/b', 'https://www.youtube.com/live/c']);
     expect(splitVodLinks('  ')).toEqual([]);

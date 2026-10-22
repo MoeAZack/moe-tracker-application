@@ -17,6 +17,7 @@ import {
 } from '../utils/vodImportRunner';
 import { activeResourceNames } from '../../lib/resourceCatalog';
 import VodImportQueue from './VodImportQueue';
+import VodGameCard from './VodGameCard';
 import { clearableJob, ingestionClearMessage } from '../utils/ingestionHistory';
 import { confirmDialog, notify } from '../utils/appDialogs';
 
@@ -454,14 +455,9 @@ export default function VodSubmission({ data, role, onRefresh }: Props) {
           {importState.batchResult.length > 0 && (
             <div className="mt-4 grid gap-2 sm:grid-cols-2 lg:grid-cols-3">
               {importState.batchResult.map((game, index) => (
-                <article key={`${game.map}-${index}`} className="rounded-xl border border-emerald-300/15 bg-emerald-300/5 p-3">
-                  <p className="text-sm font-semibold text-emerald-200">
-                    Game {index + 1} · {game.map}
-                  </p>
-                  <p className="mt-1 text-xs text-slate-300">
-                    {game.score} · {game.status}
-                  </p>
-                </article>
+                <React.Fragment key={`${game.matchId || game.map}-${index}`}>
+                  <VodGameCard game={game} index={index} mapNames={activeResourceNames(data, 'map')} apiFetch={apiFetch} onSaved={importState.running ? undefined : onRefresh} />
+                </React.Fragment>
               ))}
             </div>
           )}
