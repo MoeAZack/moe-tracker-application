@@ -276,7 +276,7 @@ export default function ScrimImport({ data, theme, onSaveMatch, onClose }: Props
       {file ? <CheckCircle className="w-5 h-5 text-emerald-400 shrink-0" /> : <ImageIcon className="w-5 h-5 text-gray-500 shrink-0" />}
       <div className="min-w-0 flex-1">
         <div className="text-sm font-bold">{label} {required && <span className="text-[#ff4655]">*</span>}</div>
-        <div className="text-[11px] text-gray-500 font-mono truncate">{file ? file.name : 'Click to choose an image'}</div>
+        <div className="text-xs text-gray-500 font-mono truncate">{file ? file.name : 'Click to choose an image'}</div>
       </div>
       <input type="file" accept="image/*" className="hidden" onChange={(e) => set(e.target.files?.[0] || null)} />
     </label>
@@ -301,10 +301,10 @@ export default function ScrimImport({ data, theme, onSaveMatch, onClose }: Props
             <p className="text-xs text-gray-400 leading-relaxed">{window.moeDesktop ? 'Load latest one-button capture reads the screenshots locally on this PC. ' : ''}Read selected screenshots sends the images you choose to Gemini, a cloud AI service, and needs a Gemini API key. Every detected player, score, and round stays a draft until you review and confirm it.</p>
             {fileRow('Scoreboard screenshot', scoreboard, setScoreboard, true)}
             {fileRow('Round timeline screenshot (optional)', timeline, setTimeline)}
-            <button onClick={runImport} disabled={cloudAiActionBlocked(cloudAiAvailable, !scoreboard)} className="w-full py-3 bg-[#d12a3a] hover:bg-[#b91c2e] disabled:opacity-40 text-white font-bold text-xs uppercase tracking-widest rounded-lg flex items-center justify-center gap-2 cursor-pointer">
+            <button onClick={runImport} disabled={cloudAiActionBlocked(cloudAiAvailable, !scoreboard)} className="w-full py-3 bg-[#d12a3a] hover:bg-[#b91c2e] disabled:opacity-40 text-white font-bold text-xs tracking-widest rounded-lg flex items-center justify-center gap-2 cursor-pointer">
               <Upload className="w-4 h-4" /> Read selected screenshots with cloud AI
             </button>
-            {cloudAiAvailable === false && <p className="text-[10px] text-gray-400">{CLOUD_AI_OFF_MESSAGE}</p>}
+            {cloudAiAvailable === false && <p className="text-xs text-gray-400">{CLOUD_AI_OFF_MESSAGE}</p>}
           </div>
         )}
 
@@ -335,7 +335,7 @@ export default function ScrimImport({ data, theme, onSaveMatch, onClose }: Props
                 <option value="Def">Started Defense</option>
               </select>
             </div>
-            {sideInference && <p className={`text-[11px] ${sideInference.firstHalf ? 'text-cyan-200/80' : 'text-amber-300/80'}`}>
+            {sideInference && <p className={`text-xs ${sideInference.firstHalf ? 'text-cyan-200/80' : 'text-amber-300/80'}`}>
               {sideInference.firstHalf
                 ? `Starting side detected from ${sideInference.votes} spike plant/defuse rows (only attackers plant). Change it if this looks wrong.`
                 : sideInference.votes ? 'Plant/defuse rows disagree about the starting side; choose it manually.' : 'No readable plant/defuse rows; choose the starting side manually.'}
@@ -343,7 +343,7 @@ export default function ScrimImport({ data, theme, onSaveMatch, onClose }: Props
 
             {/* Players */}
             <div>
-              <div className="text-[10px] uppercase font-bold tracking-widest text-gray-500 mb-2">Detected players (our inferred five are saved)</div>
+              <div className="text-xs uppercase font-bold tracking-widest text-gray-500 mb-2">Detected players (our inferred five are saved)</div>
               <div className="space-y-1.5 max-h-52 overflow-y-auto">
                 {players.map((p, i) => (
                   <div key={i} className="flex items-center gap-2 text-xs bg-white/[0.03] rounded-lg px-2.5 py-1.5">
@@ -375,20 +375,20 @@ export default function ScrimImport({ data, theme, onSaveMatch, onClose }: Props
             </div>
 
             {rounds.length > 0 && <div>
-              <div className="mb-2 text-[10px] font-bold uppercase tracking-widest text-gray-500">Round review</div>
+              <div className="mb-2 text-xs font-bold uppercase tracking-widest text-gray-500">Round review</div>
               <div className="grid max-h-48 grid-cols-2 gap-2 overflow-y-auto sm:grid-cols-3 md:grid-cols-4">
                 {rounds.map((round, index) => <div key={round.roundNo} className={`rounded-lg border p-2 ${round.screenshotEvidence?.reviewStatus !== 'confirmed' ? 'border-amber-400/30 bg-amber-400/[0.05]' : 'border-white/10 bg-white/[0.03]'}`}>
-                  <div className="flex items-center justify-between gap-2"><span className="text-xs font-semibold">Round {round.roundNo}</span><span className="text-[9px] uppercase text-gray-500">{round.screenshotEvidence?.confidence || 'manual'}</span></div>
+                  <div className="flex items-center justify-between gap-2"><span className="text-xs font-semibold">Round {round.roundNo}</span><span className="text-xs uppercase text-gray-500">{round.screenshotEvidence?.confidence || 'manual'}</span></div>
                   <div className="mt-2 grid grid-cols-2 gap-1"><button type="button" onClick={() => setRounds(current => current.map((item, itemIndex) => itemIndex === index ? { ...item, result: 'W' } : item))} className={`min-h-9 rounded border text-xs font-semibold ${round.result === 'W' ? 'border-emerald-300/50 bg-emerald-300/15 text-emerald-200' : 'border-white/10 text-gray-400'}`}>Win</button><button type="button" onClick={() => setRounds(current => current.map((item, itemIndex) => itemIndex === index ? { ...item, result: 'L' } : item))} className={`min-h-9 rounded border text-xs font-semibold ${round.result === 'L' ? 'border-rose-300/50 bg-rose-300/15 text-rose-200' : 'border-white/10 text-gray-400'}`}>Loss</button></div>
-                  <div className="mt-1 text-[9px] text-gray-500">{round.winBy || 'Reason unknown'} · {round.screenshotEvidence?.events?.length || 0} events · {(round.screenshotEvidence?.events || []).filter((event: any) => event.occurredAtSeconds !== null && event.occurredAtSeconds !== undefined).length} timed</div>
-                  {round.extractionIssues?.length > 0 && <p className="mt-1 truncate text-[9px] text-amber-200" title={round.extractionIssues.join(', ')}>Check: {round.extractionIssues.join(', ')}</p>}
-                  {round.screenshotEvidence && round.screenshotEvidence.reviewStatus !== 'confirmed' && <button type="button" onClick={() => setRounds(current => current.map((item, itemIndex) => itemIndex === index ? { ...item, screenshotEvidence: { ...item.screenshotEvidence, reviewStatus: 'confirmed' }, extractionIssues: [] } : item))} className="mt-1.5 w-full rounded border border-cyan-300/30 px-1 py-1 text-[9px] font-semibold text-cyan-200">Accept evidence</button>}
+                  <div className="mt-1 text-xs text-gray-500">{round.winBy || 'Reason unknown'} · {round.screenshotEvidence?.events?.length || 0} events · {(round.screenshotEvidence?.events || []).filter((event: any) => event.occurredAtSeconds !== null && event.occurredAtSeconds !== undefined).length} timed</div>
+                  {round.extractionIssues?.length > 0 && <p className="mt-1 truncate text-xs text-amber-200" title={round.extractionIssues.join(', ')}>Check: {round.extractionIssues.join(', ')}</p>}
+                  {round.screenshotEvidence && round.screenshotEvidence.reviewStatus !== 'confirmed' && <button type="button" onClick={() => setRounds(current => current.map((item, itemIndex) => itemIndex === index ? { ...item, screenshotEvidence: { ...item.screenshotEvidence, reviewStatus: 'confirmed' }, extractionIssues: [] } : item))} className="mt-1.5 w-full rounded border border-cyan-300/30 px-1 py-1 text-xs font-semibold text-cyan-200">Accept evidence</button>}
                 </div>)}
               </div>
             </div>}
 
-            {consistency.errors.length > 0 && <div role="alert" className="rounded-lg border border-rose-400/25 bg-rose-400/[0.06] p-3 text-[11px] text-rose-200"><div className="mb-1 font-bold uppercase tracking-wider">Fix before saving</div>{consistency.errors.map(issue => <div key={issue}>• {issue}</div>)}</div>}
-            {consistency.warnings.length > 0 && <div className="rounded-lg border border-amber-400/25 bg-amber-400/[0.06] p-3 text-[11px] text-amber-100"><div className="mb-1 font-bold uppercase tracking-wider">Double-check</div>{consistency.warnings.map(issue => <div key={issue}>• {issue}</div>)}
+            {consistency.errors.length > 0 && <div role="alert" className="rounded-lg border border-rose-400/25 bg-rose-400/[0.06] p-3 text-xs text-rose-200"><div className="mb-1 font-bold uppercase tracking-wider">Fix before saving</div>{consistency.errors.map(issue => <div key={issue}>• {issue}</div>)}</div>}
+            {consistency.warnings.length > 0 && <div className="rounded-lg border border-amber-400/25 bg-amber-400/[0.06] p-3 text-xs text-amber-100"><div className="mb-1 font-bold uppercase tracking-wider">Double-check</div>{consistency.warnings.map(issue => <div key={issue}>• {issue}</div>)}
               <label className="mt-2 flex items-start gap-2"><input type="checkbox" checked={warningsAcknowledged} onChange={(e) => setWarningsAcknowledged(e.target.checked)} /><span>I checked these totals and they are correct.</span></label></div>}
 
             <label className="flex items-start gap-2 text-xs text-gray-300">
@@ -397,13 +397,13 @@ export default function ScrimImport({ data, theme, onSaveMatch, onClose }: Props
             </label>
 
             <div className="flex gap-2">
-              <button onClick={() => setStep('upload')} className="px-4 py-2.5 border border-white/10 text-gray-300 text-xs font-bold uppercase tracking-widest rounded-lg cursor-pointer">Back</button>
-              <button onClick={save} disabled={saving || !roundsComplete || consistencyBlocked || !canCommitScreenshotReview(meta, alliedSideConfirmed)} className="flex-1 py-2.5 bg-[#d12a3a] hover:bg-[#b91c2e] disabled:opacity-40 text-white font-bold text-xs uppercase tracking-widest rounded-lg flex items-center justify-center gap-2 cursor-pointer">
+              <button onClick={() => setStep('upload')} className="px-4 py-2.5 border border-white/10 text-gray-300 text-xs font-bold tracking-widest rounded-lg cursor-pointer">Back</button>
+              <button onClick={save} disabled={saving || !roundsComplete || consistencyBlocked || !canCommitScreenshotReview(meta, alliedSideConfirmed)} className="flex-1 py-2.5 bg-[#d12a3a] hover:bg-[#b91c2e] disabled:opacity-40 text-white font-bold text-xs tracking-widest rounded-lg flex items-center justify-center gap-2 cursor-pointer">
                 {saving ? <Loader2 className="w-4 h-4 animate-spin" /> : <CheckCircle className="w-4 h-4" />} Save Scrim
               </button>
             </div>
-            {!canCommitScreenshotReview(meta, alliedSideConfirmed) && <p className="text-[11px] text-amber-400/80 text-center">Complete the opponent, map, and score, then explicitly confirm the allied side to save.</p>}
-            {!roundsComplete && <p className="text-[11px] text-amber-400/80 text-center">Choose Win or Loss for every uncertain round before saving.</p>}
+            {!canCommitScreenshotReview(meta, alliedSideConfirmed) && <p className="text-xs text-amber-400/80 text-center">Complete the opponent, map, and score, then explicitly confirm the allied side to save.</p>}
+            {!roundsComplete && <p className="text-xs text-amber-400/80 text-center">Choose Win or Loss for every uncertain round before saving.</p>}
           </div>
         )}
       </div>

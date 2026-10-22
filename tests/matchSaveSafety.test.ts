@@ -526,49 +526,29 @@ describe('explicit match statistics save contract', () => {
     expect(stored.playerStats.filter((stat: any) => stat.matchId === started.match.id)).toEqual(finalized.statsUpdate.stats);
   });
 
-  it('keeps every VLR endpoint disabled without fetching or writing', async () => {
+  it('serves no VLR or ranked-sync routes, with zero external fetches and writes', async () => {
     const token = await login(adminKey);
     const before = await fs.readFile(dbPath, 'utf8');
     const originalFetch = globalThis.fetch;
     const externalFetch = vi.spyOn(globalThis, 'fetch').mockRejectedValue(new Error('unexpected external fetch'));
     try {
-      for (const [route, method] of [
-        ['/api/vlr-team-matches', 'GET'],
-        ['/api/vlr-team-map-stats', 'GET'],
-        ['/api/import-vlr-match', 'POST'],
+      for (const [route, method, body] of [
+        ['/api/vlr-team-matches', 'GET', null],
+        ['/api/vlr-team-map-stats', 'GET', null],
+        ['/api/import-vlr-match', 'POST', { matchId: '123' }],
+        ['/api/verify-riot', 'POST', { name: 'Alpha', tag: 'ONE' }],
+        ['/api/sync-soloq', 'POST', { player: 'Alpha' }],
       ] as const) {
         const response = await originalFetch(`${origin}${route}`, {
           method,
           headers: { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' },
-          ...(method === 'POST' ? { body: JSON.stringify({ matchId: '123' }) } : {}),
+          ...(body ? { body: JSON.stringify(body) } : {}),
         });
-        expect(response.status).toBe(503);
-        expect(await response.json()).toMatchObject({ disabled: true, fetched: false, wrote: false });
+        expect(response.status, route).toBe(404);
       }
-      expect(externalFetch).not.toHaveBeenCalled();
-    } finally {
-      externalFetch.mockRestore();
-    }
-    expect(await fs.readFile(dbPath, 'utf8')).toBe(before);
-  });
-
-  it('keeps legacy ranked routes disabled with zero external fetches and writes', async () => {
-    const token = await login(adminKey);
-    const before = await fs.readFile(dbPath, 'utf8');
-    const originalFetch = globalThis.fetch;
-    const externalFetch = vi.spyOn(globalThis, 'fetch').mockRejectedValue(new Error('unexpected external fetch'));
-    try {
-      for (const [route, body] of [
-        ['/api/verify-riot', { name: 'Alpha', tag: 'ONE' }],
-        ['/api/sync-soloq', { player: 'Alpha' }],
-      ] as const) {
-        const response = await originalFetch(`${origin}${route}`, { method: 'POST', headers: { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' }, body: JSON.stringify(body) });
-        expect(response.status).toBe(503);
-        expect(await response.json()).toMatchObject({ disabled: true, fetched: false, wrote: false, reason: 'ranked-sync-gate-unavailable' });
-      }
+      // The scheduled ranked sync no longer exists, so the cron secret alone opens nothing.
       const cron = await originalFetch(`${origin}/api/cron/sync-soloq`, { method: 'POST', headers: { 'x-cron-secret': 'test-cron-secret-at-least-24-characters' } });
-      expect(cron.status).toBe(503);
-      expect(await cron.json()).toMatchObject({ disabled: true, fetched: false, wrote: false, reason: 'ranked-sync-gate-unavailable' });
+      expect(cron.status).toBe(401);
       expect(externalFetch).not.toHaveBeenCalled();
     } finally { externalFetch.mockRestore(); }
     expect(await fs.readFile(dbPath, 'utf8')).toBe(before);

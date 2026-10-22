@@ -8,7 +8,7 @@ export function createSeed() {
   const mo = String(new Date().getMonth() + 1).padStart(2, '0');
 
   const settings = {
-    teamName: 'MoeTracker',
+    teamName: 'Moe Tracker',
     season: '',
     theme: 'radiant',
     density: 'comfortable',
@@ -50,8 +50,7 @@ export function createSeed() {
   };
 
   const secrets = {
-    ANTHROPIC_API_KEY: false,
-    HENRIK_API_KEY: false
+    ANTHROPIC_API_KEY: false
   };
 
   const schedule: any[] = [];

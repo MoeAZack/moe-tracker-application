@@ -56,18 +56,22 @@ export default function RosterManager({ data, theme, onRefresh }: Props) {
   const [newSeasonName, setNewSeasonName] = useState("");
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  const [collapsed, setCollapsed] = useState(() =>
-    typeof window !== "undefined"
-      ? archivedPlayers.length === 0 &&
-        window.localStorage.getItem("moe.roster-manager.collapsed.v2") !==
-          "false"
-      : false,
-  );
+  // The Roster tab holds only this panel, so it opens expanded. It stays
+  // minimized only after the coach minimizes it. The v2 key stored the old
+  // collapsed-by-default state on every visit, so it is not read.
+  const [collapsed, setCollapsed] = useState(() => {
+    try {
+      return typeof window !== "undefined" && window.localStorage.getItem("moe.roster-manager.collapsed.v3") === "true";
+    } catch {
+      return false;
+    }
+  });
   useEffect(() => {
-    window.localStorage.setItem(
-      "moe.roster-manager.collapsed.v2",
-      String(collapsed),
-    );
+    try {
+      window.localStorage.setItem("moe.roster-manager.collapsed.v3", String(collapsed));
+    } catch {
+      // Storage can be unavailable; the panel still works for this visit.
+    }
   }, [collapsed]);
   const [archivedOpen, setArchivedOpen] = useState(false);
   useEffect(() => {
@@ -248,9 +252,9 @@ export default function RosterManager({ data, theme, onRefresh }: Props) {
           <Users className="h-5 w-5 shrink-0 text-[#ff4655]" />
           <span>
             <span className="block text-lg font-black tracking-tight uppercase">
-              Roster & Tryout Batches
+              Roster & tryout batches
             </span>
-            <span className="block text-[10px] font-normal normal-case tracking-normal text-gray-500">
+            <span className="block text-xs font-normal normal-case tracking-normal text-gray-500">
               {activeCore.size} core · {visibleRosterPlayers.length} active
               identities ·{" "}
               {batches.filter((batch) => batch.status === "active").length}{" "}
@@ -338,7 +342,7 @@ export default function RosterManager({ data, theme, onRefresh }: Props) {
                           <p className="font-bold text-slate-100">
                             {player.displayName}
                           </p>
-                          <p className="mt-0.5 text-[10px] text-slate-400">
+                          <p className="mt-0.5 text-xs text-slate-400">
                             {days === null
                               ? "Legacy archive · no automatic deletion"
                               : `Automatic deletion in ${days} day${days === 1 ? "" : "s"}`}
@@ -349,7 +353,7 @@ export default function RosterManager({ data, theme, onRefresh }: Props) {
                             type="button"
                             disabled={busy}
                             onClick={() => void restorePlayer(player.id)}
-                            className="ui-button ui-button-primary min-h-9 px-3 text-[11px]"
+                            className="ui-button ui-button-primary min-h-9 px-3 text-xs"
                           >
                             <RotateCcw className="h-3.5 w-3.5" />
                             Recover player
@@ -360,7 +364,7 @@ export default function RosterManager({ data, theme, onRefresh }: Props) {
                             onClick={() =>
                               void deletePlayer(player.id, player.displayName)
                             }
-                            className="ui-button min-h-9 border-rose-400/25 px-3 text-[11px] text-rose-300"
+                            className="ui-button min-h-9 border-rose-400/25 px-3 text-xs text-rose-300"
                           >
                             <Trash2 className="h-3.5 w-3.5" />
                             Delete permanently
@@ -428,7 +432,7 @@ export default function RosterManager({ data, theme, onRefresh }: Props) {
                 >
                   <div>
                     <p className="font-bold text-sm">{archive.name}</p>
-                    <p className="text-[10px] text-gray-400">
+                    <p className="text-xs text-gray-400">
                       {archive.seasonName} ·{" "}
                       {archive.rosterPlayers.length ||
                         archive.legacyPlayers.length}{" "}

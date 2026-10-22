@@ -36,7 +36,7 @@ async function collectJson(run, args, options = {}) {
     }
   }
   const command = String(args?.[0] || 'command');
-  throw new Error(`Replay collector returned an incomplete response for ${command}. MoeTracker retried it safely; try once more or export a support bundle.` , { cause: lastError });
+  throw new Error(`Replay collector returned an incomplete response for ${command}. Moe Tracker retried it safely; try once more or export a support bundle.` , { cause: lastError });
 }
 
 module.exports = { collectChildOutput, collectJson };

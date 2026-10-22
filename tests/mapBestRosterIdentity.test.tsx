@@ -14,7 +14,7 @@ describe('map discipline roster identities', () => {
       rosterPlayers: [], matches: [], playerStats: [], rounds: [], strats: [], stratRuns: [],
     };
 
-    const html = renderToStaticMarkup(<MapBestStats data={data} theme={{ border: 'border', cardBg: 'card' }} onUpsert={async () => null} onRemove={async () => null} />);
+    const html = renderToStaticMarkup(<MapBestStats data={data} theme={{ border: 'border', cardBg: 'card' }} />);
 
     expect(html).not.toContain('SyntheticAce');
     expect(html).not.toContain('SyntheticBolt');
@@ -31,6 +31,17 @@ describe('map discipline roster identities', () => {
     const on = buildBestMaps(data(true), buildMapStatsTable(data(true), ['Haven']));
     expect(on[0].score).not.toBeNull();
     expect(bestMapInsight(on, data(true).settings)?.map).toBe('Haven');
+  });
+
+  it('marks a raw map win rate from fewer maps than the sample limit and leaves it uncoloured', () => {
+    const match = (index: number) => ({ id: `m${index}`, date: `2026-09-${String(index + 1).padStart(2, '0')}`, map: 'Haven', ourScore: 13, theirScore: 9, attW: 7, attL: 5, defW: 6, defL: 4 });
+    const render = (count: number) => renderToStaticMarkup(<MapBestStats data={{ settings: { theme: 'midnight', maps: ['Haven'], stats: { lowSample: 15 }, weights: {} }, rosterPlayers: [], matches: Array.from({ length: count }, (_, index) => match(index)), playerStats: [], rounds: [], strats: [], stratRuns: [] } as any} theme={{ border: 'border', cardBg: 'card' }} />);
+    const one = render(1);
+    expect(one).toContain('Small sample · 1 of 15 maps');
+    expect(one).toMatch(/<span class="text-slate-300">100%<\/span>/);
+    expect(render(15)).not.toContain('Small sample');
+    expect(one).not.toContain('Accepted practice maps feed the pool table');
+    expect(one).toContain('count every recorded match on each map');
   });
 
   it('keeps side and K/D unknown when one match in the window lacks them', () => {

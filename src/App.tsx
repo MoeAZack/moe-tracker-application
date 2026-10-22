@@ -15,7 +15,7 @@ import ReviewContextBar from './components/ReviewContextBar';
 import VodImportStatus from './components/VodImportStatus';
 import { projectCurrentPlayerAnalytics } from '../lib/activePlayerAnalytics';
 import { projectReviewContext } from '../lib/reviewContext';
-import { evidenceReviewTab, focusReviewContext, navWorkspaceTabs, parseWorkspaceRoute, resolveWorkspaceTab, routableWorkspaceTabs, syncWorkspaceRoute, type WorkspaceRoute, type WorkspaceTabId } from './utils/workspaceRoute';
+import { destinationEntryTab, evidenceReviewTab, focusReviewContext, navWorkspaceTabs, parseWorkspaceRoute, workspaceSectionTab, resolveWorkspaceTab, routableWorkspaceTabs, syncWorkspaceRoute, workspaceDestination, workspaceDestinations, type WorkspaceDestination, type WorkspaceRoute, type WorkspaceTabId } from './utils/workspaceRoute';
 import ScreenErrorBoundary from './components/ScreenErrorBoundary';
 
 // Heavy route views are code-split so the initial bundle only loads the shell + login.
@@ -23,6 +23,7 @@ const Dashboard = lazy(() => import('./components/Dashboard'));
 const CalendarGoals = lazy(() => import('./components/CalendarGoals'));
 const MatchLogRounds = lazy(() => import('./components/MatchLogRounds'));
 const MapBestStats = lazy(() => import('./components/MapBestStats'));
+const PlaybookStrategies = lazy(() => import('./components/PlaybookStrategies'));
 const TeamCompositions = lazy(() => import('./components/TeamCompositions'));
 const PlayerSoloTracker = lazy(() => import('./components/PlayerSoloTracker'));
 const SettingsControl = lazy(() => import('./components/SettingsControl'));
@@ -45,10 +46,14 @@ const SystemReadinessPanel = lazy(() => import('./components/SystemReadinessPane
 import {
   ShieldAlert, RefreshCw, Trophy, Calendar, Swords, Compass,
   Layers, Users, Settings as SettingsIcon, Image, Activity, Sparkles,
-  Film, Crosshair, Coins, FileCheck2, GitCompareArrows, Upload, X
+  Film, Crosshair, Coins, FileCheck2, GitCompareArrows, Upload, X, Bot, BookOpen,
 } from 'lucide-react';
 import { notify } from './utils/appDialogs';
 import AppDialogHost from './components/AppDialogHost';
+
+const DESTINATION_ICONS: Record<WorkspaceDestination, typeof Trophy> = {
+  Home: Trophy, Matches: Swords, Team: Compass, Players: Users, Coaching: Sparkles, Playbook: Layers, Settings: SettingsIcon,
+};
 
 export default function App() {
   useEffect(() => {
@@ -104,7 +109,7 @@ export default function App() {
     if (data && reviewMatchId && !(data.matches || []).some(match => match.id === reviewMatchId)) { setReviewMatchId(null); setReviewRoundNo(null); }
   }, [data, reviewMatchId]);
 
-  // Scrim Auto-Import modal
+  // Scrim auto-import modal
   const [scrimOpen, setScrimOpen] = useState(false);
 
   useEffect(() => {
@@ -465,22 +470,24 @@ export default function App() {
   };
 
   const tabsList = [
-    { id: 'dashboard', label: 'Home', icon: Trophy, group: 'Home' },
-    { id: 'matches', label: 'Match Review', icon: Swords, group: 'Matches' },
-    { id: 'replays', label: 'Replay Evidence', icon: FileCheck2, group: 'Matches' },
-    { id: 'vod', label: 'VOD Review', icon: Film, group: 'Matches' },
-    { id: 'vodsubmit', label: 'VOD Submission', icon: Upload, group: 'Matches' },
-    { id: 'livelogger', label: 'Live Logger 🔴', icon: Activity, group: 'Matches' },
-    { id: 'economy', label: 'Economy', icon: Coins, group: 'Team' },
-    { id: 'maps', label: 'Map Analysis', icon: Compass, group: 'Team' },
-    { id: 'roster', label: 'Roster', icon: Users, group: 'Players' },
-    { id: 'playerstats', label: 'Player Stats', icon: Activity, group: 'Players' },
-    { id: 'comparisons', label: 'Tryout comparisons', icon: GitCompareArrows, group: 'Players' },
-    { id: 'calendar', label: 'Schedule & Goals', icon: Calendar, group: 'Coaching' },
-    { id: 'aitactical', label: 'Coach Workspace', icon: Sparkles, group: 'Coaching' },
-    { id: 'comps', label: 'Compositions', icon: Layers, group: 'Playbook' },
-    { id: 'lineups', label: 'Lineup Library', icon: Crosshair, group: 'Playbook' },
-    { id: 'settings', label: 'Settings', icon: SettingsIcon, group: 'Settings' },
+    { id: 'dashboard', label: 'Home', icon: Trophy },
+    { id: 'matches', label: 'Match Review', icon: Swords },
+    { id: 'replays', label: 'Replay Evidence', icon: FileCheck2 },
+    { id: 'vod', label: 'VOD Review', icon: Film },
+    { id: 'vodsubmit', label: 'VOD Submission', icon: Upload },
+    { id: 'livelogger', label: 'Live logging', icon: Activity },
+    { id: 'economy', label: 'Economy', icon: Coins },
+    { id: 'maps', label: 'Map Analysis', icon: Compass },
+    { id: 'roster', label: 'Roster', icon: Users },
+    { id: 'playerstats', label: 'Player Stats', icon: Activity },
+    { id: 'comparisons', label: 'Tryout comparisons', icon: GitCompareArrows },
+    { id: 'calendar', label: 'Schedule & Goals', icon: Calendar },
+    { id: 'aitactical', label: 'Coach Workspace', icon: Sparkles },
+    { id: 'strats', label: 'Strategies', icon: BookOpen },
+    { id: 'comps', label: 'Compositions', icon: Layers },
+    { id: 'lineups', label: 'Lineup Library', icon: Crosshair },
+    { id: 'aihub', label: 'AI tools', icon: Bot },
+    { id: 'settings', label: 'Settings', icon: SettingsIcon },
   ] as const;
 
   const tryoutComparisonsVisible = showTryoutComparisons ?? Boolean((data?.settings as any)?.tryoutsMode);
@@ -489,14 +496,25 @@ export default function App() {
     const ids = navWorkspaceTabs({ desktopMode, role, showTryoutComparisons: tryoutComparisonsVisible, activeTab });
     return tabsList.filter(tab => ids.includes(tab.id));
   }, [desktopMode, role, tryoutComparisonsVisible, activeTab]);
-  const groupedTabs = useMemo(() => (['Home', 'Matches', 'Team', 'Players', 'Coaching', 'Playbook', 'Settings'] as const)
-    .map(group => ({ group, tabs: visibleTabs.filter(tab => tab.group === group) })).filter(section => section.tabs.length), [visibleTabs]);
+  // Seven destinations in the sidebar; a destination with several screens
+  // shows them as sections above the screen.
+  const destinations = useMemo(() => workspaceDestinations(visibleTabs.map(tab => tab.id)).map(entry => ({
+    ...entry, icon: DESTINATION_ICONS[entry.destination], sections: entry.tabs.map(id => visibleTabs.find(tab => tab.id === id)!),
+  })), [visibleTabs]);
+  const activeDestination = workspaceDestination(activeTab);
+  const activeSections = destinations.find(entry => entry.destination === activeDestination)?.sections || [];
+  const lastSectionByDestination = useRef<Partial<Record<WorkspaceDestination, WorkspaceTabId>>>({});
+  useEffect(() => { lastSectionByDestination.current[workspaceDestination(activeTab)] = activeTab; }, [activeTab]);
+  const openDestination = (destination: WorkspaceDestination) => {
+    const target = destinationEntryTab(destinations.find(entry => entry.destination === destination)?.tabs || [], lastSectionByDestination.current[destination]);
+    if (target) setActiveTab(target);
+  };
   useEffect(() => {
     const resolved = resolveWorkspaceTab(activeTab, routableTabs);
     if (resolved !== activeTab) setActiveTab(resolved);
   }, [activeTab, routableTabs]);
 
-  const appTitle = data?.settings?.teamName || 'MoeAZack Valorant Tracker';
+  const appTitle = data?.settings?.teamName || 'Moe Tracker';
   const themeMode = data?.settings?.theme || 'slate';
 
   if (!key) {
@@ -526,31 +544,30 @@ export default function App() {
           <div className="flex min-w-0 items-center gap-2.5">
             <Logo size={52} className="shrink-0 drop-shadow-[0_0_12px_rgba(92,232,244,0.28)]" />
             <div className="min-w-0 flex-1">
-              <span className="block whitespace-nowrap text-[18px] font-black uppercase italic leading-tight tracking-[-0.045em]">MOE TRACKER</span>
-              <span title={`Build ${__APP_REVISION__}`} className="text-[9px] font-mono text-gray-500 tracking-widest uppercase block -mt-1">SCRIM ENGINE · v{__APP_VERSION__}</span>
+              <span className="block whitespace-nowrap text-[18px] font-black uppercase italic leading-tight tracking-[-0.045em]">Moe Tracker</span>
+              <span title={`Build ${__APP_REVISION__}`} className="text-xs font-mono text-gray-500 tracking-widest uppercase block -mt-1">SCRIM ENGINE · v{__APP_VERSION__}</span>
             </div>
           </div>
           
-          <nav className="space-y-4">
-            {groupedTabs.map(section => <section key={section.group}><p className="mb-1.5 px-3 text-[9px] font-black uppercase tracking-[0.2em] text-slate-600">{section.group}</p><div className="space-y-1">{section.tabs.map((tab) => {
-              const IconComp = tab.icon;
-              const isActive = activeTab === tab.id;
+          <nav aria-label="Main" className="space-y-1">
+            {destinations.map(({ destination, icon: IconComp }) => {
+              const isActive = activeDestination === destination;
               return (
                 <button
-                  key={tab.id}
-                  onClick={() => setActiveTab(tab.id)}
+                  key={destination}
+                  onClick={() => openDestination(destination)}
                   aria-current={isActive ? 'page' : undefined}
-                  className={`nav-item w-full flex items-center gap-4 px-3 py-2.5 text-left uppercase text-xs tracking-wider font-bold font-mono ${
+                  className={`nav-item w-full flex items-center gap-4 px-3 py-2.5 text-left text-xs tracking-wider font-bold font-mono ${
                     isActive
                       ? theme.navActive
                       : 'text-gray-400 hover:text-white'
                   }`}
                 >
                   <IconComp className="w-4.5 h-4.5 shrink-0" />
-                  <span>{tab.label}</span>
+                  <span>{destination}</span>
                 </button>
               );
-            })}</div></section>)}
+            })}
           </nav>
         </div>
 
@@ -563,8 +580,8 @@ export default function App() {
                 {role === 'coach' ? 'C' : 'P'}
               </div>
               <div className="min-w-0">
-                <span className="text-[9px] uppercase font-bold tracking-widest text-gray-500 block leading-none mb-1">Authenticated</span>
-                <span className="text-[11px] font-mono font-bold text-white block uppercase truncate">{username}</span>
+                <span className="text-xs uppercase font-bold tracking-widest text-gray-500 block leading-none mb-1">Authenticated</span>
+                <span className="text-xs font-mono font-bold text-white block uppercase truncate">{username}</span>
               </div>
             </div>
             
@@ -578,30 +595,30 @@ export default function App() {
                 setUsername(null);
                 setActiveTab('dashboard');
               }}
-              className="ui-button w-full min-h-9 px-3 py-1.5 hover:text-rose-300 text-gray-400 text-[9px] font-bold font-mono uppercase tracking-widest cursor-pointer flex items-center justify-center gap-1.5"
+              className="ui-button w-full min-h-9 px-3 py-1.5 hover:text-rose-300 text-gray-400 text-xs font-bold font-mono tracking-widest cursor-pointer flex items-center justify-center gap-1.5"
             >
-              Sign Out / Lock
+              Sign out / lock
             </button>
           </div>
 
           {/* Vision AI Import Module Button (Only Coach can use this) */}
           {desktopMode && role === 'coach' && (
             <div className="liquid-subtle p-4 rounded-xl space-y-2">
-              <div className="flex items-center gap-1.5 text-[#ff4655] font-black text-[10px] tracking-widest uppercase font-mono">
+              <div className="flex items-center gap-1.5 text-[#ff4655] font-black text-xs tracking-widest uppercase font-mono">
                 <Image className="w-4 h-4" /> SCOREBOARD IMPORT
               </div>
               <p className="text-sm text-gray-300 leading-normal">Read names and scores on your device for free, then review before saving.</p>
               <button
                 onClick={openReplayImport}
-                className="ui-button w-full min-h-10 px-3 py-2 text-xs font-bold text-[#ff6975] font-mono uppercase cursor-pointer"
+                className="ui-button w-full min-h-10 px-3 py-2 text-xs font-bold text-[#ff6975] font-mono cursor-pointer"
               >
-                IMPORT SCOREBOARD
+                Import scoreboard
               </button>
               <button
                 onClick={() => setScrimOpen(true)}
-                className="ui-button w-full min-h-10 px-3 py-2 text-xs font-bold text-gray-300 font-mono uppercase cursor-pointer"
+                className="ui-button w-full min-h-10 px-3 py-2 text-xs font-bold text-gray-300 font-mono cursor-pointer"
               >
-                Scrim Auto-Import
+                Scrim auto-import
               </button>
             </div>
           )}
@@ -612,7 +629,7 @@ export default function App() {
             </Suspense>
           )}
 
-          <footer className="text-[10px] font-mono text-gray-500 leading-relaxed">
+          <footer className="text-xs font-mono text-gray-500 leading-relaxed">
             <p>© {new Date().getFullYear()} {appTitle} Scrim Tracker.</p>
             <p className="mt-0.5 text-gray-600">Built for tournament-tier analysis.</p>
           </footer>
@@ -625,8 +642,8 @@ export default function App() {
           <div className="flex min-w-0 items-center gap-2">
             <Logo size={40} className="shrink-0" />
             <div className="min-w-0">
-              <span className="block whitespace-nowrap text-base font-black uppercase italic leading-tight tracking-[-0.04em]">MOE TRACKER</span>
-              <span title={`Build ${__APP_REVISION__}`} className="text-[8px] font-mono text-gray-500 tracking-widest block -mt-1 font-bold">SCRIM ENGINE · v{__APP_VERSION__}</span>
+              <span className="block whitespace-nowrap text-base font-black uppercase italic leading-tight tracking-[-0.04em]">Moe Tracker</span>
+              <span title={`Build ${__APP_REVISION__}`} className="text-xs font-mono text-gray-500 tracking-widest block -mt-1 font-bold">SCRIM ENGINE · v{__APP_VERSION__}</span>
             </div>
           </div>
 
@@ -656,17 +673,16 @@ export default function App() {
         {/* Mobile Navigation Drawer */}
         {mobileMenuOpen && (
           <nav id="mobile-navigation" className="liquid-chrome lg:hidden border-x-0 border-t-0 rounded-none px-4 py-4 space-y-2 relative z-40 animate-fadeIn">
-            {groupedTabs.map(section => <section key={section.group}><p className="mb-1 px-3 pt-2 text-[9px] font-black uppercase tracking-[0.2em] text-slate-600">{section.group}</p>{section.tabs.map((tab) => {
-              const IconComp = tab.icon;
-              const isActive = activeTab === tab.id;
+            {destinations.map(({ destination, icon: IconComp }) => {
+              const isActive = activeDestination === destination;
               return (
                 <button
-                  key={tab.id}
+                  key={destination}
                   onClick={() => {
-                    setActiveTab(tab.id);
+                    openDestination(destination);
                     setMobileMenuOpen(false);
                   }}
-                  className={`nav-item w-full min-h-11 flex items-center gap-3.5 px-3 py-2.5 text-left uppercase text-xs tracking-wider font-bold font-mono ${
+                  className={`nav-item w-full min-h-11 flex items-center gap-3.5 px-3 py-2.5 text-left text-xs tracking-wider font-bold font-mono ${
                     isActive
                       ? theme.navActive
                       : 'text-gray-400 hover:text-white'
@@ -674,15 +690,15 @@ export default function App() {
                   aria-current={isActive ? 'page' : undefined}
                 >
                   <IconComp className="w-4.5 h-4.5" />
-                  <span>{tab.label}</span>
+                  <span>{destination}</span>
                 </button>
               );
-            })}</section>)}
+            })}
 
             {/* Mobile Session Status and Sign Out */}
             <div className="pt-3 border-t border-white/5 mt-2 space-y-2 text-left">
               <div className="flex justify-between items-center px-3 py-2 rounded bg-white/[0.02]">
-                <span className="text-[10px] uppercase tracking-widest font-mono text-gray-400">
+                <span className="text-xs uppercase tracking-widest font-mono text-gray-400">
                   User: <strong className="text-white font-mono">{username} ({role})</strong>
                 </span>
               </div>
@@ -697,16 +713,16 @@ export default function App() {
                   setMobileMenuOpen(false);
                   setActiveTab('dashboard');
                 }}
-                className="ui-button w-full min-h-11 px-3 py-2 text-rose-300 text-xs font-bold font-mono uppercase tracking-widest cursor-pointer text-center"
+                className="ui-button w-full min-h-11 px-3 py-2 text-rose-300 text-xs font-bold font-mono tracking-widest cursor-pointer text-center"
               >
-                Sign Out / Lock
+                Sign out / lock
               </button>
             </div>
           </nav>
         )}
 
         {data && desktopMode && <DesktopReplayAutomation data={data} role={role} onProcessed={fetchDatabase} onSaveMatch={handleSaveMatch} />}
-        <div className="aurora-utility-bar"><div className="aurora-utility-context"><span className="aurora-eyebrow">{data && activeTryoutPhase(data) ? `Tryouts · ${activeTryoutPhase(data)?.name}` : 'Team workspace'}</span><span className="aurora-version-badge" title="Installed MoeTracker version">v{__APP_VERSION__}</span></div>{data && <TeamSyncIndicator teamName={data.settings.teamName || 'MoeTracker team'} role={role} desktopMode={desktopMode} />}</div>
+        <div className="aurora-utility-bar"><div className="aurora-utility-context"><span className="aurora-eyebrow">{data && activeTryoutPhase(data) ? `Tryouts · ${activeTryoutPhase(data)?.name}` : 'Team workspace'}</span><span className="aurora-version-badge" title="Installed Moe Tracker version">v{__APP_VERSION__}</span></div>{data && <TeamSyncIndicator teamName={data.settings.teamName || 'Moe Tracker team'} role={role} desktopMode={desktopMode} />}</div>
         {data && ['dashboard', 'economy', 'maps', 'comps', 'roster', 'playerstats', 'comparisons'].includes(activeTab) && (data.tryoutBatches || []).some(batch => batch.status === 'archived') && <label className="mx-auto flex max-w-7xl w-full flex-wrap items-center gap-2 px-6 text-sm text-slate-300">Analytics history<select aria-label="Analytics phase" className="ui-field min-h-11 px-3" value={historicalTryoutId} onChange={event => setHistoricalTryoutId(event.target.value)}><option value="">Current workspace</option>{data.tryoutBatches.filter(batch => batch.status === 'archived').map(batch => <option key={batch.id} value={batch.id}>Archived tryouts · {batch.name}</option>)}</select>{historicalTryoutId && <span className="text-xs text-cyan-300">Viewing archived results only; new entries still use the current workspace.</span>}</label>}
 
         {/* Main Workspace Frame */}
@@ -721,6 +737,12 @@ export default function App() {
           {/* Tab Router Switch */}
           {desktopMode && <VodImportStatus hidden={activeTab === 'vodsubmit'} onOpen={() => setActiveTab('vodsubmit')} />}
           {desktopMode && data && ['matches', 'replays', 'vod', 'economy', 'aitactical'].includes(activeTab) && <ReviewContextBar data={workspaceData || data} value={{ matchId: reviewMatchId, roundNo: reviewRoundNo }} onChange={value => { setReviewMatchId(value.matchId); setReviewRoundNo(value.roundNo); }} onNavigate={tab => setActiveTab(tab)} />}
+          {activeSections.length > 1 && <nav aria-label={`${activeDestination} sections`} className="flex flex-wrap gap-2 border-b border-white/10 pb-3">
+            {activeSections.map(section => {
+              const SectionIcon = section.icon; const isActive = section.id === workspaceSectionTab(activeTab);
+              return <button key={section.id} type="button" onClick={() => setActiveTab(section.id)} aria-current={isActive ? 'page' : undefined} className={`inline-flex min-h-10 items-center gap-2 rounded-lg px-3 py-2 text-xs font-semibold ${isActive ? 'bg-white/10 text-white' : 'text-gray-400 hover:bg-white/5 hover:text-white'}`}><SectionIcon className="h-4 w-4 shrink-0" aria-hidden="true" />{section.label}</button>;
+            })}
+          </nav>}
           <div key={activeTab} className="route-stage flex-grow">
             <ScreenErrorBoundary screen={tabsList.find(tab => tab.id === activeTab)?.label.replace(/[^\p{L}\p{N}&' -]/gu, '').trim() || 'This screen'}>
             <Suspense fallback={
@@ -756,6 +778,7 @@ export default function App() {
                 onReviewContextChange={(matchId, roundNo) => { setReviewMatchId(matchId); setReviewRoundNo(roundNo || null); }}
                 onDuplicateReview={handleDuplicateReview}
                 onAcceptRoundEvidence={role === 'coach' ? handleAcceptRoundEvidence : undefined}
+                onRecordLive={routableTabs.includes('livelogger') ? () => setActiveTab('livelogger') : undefined}
               />
             )}
             {activeTab === 'matches' && workspaceData && !desktopMode && <WebsiteMatchLog data={workspaceData} theme={theme} focusMatchId={reviewMatchId} />}
@@ -791,13 +814,18 @@ export default function App() {
             {activeTab === 'aitactical' && analyticsData && (
               <div className="space-y-8">
                 <CoachWorkflow data={analyticsData} role={role} preferredMatchId={reviewMatchId} onRefresh={fetchDatabase} onFocusMatch={focusReview} onOpenMatch={(matchId, roundNo) => { focusReview(matchId, roundNo); setActiveTab(evidenceReviewTab(routableTabs)); }} />
-                <AITacticalHub data={coachReviewData || analyticsData} theme={theme} onUpsert={handleUpsert} onRemove={handleRemove} />
               </div>
             )}
+            {activeTab === 'aihub' && analyticsData && (
+              <AITacticalHub data={coachReviewData || analyticsData} theme={theme} onUpsert={handleUpsert} onRemove={handleRemove} />
+            )}
             {activeTab === 'maps' && analyticsData && desktopMode && (
-              <MapBestStats data={analyticsData} evidenceData={workspaceData || data} theme={theme} onUpsert={handleUpsert} onRemove={handleRemove} />
+              <MapBestStats data={analyticsData} theme={theme} />
             )}
             {activeTab === 'maps' && analyticsData && !desktopMode && <WebsiteMapSummary data={analyticsData} theme={theme} />}
+            {activeTab === 'strats' && workspaceData && (
+              <PlaybookStrategies data={workspaceData} theme={theme} onUpsert={handleUpsert} onRemove={handleRemove} />
+            )}
             {activeTab === 'comps' && analyticsData && (
               <TeamCompositions data={analyticsData} theme={theme} />
             )}

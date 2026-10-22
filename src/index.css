@@ -1,4 +1,3 @@
-@import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&family=Space+Grotesk:wght@500;600;700&family=JetBrains+Mono:wght@400;500;600&display=swap');
 @import "tailwindcss";
 
 @theme {
@@ -312,7 +311,7 @@ body {
 
 .desktop-intake-eyebrow {
   color: #76dfef;
-  font-size: 0.625rem;
+  font-size: 0.75rem;
   font-weight: 700;
   letter-spacing: 0.16em;
   text-transform: uppercase;
@@ -383,7 +382,7 @@ body {
   border: 1px solid rgba(147, 217, 235, 0.17);
   border-radius: 999px;
   color: #8ddce9;
-  font-size: 0.625rem;
+  font-size: 0.75rem;
   font-weight: 700;
 }
 
@@ -549,9 +548,9 @@ textarea:disabled {
   background: linear-gradient(105deg, rgba(116, 212, 246, 0.035), rgba(157, 123, 234, 0.035));
 }
 
-.aurora-eyebrow { color: var(--ui-muted); font-size: 0.65rem; font-weight: 600; letter-spacing: 0.16em; text-transform: uppercase; }
+.aurora-eyebrow { color: var(--ui-muted); font-size: 0.75rem; font-weight: 600; letter-spacing: 0.16em; text-transform: uppercase; }
 .aurora-utility-context { display: flex; align-items: center; gap: 0.65rem; min-width: 0; }
-.aurora-version-badge { display: inline-flex; min-height: 1.65rem; align-items: center; border: 1px solid rgba(103, 232, 249, 0.28); border-radius: 999px; padding: 0.2rem 0.55rem; background: rgba(34, 211, 238, 0.07); color: #a5f3fc; font-family: var(--font-mono); font-size: 0.65rem; font-weight: 700; letter-spacing: 0.04em; }
+.aurora-version-badge { display: inline-flex; min-height: 1.65rem; align-items: center; border: 1px solid rgba(103, 232, 249, 0.28); border-radius: 999px; padding: 0.2rem 0.55rem; background: rgba(34, 211, 238, 0.07); color: #a5f3fc; font-family: var(--font-mono); font-size: 0.75rem; font-weight: 700; letter-spacing: 0.04em; }
 .app-sidebar .nav-item { font-family: var(--font-sans); font-size: 0.8rem; font-weight: 600; letter-spacing: 0.01em; text-transform: none; }
 .aurora-dashboard h1 { font-size: clamp(1.65rem, 3vw, 2.1rem); letter-spacing: -0.035em; }
 .aurora-match { border-radius: var(--ui-radius-xl); border-color: rgba(99, 218, 247, 0.48); background: radial-gradient(ellipse at 0 0, rgba(37, 194, 230, 0.18), transparent 48%), linear-gradient(140deg, transparent 45%, rgba(132, 117, 222, 0.07)), var(--ui-glass); box-shadow: var(--ui-shadow-2), inset 0 1px 0 rgba(100, 237, 255, 0.65), inset 1px 0 0 rgba(93, 233, 248, 0.25), 0 0 28px rgba(28, 169, 215, 0.06); overflow: hidden; }
@@ -559,11 +558,11 @@ textarea:disabled {
 .aurora-match-heading h2 { margin-top: 0.35rem; font-size: 0.95rem; font-weight: 600; }
 .aurora-scoreboard { display: grid; grid-template-columns: minmax(0, 1fr) auto minmax(0, 1fr); gap: 1.5rem; align-items: center; padding: 2rem 1.4rem; text-align: center; background: linear-gradient(115deg, rgba(29, 191, 224, 0.07), transparent 45%, rgba(119, 88, 196, 0.06)); }
 .aurora-team-name { font-weight: 600; overflow-wrap: anywhere; }
-.aurora-caption { margin-top: 0.5rem; color: var(--ui-muted); font-size: 0.7rem; line-height: 1.5; }
+.aurora-caption { margin-top: 0.5rem; color: var(--ui-muted); font-size: 0.75rem; line-height: 1.5; }
 .aurora-score { display: flex; align-items: center; gap: 0.75rem; color: var(--ui-teal); font-size: clamp(2.2rem, 5vw, 4rem); font-weight: 700; letter-spacing: -0.045em; font-variant-numeric: tabular-nums; }
 .aurora-score-divider { font-size: 1.4rem; font-weight: 400; color: var(--ui-muted); }
 .aurora-opponent-score { color: var(--ui-gold); }
-.aurora-match-footer { display: flex; flex-wrap: wrap; gap: 0.5rem; justify-content: space-between; padding: 0.85rem 1.4rem; border-top: 1px solid var(--ui-line); font-size: 0.7rem; color: var(--ui-muted); }
+.aurora-match-footer { display: flex; flex-wrap: wrap; gap: 0.5rem; justify-content: space-between; padding: 0.85rem 1.4rem; border-top: 1px solid var(--ui-line); font-size: 0.75rem; color: var(--ui-muted); }
 .aurora-empty-match { display: flex; flex-direction: column; align-items: center; gap: 0.85rem; padding: 2rem 1.25rem; text-align: center; }
 .aurora-empty-match svg { color: var(--ui-teal); }
 .aurora-empty-match p { max-width: 25rem; line-height: 1.6; }
@@ -583,7 +582,7 @@ textarea:disabled {
 .app-shell:not([data-theme="daylight"]) .aurora-dashboard .text-sky-600 { color: #8fdcf4; }
 .replay-workspace > header { padding: 1.25rem; border: 1px solid var(--ui-line); border-radius: var(--ui-radius-lg); background: linear-gradient(120deg, rgba(57, 190, 223, 0.095), rgba(117, 86, 189, 0.055)); box-shadow: var(--ui-shadow-1); }
 .storage-indicator { position: relative; z-index: 55; color: var(--ui-text); }
-.storage-status { color: var(--ui-muted); font-size: 0.65rem; }
+.storage-status { color: var(--ui-muted); font-size: 0.75rem; }
 .storage-popover { position: absolute; top: calc(100% + 0.5rem); right: 0; width: min(21rem, calc(100vw - 2rem)); background-color: var(--ui-bg-elevated); }
 .storage-detail { padding: 1.15rem; }
 .storage-values { display: grid; gap: 0.75rem; margin: 1rem 0; font-size: 0.75rem; }
@@ -596,13 +595,13 @@ textarea:disabled {
 .team-sync-summary:hover { border-color: var(--ui-line-strong); background: rgba(82, 211, 237, 0.05); }
 .team-sync-copy { display: flex; flex-direction: column; min-width: 0; text-align: right; line-height: 1.2; }
 .team-sync-copy strong { max-width: 12rem; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: 0.75rem; }
-.team-sync-copy small { color: var(--ui-muted); font-size: 0.625rem; }
+.team-sync-copy small { color: var(--ui-muted); font-size: 0.75rem; }
 .team-sync-dot { width: 0.5rem; height: 0.5rem; flex: none; border-radius: 999px; box-shadow: 0 0 0 3px rgba(255,255,255,0.03); }
 .team-sync-dot.is-ready { background: #67e8b9; box-shadow: 0 0 10px rgba(103, 232, 185, 0.55); }
 .team-sync-dot.is-pending { background: #f4d17b; }
 .team-sync-dot.is-warning { background: #fb7185; }
 .team-sync-popover { position: absolute; top: calc(100% + 0.5rem); right: 0; width: min(23rem, calc(100vw - 2rem)); padding: 1rem; border-radius: var(--ui-radius-lg); background-color: var(--ui-bg-elevated); box-shadow: var(--ui-shadow-2); }
-.team-sync-values { display: grid; gap: 0.55rem; margin-top: 0.9rem; font-size: 0.7rem; }
+.team-sync-values { display: grid; gap: 0.55rem; margin-top: 0.9rem; font-size: 0.75rem; }
 .team-sync-values > div { display: flex; justify-content: space-between; gap: 1rem; }
 .team-sync-values dt { color: var(--ui-muted); }
 .team-sync-values dd { font-weight: 600; text-align: right; }

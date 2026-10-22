@@ -1,9 +1,3 @@
-// Sync one player's Solo Queue rank/RR and today's real W/L from HenrikDev.
-// Mutates db (adds/updates the daily soloq row) but does NOT save — caller saves.
-export async function henrikSyncPlayer(db: any, player: string) {
-  void db; void player;
-  throw Object.assign(new Error('Legacy ranked sync is disabled. An eligible provider, explicit versioned consent, and exact account identity are required before any network request or write.'), { status: 503, code: 'ranked-sync-gate-unavailable' });
-}
 
 // Build a Discord report (markdown + rich embed payload) for a saved match.
 export function buildDiscordReport(db: any, match: any) {

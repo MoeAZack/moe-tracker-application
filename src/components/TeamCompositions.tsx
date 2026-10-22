@@ -65,6 +65,10 @@ export default function TeamCompositions({ data, theme }: ComponentProps) {
   const minimumSamples = data.settings.stats?.lowSample || DEFAULT_MINIMUM_METRIC_SAMPLES;
   const mapCompositions = useMemo(() => buildMapCompositions(data, maps, activeAgentKeys, minimumSamples), [data, maps, activeAgentKeys, minimumSamples]);
   const agentPerformance = useMemo(() => buildAgentPerformance(data, agentsList, minimumSamples), [data, agentsList, minimumSamples]);
+  // Before any agent is logged, one empty state replaces a row of 0W-0L for every agent.
+  const agentRows = agentPerformance.some(row => row.played > 0) ? agentPerformance : [];
+  const mapEntries = Object.entries(mapCompositions);
+  const mapsWithoutComps = mapEntries.filter(([, comps]) => Object.keys(comps).length === 0).map(([mapName]) => mapName);
 
   return (
     <div className="space-y-6">
@@ -89,7 +93,7 @@ export default function TeamCompositions({ data, theme }: ComponentProps) {
                 </tr>
               </thead>
               <tbody className="divide-y divide-white/5">
-                {agentPerformance.map((ap) => (
+                {agentRows.map((ap) => (
                   <tr key={ap.agent} className="hover:bg-white/5">
                     <td className="py-2.5 px-3 font-bold text-white text-xs"><span className="flex items-center gap-2"><AgentPortrait name={ap.agent} className="h-9 w-9 rounded-lg" />{ap.agent}</span></td>
                     <td className="py-2.5 px-3 text-center font-bold text-gray-300">{ap.played}</td>
@@ -102,9 +106,9 @@ export default function TeamCompositions({ data, theme }: ComponentProps) {
                     <td className="py-2.5 px-3 text-center text-gray-400">{ap.pickRate === null ? 'Unknown' : `${ap.pickRate}%`}</td>
                   </tr>
                 ))}
-                {agentPerformance.length === 0 && (
+                {agentRows.length === 0 && (
                   <tr>
-                    <td colSpan={5} className="py-10 text-center text-gray-500">No agent metrics recorded. Record some matches first!</td>
+                    <td colSpan={5} className="py-10 text-center text-gray-500">No agents logged yet. Agent results appear once a match has its player agents recorded.</td>
                   </tr>
                 )}
               </tbody>
@@ -119,13 +123,15 @@ export default function TeamCompositions({ data, theme }: ComponentProps) {
             <h4 className="font-black text-sm uppercase tracking-wide">Compositions by Map</h4>
           </div>
 
+          {/* One empty state instead of an empty card per map. */}
+          {mapsWithoutComps.length === mapEntries.length && <p className="rounded-lg border border-dashed border-white/10 px-3 py-8 text-center text-xs text-gray-500">No compositions logged yet. A map appears here once a match on it has all five agents recorded.</p>}
           <div className="space-y-4">
-            {Object.entries(mapCompositions).map(([mapName, comps]) => {
+            {mapEntries.filter(([, comps]) => Object.keys(comps).length > 0).map(([mapName, comps]) => {
               const compEntries = Object.entries(comps);
               return (
                 <div key={mapName} className="space-y-2 rounded-xl border border-white/[0.07] bg-black/10 p-3">
-                  <div className="flex items-center gap-3"><MapThumbnail name={mapName} className="h-12 w-20 rounded-lg" /><div><h5 className="text-xs uppercase font-black text-white font-mono">{mapName}</h5><p className="mt-0.5 text-[9px] text-gray-500">{compEntries.length ? `${compEntries.length} recorded composition${compEntries.length === 1 ? '' : 's'}` : 'Active map · no composition evidence yet'}</p></div></div>
-                  <div className="space-y-2 font-mono text-[11px]">
+                  <div className="flex items-center gap-3"><MapThumbnail name={mapName} className="h-12 w-20 rounded-lg" /><div><h5 className="text-xs uppercase font-black text-white font-mono">{mapName}</h5><p className="mt-0.5 text-xs text-gray-500">{compEntries.length ? `${compEntries.length} recorded composition${compEntries.length === 1 ? '' : 's'}` : 'Active map · no composition evidence yet'}</p></div></div>
+                  <div className="space-y-2 font-mono text-xs">
                     {compEntries.map(([compKey, c]) => {
                       const total = c.wins + c.losses;
                       const wr = c.winRate;
@@ -133,23 +139,23 @@ export default function TeamCompositions({ data, theme }: ComponentProps) {
                         <div key={compKey} className="flex justify-between items-center bg-black/10 p-2.5 rounded border border-white/5">
                           <div className="flex flex-wrap gap-1.5 max-w-[75%]">
                             {c.agents.map((ag) => (
-                              <span key={ag} className="inline-flex items-center gap-1 rounded-lg border border-white/5 bg-white/5 py-1 pl-1 pr-2 text-[9px] font-bold text-gray-300">
+                              <span key={ag} className="inline-flex items-center gap-1 rounded-lg border border-white/5 bg-white/5 py-1 pl-1 pr-2 text-xs font-bold text-gray-300">
                                 <AgentPortrait name={ag} className="h-7 w-7 rounded-md" />{ag}
                               </span>
                             ))}
                           </div>
-                          <div className="text-right text-[10px] shrink-0">
+                          <div className="text-right text-xs shrink-0">
                             <span className="text-emerald-400 font-bold">{c.wins}W</span> - <span className="text-rose-400 font-bold">{c.losses}L</span> 
-                            <p className={`${percentageTextClass(wr)} font-bold text-[9px]`}>{wr === null ? `WR needs ${c.publication.minimumSamples} games` : `${wr}% WR`} ({total} games)</p>
+                            <p className={`${percentageTextClass(wr)} font-bold text-xs`}>{wr === null ? `WR needs ${c.publication.minimumSamples} games` : `${wr}% WR`} ({total} games)</p>
                           </div>
                         </div>
                       );
                     })}
-                    {compEntries.length === 0 && <p className="rounded-lg border border-dashed border-white/10 px-3 py-4 text-center text-[10px] text-gray-500">This map is ready for its first logged composition.</p>}
                   </div>
                 </div>
               );
             })}
+            {mapsWithoutComps.length > 0 && mapsWithoutComps.length < mapEntries.length && <p className="text-xs text-gray-500">No composition logged yet on {mapsWithoutComps.join(', ')}.</p>}
           </div>
         </div>
       </div>

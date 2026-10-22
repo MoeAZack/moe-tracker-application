@@ -5,36 +5,526 @@ import { buildCoverageGatedRanks, buildEvaluationExport, buildTryoutComparison, 
 import { resolvePracticeBlocksWithIssues } from '../../lib/practiceBlocks';
 import { confirmDialog, promptDialog } from '../utils/appDialogs';
 
-interface Props { data: TrackerData; role: string | null; theme: any; onRefresh: () => Promise<void>; mapScope: { scope: 'all'|'active'; sourceMatchCount:number; includedMatchCount:number; excludedMatchCount:number; emptyActivePool:boolean }; }
-const modes: Array<[ComparisonMode,string]> = [['player-player','Player vs player'],['tryout-core-average','Tryout vs core average'],['own-previous-period','Own prior period'],['block-block','Block vs block'],['agent-split','Agent split'],['map-split','Map split'],['att-def','ATT vs DEF']];
-const show = (number: number | null) => number === null ? 'Unknown' : Number.isInteger(number) ? String(number) : number.toFixed(2);
+interface Props {
+  data: TrackerData;
+  role: string | null;
+  theme: any;
+  onRefresh: () => Promise<void>;
+  mapScope: { scope: 'all' | 'active'; sourceMatchCount: number; includedMatchCount: number; excludedMatchCount: number; emptyActivePool: boolean };
+}
+const modes: Array<[ComparisonMode, string]> = [
+  ['player-player', 'Player vs player'],
+  ['tryout-core-average', 'Tryout vs core average'],
+  ['own-previous-period', 'Own prior period'],
+  ['block-block', 'Block vs block'],
+  ['agent-split', 'Agent split'],
+  ['map-split', 'Map split'],
+  ['att-def', 'ATT vs DEF'],
+];
+const show = (number: number | null) => (number === null ? 'Unknown' : Number.isInteger(number) ? String(number) : number.toFixed(2));
 
 export default function TryoutComparisons({ data, role, theme, onRefresh, mapScope }: Props) {
   const players = useMemo(() => comparisonParticipants(data), [data]);
   const blocks = useMemo(() => resolvePracticeBlocksWithIssues(data.matches, data.practiceBlocks || []), [data.matches, data.practiceBlocks]);
   const maps = useMemo(() => [...new Set(data.matches.map(match => match.map).filter(Boolean))].sort(), [data.matches]);
   const agents = useMemo(() => [...new Set(data.playerStats.map(row => row.agent).filter(Boolean))].sort(), [data.playerStats]);
-  const roles = useMemo(() => [...new Set(data.playerStats.map(row => row.roleSnapshot).filter((value): value is string => !!value))].sort(), [data.playerStats]);
-  const compositions = useMemo(() => [...new Set(data.matches.map(match => { const values=data.playerStats.filter(row=>row.matchId===match.id&&row.playerId&&row.agent).map(row=>row.agent).sort(); return values.length===5&&new Set(values).size===5?values.join(' / '):null; }).filter((value):value is string=>!!value))].sort(), [data.matches,data.playerStats]);
-  const opponentCategories = useMemo(() => [...new Set(data.matches.map(match => match.opponentCategory).filter((value):value is string=>!!value))].sort(), [data.matches]);
-  const [mode,setMode] = useState<ComparisonMode>('player-player'); const [left,setLeft] = useState(players[0]?.id || ''); const [right,setRight] = useState(players[1]?.id || players[0]?.id || '');
-  const [map,setMap] = useState(''); const [agent,setAgent] = useState(''); const [side,setSide] = useState<'all'|'ATT'|'DEF'>('all'); const [leftContext,setLeftContext] = useState(''); const [rightContext,setRightContext] = useState(''); const [note,setNote] = useState(''); const [message,setMessage] = useState('');
-  const [roleFilter,setRoleFilter] = useState(''); const [compositionFilter,setCompositionFilter] = useState(''); const [opponentCategory,setOpponentCategory] = useState(''); const [start,setStart] = useState(''); const [end,setEnd] = useState(''); const [previousStart,setPreviousStart] = useState(''); const [previousEnd,setPreviousEnd] = useState('');
-  const [selectedBlocks,setSelectedBlocks] = useState<string[]>([]);
-  const comparisonData = useMemo(() => ({ matches:data.matches, playerStats:data.playerStats, rounds:data.rounds, rosterPlayers:data.rosterPlayers, coreMemberships:data.coreMemberships, practiceBlocks:data.practiceBlocks }), [data]);
-  const query = useMemo(() => ({ mode,leftId:left,rightId:right||undefined,leftContext:leftContext||undefined,rightContext:rightContext||undefined,previousWindow:previousStart&&previousEnd?{start:previousStart,end:previousEnd}:undefined,filters:{maps:map?[map]:undefined,agents:agent?[agent]:undefined,roles:roleFilter?[roleFilter]:undefined,compositions:compositionFilter?[compositionFilter]:undefined,opponentCategories:opponentCategory?[opponentCategory]:undefined,window:start&&end?{start,end}:undefined,side},minimumSamples:3,mapScope:{mode:mapScope.scope,sourceMatchCount:mapScope.sourceMatchCount,includedMatchCount:mapScope.includedMatchCount,excludedMatchCount:mapScope.excludedMatchCount,emptyActivePool:mapScope.emptyActivePool} }), [mode,left,right,leftContext,rightContext,previousStart,previousEnd,map,agent,roleFilter,compositionFilter,opponentCategory,start,end,side,mapScope]);
-  const computation = useMemo(() => { try { return { result:left?buildTryoutComparison(comparisonData,query):null,error:null }; } catch(error:any) { return { result:null,error:error.message||'Comparison is not ready.' }; } }, [comparisonData,query,left]); const result=computation.result;
-  const ranks = useMemo(() => buildCoverageGatedRanks(comparisonData,query.filters,3), [comparisonData,query.filters]);
-  const post = async (path:string,body:unknown) => { const response=await apiFetch(path,{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(body)}); const json=await response.json().catch(()=>({})); if(!response.ok) throw new Error(json.error||'Update failed.'); await onRefresh(); };
-  const setStatus = async (status:'core'|'standIn'|'tryout'|'archived') => { const player=players.find(item=>item.id===left); if(!player||!(await confirmDialog(`Set ${player.displayName} to ${status}? Historical evidence remains unchanged.`, { confirmLabel: 'Change status' }))) return; const identity=player.rosterPlayerId?{playerId:player.rosterPlayerId}:{displayName:player.displayName}; try { await post(status==='archived'?'/api/roster/players/remove':'/api/roster/players/status',status==='archived'?identity:{...identity,displayName:player.displayName,status}); setMessage(`Status changed to ${status}.`); } catch(error:any){setMessage(error.message);} };
-  const exportSheet = () => { const exported=buildEvaluationExport(comparisonData,query,data.tryoutDecisionNotes||[]); const url=URL.createObjectURL(new Blob([exported.content],{type:exported.mimeType})); const link=document.createElement('a'); link.href=url; link.download=exported.filename; link.click(); URL.revokeObjectURL(url); };
-  const opts = mode==='block-block'?blocks.blocks.map(block=>[block.id,block.name]):players.map(player=>[player.id,player.displayName]); const surface=theme.surface||'border-white/10 bg-white/[0.03]';
-  return <div className="space-y-5" aria-labelledby="comparison-page-title"><header><p className="text-xs font-bold uppercase tracking-widest text-cyan-300">Tryout evaluation</p><h1 id="comparison-page-title" className="mt-1 text-2xl font-bold">Matched player comparisons</h1><p className="mt-2 text-sm text-slate-400">Map scope: {mapScope.scope==='all'?'all recorded/practice maps (default)':'configured active pool'}. Missing evidence stays unknown.</p></header>
-    {role==='coach'&&<section className={`rounded-xl border p-4 ${surface}`} aria-labelledby="block-organizer-title"><h2 id="block-organizer-title" className="font-semibold">Practice blocks</h2><p className="mt-1 text-xs text-slate-400">Fallback blocks use the Cairo practice date. Save, rename, split, or merge explicit blocks without changing match evidence.</p><div className="mt-3 space-y-2">{blocks.blocks.map(block=><div key={block.id} className="flex flex-wrap items-center gap-2 rounded-lg border border-white/10 p-2 text-xs"><label className="flex min-h-11 items-center gap-2"><input type="checkbox" checked={selectedBlocks.includes(block.id)} onChange={event=>setSelectedBlocks(current=>event.target.checked?[...current,block.id]:current.filter(id=>id!==block.id))}/><span>{block.name} · {block.matchIds.length} match(es) · {block.source==='explicit'?'explicit':'Cairo fallback'}</span></label><button type="button" className="ui-button min-h-11 px-3" onClick={async()=>{const name=(await promptDialog('Block name', { defaultValue: block.name }))?.trim();if(!name)return;try{await post('/api/practice-blocks/save',{...(block.source==='explicit'?{id:block.id}:{}),name,matchIds:block.matchIds});setMessage('Practice block saved.');}catch(error:any){setMessage(error.message);}}}>Rename / save</button>{block.source==='explicit'&&block.matchIds.length>1&&<button type="button" className="ui-button min-h-11 px-3" onClick={async()=>{const name=(await promptDialog('Name for the split block'))?.trim();if(!name)return;try{await post('/api/practice-blocks/split',{id:block.id,name,matchIds:[block.matchIds.at(-1)]});setMessage('Practice block split.');}catch(error:any){setMessage(error.message);}}}>Split last match</button>}</div>)}</div><button type="button" disabled={selectedBlocks.length<2||selectedBlocks.some(id=>id.startsWith('cairo-date:'))} className="ui-button mt-3 min-h-11 px-3 text-xs disabled:opacity-50" onClick={async()=>{const name=(await promptDialog('Merged block name'))?.trim();if(!name)return;try{await post('/api/practice-blocks/merge',{ids:selectedBlocks,name});setSelectedBlocks([]);setMessage('Practice blocks merged.');}catch(error:any){setMessage(error.message);}}}>Merge selected explicit blocks</button></section>}
-    <section className={`rounded-xl border p-4 ${surface}`} aria-labelledby="comparison-selector-title"><h2 id="comparison-selector-title" className="font-semibold">Comparison selector</h2><div className="mt-3 grid gap-3 sm:grid-cols-2 lg:grid-cols-4"><Select label="Mode" value={mode} set={value=>setMode(value as ComparisonMode)} options={modes}/><Select label={mode==='block-block'?'Left block':'Player'} value={left} set={setLeft} options={opts}/>{(mode==='player-player'||mode==='block-block')&&<Select label="Compared with" value={right} set={setRight} options={opts}/>}<Select label="Map context" value={map} set={setMap} options={maps.map(value=>[value,value])} all/><Select label="Agent context" value={agent} set={setAgent} options={agents.map(value=>[value,value])} all/><Select label="Role context" value={roleFilter} set={setRoleFilter} options={roles.map(value=>[value,value])} all/><Select label="Composition context" value={compositionFilter} set={setCompositionFilter} options={compositions.map(value=>[value,value])} all/><Select label="Opponent category" value={opponentCategory} set={setOpponentCategory} options={opponentCategories.map(value=>[value,value])} all/><Select label="Side context" value={side} set={value=>setSide(value as any)} options={[["all","ATT + DEF"],["ATT","ATT"],["DEF","DEF"]]}/><label className="text-xs text-slate-300">From date<input aria-label="Comparison start date" type="date" value={start} onChange={event=>setStart(event.target.value)} className="ui-field mt-1 min-h-11 w-full px-2"/></label><label className="text-xs text-slate-300">To date<input aria-label="Comparison end date" type="date" value={end} onChange={event=>setEnd(event.target.value)} className="ui-field mt-1 min-h-11 w-full px-2"/></label>{mode==='own-previous-period'&&<><label className="text-xs text-slate-300">Previous from<input aria-label="Previous period start date" type="date" value={previousStart} onChange={event=>setPreviousStart(event.target.value)} className="ui-field mt-1 min-h-11 w-full px-2"/></label><label className="text-xs text-slate-300">Previous to<input aria-label="Previous period end date" type="date" value={previousEnd} onChange={event=>setPreviousEnd(event.target.value)} className="ui-field mt-1 min-h-11 w-full px-2"/></label></>}{mode==='agent-split'&&<><Select label="Left agent" value={leftContext} set={setLeftContext} options={agents.map(value=>[value,value])}/><Select label="Right agent" value={rightContext} set={setRightContext} options={agents.map(value=>[value,value])}/></>}{mode==='map-split'&&<><Select label="Left map" value={leftContext} set={setLeftContext} options={maps.map(value=>[value,value])}/><Select label="Right map" value={rightContext} set={setRightContext} options={maps.map(value=>[value,value])}/></>}</div>{computation.error&&<p role="alert" className="mt-3 text-xs text-rose-300">{computation.error}</p>}{!roles.length&&<p className="mt-2 text-xs text-slate-500">Role context is unavailable until an accepted appearance records a role; agents are never guessed into roles.</p>}{blocks.unassignedMatchIds.length>0&&<p className="mt-3 text-xs text-amber-300">{blocks.unassignedMatchIds.length} match(es) have invalid dates and remain unassigned.</p>}</section>
-    <section className={`rounded-xl border ${surface}`} aria-labelledby="mirrored-title"><div className="flex items-center justify-between gap-3 p-4"><div><h2 id="mirrored-title" className="font-semibold">Mirrored evidence</h2><p className="text-xs text-slate-400">Signed delta is left minus right; direction is always written.</p></div><button type="button" disabled={!result} onClick={exportSheet} className="ui-button min-h-11 px-3 text-xs disabled:opacity-50">Export evaluation</button></div><div className="overflow-x-auto"><table className="w-full min-w-[850px] text-left text-sm"><thead><tr className="border-t border-white/10 text-xs text-slate-400"><th className="p-3">Metric</th><th className="p-3">Left</th><th className="p-3">Right</th><th className="p-3">Signed delta</th><th className="p-3">Samples / coverage</th><th className="p-3">Confidence</th></tr></thead><tbody>{result?.metrics.map(metric=><tr key={metric.id} className="border-t border-white/10"><th className="p-3">{metric.label}<span className="block text-[10px] font-normal text-slate-500">{metric.direction==='neutral'?'Neutral context':metric.direction==='higher-better'?'Higher is favorable':'Lower is favorable'}</span></th><td className="p-3 font-mono">{show(metric.left)}</td><td className="p-3 font-mono">{show(metric.right)}</td><td className="p-3 font-mono">{metric.delta===null?'Unknown':`${metric.delta>=0?'+':''}${metric.delta.toFixed(2)}`}</td><td className="p-3 text-xs">{metric.leftSamples}/{metric.rightSamples}<br/>{metric.leftCoverage.covered}/{metric.leftCoverage.total} · {metric.rightCoverage.covered}/{metric.rightCoverage.total}</td><td className="p-3 text-xs uppercase">{metric.confidence}{metric.unknownReason&&<span className="block normal-case text-slate-500">{metric.unknownReason}</span>}</td></tr>)||<tr><td colSpan={6} className="p-8 text-center text-slate-400">Choose a supported comparison.</td></tr>}</tbody></table></div>{result&&<p className="border-t border-white/10 p-3 text-xs text-slate-400">Excluded: {result.excluded.unmatchedMatches} unmatched matches · {result.excluded.unlinkedRows} unlinked rows.</p>}</section>
-    <section className={`rounded-xl border p-4 ${surface}`} aria-labelledby="rank-title"><h2 id="rank-title" className="font-semibold">Coverage-gated team rank</h2><p className="mt-1 text-xs text-slate-400">At least 3 comparable samples and 50% coverage. Neutral metrics are never ranked.</p><div className="mt-3 grid gap-2 sm:grid-cols-2">{ranks.filter(rank=>rank.ranked).slice(0,6).map(rank=><div key={rank.metricId} className="rounded-lg border border-white/10 p-3"><p className="text-xs font-bold uppercase">{rank.metricId}</p>{rank.entries.slice(0,5).map(entry=><p key={entry.playerId} className="mt-1 flex justify-between text-xs"><span>{entry.rank}. {entry.displayName}{entry.smallSample?' · small sample':''}</span><span>{show(entry.value)}</span></p>)}{!rank.entries.length&&<p className="mt-1 text-xs text-slate-500">No eligible players.</p>}</div>)}</div></section>
-    {role==='coach'&&left&&mode!=='block-block'&&players.find(item=>item.id===left)?.rosterPlayerId&&<section className={`rounded-xl border p-4 ${surface}`} aria-labelledby="decision-title"><h2 id="decision-title" className="font-semibold">Private staff decision</h2><label className="mt-3 block text-xs">Decision note<textarea aria-label="Private staff decision note" maxLength={5000} value={note} onChange={event=>setNote(event.target.value)} className="ui-field mt-1 min-h-24 w-full p-3"/></label><div className="mt-3 flex flex-wrap gap-2"><button type="button" disabled={!note.trim()} onClick={async()=>{const playerId=players.find(item=>item.id===left)?.rosterPlayerId;if(!playerId)return;try{await post('/api/tryout-decisions/notes',{playerId,text:note});setNote('');setMessage('Private note saved.');}catch(error:any){setMessage(error.message);}}} className="ui-button min-h-11 px-3 text-xs disabled:opacity-50">Save private note</button>{(['core','standIn','tryout','archived'] as const).map(status=><button type="button" key={status} onClick={()=>void setStatus(status)} className="ui-button min-h-11 px-3 text-xs">Set {status==='standIn'?'Stand-in':status}</button>)}</div>{message&&<p role="status" className="mt-2 text-xs text-cyan-200">{message}</p>}{(data.tryoutDecisionNotes||[]).filter(item=>item.playerId===players.find(player=>player.id===left)?.rosterPlayerId&&!item.removedAt).map(item=><article key={item.id} className="mt-2 rounded-lg border border-white/10 p-3 text-sm"><p>{item.text}</p><p className="mt-1 text-[10px] text-slate-500">Updated {new Intl.DateTimeFormat('en-GB',{timeZone:'Africa/Cairo',dateStyle:'medium',timeStyle:'short'}).format(new Date(item.updatedAt))} Cairo</p></article>)}</section>}
-  </div>;
+  const roles = useMemo(
+    () => [...new Set(data.playerStats.map(row => row.roleSnapshot).filter((value): value is string => !!value))].sort(),
+    [data.playerStats],
+  );
+  const compositions = useMemo(
+    () =>
+      [
+        ...new Set(
+          data.matches
+            .map(match => {
+              const values = data.playerStats
+                .filter(row => row.matchId === match.id && row.playerId && row.agent)
+                .map(row => row.agent)
+                .sort();
+              return values.length === 5 && new Set(values).size === 5 ? values.join(' / ') : null;
+            })
+            .filter((value): value is string => !!value),
+        ),
+      ].sort(),
+    [data.matches, data.playerStats],
+  );
+  const opponentCategories = useMemo(
+    () => [...new Set(data.matches.map(match => match.opponentCategory).filter((value): value is string => !!value))].sort(),
+    [data.matches],
+  );
+  const [mode, setMode] = useState<ComparisonMode>('player-player');
+  const [left, setLeft] = useState(players[0]?.id || '');
+  const [right, setRight] = useState(players[1]?.id || players[0]?.id || '');
+  const [map, setMap] = useState('');
+  const [agent, setAgent] = useState('');
+  const [side, setSide] = useState<'all' | 'ATT' | 'DEF'>('all');
+  const [leftContext, setLeftContext] = useState('');
+  const [rightContext, setRightContext] = useState('');
+  const [note, setNote] = useState('');
+  const [message, setMessage] = useState('');
+  const [roleFilter, setRoleFilter] = useState('');
+  const [compositionFilter, setCompositionFilter] = useState('');
+  const [opponentCategory, setOpponentCategory] = useState('');
+  const [start, setStart] = useState('');
+  const [end, setEnd] = useState('');
+  const [previousStart, setPreviousStart] = useState('');
+  const [previousEnd, setPreviousEnd] = useState('');
+  const [selectedBlocks, setSelectedBlocks] = useState<string[]>([]);
+  const comparisonData = useMemo(
+    () => ({
+      matches: data.matches,
+      playerStats: data.playerStats,
+      rounds: data.rounds,
+      rosterPlayers: data.rosterPlayers,
+      coreMemberships: data.coreMemberships,
+      practiceBlocks: data.practiceBlocks,
+    }),
+    [data],
+  );
+  const query = useMemo(
+    () => ({
+      mode,
+      leftId: left,
+      rightId: right || undefined,
+      leftContext: leftContext || undefined,
+      rightContext: rightContext || undefined,
+      previousWindow: previousStart && previousEnd ? { start: previousStart, end: previousEnd } : undefined,
+      filters: {
+        maps: map ? [map] : undefined,
+        agents: agent ? [agent] : undefined,
+        roles: roleFilter ? [roleFilter] : undefined,
+        compositions: compositionFilter ? [compositionFilter] : undefined,
+        opponentCategories: opponentCategory ? [opponentCategory] : undefined,
+        window: start && end ? { start, end } : undefined,
+        side,
+      },
+      minimumSamples: 3,
+      mapScope: {
+        mode: mapScope.scope,
+        sourceMatchCount: mapScope.sourceMatchCount,
+        includedMatchCount: mapScope.includedMatchCount,
+        excludedMatchCount: mapScope.excludedMatchCount,
+        emptyActivePool: mapScope.emptyActivePool,
+      },
+    }),
+    [
+      mode,
+      left,
+      right,
+      leftContext,
+      rightContext,
+      previousStart,
+      previousEnd,
+      map,
+      agent,
+      roleFilter,
+      compositionFilter,
+      opponentCategory,
+      start,
+      end,
+      side,
+      mapScope,
+    ],
+  );
+  const computation = useMemo(() => {
+    try {
+      return { result: left ? buildTryoutComparison(comparisonData, query) : null, error: null };
+    } catch (error: any) {
+      return { result: null, error: error.message || 'Comparison is not ready.' };
+    }
+  }, [comparisonData, query, left]);
+  const result = computation.result;
+  const ranks = useMemo(() => buildCoverageGatedRanks(comparisonData, query.filters, 3), [comparisonData, query.filters]);
+  const post = async (path: string, body: unknown) => {
+    const response = await apiFetch(path, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) });
+    const json = await response.json().catch(() => ({}));
+    if (!response.ok) throw new Error(json.error || 'Update failed.');
+    await onRefresh();
+  };
+  const setStatus = async (status: 'core' | 'standIn' | 'tryout' | 'archived') => {
+    const player = players.find(item => item.id === left);
+    if (!player || !(await confirmDialog(`Set ${player.displayName} to ${status}? Historical evidence remains unchanged.`, { confirmLabel: 'Change status' })))
+      return;
+    const identity = player.rosterPlayerId ? { playerId: player.rosterPlayerId } : { displayName: player.displayName };
+    try {
+      await post(
+        status === 'archived' ? '/api/roster/players/remove' : '/api/roster/players/status',
+        status === 'archived' ? identity : { ...identity, displayName: player.displayName, status },
+      );
+      setMessage(`Status changed to ${status}.`);
+    } catch (error: any) {
+      setMessage(error.message);
+    }
+  };
+  const exportSheet = () => {
+    const exported = buildEvaluationExport(comparisonData, query, data.tryoutDecisionNotes || []);
+    const url = URL.createObjectURL(new Blob([exported.content], { type: exported.mimeType }));
+    const link = document.createElement('a');
+    link.href = url;
+    link.download = exported.filename;
+    link.click();
+    URL.revokeObjectURL(url);
+  };
+  const opts = mode === 'block-block' ? blocks.blocks.map(block => [block.id, block.name]) : players.map(player => [player.id, player.displayName]);
+  const surface = theme.surface || 'border-white/10 bg-white/[0.03]';
+  return (
+    <div className="space-y-5" aria-labelledby="comparison-page-title">
+      <header>
+        <p className="text-xs font-bold uppercase tracking-widest text-cyan-300">Tryout evaluation</p>
+        <h1 id="comparison-page-title" className="mt-1 text-2xl font-bold">
+          Matched player comparisons
+        </h1>
+        <p className="mt-2 text-sm text-slate-400">
+          Map scope: {mapScope.scope === 'all' ? 'all recorded/practice maps (default)' : 'configured active pool'}. Missing evidence stays unknown.
+        </p>
+      </header>
+      {role === 'coach' && (
+        <section className={`rounded-xl border p-4 ${surface}`} aria-labelledby="block-organizer-title">
+          <h2 id="block-organizer-title" className="font-semibold">
+            Practice blocks
+          </h2>
+          <p className="mt-1 text-xs text-slate-400">
+            Fallback blocks use the Cairo practice date. Save, rename, split, or merge explicit blocks without changing match evidence.
+          </p>
+          <div className="mt-3 space-y-2">
+            {blocks.blocks.map(block => (
+              <div key={block.id} className="flex flex-wrap items-center gap-2 rounded-lg border border-white/10 p-2 text-xs">
+                <label className="flex min-h-11 items-center gap-2">
+                  <input
+                    type="checkbox"
+                    checked={selectedBlocks.includes(block.id)}
+                    onChange={event => setSelectedBlocks(current => (event.target.checked ? [...current, block.id] : current.filter(id => id !== block.id)))}
+                  />
+                  <span>
+                    {block.name} · {block.matchIds.length} match(es) · {block.source === 'explicit' ? 'explicit' : 'Cairo fallback'}
+                  </span>
+                </label>
+                <button
+                  type="button"
+                  className="ui-button min-h-11 px-3"
+                  onClick={async () => {
+                    const name = (await promptDialog('Block name', { defaultValue: block.name }))?.trim();
+                    if (!name) return;
+                    try {
+                      await post('/api/practice-blocks/save', { ...(block.source === 'explicit' ? { id: block.id } : {}), name, matchIds: block.matchIds });
+                      setMessage('Practice block saved.');
+                    } catch (error: any) {
+                      setMessage(error.message);
+                    }
+                  }}
+                >
+                  Rename / save
+                </button>
+                {block.source === 'explicit' && block.matchIds.length > 1 && (
+                  <button
+                    type="button"
+                    className="ui-button min-h-11 px-3"
+                    onClick={async () => {
+                      const name = (await promptDialog('Name for the split block'))?.trim();
+                      if (!name) return;
+                      try {
+                        await post('/api/practice-blocks/split', { id: block.id, name, matchIds: [block.matchIds.at(-1)] });
+                        setMessage('Practice block split.');
+                      } catch (error: any) {
+                        setMessage(error.message);
+                      }
+                    }}
+                  >
+                    Split last match
+                  </button>
+                )}
+              </div>
+            ))}
+          </div>
+          <button
+            type="button"
+            disabled={selectedBlocks.length < 2 || selectedBlocks.some(id => id.startsWith('cairo-date:'))}
+            className="ui-button mt-3 min-h-11 px-3 text-xs disabled:opacity-50"
+            onClick={async () => {
+              const name = (await promptDialog('Merged block name'))?.trim();
+              if (!name) return;
+              try {
+                await post('/api/practice-blocks/merge', { ids: selectedBlocks, name });
+                setSelectedBlocks([]);
+                setMessage('Practice blocks merged.');
+              } catch (error: any) {
+                setMessage(error.message);
+              }
+            }}
+          >
+            Merge selected explicit blocks
+          </button>
+        </section>
+      )}
+      <section className={`rounded-xl border p-4 ${surface}`} aria-labelledby="comparison-selector-title">
+        <h2 id="comparison-selector-title" className="font-semibold">
+          Comparison selector
+        </h2>
+        <div className="mt-3 grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
+          <Select label="Mode" value={mode} set={value => setMode(value as ComparisonMode)} options={modes} />
+          <Select label={mode === 'block-block' ? 'Left block' : 'Player'} value={left} set={setLeft} options={opts} />
+          {(mode === 'player-player' || mode === 'block-block') && <Select label="Compared with" value={right} set={setRight} options={opts} />}
+          <Select label="Map context" value={map} set={setMap} options={maps.map(value => [value, value])} all />
+          <Select label="Agent context" value={agent} set={setAgent} options={agents.map(value => [value, value])} all />
+          <Select label="Role context" value={roleFilter} set={setRoleFilter} options={roles.map(value => [value, value])} all />
+          <Select label="Composition context" value={compositionFilter} set={setCompositionFilter} options={compositions.map(value => [value, value])} all />
+          <Select label="Opponent category" value={opponentCategory} set={setOpponentCategory} options={opponentCategories.map(value => [value, value])} all />
+          <Select
+            label="Side context"
+            value={side}
+            set={value => setSide(value as any)}
+            options={[
+              ['all', 'ATT + DEF'],
+              ['ATT', 'ATT'],
+              ['DEF', 'DEF'],
+            ]}
+          />
+          <label className="text-xs text-slate-300">
+            From date
+            <input
+              aria-label="Comparison start date"
+              type="date"
+              value={start}
+              onChange={event => setStart(event.target.value)}
+              className="ui-field mt-1 min-h-11 w-full px-2"
+            />
+          </label>
+          <label className="text-xs text-slate-300">
+            To date
+            <input
+              aria-label="Comparison end date"
+              type="date"
+              value={end}
+              onChange={event => setEnd(event.target.value)}
+              className="ui-field mt-1 min-h-11 w-full px-2"
+            />
+          </label>
+          {mode === 'own-previous-period' && (
+            <>
+              <label className="text-xs text-slate-300">
+                Previous from
+                <input
+                  aria-label="Previous period start date"
+                  type="date"
+                  value={previousStart}
+                  onChange={event => setPreviousStart(event.target.value)}
+                  className="ui-field mt-1 min-h-11 w-full px-2"
+                />
+              </label>
+              <label className="text-xs text-slate-300">
+                Previous to
+                <input
+                  aria-label="Previous period end date"
+                  type="date"
+                  value={previousEnd}
+                  onChange={event => setPreviousEnd(event.target.value)}
+                  className="ui-field mt-1 min-h-11 w-full px-2"
+                />
+              </label>
+            </>
+          )}
+          {mode === 'agent-split' && (
+            <>
+              <Select label="Left agent" value={leftContext} set={setLeftContext} options={agents.map(value => [value, value])} />
+              <Select label="Right agent" value={rightContext} set={setRightContext} options={agents.map(value => [value, value])} />
+            </>
+          )}
+          {mode === 'map-split' && (
+            <>
+              <Select label="Left map" value={leftContext} set={setLeftContext} options={maps.map(value => [value, value])} />
+              <Select label="Right map" value={rightContext} set={setRightContext} options={maps.map(value => [value, value])} />
+            </>
+          )}
+        </div>
+        {computation.error && (
+          <p role="alert" className="mt-3 text-xs text-rose-300">
+            {computation.error}
+          </p>
+        )}
+        {!roles.length && (
+          <p className="mt-2 text-xs text-slate-500">
+            Role context is unavailable until an accepted appearance records a role; agents are never guessed into roles.
+          </p>
+        )}
+        {blocks.unassignedMatchIds.length > 0 && (
+          <p className="mt-3 text-xs text-amber-300">{blocks.unassignedMatchIds.length} match(es) have invalid dates and remain unassigned.</p>
+        )}
+      </section>
+      <section className={`rounded-xl border ${surface}`} aria-labelledby="mirrored-title">
+        <div className="flex items-center justify-between gap-3 p-4">
+          <div>
+            <h2 id="mirrored-title" className="font-semibold">
+              Mirrored evidence
+            </h2>
+            <p className="text-xs text-slate-400">Signed delta is left minus right; direction is always written.</p>
+          </div>
+          <button type="button" disabled={!result} onClick={exportSheet} className="ui-button min-h-11 px-3 text-xs disabled:opacity-50">
+            Export evaluation
+          </button>
+        </div>
+        <div className="overflow-x-auto">
+          <table className="w-full min-w-[850px] text-left text-sm">
+            <thead>
+              <tr className="border-t border-white/10 text-xs text-slate-400">
+                <th className="p-3">Metric</th>
+                <th className="p-3">Left</th>
+                <th className="p-3">Right</th>
+                <th className="p-3">Signed delta</th>
+                <th className="p-3">Samples / coverage</th>
+                <th className="p-3">Confidence</th>
+              </tr>
+            </thead>
+            <tbody>
+              {result?.metrics.map(metric => (
+                <tr key={metric.id} className="border-t border-white/10">
+                  <th className="p-3">
+                    {metric.label}
+                    <span className="block text-xs font-normal text-slate-500">
+                      {metric.direction === 'neutral' ? 'Neutral context' : metric.direction === 'higher-better' ? 'Higher is favorable' : 'Lower is favorable'}
+                    </span>
+                  </th>
+                  <td className="p-3 font-mono">{show(metric.left)}</td>
+                  <td className="p-3 font-mono">{show(metric.right)}</td>
+                  <td className="p-3 font-mono">{metric.delta === null ? 'Unknown' : `${metric.delta >= 0 ? '+' : ''}${metric.delta.toFixed(2)}`}</td>
+                  <td className="p-3 text-xs">
+                    {metric.leftSamples}/{metric.rightSamples}
+                    <br />
+                    {metric.leftCoverage.covered}/{metric.leftCoverage.total} · {metric.rightCoverage.covered}/{metric.rightCoverage.total}
+                  </td>
+                  <td className="p-3 text-xs uppercase">
+                    {metric.confidence}
+                    {metric.unknownReason && <span className="block normal-case text-slate-500">{metric.unknownReason}</span>}
+                  </td>
+                </tr>
+              )) || (
+                <tr>
+                  <td colSpan={6} className="p-8 text-center text-slate-400">
+                    Choose a supported comparison.
+                  </td>
+                </tr>
+              )}
+            </tbody>
+          </table>
+        </div>
+        {result && (
+          <p className="border-t border-white/10 p-3 text-xs text-slate-400">
+            Excluded: {result.excluded.unmatchedMatches} unmatched matches · {result.excluded.unlinkedRows} unlinked rows.
+          </p>
+        )}
+      </section>
+      <section className={`rounded-xl border p-4 ${surface}`} aria-labelledby="rank-title">
+        <h2 id="rank-title" className="font-semibold">
+          Coverage-gated team rank
+        </h2>
+        <p className="mt-1 text-xs text-slate-400">At least 3 comparable samples and 50% coverage. Neutral metrics are never ranked.</p>
+        <div className="mt-3 grid gap-2 sm:grid-cols-2">
+          {ranks
+            .filter(rank => rank.ranked)
+            .slice(0, 6)
+            .map(rank => (
+              <div key={rank.metricId} className="rounded-lg border border-white/10 p-3">
+                <p className="text-xs font-bold uppercase">{rank.metricId}</p>
+                {rank.entries.slice(0, 5).map(entry => (
+                  <p key={entry.playerId} className="mt-1 flex justify-between text-xs">
+                    <span>
+                      {entry.rank}. {entry.displayName}
+                      {entry.smallSample ? ' · small sample' : ''}
+                    </span>
+                    <span>{show(entry.value)}</span>
+                  </p>
+                ))}
+                {!rank.entries.length && <p className="mt-1 text-xs text-slate-500">No eligible players.</p>}
+              </div>
+            ))}
+        </div>
+      </section>
+      {role === 'coach' && left && mode !== 'block-block' && players.find(item => item.id === left)?.rosterPlayerId && (
+        <section className={`rounded-xl border p-4 ${surface}`} aria-labelledby="decision-title">
+          <h2 id="decision-title" className="font-semibold">
+            Private staff decision
+          </h2>
+          <label className="mt-3 block text-xs">
+            Decision note
+            <textarea
+              aria-label="Private staff decision note"
+              maxLength={5000}
+              value={note}
+              onChange={event => setNote(event.target.value)}
+              className="ui-field mt-1 min-h-24 w-full p-3"
+            />
+          </label>
+          <div className="mt-3 flex flex-wrap gap-2">
+            <button
+              type="button"
+              disabled={!note.trim()}
+              onClick={async () => {
+                const playerId = players.find(item => item.id === left)?.rosterPlayerId;
+                if (!playerId) return;
+                try {
+                  await post('/api/tryout-decisions/notes', { playerId, text: note });
+                  setNote('');
+                  setMessage('Private note saved.');
+                } catch (error: any) {
+                  setMessage(error.message);
+                }
+              }}
+              className="ui-button min-h-11 px-3 text-xs disabled:opacity-50"
+            >
+              Save private note
+            </button>
+            {(['core', 'standIn', 'tryout', 'archived'] as const).map(status => (
+              <button type="button" key={status} onClick={() => void setStatus(status)} className="ui-button min-h-11 px-3 text-xs">
+                Set {status === 'standIn' ? 'Stand-in' : status}
+              </button>
+            ))}
+          </div>
+          {message && (
+            <p role="status" className="mt-2 text-xs text-cyan-200">
+              {message}
+            </p>
+          )}
+          {(data.tryoutDecisionNotes || [])
+            .filter(item => item.playerId === players.find(player => player.id === left)?.rosterPlayerId && !item.removedAt)
+            .map(item => (
+              <article key={item.id} className="mt-2 rounded-lg border border-white/10 p-3 text-sm">
+                <p>{item.text}</p>
+                <p className="mt-1 text-xs text-slate-500">
+                  Updated{' '}
+                  {new Intl.DateTimeFormat('en-GB', { timeZone: 'Africa/Cairo', dateStyle: 'medium', timeStyle: 'short' }).format(new Date(item.updatedAt))}{' '}
+                  Cairo
+                </p>
+              </article>
+            ))}
+        </section>
+      )}
+    </div>
+  );
 }
-function Select({label,value,set,options,all=false}:{label:string;value:string;set:(value:string)=>void;options:string[][];all?:boolean}){return <label className="text-xs text-slate-300">{label}<select aria-label={label} value={value} onChange={event=>set(event.target.value)} className="ui-field mt-1 min-h-11 w-full px-2">{all&&<option value="">All</option>}{options.map(([id,name])=><option key={id} value={id}>{name}</option>)}</select></label>;}
+function Select({
+  label,
+  value,
+  set,
+  options,
+  all = false,
+}: {
+  label: string;
+  value: string;
+  set: (value: string) => void;
+  options: string[][];
+  all?: boolean;
+}) {
+  return (
+    <label className="text-xs text-slate-300">
+      {label}
+      <select aria-label={label} value={value} onChange={event => set(event.target.value)} className="ui-field mt-1 min-h-11 w-full px-2">
+        {all && <option value="">All</option>}
+        {options.map(([id, name]) => (
+          <option key={id} value={id}>
+            {name}
+          </option>
+        ))}
+      </select>
+    </label>
+  );
+}

@@ -116,33 +116,43 @@ export function parsePraccCalendar(text: string): PraccCalendarEvent[] {
 
 const cairoParts = (date: Date) => Object.fromEntries(new Intl.DateTimeFormat('en-CA', { timeZone: 'Africa/Cairo', year: 'numeric', month: '2-digit', day: '2-digit', hour: '2-digit', minute: '2-digit', hourCycle: 'h23' }).formatToParts(date).filter(item => item.type !== 'literal').map(item => [item.type, item.value]));
 
+// A row the coach has worked on is never removed by a sync. When PRACC cancels
+// or drops its event, the row stays and is flagged so the coach decides.
+export const praccRowHasCoachWork = (row: any) => Boolean((row?.attendanceCheckIns || []).length || (row?.attendanceAudit || []).length || row?.practiceBlockId
+  || String(row?.coachNotes || '').trim() || (row?.requiredPlayerIds || []).length || row?.attendanceEnabled || row?.linkedReviewEventId);
+
+const flagRow = (row: any, status: 'cancelled' | 'removed', now: Date) => row.sourceStatus === status ? row : { ...row, sourceStatus: status, sourceStatusAt: now.toISOString() };
+
 export function reconcilePraccSchedule(schedule: any[], events: PraccCalendarEvent[], feedUrl: string, now = new Date()) {
-  const feedHash = praccCalendarUrlHash(feedUrl); const rows = [...(schedule || [])]; let imported = 0; let updated = 0; let cancelled = 0;
+  const feedHash = praccCalendarUrlHash(feedUrl); const rows = [...(schedule || [])]; let imported = 0; let updated = 0; let cancelled = 0; let flagged = 0;
   for (const event of events) {
     const index = rows.findIndex(row => row?.source === 'pracc' && row?.sourceEventId === event.uid && (!row.sourceCalendarHash || row.sourceCalendarHash === feedHash));
     if (event.cancelled) {
-      if (index >= 0 && !(rows[index].attendanceCheckIns || []).length && !(rows[index].attendanceAudit || []).length && !rows[index].practiceBlockId && event.startsAt >= now) { rows.splice(index, 1); cancelled += 1; }
+      if (index >= 0 && event.startsAt >= now) {
+        if (!praccRowHasCoachWork(rows[index])) { rows.splice(index, 1); cancelled += 1; }
+        else { if (rows[index].sourceStatus !== 'cancelled') flagged += 1; rows[index] = flagRow(rows[index], 'cancelled', now); }
+      }
       continue;
     }
     const start = cairoParts(event.startsAt); const endMs = event.endsAt?.getTime(); const durationMinutes = endMs && endMs > event.startsAt.getTime() ? Math.max(15, Math.min(720, Math.round((endMs - event.startsAt.getTime()) / 60_000))) : 60;
     const importedFields = { date: event.allDayDate || `${start.year}-${start.month}-${start.day}`, primary: event.title || 'PRACC practice', secondary: event.location || '', notes: event.description || '', startTime: event.allDay ? '' : `${start.hour}:${start.minute}`, allDay: event.allDay, durationMinutes: event.allDay ? undefined : durationMinutes, source: 'pracc' as const, sourceEventId: event.uid, sourceCalendarHash: feedHash, calendarKey: 'practice' };
-    if (index >= 0) { rows[index] = { ...rows[index], ...importedFields }; updated += 1; }
+    if (index >= 0) { const { sourceStatus: _status, sourceStatusAt: _at, ...kept } = rows[index]; rows[index] = { ...kept, ...importedFields }; updated += 1; }
     else { rows.push({ id: crypto.randomUUID(), ...importedFields, attendance: {}, attendanceEnabled: false, requiredPlayerIds: [], attendanceCheckIns: [] }); imported += 1; }
   }
   // An upcoming event that vanished from this feed was deleted in PRACC. Past
-  // rows stay (feeds drop history), as do rows with attendance or a practice
-  // block, and an empty feed removes nothing because it may be a bad fetch.
+  // rows stay (feeds drop history), rows with coach work stay and are flagged,
+  // and an empty feed removes nothing because it may be a bad fetch.
   let removed = 0;
   if (events.length) {
     const uids = new Set(events.map(event => event.uid)); const today = cairoParts(now); const todayKey = `${today.year}-${today.month}-${today.day}`;
     for (let index = rows.length - 1; index >= 0; index -= 1) {
       const row = rows[index];
       if (row?.source !== 'pracc' || row.sourceCalendarHash !== feedHash || uids.has(row.sourceEventId) || String(row.date || '') < todayKey) continue;
-      if ((row.attendanceCheckIns || []).length || (row.attendanceAudit || []).length || row.practiceBlockId) continue;
+      if (praccRowHasCoachWork(row)) { if (row.sourceStatus !== 'removed') flagged += 1; rows[index] = flagRow(row, 'removed', now); continue; }
       rows.splice(index, 1); removed += 1;
     }
   }
-  return { schedule: rows, imported, updated, cancelled: cancelled + removed, removed, total: events.filter(event => !event.cancelled).length };
+  return { schedule: rows, imported, updated, cancelled: cancelled + removed, removed, flagged, total: events.filter(event => !event.cancelled).length };
 }
 
 export const PRACC_FETCH_TIMEOUT_MS = 15_000;

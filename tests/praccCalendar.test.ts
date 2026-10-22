@@ -61,6 +61,34 @@ describe('PRACC calendar integration', () => {
     expect(reconcilePraccSchedule(both, [], feedUrl, now).schedule).toHaveLength(2);
   });
 
+  it('keeps and flags upcoming rows with coach notes, required players or attendance when PRACC drops or cancels them', () => {
+    const [practice, goal] = parsePraccCalendar(calendar);
+    const now = new Date('2026-10-01T00:00:00Z');
+    const [practiceRow, goalRow] = reconcilePraccSchedule([], [practice, goal], feedUrl, now).schedule;
+    const noted = { ...goalRow, id: 'noted', coachNotes: 'Bring the anti-eco plan' };
+    const required = { ...goalRow, id: 'required', sourceEventId: 'gone-required@pracc.com', requiredPlayerIds: ['player-1'] };
+    const enabled = { ...goalRow, id: 'enabled', sourceEventId: 'gone-enabled@pracc.com', attendanceEnabled: true };
+    const blank = { ...goalRow, id: 'blank', sourceEventId: 'gone-blank@pracc.com', coachNotes: '   ' };
+    const dropped = reconcilePraccSchedule([practiceRow, noted, required, enabled, blank], [practice], feedUrl, now);
+    expect(dropped.removed).toBe(1);
+    expect(dropped.flagged).toBe(3);
+    expect(dropped.schedule.map((row: any) => row.id)).toEqual([practiceRow.id, 'noted', 'required', 'enabled']);
+    for (const row of dropped.schedule.slice(1)) expect(row).toMatchObject({ sourceStatus: 'removed', sourceStatusAt: now.toISOString() });
+    expect(dropped.schedule[1].coachNotes).toBe('Bring the anti-eco plan');
+    expect(reconcilePraccSchedule(dropped.schedule, [practice], feedUrl, now).flagged).toBe(0);
+
+    const cancelledEvent = { ...practice, cancelled: true };
+    const withNotes = { ...practiceRow, coachNotes: 'Scrim plan' };
+    const cancelled = reconcilePraccSchedule([withNotes], [cancelledEvent, goal], feedUrl, now);
+    expect(cancelled.cancelled).toBe(0);
+    expect(cancelled.schedule[0]).toMatchObject({ id: practiceRow.id, coachNotes: 'Scrim plan', sourceStatus: 'cancelled' });
+    expect(reconcilePraccSchedule([practiceRow], [cancelledEvent, goal], feedUrl, now).schedule.map((row: any) => row.sourceEventId)).toEqual([goal.uid]);
+
+    const restored = reconcilePraccSchedule(cancelled.schedule, [practice, goal], feedUrl, now).schedule[0];
+    expect(restored).toMatchObject({ id: practiceRow.id, coachNotes: 'Scrim plan' });
+    expect(restored).not.toHaveProperty('sourceStatus'); expect(restored).not.toHaveProperty('sourceStatusAt');
+  });
+
   it('resolves non-IANA TZIDs through the feed and keeps all-day dates unshifted', () => {
     const feed = ['BEGIN:VCALENDAR', 'X-WR-TIMEZONE:Europe/Berlin',
       'BEGIN:VTIMEZONE', 'TZID:W. Europe Standard Time', 'X-LIC-LOCATION:Europe/Berlin', 'END:VTIMEZONE',

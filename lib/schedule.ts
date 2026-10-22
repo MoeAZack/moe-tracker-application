@@ -78,6 +78,8 @@ export function normalizeScheduleRow(input: any, existing: any | null, context: 
     attendance: existing?.attendance || input?.attendance || {}, attendanceCheckIns: Array.isArray(existing?.attendanceCheckIns) ? existing.attendanceCheckIns : [],
     attendanceAudit: Array.isArray(existing?.attendanceAudit) ? existing.attendanceAudit : [],
     source: providerOwned ? 'pracc' : 'manual', sourceEventId: providerOwned ? existing.sourceEventId : undefined, sourceCalendarHash: providerOwned ? existing.sourceCalendarHash : undefined,
+    // Only a PRACC sync sets or clears the cancelled / no-longer-in-feed flag.
+    sourceStatus: providerOwned ? existing.sourceStatus : undefined, sourceStatusAt: providerOwned ? existing.sourceStatusAt : undefined,
   };
 }
 

@@ -1,5 +1,22 @@
 import { useEffect, useState, type ComponentType } from 'react';
-import { AlertTriangle, CheckCircle2, Cloud, DatabaseBackup, Download, FileArchive, FileWarning, FolderOpen, HardDrive, Image, PauseCircle, PlayCircle, Power, RefreshCw, Unplug, Workflow } from 'lucide-react';
+import {
+  AlertTriangle,
+  CheckCircle2,
+  Cloud,
+  DatabaseBackup,
+  Download,
+  FileArchive,
+  FileWarning,
+  FolderOpen,
+  HardDrive,
+  Image,
+  PauseCircle,
+  PlayCircle,
+  Power,
+  RefreshCw,
+  Unplug,
+  Workflow,
+} from 'lucide-react';
 import { confirmDialog } from '../utils/appDialogs';
 
 export default function DesktopDeviceSettings() {
@@ -12,50 +29,448 @@ export default function DesktopDeviceSettings() {
   const [pairServer, setPairServer] = useState('https://moezack.pages.dev');
   const [pairCode, setPairCode] = useState('');
   const [retentionDays, setRetentionDays] = useState(30);
-  const [capturePreferences, setCapturePreferences] = useState<any>({ profile: 'fullscreen-windowed', display: 'primary', notification: 'open-review', offlineQueue: true });
+  const [capturePreferences, setCapturePreferences] = useState<any>({
+    profile: 'fullscreen-windowed',
+    display: 'primary',
+    notification: 'open-review',
+    offlineQueue: true,
+  });
   const refresh = async () => bridge && setStatus(await bridge.getStatus());
-  useEffect(() => { let active = true; const update = () => bridge?.getStatus().then(value => { if (active) { setStatus(value); setRetentionDays(value.retentionDays || 30); setCapturePreferences(value.capture?.preferences || capturePreferences); } }).catch(error => { if (active) setNotice(error.message); }); void update(); return () => { active = false; }; }, []);
+  useEffect(() => {
+    let active = true;
+    const update = () =>
+      bridge
+        ?.getStatus()
+        .then(value => {
+          if (active) {
+            setStatus(value);
+            setRetentionDays(value.retentionDays || 30);
+            setCapturePreferences(value.capture?.preferences || capturePreferences);
+          }
+        })
+        .catch(error => {
+          if (active) setNotice(error.message);
+        });
+    void update();
+    return () => {
+      active = false;
+    };
+  }, []);
   if (!bridge) return <p className="text-xs text-slate-400">Device controls are available in the Windows app.</p>;
-  const run = async (name: string, task: () => Promise<any>) => { setBusy(name); setNotice(''); try { const result = await task(); setNotice(result.message || (result.path ? `Saved to ${result.path}` : 'Done.')); await refresh(); } catch (error: any) { const message = error.message || 'Action failed.'; const diagnostic = await bridge.reportDiagnostic({ action: name, message }).catch(() => null); setNotice(`${message}${diagnostic?.code ? ` Error code: ${diagnostic.code}` : ''}`); } finally { setBusy(''); } };
-  const previewPackage = async () => { setBusy('preview'); setNotice(''); try { const result = await bridge.previewTeamPackage({ password: packagePassword }); if (!result.canceled) { setPackagePreview(result.preview); setPackagePassword(''); setNotice(`Preview ready · ${result.preview?.conflicts?.length || 0} conflicts.`); } } catch (error: any) { setNotice(error.message || 'Preview failed.'); } finally { setBusy(''); } };
-  const updateAction = () => run('update', async () => status?.update?.state === 'available' ? bridge.downloadUpdate() : status?.update?.state === 'downloaded' ? bridge.installUpdate() : bridge.checkForUpdates());
-  const updateLabel = status?.update?.state === 'available' ? `Download ${status.update.version || 'update'}` : status?.update?.state === 'downloaded' ? 'Restart and update' : status?.update?.state === 'downloading' ? `Downloading ${status.update.percent || 0}%` : status?.update?.state === 'blocked' ? 'Updates off' : 'Check for updates';
-  const recoveryTime = status?.recovery?.lastBackupAt ? new Intl.DateTimeFormat('en-GB', { timeZone: 'Africa/Cairo', dateStyle: 'medium', timeStyle: 'short' }).format(new Date(status.recovery.lastBackupAt)) : 'Not created yet';
+  const run = async (name: string, task: () => Promise<any>) => {
+    setBusy(name);
+    setNotice('');
+    try {
+      const result = await task();
+      setNotice(result.message || (result.path ? `Saved to ${result.path}` : 'Done.'));
+      await refresh();
+    } catch (error: any) {
+      const message = error.message || 'Action failed.';
+      const diagnostic = await bridge.reportDiagnostic({ action: name, message }).catch(() => null);
+      setNotice(`${message}${diagnostic?.code ? ` Error code: ${diagnostic.code}` : ''}`);
+    } finally {
+      setBusy('');
+    }
+  };
+  const previewPackage = async () => {
+    setBusy('preview');
+    setNotice('');
+    try {
+      const result = await bridge.previewTeamPackage({ password: packagePassword });
+      if (!result.canceled) {
+        setPackagePreview(result.preview);
+        setPackagePassword('');
+        setNotice(`Preview ready · ${result.preview?.conflicts?.length || 0} conflicts.`);
+      }
+    } catch (error: any) {
+      setNotice(error.message || 'Preview failed.');
+    } finally {
+      setBusy('');
+    }
+  };
+  const updateAction = () =>
+    run('update', async () =>
+      status?.update?.state === 'available'
+        ? bridge.downloadUpdate()
+        : status?.update?.state === 'downloaded'
+          ? bridge.installUpdate()
+          : bridge.checkForUpdates(),
+    );
+  const updateLabel =
+    status?.update?.state === 'available'
+      ? `Download ${status.update.version || 'update'}`
+      : status?.update?.state === 'downloaded'
+        ? 'Restart and update'
+        : status?.update?.state === 'downloading'
+          ? `Downloading ${status.update.percent || 0}%`
+          : status?.update?.state === 'blocked'
+            ? 'Updates off'
+            : 'Check for updates';
+  const recoveryTime = status?.recovery?.lastBackupAt
+    ? new Intl.DateTimeFormat('en-GB', { timeZone: 'Africa/Cairo', dateStyle: 'medium', timeStyle: 'short' }).format(new Date(status.recovery.lastBackupAt))
+    : 'Not created yet';
   const workflowChecks = [
-    { label: 'Local app service', ready: status?.localService === 'online', detail: status?.localService === 'online' ? 'Match data can be saved on this PC.' : 'Restart the app before processing evidence.' },
-    { label: 'Post-match capture', ready: status?.capture && !['paused', 'error'].includes(status.capture.state), detail: status?.capture?.paused ? 'Paused in Settings or the tray.' : status?.capture?.lastError || 'Watches only after a match; exceptions remain editable.' },
-    { label: 'Recovery point', ready: !!status?.recovery?.verifiedRecent, detail: status?.recovery?.verifiedRecent ? `Verified · ${recoveryTime} Cairo` : 'Create a fresh encrypted recovery point.' },
-    { label: 'Team sync', ready: status?.sync?.paired || status?.mode === 'offline-first', detail: status?.sync?.paired ? `${status.sync.pending || 0} accepted update${status.sync.pending === 1 ? '' : 's'} pending.` : 'Offline-first is valid; pairing is optional.' },
+    {
+      label: 'Local app service',
+      ready: status?.localService === 'online',
+      detail: status?.localService === 'online' ? 'Match data can be saved on this PC.' : 'Restart the app before processing evidence.',
+    },
+    {
+      label: 'Post-match capture',
+      ready: status?.capture && !['paused', 'error'].includes(status.capture.state),
+      detail: status?.capture?.paused
+        ? 'Paused in Settings or the tray.'
+        : status?.capture?.lastError || 'Watches only after a match; exceptions remain editable.',
+    },
+    {
+      label: 'Recovery point',
+      ready: !!status?.recovery?.verifiedRecent,
+      detail: status?.recovery?.verifiedRecent ? `Verified · ${recoveryTime} Cairo` : 'Create a fresh encrypted recovery point.',
+    },
+    {
+      label: 'Team sync',
+      ready: status?.sync?.paired || status?.mode === 'offline-first',
+      detail: status?.sync?.paired
+        ? `${status.sync.pending || 0} accepted update${status.sync.pending === 1 ? '' : 's'} pending.`
+        : 'Offline-first is valid; pairing is optional.',
+    },
   ];
-  return <section className="space-y-4" aria-labelledby="device-settings-title">
-    <div><h4 id="device-settings-title" className="text-xs font-black uppercase tracking-widest text-[#ff4655]">This PC &amp; team sync</h4><p className="mt-1 text-[11px] text-gray-400">Maintenance, sharing, diagnostics, and update controls for this Windows device.</p></div>
-    <div className="rounded-xl border border-cyan-300/15 bg-cyan-300/[0.035] p-4">
-      <div className="flex flex-wrap items-start justify-between gap-3"><div className="flex items-start gap-3"><Workflow className="mt-0.5 h-5 w-5 text-cyan-300" /><div><p className="text-sm font-semibold">Automatic workflow readiness</p><p className="mt-1 text-[11px] text-gray-400">New replays and matching scoreboards process without confirmation when identity and evidence checks agree. Anything uncertain waits for review and can be edited later.</p></div></div><span className="rounded-full border border-white/10 px-2.5 py-1 text-[10px] font-bold uppercase tracking-wider text-slate-300">v{status?.appVersion || __APP_VERSION__}</span></div>
-      <div className="mt-4 grid gap-2 md:grid-cols-2">{workflowChecks.map(check => <div key={check.label} className="flex items-start gap-2 rounded-lg border border-white/[0.07] bg-black/10 p-3">{check.ready ? <CheckCircle2 className="mt-0.5 h-4 w-4 shrink-0 text-emerald-400" /> : <AlertTriangle className="mt-0.5 h-4 w-4 shrink-0 text-amber-300" />}<span><span className="block text-xs font-semibold">{check.label}</span><span className="mt-0.5 block text-[10px] leading-4 text-gray-400">{check.detail}</span></span></div>)}</div>
-      <details className="mt-3 rounded-lg border border-white/[0.07] bg-black/10 p-3"><summary className="cursor-pointer text-xs font-semibold text-cyan-200">What happens automatically?</summary><ol className="mt-3 grid gap-2 text-[10px] leading-4 text-gray-400 sm:grid-cols-2"><li><strong className="text-slate-200">1. Detect:</strong> completed replay and scoreboard files enter the local inbox.</li><li><strong className="text-slate-200">2. Verify:</strong> map, score, identities, K/D/A, and evidence consistency are checked.</li><li><strong className="text-slate-200">3. Join:</strong> one unique ten-player match links replay and screenshot evidence.</li><li><strong className="text-slate-200">4. Protect:</strong> uncertain evidence stays in review; accepted data and later edits keep provenance.</li></ol></details>
-      <div className="mt-3 flex items-start gap-2 rounded-lg border border-amber-300/15 bg-amber-300/[0.035] p-3"><AlertTriangle className="mt-0.5 h-4 w-4 shrink-0 text-amber-300" /><p className="text-[10px] leading-4 text-gray-400"><strong className="text-amber-200">Public release gates:</strong> this app can verify its local workflow, but a publicly trusted Windows certificate and an independent second-PC install/capture/sync/update/rollback run are still external acceptance checks.</p></div>
-    </div>
-    <div className="grid gap-2 sm:grid-cols-2 xl:grid-cols-3">
-      <DeviceButton icon={Image} label="Captured scoreboards" detail={`${status?.pendingScoreboards || 0} awaiting review`} onClick={() => run('screenshots', () => bridge.openFolder('screenshots'))} />
-      <DeviceButton icon={FolderOpen} label="Replay inbox" detail={`${status?.replayCount || 0} detected`} onClick={() => run('replays', () => bridge.openFolder('replays'))} />
-      <DeviceButton icon={Cloud} label="Sync now" detail={status?.sync?.paired ? `${status.sync.pending || 0} pending` : 'Pair this PC first'} disabled={!!busy || !status?.sync?.paired} onClick={() => run('sync', bridge.syncNow)} />
-      <DeviceButton icon={HardDrive} label="Portable export" detail="Share approved team data" disabled={!!busy} onClick={() => run('export', async () => { const result = await bridge.exportTeamPackage({ password: packagePassword }); setPackagePassword(''); return { ...result, message: `Package saved to ${result.path}` }; })} />
-      <DeviceButton icon={Download} label="Import package" detail="Preview before applying" disabled={!!busy} onClick={previewPackage} />
-      <DeviceButton icon={Power} label={`Start with Windows: ${status?.startWithWindows ? 'On' : 'Off'}`} detail="Launch in the background" disabled={!!busy} onClick={() => run('startup', () => bridge.setStartWithWindows(!status?.startWithWindows))} />
-      <DeviceButton icon={status?.capture?.paused ? PlayCircle : PauseCircle} label={status?.capture?.paused ? 'Resume capture' : 'Pause capture'} detail={status?.capture?.state?.replaceAll('-', ' ') || 'Waiting for status'} disabled={!!busy} onClick={() => run('capture-pause', () => bridge.setCapturePaused(!status?.capture?.paused))} />
-      <DeviceButton icon={FileWarning} label="Local crash logs" detail="Open diagnostic logs" disabled={!!busy} onClick={() => run('logs', () => bridge.openFolder('logs'))} />
-      <DeviceButton icon={FileArchive} label="Export support bundle" detail="One file to send for help" disabled={!!busy} onClick={() => run('support', bridge.exportSupportBundle)} />
-      <DeviceButton icon={DatabaseBackup} label="Create recovery point" detail={status?.recovery?.verifiedRecent ? `${recoveryTime} Cairo` : 'Encrypted local backup'} disabled={!!busy} onClick={() => run('recovery-backup', bridge.createRecoveryBackup)} />
-      <DeviceButton icon={RefreshCw} label={updateLabel} detail={status?.update?.message || 'App updates'} disabled={!!busy || ['disabled', 'blocked', 'checking', 'downloading'].includes(status?.update?.state)} onClick={updateAction} />
-      {status?.sync?.paired && <DeviceButton icon={Unplug} label="Disconnect this PC" detail={`${status?.teamName || 'Paired team'} · ${status?.role || 'device'}`} disabled={!!busy} onClick={async () => { if ((await confirmDialog('Disconnect this PC from the team? Local evidence will remain available.', { destructive: true, confirmLabel: 'Disconnect' }))) void run('disconnect', bridge.disconnectDevice); }} />}
-      {packagePreview && <DeviceButton icon={CheckCircle2} label="Apply imported package" detail={`${packagePreview.conflicts?.length || 0} conflicts found`} disabled={!!busy} onClick={() => run('import', async () => { const result = await bridge.importTeamPackage(); setPackagePreview(null); return result; })} />}
-    </div>
-    {!status?.sync?.paired && <div className="grid gap-2 rounded-xl border border-violet-300/15 bg-violet-300/[0.045] p-4 sm:grid-cols-[minmax(0,1fr)_180px_auto]"><input aria-label="Team server" className="ui-field min-h-11 px-3 text-sm" value={pairServer} onChange={event => setPairServer(event.target.value)} /><input aria-label="Pairing code" className="ui-field min-h-11 px-3 font-mono text-sm uppercase tracking-widest" maxLength={10} value={pairCode} onChange={event => setPairCode(event.target.value.toUpperCase())} placeholder="TEAM CODE" /><button type="button" disabled={!!busy || pairCode.length !== 10} onClick={() => run('pair', async () => { const result = await bridge.pairDevice({ server: pairServer, code: pairCode }); setPairCode(''); return { ...result, message: `Paired with ${result.server}.` }; })} className="ui-button ui-button-primary min-h-11 px-4 text-sm disabled:opacity-50">Pair PC</button></div>}
-    <div className="grid gap-3 rounded-xl border border-white/[0.07] bg-black/10 p-3 lg:grid-cols-[minmax(0,1fr)_minmax(250px,.55fr)] lg:items-center"><div><p className="text-xs font-semibold">Portable package password</p><p className="mt-1 text-[10px] text-gray-400">Optional. Use 8–256 characters to encrypt exports.</p></div><input aria-label="Portable package password" type="password" autoComplete="new-password" minLength={8} maxLength={256} value={packagePassword} onChange={event => setPackagePassword(event.target.value)} placeholder="Leave blank for no password" className="ui-field min-h-10 px-3 text-sm" /></div>
-    <div className="rounded-xl border border-white/[0.07] bg-black/10 p-4"><div className="flex flex-wrap items-center justify-between gap-2"><div><p className="text-xs font-semibold">Capture profile</p><p className="mt-1 text-[10px] text-gray-400">Post-match only. Moe Tracker never clicks or reads process memory during a live round.</p></div><span className="rounded-full border border-cyan-300/20 px-2 py-1 text-[10px] uppercase text-cyan-200">{status?.capture?.state?.replaceAll('-', ' ') || 'checking'}</span></div><div className="mt-3 grid gap-2 sm:grid-cols-2 xl:grid-cols-4"><label className="text-[10px] text-gray-400">Window mode<select className="ui-field mt-1 h-10 w-full px-2 text-xs" value={capturePreferences.profile} onChange={event => setCapturePreferences((value: any) => ({ ...value, profile: event.target.value }))}><option value="fullscreen">Fullscreen</option><option value="fullscreen-windowed">Fullscreen windowed</option><option value="windowed">Windowed</option></select></label><label className="text-[10px] text-gray-400">Display<input className="ui-field mt-1 h-10 w-full px-2 text-xs" value={capturePreferences.display} onChange={event => setCapturePreferences((value: any) => ({ ...value, display: event.target.value }))} placeholder="primary or display:2" /></label><label className="text-[10px] text-gray-400">After capture<select className="ui-field mt-1 h-10 w-full px-2 text-xs" value={capturePreferences.notification} onChange={event => setCapturePreferences((value: any) => ({ ...value, notification: event.target.value }))}><option value="open-review">Open review</option><option value="notify-only">Notify only</option><option value="silent">Silent</option></select></label><label className="mt-3 flex items-center gap-2 text-[10px] text-gray-400"><input type="checkbox" checked={capturePreferences.elevated === true} onChange={event => setCapturePreferences((value: any) => ({ ...value, elevated: event.target.checked }))} />VALORANT runs as administrator (ask Windows for permission on each capture)</label><label className="mt-2 flex items-center gap-2 text-[10px] text-gray-400"><input type="checkbox" checked={capturePreferences.matchEndOffer !== 'off'} onChange={event => setCapturePreferences((value: any) => ({ ...value, matchEndOffer: event.target.checked ? 'notify' : 'off' }))} />Offer a scoreboard capture when a match ends (a new replay file appears)</label><button type="button" disabled={!!busy} className="ui-button ui-button-primary mt-4 min-h-10 px-3 text-xs" onClick={() => run('capture-preferences', () => bridge.setCapturePreferences(capturePreferences))}>Save capture profile</button></div></div>
-    <div className="flex flex-wrap items-center justify-between gap-3 text-[11px] text-gray-400"><label className="inline-flex items-center gap-2">Keep raw replays for<input aria-label="Raw replay retention days" type="number" min={1} max={365} value={retentionDays} onChange={event => setRetentionDays(Number(event.target.value))} onBlur={() => run('retention', () => bridge.setRetentionDays(retentionDays))} className="ui-field h-9 w-20 px-2 text-center" />days</label><button type="button" onClick={() => run('folder', bridge.chooseReplayFolder)} className="inline-flex min-h-9 items-center gap-1 text-cyan-300"><RefreshCw className="h-3 w-3" />Add replay folder</button></div>
-    {notice && <div className="rounded-lg border border-cyan-300/15 bg-cyan-300/[0.05] px-4 py-3 text-xs text-cyan-100" role="status">{notice}</div>}
-  </section>;
+  return (
+    <section className="space-y-4" aria-labelledby="device-settings-title">
+      <div>
+        <h4 id="device-settings-title" className="text-xs font-black uppercase tracking-widest text-[#ff4655]">
+          This PC &amp; team sync
+        </h4>
+        <p className="mt-1 text-xs text-gray-400">Maintenance, sharing, diagnostics, and update controls for this Windows device.</p>
+      </div>
+      <div className="rounded-xl border border-cyan-300/15 bg-cyan-300/[0.035] p-4">
+        <div className="flex flex-wrap items-start justify-between gap-3">
+          <div className="flex items-start gap-3">
+            <Workflow className="mt-0.5 h-5 w-5 text-cyan-300" />
+            <div>
+              <p className="text-sm font-semibold">Automatic workflow readiness</p>
+              <p className="mt-1 text-xs text-gray-400">
+                New replays and matching scoreboards process without confirmation when identity and evidence checks agree. Anything uncertain waits for review
+                and can be edited later.
+              </p>
+            </div>
+          </div>
+          <span className="rounded-full border border-white/10 px-2.5 py-1 text-xs font-bold uppercase tracking-wider text-slate-300">
+            v{status?.appVersion || __APP_VERSION__}
+          </span>
+        </div>
+        <div className="mt-4 grid gap-2 md:grid-cols-2">
+          {workflowChecks.map(check => (
+            <div key={check.label} className="flex items-start gap-2 rounded-lg border border-white/[0.07] bg-black/10 p-3">
+              {check.ready ? (
+                <CheckCircle2 className="mt-0.5 h-4 w-4 shrink-0 text-emerald-400" />
+              ) : (
+                <AlertTriangle className="mt-0.5 h-4 w-4 shrink-0 text-amber-300" />
+              )}
+              <span>
+                <span className="block text-xs font-semibold">{check.label}</span>
+                <span className="mt-0.5 block text-xs leading-4 text-gray-400">{check.detail}</span>
+              </span>
+            </div>
+          ))}
+        </div>
+        <details className="mt-3 rounded-lg border border-white/[0.07] bg-black/10 p-3">
+          <summary className="cursor-pointer text-xs font-semibold text-cyan-200">What happens automatically?</summary>
+          <ol className="mt-3 grid gap-2 text-xs leading-4 text-gray-400 sm:grid-cols-2">
+            <li>
+              <strong className="text-slate-200">1. Detect:</strong> completed replay and scoreboard files enter the local inbox.
+            </li>
+            <li>
+              <strong className="text-slate-200">2. Verify:</strong> map, score, identities, K/D/A, and evidence consistency are checked.
+            </li>
+            <li>
+              <strong className="text-slate-200">3. Join:</strong> one unique ten-player match links replay and screenshot evidence.
+            </li>
+            <li>
+              <strong className="text-slate-200">4. Protect:</strong> uncertain evidence stays in review; accepted data and later edits keep provenance.
+            </li>
+          </ol>
+        </details>
+        <div className="mt-3 flex items-start gap-2 rounded-lg border border-amber-300/15 bg-amber-300/[0.035] p-3">
+          <AlertTriangle className="mt-0.5 h-4 w-4 shrink-0 text-amber-300" />
+          <p className="text-xs leading-4 text-gray-400">
+            <strong className="text-amber-200">Public release gates:</strong> this app can verify its local workflow, but a publicly trusted Windows certificate
+            and an independent second-PC install/capture/sync/update/rollback run are still external acceptance checks.
+          </p>
+        </div>
+      </div>
+      <div className="grid gap-2 sm:grid-cols-2 xl:grid-cols-3">
+        <DeviceButton
+          icon={Image}
+          label="Captured scoreboards"
+          detail={`${status?.pendingScoreboards || 0} awaiting review`}
+          onClick={() => run('screenshots', () => bridge.openFolder('screenshots'))}
+        />
+        <DeviceButton
+          icon={FolderOpen}
+          label="Replay inbox"
+          detail={`${status?.replayCount || 0} detected`}
+          onClick={() => run('replays', () => bridge.openFolder('replays'))}
+        />
+        <DeviceButton
+          icon={Cloud}
+          label="Sync now"
+          detail={status?.sync?.paired ? `${status.sync.pending || 0} pending` : 'Pair this PC first'}
+          disabled={!!busy || !status?.sync?.paired}
+          onClick={() => run('sync', bridge.syncNow)}
+        />
+        <DeviceButton
+          icon={HardDrive}
+          label="Portable export"
+          detail="Share approved team data"
+          disabled={!!busy}
+          onClick={() =>
+            run('export', async () => {
+              const result = await bridge.exportTeamPackage({ password: packagePassword });
+              setPackagePassword('');
+              return { ...result, message: `Package saved to ${result.path}` };
+            })
+          }
+        />
+        <DeviceButton icon={Download} label="Import package" detail="Preview before applying" disabled={!!busy} onClick={previewPackage} />
+        <DeviceButton
+          icon={Power}
+          label={`Start with Windows: ${status?.startWithWindows ? 'On' : 'Off'}`}
+          detail="Launch in the background"
+          disabled={!!busy}
+          onClick={() => run('startup', () => bridge.setStartWithWindows(!status?.startWithWindows))}
+        />
+        <DeviceButton
+          icon={status?.capture?.paused ? PlayCircle : PauseCircle}
+          label={status?.capture?.paused ? 'Resume capture' : 'Pause capture'}
+          detail={status?.capture?.state?.replaceAll('-', ' ') || 'Waiting for status'}
+          disabled={!!busy}
+          onClick={() => run('capture-pause', () => bridge.setCapturePaused(!status?.capture?.paused))}
+        />
+        <DeviceButton
+          icon={FileWarning}
+          label="Local crash logs"
+          detail="Open diagnostic logs"
+          disabled={!!busy}
+          onClick={() => run('logs', () => bridge.openFolder('logs'))}
+        />
+        <DeviceButton
+          icon={FileArchive}
+          label="Export support bundle"
+          detail="One file to send for help"
+          disabled={!!busy}
+          onClick={() => run('support', bridge.exportSupportBundle)}
+        />
+        <DeviceButton
+          icon={DatabaseBackup}
+          label="Create recovery point"
+          detail={status?.recovery?.verifiedRecent ? `${recoveryTime} Cairo` : 'Encrypted local backup'}
+          disabled={!!busy}
+          onClick={() => run('recovery-backup', bridge.createRecoveryBackup)}
+        />
+        <DeviceButton
+          icon={RefreshCw}
+          label={updateLabel}
+          detail={status?.update?.message || 'App updates'}
+          disabled={!!busy || ['disabled', 'blocked', 'checking', 'downloading'].includes(status?.update?.state)}
+          onClick={updateAction}
+        />
+        {status?.sync?.paired && (
+          <DeviceButton
+            icon={Unplug}
+            label="Disconnect this PC"
+            detail={`${status?.teamName || 'Paired team'} · ${status?.role || 'device'}`}
+            disabled={!!busy}
+            onClick={async () => {
+              if (
+                await confirmDialog('Disconnect this PC from the team? Local evidence will remain available.', {
+                  destructive: true,
+                  confirmLabel: 'Disconnect',
+                })
+              )
+                void run('disconnect', bridge.disconnectDevice);
+            }}
+          />
+        )}
+        {packagePreview && (
+          <DeviceButton
+            icon={CheckCircle2}
+            label="Apply imported package"
+            detail={`${packagePreview.conflicts?.length || 0} conflicts found`}
+            disabled={!!busy}
+            onClick={() =>
+              run('import', async () => {
+                const result = await bridge.importTeamPackage();
+                setPackagePreview(null);
+                return result;
+              })
+            }
+          />
+        )}
+      </div>
+      {!status?.sync?.paired && (
+        <div className="grid gap-2 rounded-xl border border-violet-300/15 bg-violet-300/[0.045] p-4 sm:grid-cols-[minmax(0,1fr)_180px_auto]">
+          <input aria-label="Team server" className="ui-field min-h-11 px-3 text-sm" value={pairServer} onChange={event => setPairServer(event.target.value)} />
+          <input
+            aria-label="Pairing code"
+            className="ui-field min-h-11 px-3 font-mono text-sm uppercase tracking-widest"
+            maxLength={10}
+            value={pairCode}
+            onChange={event => setPairCode(event.target.value.toUpperCase())}
+            placeholder="TEAM CODE"
+          />
+          <button
+            type="button"
+            disabled={!!busy || pairCode.length !== 10}
+            onClick={() =>
+              run('pair', async () => {
+                const result = await bridge.pairDevice({ server: pairServer, code: pairCode });
+                setPairCode('');
+                return { ...result, message: `Paired with ${result.server}.` };
+              })
+            }
+            className="ui-button ui-button-primary min-h-11 px-4 text-sm disabled:opacity-50"
+          >
+            Pair PC
+          </button>
+        </div>
+      )}
+      <div className="grid gap-3 rounded-xl border border-white/[0.07] bg-black/10 p-3 lg:grid-cols-[minmax(0,1fr)_minmax(250px,.55fr)] lg:items-center">
+        <div>
+          <p className="text-xs font-semibold">Portable package password</p>
+          <p className="mt-1 text-xs text-gray-400">Optional. Use 8–256 characters to encrypt exports.</p>
+        </div>
+        <input
+          aria-label="Portable package password"
+          type="password"
+          autoComplete="new-password"
+          minLength={8}
+          maxLength={256}
+          value={packagePassword}
+          onChange={event => setPackagePassword(event.target.value)}
+          placeholder="Leave blank for no password"
+          className="ui-field min-h-10 px-3 text-sm"
+        />
+      </div>
+      <div className="rounded-xl border border-white/[0.07] bg-black/10 p-4">
+        <div className="flex flex-wrap items-center justify-between gap-2">
+          <div>
+            <p className="text-xs font-semibold">Capture profile</p>
+            <p className="mt-1 text-xs text-gray-400">Post-match only. Moe Tracker never clicks or reads process memory during a live round.</p>
+          </div>
+          <span className="rounded-full border border-cyan-300/20 px-2 py-1 text-xs uppercase text-cyan-200">
+            {status?.capture?.state?.replaceAll('-', ' ') || 'checking'}
+          </span>
+        </div>
+        <div className="mt-3 grid gap-2 sm:grid-cols-2 xl:grid-cols-4">
+          <label className="text-xs text-gray-400">
+            Window mode
+            <select
+              className="ui-field mt-1 h-10 w-full px-2 text-xs"
+              value={capturePreferences.profile}
+              onChange={event => setCapturePreferences((value: any) => ({ ...value, profile: event.target.value }))}
+            >
+              <option value="fullscreen">Fullscreen</option>
+              <option value="fullscreen-windowed">Fullscreen windowed</option>
+              <option value="windowed">Windowed</option>
+            </select>
+          </label>
+          <label className="text-xs text-gray-400">
+            Display
+            <input
+              className="ui-field mt-1 h-10 w-full px-2 text-xs"
+              value={capturePreferences.display}
+              onChange={event => setCapturePreferences((value: any) => ({ ...value, display: event.target.value }))}
+              placeholder="primary or display:2"
+            />
+          </label>
+          <label className="text-xs text-gray-400">
+            After capture
+            <select
+              className="ui-field mt-1 h-10 w-full px-2 text-xs"
+              value={capturePreferences.notification}
+              onChange={event => setCapturePreferences((value: any) => ({ ...value, notification: event.target.value }))}
+            >
+              <option value="open-review">Open review</option>
+              <option value="notify-only">Notify only</option>
+              <option value="silent">Silent</option>
+            </select>
+          </label>
+          <label className="mt-3 flex items-center gap-2 text-xs text-gray-400">
+            <input
+              type="checkbox"
+              checked={capturePreferences.elevated === true}
+              onChange={event => setCapturePreferences((value: any) => ({ ...value, elevated: event.target.checked }))}
+            />
+            VALORANT runs as administrator (ask Windows for permission on each capture)
+          </label>
+          <label className="mt-2 flex items-center gap-2 text-xs text-gray-400">
+            <input
+              type="checkbox"
+              checked={capturePreferences.matchEndOffer !== 'off'}
+              onChange={event => setCapturePreferences((value: any) => ({ ...value, matchEndOffer: event.target.checked ? 'notify' : 'off' }))}
+            />
+            Offer a scoreboard capture when a match ends (a new replay file appears)
+          </label>
+          <button
+            type="button"
+            disabled={!!busy}
+            className="ui-button ui-button-primary mt-4 min-h-10 px-3 text-xs"
+            onClick={() => run('capture-preferences', () => bridge.setCapturePreferences(capturePreferences))}
+          >
+            Save capture profile
+          </button>
+        </div>
+      </div>
+      <div className="flex flex-wrap items-center justify-between gap-3 text-xs text-gray-400">
+        <label className="inline-flex items-center gap-2">
+          Keep raw replays for
+          <input
+            aria-label="Raw replay retention days"
+            type="number"
+            min={1}
+            max={365}
+            value={retentionDays}
+            onChange={event => setRetentionDays(Number(event.target.value))}
+            onBlur={() => run('retention', () => bridge.setRetentionDays(retentionDays))}
+            className="ui-field h-9 w-20 px-2 text-center"
+          />
+          days
+        </label>
+        <button type="button" onClick={() => run('folder', bridge.chooseReplayFolder)} className="inline-flex min-h-9 items-center gap-1 text-cyan-300">
+          <RefreshCw className="h-3 w-3" />
+          Add replay folder
+        </button>
+      </div>
+      {notice && (
+        <div className="rounded-lg border border-cyan-300/15 bg-cyan-300/[0.05] px-4 py-3 text-xs text-cyan-100" role="status">
+          {notice}
+        </div>
+      )}
+    </section>
+  );
 }
 
-function DeviceButton({ icon: Icon, label, detail, onClick, disabled }: { icon: ComponentType<any>; label: string; detail: string; onClick: () => void; disabled?: boolean }) { return <button type="button" disabled={disabled} onClick={onClick} className="desktop-tool-button min-h-16 disabled:opacity-45"><Icon className="h-4 w-4 shrink-0 text-cyan-300" /><span className="min-w-0 text-left"><span className="block truncate text-xs font-semibold">{label}</span><span className="mt-0.5 block truncate text-[10px] text-gray-500">{detail}</span></span></button>; }
+function DeviceButton({
+  icon: Icon,
+  label,
+  detail,
+  onClick,
+  disabled,
+}: {
+  icon: ComponentType<any>;
+  label: string;
+  detail: string;
+  onClick: () => void;
+  disabled?: boolean;
+}) {
+  return (
+    <button type="button" disabled={disabled} onClick={onClick} className="desktop-tool-button min-h-16 disabled:opacity-45">
+      <Icon className="h-4 w-4 shrink-0 text-cyan-300" />
+      <span className="min-w-0 text-left">
+        <span className="block truncate text-xs font-semibold">{label}</span>
+        <span className="mt-0.5 block truncate text-xs text-gray-500">{detail}</span>
+      </span>
+    </button>
+  );
+}

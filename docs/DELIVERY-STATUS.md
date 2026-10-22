@@ -1,5 +1,11 @@
 # Delivery status
 
+> Historical record. Version 0.2.0 was published unsigned on 21 October 2026
+> (https://github.com/MoeAZack/moe-tracker-application/releases/tag/v0.2.0).
+> Entries below mention the retired Cloud Run, Firestore and Firebase
+> deployment; that path no longer exists. Current practice is in
+> `RELEASE-RUNBOOK.md`, `STORAGE-RECOVERY.md` and `ROADMAP.md`.
+
 ## Current 0.2 release hardening — 20 October 2026 (Africa/Cairo)
 
 H0 through H4 are merged. H5 produces the version 0.2.0 local candidate with

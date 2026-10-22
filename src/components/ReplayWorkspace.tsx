@@ -128,7 +128,7 @@ function Pill({
 }) {
   return (
     <span
-      className={`inline-flex rounded border px-1.5 py-0.5 text-[10px] font-semibold ${statusTone[state] || "border-slate-700 bg-slate-800 text-slate-300"}`}
+      className={`inline-flex rounded border px-1.5 py-0.5 text-xs font-semibold ${statusTone[state] || "border-slate-700 bg-slate-800 text-slate-300"}`}
     >
       {children}
     </span>
@@ -184,7 +184,7 @@ function IngestionState({ upload }: { upload: Upload }) {
         {steps.map((step) => (
           <li
             key={step.label}
-            className={`rounded-full border px-2 py-1 text-[10px] ${step.done ? "border-teal-500/30 bg-teal-500/10 text-teal-300" : "border-slate-700 bg-slate-900 text-slate-500"}`}
+            className={`rounded-full border px-2 py-1 text-xs ${step.done ? "border-teal-500/30 bg-teal-500/10 text-teal-300" : "border-slate-700 bg-slate-900 text-slate-500"}`}
           >
             {step.done ? "✓ " : "○ "}
             {step.label}
@@ -832,7 +832,7 @@ export default function ReplayWorkspace({
               Replays and matching scoreboard names process automatically. Use
               this inbox only to inspect or edit an exception afterward.
             </p>
-            <p className="mt-2 inline-flex items-center gap-2 text-[11px] font-medium text-teal-300">
+            <p className="mt-2 inline-flex items-center gap-2 text-xs font-medium text-teal-300">
               <span className="h-1.5 w-1.5 rounded-full bg-teal-300 shadow-[0_0_10px_rgba(94,234,212,0.9)]" />
               Live inbox · checks for new PC evidence every 5 seconds
             </p>
@@ -907,7 +907,7 @@ export default function ReplayWorkspace({
                       <span className="font-semibold text-slate-200">
                         {device.name}
                       </span>
-                      <span className="block font-mono text-[10px] text-slate-600">
+                      <span className="block font-mono text-xs text-slate-600">
                         {device.id}
                       </span>
                     </td>
@@ -1017,7 +1017,7 @@ export default function ReplayWorkspace({
                 <ImagePlus className="h-5 w-5" />
               </span>
               <div>
-                <p className="text-[10px] font-semibold uppercase tracking-[0.18em] text-cyan-300">
+                <p className="text-xs font-semibold uppercase tracking-[0.18em] text-cyan-300">
                   Start a practice review
                 </p>
                 <h2
@@ -1032,7 +1032,7 @@ export default function ReplayWorkspace({
                   a replay. Replay analysis adds only supported evidence;
                   tactical judgments remain coach-reviewed. The image is never uploaded.
                 </p>
-                <div className="mt-3 flex flex-wrap gap-2 text-[10px] text-slate-400">
+                <div className="mt-3 flex flex-wrap gap-2 text-xs text-slate-400">
                   <span className="rounded-full border border-white/10 px-2 py-1">
                     1 · Names + K/D/A
                   </span>
@@ -1085,7 +1085,7 @@ export default function ReplayWorkspace({
                   }}
                 />
               </label>
-                <p className="text-[10px] leading-relaxed text-slate-500">
+                <p className="text-xs leading-relaxed text-slate-500">
                 Free local OCR · the screenshot stays on this PC · standard images
                 placed in Documents\Moe Tracker\Scoreboards are picked up automatically.
               </p>
@@ -1097,7 +1097,7 @@ export default function ReplayWorkspace({
                 <h3 className="text-xs font-semibold text-slate-300">
                   Scoreboard queue
                 </h3>
-                <div className="flex items-center gap-2"><span className="text-[10px] text-slate-500">{screenshots.length} retained drafts</span><button type="button" disabled={!!busy} onClick={() => void removeScreenshot()} className="inline-flex min-h-9 items-center gap-1.5 rounded-lg border border-rose-300/15 px-2 text-[10px] font-semibold text-rose-300 hover:bg-rose-300/10 disabled:opacity-40"><Trash2 className="h-3.5 w-3.5" />Clear queue</button></div>
+                <div className="flex items-center gap-2"><span className="text-xs text-slate-500">{screenshots.length} retained drafts</span><button type="button" disabled={!!busy} onClick={() => void removeScreenshot()} className="inline-flex min-h-9 items-center gap-1.5 rounded-lg border border-rose-300/15 px-2 text-xs font-semibold text-rose-300 hover:bg-rose-300/10 disabled:opacity-40"><Trash2 className="h-3.5 w-3.5" />Clear queue</button></div>
               </div>
               <ul className="mt-2 grid gap-2 lg:grid-cols-2">
                 {screenshots.slice(0, 6).map((item) => (
@@ -1113,7 +1113,7 @@ export default function ReplayWorkspace({
                             ? `${item.draft.match.ourScore}–${item.draft.match.theirScore}`
                             : "score pending"}
                         </p>
-                        <p className="mt-1 text-[10px] text-slate-500">
+                        <p className="mt-1 text-xs text-slate-500">
                           {time(item.createdAt)} ·{" "}
                           {item.deviceId === 'manual-entry' ? 'Manual entry' : devices.find((device) => device.id === item.deviceId)
                             ?.name || "Collection device"}
@@ -1121,7 +1121,7 @@ export default function ReplayWorkspace({
                       </div>
                       <div className="flex items-center gap-2"><Pill state={item.status}>{item.status}</Pill><button type="button" aria-label="Delete scoreboard draft" disabled={!!busy} onClick={() => void removeScreenshot(item.id)} className="inline-flex h-9 w-9 items-center justify-center rounded-lg border border-rose-300/15 text-rose-300 hover:bg-rose-300/10 disabled:opacity-40"><Trash2 className="h-4 w-4" /></button></div>
                     </div>
-                    <p className="mt-2 text-[11px] text-slate-400">
+                    <p className="mt-2 text-xs text-slate-400">
                       {item.reason}
                     </p>
                     {item.replaySha256 && (
@@ -1196,7 +1196,7 @@ export default function ReplayWorkspace({
             <div className="flex items-center justify-between border-b border-white/10 px-3 py-3">
               <div>
                 <h2 className="text-sm font-semibold">Inbox</h2>
-                <p className="text-[11px] text-slate-500">
+                <p className="text-xs text-slate-500">
                   {uploads.length} private uploads
                 </p>
               </div>
@@ -1211,7 +1211,7 @@ export default function ReplayWorkspace({
                       <span className="block truncate text-sm font-semibold text-slate-200">
                         {upload.originalName}
                       </span>
-                      <span className="mt-1 block text-[11px] text-slate-500">
+                      <span className="mt-1 block text-xs text-slate-500">
                         {time(upload.receivedAt)} · {bytes(upload.size)}
                       </span>
                     </span>
@@ -1229,7 +1229,7 @@ export default function ReplayWorkspace({
                         ? "Accepted"
                         : upload.parserStatus}
                     </Pill>
-                    <span className="font-mono text-[9px] text-slate-700">
+                    <span className="font-mono text-xs text-slate-700">
                       {upload.sha256.slice(0, 8)}
                     </span>
                   </span>
@@ -1392,7 +1392,7 @@ export function ReplayReviewEvidence({
             <Pill state={accepted ? "accepted" : "review-required"}>
               {accepted ? "Accepted" : "Coach review draft"}
             </Pill>
-            <span className="text-[11px] text-slate-500">
+            <span className="text-xs text-slate-500">
               vrfkit {detail.parser?.version || "0.2.6-moe.1"}
             </span>
           </span>
@@ -1407,7 +1407,7 @@ export function ReplayReviewEvidence({
             evidence locked
           </p>
         </div>
-        <div className="text-right font-mono text-[10px] text-slate-600">
+        <div className="text-right font-mono text-xs text-slate-600">
           <p>Evidence {detail.result.diagnostics.replaySha256.slice(0, 12)}</p>
           {review && <p>Review revision {review.revision}</p>}
         </div>
@@ -1528,7 +1528,7 @@ export function ReplayReviewEvidence({
                         {accepted ? reviewedName : evidence(player.displayName) ||
                           `Anonymous player ${index + 1}`}
                       </span>
-                      <span className="block font-mono text-[9px] text-slate-600">
+                      <span className="block font-mono text-xs text-slate-600">
                         {accepted ? `${ours ? 'Our roster' : 'Opponent'} · identity resolved` : `${player.teamId} · ${player.playerId.slice(0, 10)}`}
                       </span>
                     </td>
@@ -1588,7 +1588,7 @@ export function ReplayReviewEvidence({
                         ? "—"
                         : `${metrics.headshotPercentage}%`}
                       {metrics?.headshotKills !== null && metrics?.headshotKills !== undefined && (
-                        <span className="block text-[9px] text-slate-600">
+                        <span className="block text-xs text-slate-600">
                           {metrics.headshotKills}/{metrics.eligibleHeadshotKills} weapon kills
                         </span>
                       )}
@@ -1627,7 +1627,7 @@ export function ReplayReviewEvidence({
           3 · Round evidence
         </h3>
         {focusedRoundNo !== null && (
-          <p className="mt-1 text-[11px] text-cyan-200">
+          <p className="mt-1 text-xs text-cyan-200">
             {draft.evidence.rounds.some((round: any) => round.roundNumber === focusedRoundNo)
               ? `Round ${focusedRoundNo} is selected in the review context.`
               : `Round ${focusedRoundNo} is selected in the review context but is not in this replay.`}

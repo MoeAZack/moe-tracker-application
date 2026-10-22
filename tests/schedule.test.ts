@@ -39,6 +39,9 @@ describe('hourly schedule repetition', () => {
     expect(manual).toMatchObject({ primary: 'Ascent', attendanceEnabled: true, requiredPlayerIds: ['p1'], source: 'manual', durationMinutes: 60 });
     const pracc = { ...manual, id: 'pracc', source: 'pracc', sourceEventId: 'event', sourceCalendarHash: 'hash', date: '2026-10-16', startTime: '17:00', primary: 'Provider scrim' };
     expect(normalizeScheduleRow({ ...pracc, date: '2026-10-20', startTime: '20:00', primary: 'Changed locally', calendarKey: 'review' }, pracc, context)).toMatchObject({ date: '2026-10-16', startTime: '17:00', primary: 'Provider scrim', calendarKey: 'review', sourceEventId: 'event' });
+    const flagged = { ...pracc, sourceStatus: 'removed', sourceStatusAt: '2026-10-15T10:00:00.000Z' };
+    expect(normalizeScheduleRow({ ...flagged, sourceStatus: undefined, coachNotes: 'Still on' }, flagged, context)).toMatchObject({ sourceStatus: 'removed', sourceStatusAt: '2026-10-15T10:00:00.000Z', coachNotes: 'Still on' });
+    expect(normalizeScheduleRow({ ...manual, sourceStatus: 'cancelled' }, manual, context).sourceStatus).toBeUndefined();
   });
 
   it('updates or removes a repeated series atomically while retaining sibling times and check-ins', () => {

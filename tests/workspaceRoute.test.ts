@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { evidenceReviewTab, focusReviewContext, navWorkspaceTabs, parseWorkspaceRoute, resolveWorkspaceTab, routableWorkspaceTabs, syncWorkspaceRoute, workspaceHistoryMode, workspaceRouteHash } from '../src/utils/workspaceRoute';
+import { destinationEntryTab, evidenceReviewTab, focusReviewContext, navWorkspaceTabs, parseWorkspaceRoute, resolveWorkspaceTab, routableWorkspaceTabs, syncWorkspaceRoute, WORKSPACE_DESTINATIONS, WORKSPACE_TAB_IDS, workspaceDestination, workspaceDestinations, workspaceHistoryMode, workspaceRouteHash } from '../src/utils/workspaceRoute';
 
 describe('workspace deep links', () => {
   it('round-trips a review route with match and round context', () => {
@@ -111,5 +111,37 @@ describe('website match log focus', () => {
     const html = renderToStaticMarkup(createElement(WebsiteMatchLog, { data, theme: { cardBg: '', border: '' }, focusMatchId: 'old' }));
     expect(html.indexOf('Linked')).toBeLessThan(html.indexOf('Newer'));
     expect(html).toMatch(/aria-current="true"[^>]*>\s*<div><h2[^>]*>Linked/);
+  });
+});
+
+describe('workspace destinations', () => {
+  it('groups every screen under exactly one of seven destinations, in nav order', () => {
+    expect(WORKSPACE_DESTINATIONS).toHaveLength(7);
+    const all = workspaceDestinations(WORKSPACE_TAB_IDS);
+    expect(all.map(entry => entry.destination)).toEqual([...WORKSPACE_DESTINATIONS]);
+    expect(all.flatMap(entry => entry.tabs).sort()).toEqual([...WORKSPACE_TAB_IDS].sort());
+    expect(all.find(entry => entry.destination === 'Matches')!.tabs).toEqual(['matches', 'replays', 'livelogger', 'vod', 'vodsubmit']);
+  });
+
+  it('leaves out destinations with no visible screen for the website and for players', () => {
+    const web = workspaceDestinations(navWorkspaceTabs({ desktopMode: false, role: 'coach', showTryoutComparisons: false, activeTab: 'dashboard' }));
+    expect(web.map(entry => entry.destination)).toEqual(['Home', 'Matches', 'Team', 'Players', 'Coaching', 'Playbook']);
+    expect(web.find(entry => entry.destination === 'Playbook')!.tabs).toEqual(['aihub']);
+    expect(web.find(entry => entry.destination === 'Coaching')!.tabs).toEqual(['calendar', 'aitactical']);
+    expect(web.find(entry => entry.destination === 'Matches')!.tabs).toEqual(['matches', 'vodsubmit']);
+    const player = workspaceDestinations(navWorkspaceTabs({ desktopMode: true, role: 'player', showTryoutComparisons: false, activeTab: 'dashboard' }));
+    expect(player.map(entry => entry.destination)).not.toContain('Settings');
+    expect(player.flatMap(entry => entry.tabs)).not.toContain('strats');
+    expect(web.flatMap(entry => entry.tabs)).not.toContain('strats');
+    const desktop = workspaceDestinations(navWorkspaceTabs({ desktopMode: true, role: 'coach', showTryoutComparisons: false, activeTab: 'dashboard' }));
+    expect(desktop.find(entry => entry.destination === 'Playbook')!.tabs).toEqual(['strats', 'comps', 'lineups', 'aihub']);
+  });
+
+  it('reopens the section last used in a destination, else its first section', () => {
+    expect(destinationEntryTab(['matches', 'replays', 'vod'], 'vod')).toBe('vod');
+    expect(destinationEntryTab(['matches', 'replays'], 'vod')).toBe('matches');
+    expect(destinationEntryTab(['economy', 'maps'])).toBe('economy');
+    expect(destinationEntryTab([], 'maps')).toBeNull();
+    expect(workspaceDestination('aitactical')).toBe('Coaching');
   });
 });

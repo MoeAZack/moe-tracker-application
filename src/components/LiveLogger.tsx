@@ -53,6 +53,13 @@ export function preserveMixedTryoutPhase(
   return tryoutBatchId ? { ...context, tryoutBatchId } : context;
 }
 
+const SPLIT_ROUNDS = { pistolAtt: 1, ecoAtt: 2, bonusAtt: 3, pistolDef: 13, ecoDef: 14, bonusDef: 15 } as const;
+
+/** Pistol, post-pistol and bonus labels after logging one round. A split round not logged yet stays '' (unknown), never a loss. */
+export function liveSplitLabels(match: Partial<Record<keyof typeof SPLIT_ROUNDS, string>>, roundNo: number, result: string) {
+  return Object.fromEntries((Object.keys(SPLIT_ROUNDS) as Array<keyof typeof SPLIT_ROUNDS>).map(key => [key, SPLIT_ROUNDS[key] === roundNo ? result : match[key] || ''])) as Record<keyof typeof SPLIT_ROUNDS, string>;
+}
+
 export default function LiveLogger({ data, theme, onSaveMatch, onSaveRounds, onRefreshDatabase, setActiveTab, onUpsert }: ComponentProps) {
   const isLight = data.settings.theme === 'daylight';
   
@@ -179,12 +186,13 @@ export default function LiveLogger({ data, theme, onSaveMatch, onSaveRounds, onR
       attL: 0,
       defW: 0,
       defL: 0,
-      pistolAtt: 'L',
-      pistolDef: 'L',
-      ecoAtt: 'L',
-      ecoDef: 'L',
-      bonusAtt: 'L',
-      bonusDef: 'L',
+      // Unplayed split rounds stay unknown until the round is logged.
+      pistolAtt: '',
+      pistolDef: '',
+      ecoAtt: '',
+      ecoDef: '',
+      bonusAtt: '',
+      bonusDef: '',
       notes: `Live session with Primary IGL: ${primaryIgl || 'None'}, Secondary IGL: ${secondaryIgl || 'None'}.`,
       source: 'live-logger',
       rosterContext,
@@ -366,19 +374,7 @@ export default function LiveLogger({ data, theme, onSaveMatch, onSaveRounds, onR
     }
 
     // Dynamic Pistol / Eco / Bonus trackers
-    let pistolAtt = sessionMatch.pistolAtt || 'L';
-    let pistolDef = sessionMatch.pistolDef || 'L';
-    let ecoAtt = sessionMatch.ecoAtt || 'L';
-    let ecoDef = sessionMatch.ecoDef || 'L';
-    let bonusAtt = sessionMatch.bonusAtt || 'L';
-    let bonusDef = sessionMatch.bonusDef || 'L';
-
-    if (currentRoundNo === 1) pistolAtt = roundResult;
-    if (currentRoundNo === 13) pistolDef = roundResult;
-    if (currentRoundNo === 2) ecoAtt = roundResult;
-    if (currentRoundNo === 14) ecoDef = roundResult;
-    if (currentRoundNo === 3) bonusAtt = roundResult;
-    if (currentRoundNo === 15) bonusDef = roundResult;
+    const { pistolAtt, pistolDef, ecoAtt, ecoDef, bonusAtt, bonusDef } = liveSplitLabels(sessionMatch, currentRoundNo, roundResult);
 
     // Recalculate score splits
     let attW = 0, attL = 0, defW = 0, defL = 0;
@@ -609,14 +605,16 @@ export default function LiveLogger({ data, theme, onSaveMatch, onSaveRounds, onR
         </div>
       )}
 
+      <button type="button" onClick={() => setActiveTab('matches')} className="text-xs font-semibold text-slate-400 hover:text-white">← Back to Match Review</button>
+
       {/* HEADER ROW */}
       <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4">
         <div>
           <div className="flex items-center gap-2">
             <span className="w-2.5 h-2.5 rounded-full bg-[#ff4655] animate-pulse"></span>
-            <span className="text-[10px] text-gray-500 uppercase tracking-widest font-black font-mono">LIVE CONSOLE</span>
+            <span className="text-xs text-gray-500 uppercase tracking-widest font-black font-mono">LIVE CONSOLE</span>
           </div>
-          <h2 className="text-2xl font-black uppercase tracking-tight">Esports Live Match Logger</h2>
+          <h2 className="text-2xl font-black tracking-tight">Record match live, round by round</h2>
         </div>
         
         {sessionActive && (
@@ -627,9 +625,9 @@ export default function LiveLogger({ data, theme, onSaveMatch, onSaveRounds, onR
             </div>
             <button
               onClick={handleOpenScoreboardFinalizer}
-              className="px-4 py-2 bg-emerald-600 hover:bg-emerald-500 text-white rounded-xl text-xs font-black uppercase font-mono shadow-md"
+              className="px-4 py-2 bg-emerald-600 hover:bg-emerald-500 text-white rounded-xl text-xs font-black font-mono shadow-md"
             >
-              🏁 FINALIZE MATCH
+              🏁 Finalize match
             </button>
           </div>
         )}
@@ -650,7 +648,7 @@ export default function LiveLogger({ data, theme, onSaveMatch, onSaveRounds, onR
               <h4 className="text-xs font-black text-gray-400 uppercase tracking-widest font-mono">1. Match Parameters</h4>
               
               <div className="space-y-1">
-                <label className="text-[10px] text-gray-400 uppercase font-bold font-mono">Opponent Name</label>
+                <label className="text-xs text-gray-400 uppercase font-bold font-mono">Opponent Name</label>
                 <input
                   type="text"
                   list="live-opponents"
@@ -666,7 +664,7 @@ export default function LiveLogger({ data, theme, onSaveMatch, onSaveRounds, onR
 
               <div className="grid grid-cols-2 gap-3">
                 <div className="space-y-1">
-                  <label className="text-[10px] text-gray-400 uppercase font-bold font-mono">Select Map</label>
+                  <label className="text-xs text-gray-400 uppercase font-bold font-mono">Select Map</label>
                   <select
                     value={selectedMap}
                     onChange={(e) => setSelectedMap(e.target.value)}
@@ -681,7 +679,7 @@ export default function LiveLogger({ data, theme, onSaveMatch, onSaveRounds, onR
                 </div>
 
                 <div className="space-y-1">
-                  <label className="text-[10px] text-gray-400 uppercase font-bold font-mono">Match Type</label>
+                  <label className="text-xs text-gray-400 uppercase font-bold font-mono">Match Type</label>
                   <select
                     value={matchType}
                     onChange={(e) => setMatchType(e.target.value)}
@@ -703,7 +701,7 @@ export default function LiveLogger({ data, theme, onSaveMatch, onSaveRounds, onR
                 <h4 className="text-xs font-black text-gray-400 uppercase tracking-widest font-mono">2. Strategy Roles (IGL)</h4>
                 
                 <div className="space-y-1">
-                  <label className="text-[10px] text-gray-400 uppercase font-bold font-mono">Primary IGL</label>
+                  <label className="text-xs text-gray-400 uppercase font-bold font-mono">Primary IGL</label>
                   <select
                     value={primaryIgl}
                     onChange={(e) => setPrimaryIgl(e.target.value)}
@@ -719,7 +717,7 @@ export default function LiveLogger({ data, theme, onSaveMatch, onSaveRounds, onR
                 </div>
 
                 <div className="space-y-1">
-                  <label className="text-[10px] text-gray-400 uppercase font-bold font-mono">Secondary IGL</label>
+                  <label className="text-xs text-gray-400 uppercase font-bold font-mono">Secondary IGL</label>
                   <select
                     value={secondaryIgl}
                     onChange={(e) => setSecondaryIgl(e.target.value)}
@@ -764,7 +762,7 @@ export default function LiveLogger({ data, theme, onSaveMatch, onSaveRounds, onR
                   );
                 })}
               </div>
-              <p className="text-[10px] text-gray-500 font-mono">
+              <p className="text-xs text-gray-500 font-mono">
                 Click to add/remove players. Ensure 5 players are ticked for standard competitive matches.
               </p>
             </div>
@@ -781,7 +779,7 @@ export default function LiveLogger({ data, theme, onSaveMatch, onSaveRounds, onR
                       aria-label={`${player} appearance type`}
                       value={appearanceByPlayer[player] || 'core'}
                       onChange={event => setAppearanceByPlayer(current => ({ ...current, [player]: event.target.value as AppearanceType }))}
-                      className={`p-1.5 rounded text-[11px] font-mono border focus:outline-none ${
+                      className={`p-1.5 rounded text-xs font-mono border focus:outline-none ${
                         isLight ? 'bg-slate-50 border-slate-200 text-slate-800' : 'bg-black/20 border-white/10 text-white'
                       }`}
                     >
@@ -792,7 +790,7 @@ export default function LiveLogger({ data, theme, onSaveMatch, onSaveRounds, onR
                     <select
                       value={agentsMap[player] || 'Omen'}
                       onChange={(e) => handleAgentChange(player, e.target.value)}
-                      className={`p-1.5 rounded text-[11px] font-mono border focus:outline-none ${
+                      className={`p-1.5 rounded text-xs font-mono border focus:outline-none ${
                         isLight ? 'bg-slate-50 border-slate-200 text-slate-800' : 'bg-black/20 border-white/10 text-white'
                       }`}
                     >
@@ -813,10 +811,10 @@ export default function LiveLogger({ data, theme, onSaveMatch, onSaveRounds, onR
           <div className="pt-4 border-t border-white/5 flex justify-end">
             <button
               onClick={handleStartLiveMatch}
-              className="px-6 py-3 bg-[#d12a3a] text-white font-black uppercase text-sm tracking-wider font-mono rounded-xl hover:bg-[#b91c2e] transition-all flex items-center gap-2 shadow-lg shadow-red-500/10"
+              className="px-6 py-3 bg-[#d12a3a] text-white font-black text-sm tracking-wider font-mono rounded-xl hover:bg-[#b91c2e] transition-all flex items-center gap-2 shadow-lg shadow-red-500/10"
             >
               <Play className="w-4.5 h-4.5" />
-              <span>BOOT LIVE RECORDER SESSION</span>
+              <span>Start live session</span>
             </button>
           </div>
         </div>
@@ -843,7 +841,7 @@ export default function LiveLogger({ data, theme, onSaveMatch, onSaveRounds, onR
 
               {/* Live Running Score Indicator */}
               <div className="text-center font-mono">
-                <p className="text-[10px] text-gray-500 uppercase font-bold tracking-widest">RUNNING SCORE</p>
+                <p className="text-xs text-gray-500 uppercase font-bold tracking-widest">RUNNING SCORE</p>
                 <div className="flex items-center justify-center gap-2 mt-0.5">
                   <span className="text-2xl font-black text-emerald-400">{runningScores.weWon}</span>
                   <span className="text-sm text-gray-500">-</span>
@@ -856,7 +854,7 @@ export default function LiveLogger({ data, theme, onSaveMatch, onSaveRounds, onR
                 <button
                   type="button"
                   onClick={() => setRoundSide('Att')}
-                  className={`p-1.5 px-3 rounded text-[10px] font-black uppercase font-mono transition-all ${
+                  className={`p-1.5 px-3 rounded text-xs font-black font-mono transition-all ${
                     roundSide === 'Att' ? 'bg-amber-500 text-black' : 'text-gray-400 hover:text-white'
                   }`}
                 >
@@ -865,7 +863,7 @@ export default function LiveLogger({ data, theme, onSaveMatch, onSaveRounds, onR
                 <button
                   type="button"
                   onClick={() => setRoundSide('Def')}
-                  className={`p-1.5 px-3 rounded text-[10px] font-black uppercase font-mono transition-all ${
+                  className={`p-1.5 px-3 rounded text-xs font-black font-mono transition-all ${
                     roundSide === 'Def' ? 'bg-cyan-500 text-black' : 'text-gray-400 hover:text-white'
                   }`}
                 >
@@ -880,7 +878,7 @@ export default function LiveLogger({ data, theme, onSaveMatch, onSaveRounds, onR
               {/* Outcome row */}
               <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                 <div className="space-y-1.5">
-                  <label className="text-[10px] text-gray-400 uppercase font-black font-mono">Round Result</label>
+                  <label className="text-xs text-gray-400 uppercase font-black font-mono">Round Result</label>
                   <div className="grid grid-cols-2 gap-3">
                     <button
                       type="button"
@@ -895,7 +893,7 @@ export default function LiveLogger({ data, theme, onSaveMatch, onSaveRounds, onR
                       }`}
                     >
                       <CheckCircle2 className="w-4 h-4" />
-                      <span>WE WON (W)</span>
+                      <span>We won (W)</span>
                     </button>
                     <button
                       type="button"
@@ -910,13 +908,13 @@ export default function LiveLogger({ data, theme, onSaveMatch, onSaveRounds, onR
                       }`}
                     >
                       <X className="w-4 h-4" />
-                      <span>WE LOST (L)</span>
+                      <span>We lost (L)</span>
                     </button>
                   </div>
                 </div>
 
                 <div className="space-y-1.5">
-                  <label className="text-[10px] text-gray-400 uppercase font-black font-mono">Win / Loss Method</label>
+                  <label className="text-xs text-gray-400 uppercase font-black font-mono">Win / Loss Method</label>
                   <select
                     value={roundWinBy}
                     onChange={(e) => setRoundWinBy(e.target.value)}
@@ -934,7 +932,7 @@ export default function LiveLogger({ data, theme, onSaveMatch, onSaveRounds, onR
               {/* Economical buys */}
               <div className="grid grid-cols-2 gap-4 border-t border-white/5 pt-4">
                 <div className="space-y-1">
-                  <label className="text-[10px] text-gray-400 uppercase font-bold font-mono">Our Buy Category</label>
+                  <label className="text-xs text-gray-400 uppercase font-bold font-mono">Our Buy Category</label>
                   <select
                     value={ourBuy}
                     onChange={(e) => setOurBuy(e.target.value)}
@@ -949,7 +947,7 @@ export default function LiveLogger({ data, theme, onSaveMatch, onSaveRounds, onR
                 </div>
 
                 <div className="space-y-1">
-                  <label className="text-[10px] text-gray-400 uppercase font-bold font-mono">Enemy Buy Category</label>
+                  <label className="text-xs text-gray-400 uppercase font-bold font-mono">Enemy Buy Category</label>
                   <select
                     value={enemyBuy}
                     onChange={(e) => setEnemyBuy(e.target.value)}
@@ -966,17 +964,17 @@ export default function LiveLogger({ data, theme, onSaveMatch, onSaveRounds, onR
 
               {/* live FK / FD triggers */}
               <div className="space-y-3 border-t border-white/5 pt-4">
-                <h5 className="text-[10px] text-rose-400 font-black uppercase tracking-wider font-mono">🔥 Live FK / FD Tracking</h5>
+                <h5 className="text-xs text-rose-400 font-black uppercase tracking-wider font-mono">🔥 Live FK / FD Tracking</h5>
                 
                 <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                   {/* First Kill */}
                   <div className="space-y-1.5">
-                    <label className="text-[10px] text-gray-400 uppercase font-bold font-mono">First Kill (FK) By</label>
+                    <label className="text-xs text-gray-400 uppercase font-bold font-mono">First Kill (FK) By</label>
                     <div className="flex flex-wrap gap-1.5">
                       <button
                         type="button"
                         onClick={() => setFirstKillBy('')}
-                        className={`px-2 py-1 rounded text-[10px] font-mono border transition-all ${
+                        className={`px-2 py-1 rounded text-xs font-mono border transition-all ${
                           firstKillBy === '' ? 'bg-emerald-500/20 border-emerald-500 text-emerald-400' : 'bg-black/20 border-white/5 text-gray-400'
                         }`}
                       >
@@ -985,7 +983,7 @@ export default function LiveLogger({ data, theme, onSaveMatch, onSaveRounds, onR
                       <button
                         type="button"
                         onClick={() => setFirstKillBy('Enemy')}
-                        className={`px-2 py-1 rounded text-[10px] font-mono border transition-all ${
+                        className={`px-2 py-1 rounded text-xs font-mono border transition-all ${
                           firstKillBy === 'Enemy' ? 'bg-rose-500/20 border-rose-500 text-rose-400' : 'bg-black/20 border-white/5 text-gray-400'
                         }`}
                       >
@@ -996,7 +994,7 @@ export default function LiveLogger({ data, theme, onSaveMatch, onSaveRounds, onR
                           key={p}
                           type="button"
                           onClick={() => setFirstKillBy(p)}
-                          className={`px-2 py-1 rounded text-[10px] font-mono border transition-all ${
+                          className={`px-2 py-1 rounded text-xs font-mono border transition-all ${
                             firstKillBy === p ? 'bg-emerald-500 text-black font-black border-emerald-500' : 'bg-black/20 border-white/5 text-gray-300'
                           }`}
                         >
@@ -1008,12 +1006,12 @@ export default function LiveLogger({ data, theme, onSaveMatch, onSaveRounds, onR
 
                   {/* First Death */}
                   <div className="space-y-1.5">
-                    <label className="text-[10px] text-gray-400 uppercase font-bold font-mono">First Death (FD) By</label>
+                    <label className="text-xs text-gray-400 uppercase font-bold font-mono">First Death (FD) By</label>
                     <div className="flex flex-wrap gap-1.5">
                       <button
                         type="button"
                         onClick={() => setFirstDeathBy('')}
-                        className={`px-2 py-1 rounded text-[10px] font-mono border transition-all ${
+                        className={`px-2 py-1 rounded text-xs font-mono border transition-all ${
                           firstDeathBy === '' ? 'bg-emerald-500/20 border-emerald-500 text-emerald-400' : 'bg-black/20 border-white/5 text-gray-400'
                         }`}
                       >
@@ -1022,7 +1020,7 @@ export default function LiveLogger({ data, theme, onSaveMatch, onSaveRounds, onR
                       <button
                         type="button"
                         onClick={() => setFirstDeathBy('Enemy')}
-                        className={`px-2 py-1 rounded text-[10px] font-mono border transition-all ${
+                        className={`px-2 py-1 rounded text-xs font-mono border transition-all ${
                           firstDeathBy === 'Enemy' ? 'bg-rose-500/20 border-rose-500 text-rose-400' : 'bg-black/20 border-white/5 text-gray-400'
                         }`}
                       >
@@ -1033,7 +1031,7 @@ export default function LiveLogger({ data, theme, onSaveMatch, onSaveRounds, onR
                           key={p}
                           type="button"
                           onClick={() => setFirstDeathBy(p)}
-                          className={`px-2 py-1 rounded text-[10px] font-mono border transition-all ${
+                          className={`px-2 py-1 rounded text-xs font-mono border transition-all ${
                             firstDeathBy === p ? 'bg-rose-500 text-black font-black border-rose-500' : 'bg-black/20 border-white/5 text-gray-300'
                           }`}
                         >
@@ -1050,7 +1048,7 @@ export default function LiveLogger({ data, theme, onSaveMatch, onSaveRounds, onR
                 
                 {/* Clutch details */}
                 <div className="space-y-3">
-                  <h5 className="text-[10px] text-amber-500 font-black uppercase tracking-wider font-mono">🏆 Clutch Log (1vX)</h5>
+                  <h5 className="text-xs text-amber-500 font-black uppercase tracking-wider font-mono">🏆 Clutch Log (1vX)</h5>
                   
                   <div className="space-y-2">
                     <div className="flex items-center gap-1.5">
@@ -1059,7 +1057,7 @@ export default function LiveLogger({ data, theme, onSaveMatch, onSaveRounds, onR
                           key={cl}
                           type="button"
                           onClick={() => setClutchType(cl)}
-                          className={`p-1.5 px-3 rounded text-[10px] font-mono border transition-all ${
+                          className={`p-1.5 px-3 rounded text-xs font-mono border transition-all ${
                             clutchType === cl ? 'bg-amber-500 text-black font-black border-amber-500' : 'bg-black/20 border-white/5 text-gray-400'
                           }`}
                         >
@@ -1087,7 +1085,7 @@ export default function LiveLogger({ data, theme, onSaveMatch, onSaveRounds, onR
                           <button
                             type="button"
                             onClick={() => setClutchResult('W')}
-                            className={`flex-1 p-1 rounded text-[10px] font-mono font-black ${
+                            className={`flex-1 p-1 rounded text-xs font-mono font-black ${
                               clutchResult === 'W' ? 'bg-emerald-500 text-black' : 'text-gray-400'
                             }`}
                           >
@@ -1096,7 +1094,7 @@ export default function LiveLogger({ data, theme, onSaveMatch, onSaveRounds, onR
                           <button
                             type="button"
                             onClick={() => setClutchResult('L')}
-                            className={`flex-1 p-1 rounded text-[10px] font-mono font-black ${
+                            className={`flex-1 p-1 rounded text-xs font-mono font-black ${
                               clutchResult === 'L' ? 'bg-rose-500 text-black' : 'text-gray-400'
                             }`}
                           >
@@ -1110,7 +1108,7 @@ export default function LiveLogger({ data, theme, onSaveMatch, onSaveRounds, onR
 
                 {/* Spike details */}
                 <div className="space-y-3">
-                  <h5 className="text-[10px] text-cyan-400 font-black uppercase tracking-wider font-mono">📍 Spike Plant Details</h5>
+                  <h5 className="text-xs text-cyan-400 font-black uppercase tracking-wider font-mono">📍 Spike Plant Details</h5>
                   
                   <div className="flex items-center gap-4">
                     <button
@@ -1121,7 +1119,7 @@ export default function LiveLogger({ data, theme, onSaveMatch, onSaveRounds, onR
                       }`}
                     >
                       <Check className={`w-4 h-4 ${isPlanted ? 'opacity-100' : 'opacity-20'}`} />
-                      <span>Spike Planted?</span>
+                      <span>Spike planted?</span>
                     </button>
 
                     {isPlanted && (
@@ -1131,7 +1129,7 @@ export default function LiveLogger({ data, theme, onSaveMatch, onSaveRounds, onR
                             key={st}
                             type="button"
                             onClick={() => setSelectedSite(st)}
-                            className={`p-1 px-2.5 rounded text-[10px] font-mono font-black ${
+                            className={`p-1 px-2.5 rounded text-xs font-mono font-black ${
                               selectedSite === st ? 'bg-cyan-500 text-black' : 'text-gray-400'
                             }`}
                           >
@@ -1148,7 +1146,7 @@ export default function LiveLogger({ data, theme, onSaveMatch, onSaveRounds, onR
               {/* DISCIPLINE / OVERPEEKS / THROWS */}
               <div className="space-y-3 border-t border-white/5 pt-4">
                 <div className="flex items-center justify-between">
-                  <h5 className="text-[10px] text-[#ff4655] font-black uppercase tracking-wider font-mono flex items-center gap-1.5">
+                  <h5 className="text-xs text-[#ff4655] font-black uppercase tracking-wider font-mono flex items-center gap-1.5">
                     <AlertTriangle className="w-3.5 h-3.5" /> ⚠️ Discipline & Round Throws Log
                   </h5>
                   
@@ -1161,18 +1159,18 @@ export default function LiveLogger({ data, theme, onSaveMatch, onSaveRounds, onR
                         setThrownByPlayers([]);
                       }
                     }}
-                    className={`p-1.5 px-3 rounded-lg border text-[10px] font-mono font-black transition-all ${
+                    className={`p-1.5 px-3 rounded-lg border text-xs font-mono font-black transition-all ${
                       isThrow ? 'bg-rose-500/20 border-rose-500 text-rose-400' : 'bg-black/20 border-white/5 text-gray-500'
                     }`}
                   >
-                    Flag as Costly Tactical Throw
+                    Flag as costly tactical throw
                   </button>
                 </div>
 
                 {isThrow && (
                   <div className="grid grid-cols-1 md:grid-cols-2 gap-4 p-3.5 rounded-xl border border-rose-500/10 bg-rose-500/5 animate-fadeIn">
                     <div className="space-y-1.5">
-                      <label className="text-[9px] text-gray-400 uppercase font-black font-mono">Responsible Players (Select one or more)</label>
+                      <label className="text-xs text-gray-400 uppercase font-black font-mono">Responsible Players (Select one or more)</label>
                       <div className="flex flex-wrap gap-1.5 p-2.5 bg-black/30 border border-white/5 rounded-lg">
                         {activeRoster.map(p => {
                           const isSelected = thrownByPlayers.includes(p);
@@ -1198,13 +1196,13 @@ export default function LiveLogger({ data, theme, onSaveMatch, onSaveRounds, onR
                           );
                         })}
                         {activeRoster.length === 0 && (
-                          <span className="text-gray-500 text-[10px] italic">No active roster loaded</span>
+                          <span className="text-gray-500 text-xs italic">No active roster loaded</span>
                         )}
                       </div>
                     </div>
 
                     <div className="space-y-1.5">
-                      <label className="text-[9px] text-gray-400 uppercase font-black font-mono">Throw Error Reason</label>
+                      <label className="text-xs text-gray-400 uppercase font-black font-mono">Throw Error Reason</label>
                       <input
                         type="text"
                         placeholder="e.g. Dry peeked 4v2, hunted kills instead of default"
@@ -1221,19 +1219,19 @@ export default function LiveLogger({ data, theme, onSaveMatch, onSaveRounds, onR
 
               {/* IGL STRATEGY LOGGING */}
               <div className="space-y-3 border-t border-white/5 pt-4">
-                <h5 className="text-[10px] text-violet-400 font-black uppercase tracking-wider font-mono flex items-center gap-1.5">
+                <h5 className="text-xs text-violet-400 font-black uppercase tracking-wider font-mono flex items-center gap-1.5">
                   <Activity className="w-3.5 h-3.5" /> 🧠 In-Game Leader (IGL) & Strat winrate tracker
                 </h5>
 
                 <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                   <div className="space-y-1.5">
-                    <label className="text-[10px] text-gray-400 uppercase font-bold font-mono">Active Caller for Round</label>
+                    <label className="text-xs text-gray-400 uppercase font-bold font-mono">Active Caller for Round</label>
                     <div className="grid grid-cols-3 gap-2">
                       <button
                         type="button"
                         onClick={() => setActiveIglCaller('Primary')}
                         disabled={!primaryIgl}
-                        className={`p-2 rounded-lg border text-[10px] font-mono truncate transition-all ${
+                        className={`p-2 rounded-lg border text-xs font-mono truncate transition-all ${
                           !primaryIgl 
                             ? 'opacity-30 cursor-not-allowed border-transparent text-gray-600' 
                             : activeIglCaller === 'Primary' 
@@ -1249,7 +1247,7 @@ export default function LiveLogger({ data, theme, onSaveMatch, onSaveRounds, onR
                         type="button"
                         onClick={() => setActiveIglCaller('Secondary')}
                         disabled={!secondaryIgl}
-                        className={`p-2 rounded-lg border text-[10px] font-mono truncate transition-all ${
+                        className={`p-2 rounded-lg border text-xs font-mono truncate transition-all ${
                           !secondaryIgl 
                             ? 'opacity-30 cursor-not-allowed border-transparent text-gray-600' 
                             : activeIglCaller === 'Secondary' 
@@ -1264,11 +1262,11 @@ export default function LiveLogger({ data, theme, onSaveMatch, onSaveRounds, onR
                       <button
                         type="button"
                         onClick={() => setActiveIglCaller('None')}
-                        className={`p-2 rounded-lg border text-[10px] font-mono transition-all ${
+                        className={`p-2 rounded-lg border text-xs font-mono transition-all ${
                           activeIglCaller === 'None' ? 'bg-gray-700/30 border-gray-500 text-gray-300 font-bold' : 'bg-black/20 border-white/5 text-gray-400'
                         }`}
                       >
-                        No IGL Call
+                        No IGL call
                       </button>
                     </div>
                   </div>
@@ -1289,7 +1287,7 @@ export default function LiveLogger({ data, theme, onSaveMatch, onSaveRounds, onR
                         readOnly
                         className="pointer-events-none accent-[#ff4655]"
                       />
-                      <span>🔄 Mid-Round Strat Change / 2nd IGL Ticked</span>
+                      <span>🔄 Mid-round strat change / 2nd IGL ticked</span>
                     </button>
                   </div>
                 </div>
@@ -1297,7 +1295,7 @@ export default function LiveLogger({ data, theme, onSaveMatch, onSaveRounds, onR
                 {/* STRATEGY RUN SELECTION */}
                 <div className="space-y-2 border-t border-white/5 pt-3">
                   <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-2">
-                    <label className="text-[10px] text-gray-400 uppercase font-black font-mono">
+                    <label className="text-xs text-gray-400 uppercase font-black font-mono">
                       Selected Strategies for Round (Select one or more to track strategy win rates)
                     </label>
                     <div className="flex items-center gap-1 w-full sm:w-auto max-w-sm">
@@ -1312,14 +1310,14 @@ export default function LiveLogger({ data, theme, onSaveMatch, onSaveRounds, onR
                             handleAddNewStrategyOnFly();
                           }
                         }}
-                        className={`p-1 px-2.5 rounded-lg text-[11px] font-mono border focus:outline-none w-full ${
+                        className={`p-1 px-2.5 rounded-lg text-xs font-mono border focus:outline-none w-full ${
                           isLight ? 'bg-slate-50 border-slate-200 text-slate-800' : 'bg-black/20 border-white/10 text-white'
                         }`}
                       />
                       <button
                         type="button"
                         onClick={handleAddNewStrategyOnFly}
-                        className="bg-violet-600 hover:bg-violet-500 text-white p-1 px-2.5 rounded-lg text-[11px] font-mono font-bold shrink-0 transition-colors"
+                        className="bg-violet-600 hover:bg-violet-500 text-white p-1 px-2.5 rounded-lg text-xs font-mono font-bold shrink-0 transition-colors"
                       >
                         + Add
                       </button>
@@ -1349,7 +1347,7 @@ export default function LiveLogger({ data, theme, onSaveMatch, onSaveRounds, onR
                               : 'bg-black/20 border-white/5 text-gray-500 hover:text-gray-400'
                           }`}
                         >
-                          <span className={`text-[9px] px-1 rounded font-black ${
+                          <span className={`text-xs px-1 rounded font-black ${
                             matchesSide ? 'bg-violet-500/20 text-violet-300' : 'bg-black/40 text-gray-500'
                           }`}>
                             {st.side}
@@ -1360,7 +1358,7 @@ export default function LiveLogger({ data, theme, onSaveMatch, onSaveRounds, onR
                       );
                     })}
                     {mapStrats.length === 0 && (
-                      <span className="text-gray-500 text-[10px] italic">No strategies defined for {sessionMatch.map} yet. Add one above!</span>
+                      <span className="text-gray-500 text-xs italic">No strategies defined for {sessionMatch.map} yet. Add one above!</span>
                     )}
                   </div>
                 </div>
@@ -1368,7 +1366,7 @@ export default function LiveLogger({ data, theme, onSaveMatch, onSaveRounds, onR
 
               {/* NOTES */}
               <div className="space-y-1 border-t border-white/5 pt-4">
-                <label className="text-[10px] text-gray-400 uppercase font-black font-mono">Round tactical notes</label>
+                <label className="text-xs text-gray-400 uppercase font-black font-mono">Round tactical notes</label>
                 <input
                   type="text"
                   placeholder="e.g. Jett got pick on A main, defaulted patiently, postplant hold was solid."
@@ -1385,7 +1383,7 @@ export default function LiveLogger({ data, theme, onSaveMatch, onSaveRounds, onR
                 <button
                   type="button"
                   onClick={handleLogRound}
-                  className={`px-6 py-3 rounded-xl font-black uppercase text-xs font-mono tracking-wider transition-all flex items-center gap-2 ${theme.primaryBg} text-white shadow-lg`}
+                  className={`px-6 py-3 rounded-xl font-black text-xs font-mono tracking-wider transition-all flex items-center gap-2 ${theme.primaryBg} text-white shadow-lg`}
                 >
                   <Plus className="w-4 h-4" />
                   <span>LOG ROUND #{currentRoundNo} & NEXT</span>
@@ -1408,14 +1406,14 @@ export default function LiveLogger({ data, theme, onSaveMatch, onSaveRounds, onR
 
               {/* Running IGL Stats */}
               <div className="space-y-2">
-                <h5 className="text-[10px] text-gray-500 uppercase font-bold font-mono">Strat caller win rates</h5>
-                <div className="grid grid-cols-2 gap-2 text-[11px] font-mono">
+                <h5 className="text-xs text-gray-500 uppercase font-bold font-mono">Strat caller win rates</h5>
+                <div className="grid grid-cols-2 gap-2 text-xs font-mono">
                   
                   <div className="p-2.5 bg-black/20 border border-white/5 rounded-lg">
-                    <p className="text-gray-500 text-[9px] uppercase">Primary IGL</p>
+                    <p className="text-gray-500 text-xs uppercase">Primary IGL</p>
                     <p className="text-white font-black mt-0.5">
                       {statsSummary.primW}W - {statsSummary.primL}L
-                      <span className={`${percentageTextClass(statsSummary.primW + statsSummary.primL > 0 ? Math.round(statsSummary.primW / (statsSummary.primW + statsSummary.primL) * 100) : null)} block text-[9px] font-bold`}>
+                      <span className={`${percentageTextClass(statsSummary.primW + statsSummary.primL > 0 ? Math.round(statsSummary.primW / (statsSummary.primW + statsSummary.primL) * 100) : null)} block text-xs font-bold`}>
                         {statsSummary.primW + statsSummary.primL > 0 
                           ? `${((statsSummary.primW / (statsSummary.primW + statsSummary.primL)) * 100).toFixed(0)}% Winrate`
                           : 'No rounds yet'}
@@ -1424,10 +1422,10 @@ export default function LiveLogger({ data, theme, onSaveMatch, onSaveRounds, onR
                   </div>
 
                   <div className="p-2.5 bg-black/20 border border-white/5 rounded-lg">
-                    <p className="text-gray-500 text-[9px] uppercase">Secondary IGL</p>
+                    <p className="text-gray-500 text-xs uppercase">Secondary IGL</p>
                     <p className="text-white font-black mt-0.5">
                       {statsSummary.secW}W - {statsSummary.secL}L
-                      <span className={`${percentageTextClass(statsSummary.secW + statsSummary.secL > 0 ? Math.round(statsSummary.secW / (statsSummary.secW + statsSummary.secL) * 100) : null)} block text-[9px] font-bold`}>
+                      <span className={`${percentageTextClass(statsSummary.secW + statsSummary.secL > 0 ? Math.round(statsSummary.secW / (statsSummary.secW + statsSummary.secL) * 100) : null)} block text-xs font-bold`}>
                         {statsSummary.secW + statsSummary.secL > 0 
                           ? `${((statsSummary.secW / (statsSummary.secW + statsSummary.secL)) * 100).toFixed(0)}% Winrate`
                           : 'No rounds yet'}
@@ -1436,10 +1434,10 @@ export default function LiveLogger({ data, theme, onSaveMatch, onSaveRounds, onR
                   </div>
 
                   <div className="col-span-2 p-2.5 bg-black/20 border border-white/5 rounded-lg">
-                    <p className="text-gray-500 text-[9px] uppercase">Mid-Round Strat Pivots (2nd IGL ticked)</p>
+                    <p className="text-gray-500 text-xs uppercase">Mid-Round Strat Pivots (2nd IGL ticked)</p>
                     <p className="text-white font-black mt-0.5">
                       {statsSummary.midIglW}W - {statsSummary.midIglL}L
-                      <span className={`${percentageTextClass(statsSummary.midIglW + statsSummary.midIglL > 0 ? Math.round(statsSummary.midIglW / (statsSummary.midIglW + statsSummary.midIglL) * 100) : null)} block text-[9px] font-bold`}>
+                      <span className={`${percentageTextClass(statsSummary.midIglW + statsSummary.midIglL > 0 ? Math.round(statsSummary.midIglW / (statsSummary.midIglW + statsSummary.midIglL) * 100) : null)} block text-xs font-bold`}>
                         {statsSummary.midIglW + statsSummary.midIglL > 0 
                           ? `${((statsSummary.midIglW / (statsSummary.midIglW + statsSummary.midIglL)) * 100).toFixed(0)}% Winrate on adjustment`
                           : 'No mid-round adjustments ticked'}
@@ -1452,12 +1450,12 @@ export default function LiveLogger({ data, theme, onSaveMatch, onSaveRounds, onR
 
               {/* Clutches List */}
               <div className="space-y-2 border-t border-white/5 pt-3">
-                <h5 className="text-[10px] text-gray-500 uppercase font-bold font-mono">Clutches logged</h5>
-                <div className="space-y-1.5 max-h-[110px] overflow-y-auto font-mono text-[10px]">
+                <h5 className="text-xs text-gray-500 uppercase font-bold font-mono">Clutches logged</h5>
+                <div className="space-y-1.5 max-h-[110px] overflow-y-auto font-mono text-xs">
                   {statsSummary.clutchesList.map((cl, i) => (
                     <div key={i} className="flex items-center justify-between p-1.5 bg-black/10 rounded">
                       <span className="text-gray-300 truncate max-w-[170px]">{cl.desc}</span>
-                      <span className={`p-0.5 px-1.5 rounded font-black text-[9px] ${
+                      <span className={`p-0.5 px-1.5 rounded font-black text-xs ${
                         cl.win ? 'bg-emerald-500/10 text-emerald-400' : 'bg-rose-500/10 text-rose-400'
                       }`}>
                         {cl.win ? 'WON' : 'LOST'}
@@ -1465,26 +1463,26 @@ export default function LiveLogger({ data, theme, onSaveMatch, onSaveRounds, onR
                     </div>
                   ))}
                   {statsSummary.clutchesList.length === 0 && (
-                    <p className="text-gray-500 text-[9px] italic font-mono py-2">No 1vX clutch moments logged yet.</p>
+                    <p className="text-gray-500 text-xs italic font-mono py-2">No 1vX clutch moments logged yet.</p>
                   )}
                 </div>
               </div>
 
               {/* Throws List */}
               <div className="space-y-2 border-t border-white/5 pt-3">
-                <h5 className="text-[10px] text-gray-500 uppercase font-bold font-mono">Tactical errors & throws</h5>
-                <div className="space-y-1.5 max-h-[110px] overflow-y-auto font-mono text-[10px]">
+                <h5 className="text-xs text-gray-500 uppercase font-bold font-mono">Tactical errors & throws</h5>
+                <div className="space-y-1.5 max-h-[110px] overflow-y-auto font-mono text-xs">
                   {statsSummary.throwRecords.map((tr, i) => (
                     <div key={i} className="p-2 bg-rose-500/5 border border-rose-500/10 rounded-lg space-y-0.5">
-                      <div className="flex justify-between text-[9px] font-bold text-rose-400 uppercase">
+                      <div className="flex justify-between text-xs font-bold text-rose-400 uppercase">
                         <span>Round {tr.round} Throw</span>
                         <span>{tr.player}</span>
                       </div>
-                      <p className="text-gray-400 text-[9px] leading-normal">{tr.reason}</p>
+                      <p className="text-gray-400 text-xs leading-normal">{tr.reason}</p>
                     </div>
                   ))}
                   {statsSummary.throwRecords.length === 0 && (
-                    <p className="text-emerald-400 text-[9px] font-bold py-2 flex items-center gap-1.5">
+                    <p className="text-emerald-400 text-xs font-bold py-2 flex items-center gap-1.5">
                       <Check className="w-3.5 h-3.5" /> Flawless tactical discipline: 0 throws logged!
                     </p>
                   )}
@@ -1500,7 +1498,7 @@ export default function LiveLogger({ data, theme, onSaveMatch, onSaveRounds, onR
                   <FileText className="w-4.5 h-4.5 text-gray-400" />
                   <h4 className="font-black text-xs uppercase tracking-wider">Match Round History</h4>
                 </div>
-                <span className="text-[9px] font-mono text-gray-500 uppercase font-bold">Timeline</span>
+                <span className="text-xs font-mono text-gray-500 uppercase font-bold">Timeline</span>
               </div>
 
               <div className="grid grid-cols-6 gap-2">
@@ -1515,8 +1513,8 @@ export default function LiveLogger({ data, theme, onSaveMatch, onSaveRounds, onR
                           : 'bg-rose-500/10 border-rose-500/20 text-rose-400'
                       }`}
                     >
-                      <span className="block text-[10px] font-black">{won ? 'W' : 'L'}</span>
-                      <span className="block text-[8px] text-gray-500">R{idx + 1}</span>
+                      <span className="block text-xs font-black">{won ? 'W' : 'L'}</span>
+                      <span className="block text-xs text-gray-500">R{idx + 1}</span>
                       
                       {/* Hover action delete button */}
                       <button
@@ -1525,7 +1523,7 @@ export default function LiveLogger({ data, theme, onSaveMatch, onSaveRounds, onR
                           e.stopPropagation();
                           handleDeleteRound(idx);
                         }}
-                        className="absolute -top-1.5 -right-1.5 w-4 h-4 rounded-full bg-rose-600 text-white flex items-center justify-center text-[8px] font-bold opacity-0 group-hover:opacity-100 transition-opacity hover:bg-rose-500 cursor-pointer"
+                        className="absolute -top-1.5 -right-1.5 w-4 h-4 rounded-full bg-rose-600 text-white flex items-center justify-center text-xs font-bold opacity-0 group-hover:opacity-100 transition-opacity hover:bg-rose-500 cursor-pointer"
                         title="Delete Round"
                       >
                         ✕
@@ -1556,7 +1554,7 @@ export default function LiveLogger({ data, theme, onSaveMatch, onSaveRounds, onR
                 <Trophy className="w-5 h-5 text-emerald-400" />
                 <div>
                   <h4 className="text-lg font-black tracking-tight uppercase">Finalize Match Scoreboard Metrics</h4>
-                  <p className="text-[10px] text-gray-400 font-mono">Fill in final game stats from the scoreboard tab to complete logger session.</p>
+                  <p className="text-xs text-gray-400 font-mono">Fill in final game stats from the scoreboard tab to complete logger session.</p>
                 </div>
               </div>
               <button
@@ -1590,7 +1588,7 @@ export default function LiveLogger({ data, theme, onSaveMatch, onSaveRounds, onR
                       <tr key={st.player}>
                         <td className="py-2.5 px-1 font-bold text-white text-xs">
                           {st.player}
-                          <span className="block text-[8px] text-gray-500 italic">Agent: {st.agent}</span>
+                          <span className="block text-xs text-gray-500 italic">Agent: {st.agent}</span>
                         </td>
                         
                         {/* ACS */}
@@ -1706,9 +1704,9 @@ export default function LiveLogger({ data, theme, onSaveMatch, onSaveRounds, onR
                         </td>
 
                         {/* FK / FD read-only */}
-                        <td className="py-2.5 px-1 text-center text-gray-400 text-[10px]">
+                        <td className="py-2.5 px-1 text-center text-gray-400 text-xs">
                           <span className="font-bold text-emerald-400">{st.fk}</span> FK / <span className="font-bold text-rose-400">{st.fd}</span> FD
-                          <span className="block text-[8px] text-gray-500 font-normal">Live Auto-Tallied</span>
+                          <span className="block text-xs text-gray-500 font-normal">Live Auto-Tallied</span>
                         </td>
 
                         {/* RATING */}
@@ -1727,7 +1725,7 @@ export default function LiveLogger({ data, theme, onSaveMatch, onSaveRounds, onR
                 </table>
               </div>
 
-              <div className="p-3 bg-black/40 rounded-xl border border-white/5 font-mono text-[10px] text-gray-400 leading-relaxed">
+              <div className="p-3 bg-black/40 rounded-xl border border-white/5 font-mono text-xs text-gray-400 leading-relaxed">
                 ℹ️ Kills, Deaths, and Assists will automatically sum your attack and defense entries. First Kill (FK) and First Death (FD) stats have been generated automatically from the live round log timeline entries.
               </div>
 
@@ -1735,15 +1733,15 @@ export default function LiveLogger({ data, theme, onSaveMatch, onSaveRounds, onR
                 <button
                   type="button"
                   onClick={() => setScoreboardOpen(false)}
-                  className="px-4 py-2 bg-white/5 hover:bg-white/10 rounded-xl text-xs font-mono font-bold uppercase transition-colors"
+                  className="px-4 py-2 bg-white/5 hover:bg-white/10 rounded-xl text-xs font-mono font-bold transition-colors"
                 >
-                  CANCEL
+                  Cancel
                 </button>
                 <button
                   type="submit"
-                  className="px-5 py-2 bg-[#d12a3a] hover:bg-[#b91c2e] text-white rounded-xl text-xs font-black uppercase font-mono shadow-md"
+                  className="px-5 py-2 bg-[#d12a3a] hover:bg-[#b91c2e] text-white rounded-xl text-xs font-black font-mono shadow-md"
                 >
-                  SAVE & CLOSE LIVE SESSION
+                  Save & close live session
                 </button>
               </div>
 

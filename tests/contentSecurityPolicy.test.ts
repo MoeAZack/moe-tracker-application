@@ -54,6 +54,17 @@ describe('content security policy', () => {
     }
   });
 
+  it('loads fonts only from the app itself, in both the served and Pages policies', async () => {
+    const served = await policyFor('production', true);
+    const headers = await fs.readFile(path.join(process.cwd(), 'public', '_headers'), 'utf8');
+    const pages = directives(String(headers.split('\n').find(item => item.trim().startsWith('Content-Security-Policy:'))).trim().replace(/^Content-Security-Policy:\s*/, ''));
+    for (const policy of [served, pages]) {
+      expect([...policy.values()].flat().join(' ')).not.toMatch(/fonts\.googleapis\.com|fonts\.gstatic\.com/);
+      expect(policy.get('font-src')).toEqual(["'self'", 'data:']);
+      expect(policy.get('style-src')).toEqual(["'self'", "'unsafe-inline'"]);
+    }
+  });
+
   it('refuses inline script on the API-only server', async () => {
     expect((await policyFor('test', false)).get('script-src')).not.toContain("'unsafe-inline'");
   });

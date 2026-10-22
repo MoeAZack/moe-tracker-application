@@ -1,14 +1,14 @@
-import React, { useState, useMemo } from 'react';
-import { TrackerData, Strat } from '../types';
-import { Sparkles, Brain, Zap, UserCheck, Check, Trash2, Loader2, Target, Users, ArrowUpRight, Compass, Swords, ClipboardList, Send, AlertTriangle, Activity } from 'lucide-react';
-import { apiFetch } from '../utils/api';
+import { useState, useMemo } from 'react';
+import { TrackerData } from '../types';
+import { Brain, UserCheck, Check, Target, Users, ArrowUpRight, Compass, ClipboardList, AlertTriangle, Activity } from 'lucide-react';
 import { headshotRate } from '../../lib/analyticsEvidence';
 import { DEFAULT_MINIMUM_METRIC_SAMPLES } from '../../lib/metricTrust';
 import { agentProficiency, buildPeriodMetrics, clutchPublication, emptyPeriodMetrics, gatedUntradedRate, kpiRecommendation, type AgentProficiency } from '../../lib/tacticalHubMetrics';
-import { percentageBarClass, percentageSurfaceClass, percentageTextClass } from '../utils/percentageColor';
+import { percentageSurfaceClass, percentageTextClass } from '../utils/percentageColor';
 import { playerAggregationKey } from '../../lib/identitySnapshot';
 import { notify } from '../utils/appDialogs';
-import { CLOUD_AI_OFF_MESSAGE, cloudAiActionBlocked, cloudAiErrorMessage, useCloudAiAvailable } from '../utils/cloudAi';
+
+import StrategyGenerator from './StrategyGenerator';
 
 interface ComponentProps {
   data: TrackerData;
@@ -235,127 +235,6 @@ export default function AITacticalHub({ data, theme, onUpsert, onRemove }: Compo
     };
   }, [draftList, finalProficiencies]);
 
-  // --- PLAYBOOK GENERATOR STATE ---
-  const [selectedMap, setSelectedMap] = useState(data.settings.maps[0] || 'Ascent');
-  const [selectedSide, setSelectedSide] = useState('Attack');
-  const [selectedStyle, setSelectedStyle] = useState('Default / General');
-  const [customFocus, setCustomFocus] = useState('');
-  const [generating, setGenerating] = useState(false);
-  const cloudAiAvailable = useCloudAiAvailable();
-  const [loadingMsg, setLoadingMsg] = useState('');
-  const [generatedStrat, setGeneratedStrat] = useState<any | null>(null);
-  const [savingStrat, setSavingStrat] = useState(false);
-
-  // Editable generated fields
-  const [editedName, setEditedName] = useState('');
-  const [editedAgents, setEditedAgents] = useState('');
-  const [editedOverview, setEditedOverview] = useState('');
-  const [editedPhase1, setEditedPhase1] = useState('');
-  const [editedPhase2, setEditedPhase2] = useState('');
-  const [editedPhase3, setEditedPhase3] = useState('');
-  const [editedCombo, setEditedCombo] = useState('');
-  const [editedNotes, setEditedNotes] = useState('');
-
-  // Loading messages rotation
-  const loadingPrompts = [
-    'Drawing tactical overlays...',
-    'Simulating site crossfires...',
-    'Analyzing choke point utility combinations...',
-    'Reviewing space-creation vectors...',
-    'Compiling elite playbook strategies...',
-    'Running micro-scenarios through the tactician matrix...'
-  ];
-
-  const handleGenerateStrategy = async () => {
-    setGenerating(true);
-    setGeneratedStrat(null);
-    let msgIndex = 0;
-    setLoadingMsg(loadingPrompts[0]);
-    const interval = setInterval(() => {
-      msgIndex = (msgIndex + 1) % loadingPrompts.length;
-      setLoadingMsg(loadingPrompts[msgIndex]);
-    }, 1500);
-
-    try {
-      const res = await apiFetch('/api/gemini/generate-setup', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          map: selectedMap,
-          side: selectedSide,
-          playStyle: selectedStyle,
-          customFocus: customFocus
-        })
-      });
-
-      if (!res.ok) throw new Error(await cloudAiErrorMessage(res, 'The strategy generator failed. Nothing was saved.'));
-      const stratData = await res.json();
-      
-      setGeneratedStrat(stratData);
-      setEditedName(stratData.name);
-      setEditedAgents(stratData.agents);
-      setEditedOverview(stratData.overview);
-      setEditedPhase1(stratData.phase1);
-      setEditedPhase2(stratData.phase2);
-      setEditedPhase3(stratData.phase3);
-      setEditedCombo(stratData.combo);
-      setEditedNotes(stratData.notes);
-    } catch (err: any) {
-      console.error(err);
-      notify(err?.message || 'The strategy generator failed. Nothing was saved.', 'error');
-    } finally {
-      clearInterval(interval);
-      setGenerating(false);
-    }
-  };
-
-  const handleSaveToPlaybook = async () => {
-    if (!editedName) return;
-    setSavingStrat(true);
-    try {
-      const fullNotes = `**Agents Required:** ${editedAgents}\n\n**Concept:** ${editedOverview}\n\n**Prep Phase:** ${editedPhase1}\n\n**Execution Phase:** ${editedPhase2}\n\n**Late Round/Post-Plant:** ${editedPhase3}\n\n**Utility Combo:** ${editedCombo}\n\n**Coach Insight:** ${editedNotes}`;
-      
-      await onUpsert('Strats', {
-        map: selectedMap,
-        side: selectedSide,
-        name: editedName,
-        notes: fullNotes,
-        active: 'TRUE'
-      });
-      
-      notify('Strategy successfully saved to your active Team Playbook!');
-      setGeneratedStrat(null);
-      setCustomFocus('');
-    } catch (err) {
-      console.error(err);
-    } finally {
-      setSavingStrat(false);
-    }
-  };
-
-  // Strategy performance calculations
-  const strategyStats = useMemo(() => {
-    const roundsList = data.rounds || [];
-    const statsMap: Record<string, { won: number; total: number }> = {};
-
-    roundsList.forEach((r) => {
-      if (!r.strategies) return;
-      const stratsRun = r.strategies.split(', ').filter(Boolean);
-      stratsRun.forEach((s) => {
-        const cleanName = s.trim();
-        if (!statsMap[cleanName]) {
-          statsMap[cleanName] = { won: 0, total: 0 };
-        }
-        statsMap[cleanName].total++;
-        if (r.result === 'W') {
-          statsMap[cleanName].won++;
-        }
-      });
-    });
-
-    return statsMap;
-  }, [data.rounds]);
-
   // Opening Duel conversions
   const entryStats = useMemo(() => {
     const roundsList = data.rounds || [];
@@ -530,16 +409,16 @@ export default function AITacticalHub({ data, theme, onUpsert, onRemove }: Compo
         <div className="flex bg-black/30 p-1 rounded-xl border border-white/5 w-full sm:w-auto flex-wrap gap-1">
           <button
             onClick={() => setSubTab('playbook')}
-            className={`flex-1 sm:flex-none py-2 px-4 rounded-lg text-xs font-bold font-mono uppercase transition-all flex items-center justify-center gap-2 ${
+            className={`flex-1 sm:flex-none py-2 px-4 rounded-lg text-xs font-bold font-mono transition-all flex items-center justify-center gap-2 ${
               subTab === 'playbook' ? 'bg-[#d12a3a] text-white shadow-lg shadow-[#ff4655]/20' : 'text-gray-400 hover:text-white'
             }`}
           >
             <ClipboardList className="w-4 h-4" />
-            AI Playbook Strategist
+            AI playbook strategist
           </button>
           <button
             onClick={() => setSubTab('chemistry')}
-            className={`flex-1 sm:flex-none py-2 px-4 rounded-lg text-xs font-bold font-mono uppercase transition-all flex items-center justify-center gap-2 ${
+            className={`flex-1 sm:flex-none py-2 px-4 rounded-lg text-xs font-bold font-mono transition-all flex items-center justify-center gap-2 ${
               subTab === 'chemistry' ? 'bg-[#d12a3a] text-white shadow-lg shadow-[#ff4655]/20' : 'text-gray-400 hover:text-white'
             }`}
           >
@@ -548,299 +427,18 @@ export default function AITacticalHub({ data, theme, onUpsert, onRemove }: Compo
           </button>
           <button
             onClick={() => setSubTab('drafting')}
-            className={`flex-1 sm:flex-none py-2 px-4 rounded-lg text-xs font-bold font-mono uppercase transition-all flex items-center justify-center gap-2 ${
+            className={`flex-1 sm:flex-none py-2 px-4 rounded-lg text-xs font-bold font-mono transition-all flex items-center justify-center gap-2 ${
               subTab === 'drafting' ? 'bg-[#d12a3a] text-white shadow-lg shadow-[#ff4655]/20' : 'text-gray-400 hover:text-white'
             }`}
           >
             <Compass className="w-4 h-4" />
-            Draft Simulator
+            Draft simulator
           </button>
         </div>
       </div>
 
       {subTab === 'playbook' ? (
-        <div className="grid grid-cols-1 lg:grid-cols-12 gap-6">
-          {/* AI Generator Settings */}
-          <div className={`col-span-1 lg:col-span-4 p-6 rounded-2xl border ${theme.border} ${theme.bg} space-y-5 h-fit`}>
-            <div className="flex items-center gap-2 border-b border-white/5 pb-3">
-              <Sparkles className="w-4 h-4 text-[#ff4655]" />
-              <h3 className="font-black text-xs uppercase tracking-wider text-gray-200">AI Playbook Blueprint</h3>
-            </div>
-
-            <div className="space-y-4">
-              <div className="space-y-1.5">
-                <label className="text-[10px] uppercase font-bold tracking-wider text-gray-400 font-mono">Select Map</label>
-                <select
-                  aria-label="Select map"
-                  value={selectedMap}
-                  onChange={(e) => setSelectedMap(e.target.value)}
-                  className="w-full bg-black border border-white/10 text-xs p-3 rounded-lg text-white font-mono"
-                >
-                  {data.settings.maps.map(m => <option key={m} value={m}>{m}</option>)}
-                </select>
-              </div>
-
-              <div className="space-y-1.5">
-                <label className="text-[10px] uppercase font-bold tracking-wider text-gray-400 font-mono">Tactical Side</label>
-                <div className="grid grid-cols-2 gap-2">
-                  {['Attack', 'Defense'].map(side => (
-                    <button
-                      key={side}
-                      type="button"
-                      onClick={() => setSelectedSide(side)}
-                      className={`py-2 px-3 border text-xs font-bold rounded-lg font-mono uppercase transition-all ${
-                        selectedSide === side
-                          ? 'border-[#ff4655] bg-[#ff4655]/10 text-white'
-                          : 'border-white/10 bg-transparent text-gray-400 hover:text-white'
-                      }`}
-                    >
-                      {side === 'Attack' ? '🎯 Attack' : '🛡️ Defense'}
-                    </button>
-                  ))}
-                </div>
-              </div>
-
-              <div className="space-y-1.5">
-                <label className="text-[10px] uppercase font-bold tracking-wider text-gray-400 font-mono">Tactical Style</label>
-                <select
-                  aria-label="Tactical style"
-                  value={selectedStyle}
-                  onChange={(e) => setSelectedStyle(e.target.value)}
-                  className="w-full bg-black border border-white/10 text-xs p-3 rounded-lg text-white font-mono"
-                >
-                  <option value="Default / General">Default / General</option>
-                  <option value="Aggressive Rush">Aggressive Rush & Site Entry</option>
-                  <option value="Exec & Post-plant Setup">Vaporizing Exec & Post-plant Setup</option>
-                  <option value="Slow Default / Map Split">Slow Map Control & Dual Split</option>
-                  <option value="Trap Play & Counter-Attack">Bait-and-Switch Trap / Retake Counter</option>
-                </select>
-              </div>
-
-              <div className="space-y-1.5">
-                <label className="text-[10px] uppercase font-bold tracking-wider text-gray-400 font-mono">Custom Focus / Directives</label>
-                <textarea
-                  value={customFocus}
-                  onChange={(e) => setCustomFocus(e.target.value)}
-                  placeholder="e.g., Run an A-Split using Cypher Cage lurk and Omen blind for space..."
-                  className="w-full bg-black border border-white/10 text-xs p-3 rounded-lg text-white h-20 placeholder:text-gray-600 focus:outline-none focus:border-[#ff4655]"
-                />
-              </div>
-
-              <button
-                type="button"
-                onClick={handleGenerateStrategy}
-                disabled={cloudAiActionBlocked(cloudAiAvailable, generating)}
-                aria-describedby={cloudAiAvailable === false ? 'playbook-cloud-ai-off' : undefined}
-                className="w-full py-3 bg-[#d12a3a] hover:bg-[#b91c2e] text-white text-xs font-black rounded-lg uppercase font-mono tracking-wider shadow-lg shadow-[#ff4655]/10 flex items-center justify-center gap-2 disabled:opacity-40 cursor-pointer"
-              >
-                {generating ? (
-                  <>
-                    <Loader2 className="w-4.5 h-4.5 animate-spin" />
-                    <span>GENERATING...</span>
-                  </>
-                ) : (
-                  <>
-                    <Sparkles className="w-4.5 h-4.5" />
-                    <span>GENERATE TACTICAL SETUP</span>
-                  </>
-                )}
-              </button>
-              {cloudAiAvailable === false && <p id="playbook-cloud-ai-off" className="text-[10px] text-gray-400">{CLOUD_AI_OFF_MESSAGE}</p>}
-            </div>
-          </div>
-
-          {/* AI Output / Saved Playbook */}
-          <div className="col-span-1 lg:col-span-8 space-y-6">
-            {generating && (
-              <div className={`p-12 rounded-2xl border border-dashed border-[#ff4655]/20 bg-[#ff4655]/5 flex flex-col items-center justify-center text-center space-y-4`}>
-                <div className="w-12 h-12 rounded-full bg-[#ff4655]/10 flex items-center justify-center text-[#ff4655] animate-pulse">
-                  <Loader2 className="w-6 h-6 animate-spin" />
-                </div>
-                <div className="space-y-1">
-                  <h4 className="font-bold text-sm text-white font-mono uppercase tracking-wider">Scrim Engine Core Engaged</h4>
-                  <p className="text-xs text-gray-400 font-mono animate-pulse">{loadingMsg}</p>
-                </div>
-              </div>
-            )}
-
-            {generatedStrat && !generating && (
-              <div className={`p-6 rounded-2xl border border-violet-500/30 bg-violet-950/10 space-y-6 animate-fadeIn`}>
-                <div className="flex justify-between items-center border-b border-violet-500/20 pb-3">
-                  <div className="flex items-center gap-2">
-                    <Sparkles className="w-5 h-5 text-violet-400 animate-pulse" />
-                    <span className="text-[10px] font-mono text-violet-400 uppercase tracking-widest font-bold">AI Draft Output</span>
-                  </div>
-                  <div className="flex gap-2">
-                    <button
-                      onClick={() => setGeneratedStrat(null)}
-                      className="px-3 py-1 bg-white/5 border border-white/10 hover:bg-white/10 text-gray-300 rounded text-[10px] font-mono uppercase font-bold"
-                    >
-                      Dismiss
-                    </button>
-                    <button
-                      onClick={handleSaveToPlaybook}
-                      disabled={savingStrat}
-                      className="px-3.5 py-1 bg-violet-500 hover:bg-violet-600 text-white rounded text-[10px] font-mono uppercase font-bold flex items-center gap-1.5"
-                    >
-                      {savingStrat ? <Loader2 className="w-3 h-3 animate-spin" /> : <Check className="w-3.5 h-3.5" />}
-                      Add to Playbook
-                    </button>
-                  </div>
-                </div>
-
-                <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                  <div className="space-y-1.5">
-                    <label className="text-[9px] uppercase font-bold text-violet-400 tracking-wider font-mono">Strategy Name</label>
-                    <input
-                      type="text"
-                      value={editedName}
-                      onChange={(e) => setEditedName(e.target.value)}
-                      className="w-full bg-slate-900 border border-violet-500/25 p-2 rounded text-xs text-white font-bold"
-                    />
-                  </div>
-                  <div className="space-y-1.5">
-                    <label className="text-[9px] uppercase font-bold text-violet-400 tracking-wider font-mono">Recommended Agents</label>
-                    <input
-                      type="text"
-                      value={editedAgents}
-                      onChange={(e) => setEditedAgents(e.target.value)}
-                      className="w-full bg-slate-900 border border-violet-500/25 p-2 rounded text-xs text-white"
-                    />
-                  </div>
-                </div>
-
-                <div className="space-y-1.5">
-                  <label className="text-[9px] uppercase font-bold text-violet-400 tracking-wider font-mono">Tactical Concept</label>
-                  <textarea
-                    value={editedOverview}
-                    onChange={(e) => setEditedOverview(e.target.value)}
-                    className="w-full bg-slate-900 border border-violet-500/25 p-2.5 rounded text-xs text-white h-16 leading-relaxed"
-                  />
-                </div>
-
-                <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
-                  <div className="space-y-1.5">
-                    <div className="flex items-center gap-1.5">
-                      <span className="text-[10px] bg-white/5 text-white/70 px-1 py-0.2 rounded font-mono font-bold">1</span>
-                      <label className="text-[9px] uppercase font-bold text-violet-400 tracking-wider font-mono">Early Setup</label>
-                    </div>
-                    <textarea
-                      value={editedPhase1}
-                      onChange={(e) => setEditedPhase1(e.target.value)}
-                      className="w-full bg-slate-900 border border-violet-500/25 p-2.5 rounded text-[11px] text-white h-28 leading-relaxed"
-                    />
-                  </div>
-                  <div className="space-y-1.5">
-                    <div className="flex items-center gap-1.5">
-                      <span className="text-[10px] bg-white/5 text-white/70 px-1 py-0.2 rounded font-mono font-bold">2</span>
-                      <label className="text-[9px] uppercase font-bold text-violet-400 tracking-wider font-mono">Execution Trigger</label>
-                    </div>
-                    <textarea
-                      value={editedPhase2}
-                      onChange={(e) => setEditedPhase2(e.target.value)}
-                      className="w-full bg-slate-900 border border-violet-500/25 p-2.5 rounded text-[11px] text-white h-28 leading-relaxed"
-                    />
-                  </div>
-                  <div className="space-y-1.5">
-                    <div className="flex items-center gap-1.5">
-                      <span className="text-[10px] bg-white/5 text-white/70 px-1 py-0.2 rounded font-mono font-bold">3</span>
-                      <label className="text-[9px] uppercase font-bold text-violet-400 tracking-wider font-mono">Late Round Hold</label>
-                    </div>
-                    <textarea
-                      value={editedPhase3}
-                      onChange={(e) => setEditedPhase3(e.target.value)}
-                      className="w-full bg-slate-900 border border-violet-500/25 p-2.5 rounded text-[11px] text-white h-28 leading-relaxed"
-                    />
-                  </div>
-                </div>
-
-                <div className="grid grid-cols-1 md:grid-cols-2 gap-4 border-t border-violet-500/10 pt-4">
-                  <div className="space-y-1.5">
-                    <label className="text-[9px] uppercase font-bold text-violet-400 tracking-wider font-mono">⚡ Primary Utility Combo</label>
-                    <input
-                      type="text"
-                      value={editedCombo}
-                      onChange={(e) => setEditedCombo(e.target.value)}
-                      className="w-full bg-slate-900 border border-violet-500/25 p-2 rounded text-xs text-white"
-                    />
-                  </div>
-                  <div className="space-y-1.5">
-                    <label className="text-[9px] uppercase font-bold text-violet-400 tracking-wider font-mono">💡 Coaching Note</label>
-                    <input
-                      type="text"
-                      value={editedNotes}
-                      onChange={(e) => setEditedNotes(e.target.value)}
-                      className="w-full bg-slate-900 border border-violet-500/25 p-2 rounded text-xs text-white italic"
-                    />
-                  </div>
-                </div>
-              </div>
-            )}
-
-            {/* Existing Playbook with Stats */}
-            <div className={`p-6 rounded-2xl border ${theme.border} ${theme.bg} space-y-4`}>
-              <div className="flex justify-between items-center border-b border-white/5 pb-3">
-                <div className="flex items-center gap-2">
-                  <ClipboardList className="w-4 h-4 text-gray-400" />
-                  <h3 className="font-black text-xs uppercase tracking-wider text-gray-200">Active Stratbook ({data.strats.length})</h3>
-                </div>
-                <span className="text-[9px] font-mono text-gray-400 uppercase">Live performance indexed</span>
-              </div>
-
-              {data.strats.length === 0 ? (
-                <div className="text-center py-8">
-                  <p className="text-xs text-gray-400 italic">No strategies added to the playbook yet. Generate one above or create custom ones in settings!</p>
-                </div>
-              ) : (
-                <div className="space-y-3.5 max-h-[500px] overflow-y-auto pr-1">
-                  {data.strats.map((strat: Strat) => {
-                    const stats = strategyStats[strat.name] || { won: 0, total: 0 };
-                    const winrate = stats.total > 0 ? Math.round((stats.won / stats.total) * 100) : 0;
-                    const performanceColor = percentageSurfaceClass(stats.total > 0 ? winrate : null);
-
-                    return (
-                      <div key={strat.id} className="p-4 rounded-xl border border-white/5 bg-black/25 hover:border-white/10 transition-all flex flex-col md:flex-row justify-between items-start md:items-center gap-4">
-                        <div className="space-y-1.5 flex-1">
-                          <div className="flex items-center gap-2 flex-wrap">
-                            <span className="text-xs font-black text-white">{strat.name}</span>
-                            <span className="text-[8px] bg-[#ff4655]/10 border border-[#ff4655]/15 text-[#ff4655] px-1.5 py-0.5 rounded font-mono font-bold uppercase">{strat.map}</span>
-                            <span className={`text-[8px] px-1.5 py-0.5 rounded font-mono font-bold uppercase border ${strat.side === 'Attack' ? 'text-blue-400 bg-blue-500/5 border-blue-500/10' : 'text-orange-400 bg-orange-500/5 border-orange-500/10'}`}>{strat.side}</span>
-                          </div>
-                          {strat.notes && (
-                            <p className="text-[10px] text-gray-400 leading-relaxed font-mono line-clamp-2 white-space-pre">{strat.notes.replace(/\*\*.*\*\*/g, '').replace(/concept/i, '').trim()}</p>
-                          )}
-                        </div>
-
-                        <div className="flex items-center gap-4 shrink-0 w-full md:w-auto justify-between md:justify-end border-t md:border-t-0 border-white/5 pt-2.5 md:pt-0">
-                          <div className="flex items-center gap-3">
-                            <div className="text-right">
-                              <span className="text-[9px] uppercase font-bold text-gray-400 font-mono block">Scrim Winrate</span>
-                              <span className={`text-xs font-black font-mono ${percentageTextClass(stats.total > 0 ? winrate : null)}`}>
-                                {stats.total > 0 ? `${winrate}%` : '-'}
-                              </span>
-                            </div>
-                            <div className="w-16 h-1.5 bg-white/5 rounded-full overflow-hidden">
-                              <div className={`h-full ${percentageBarClass(stats.total > 0 ? winrate : null)}`} style={{ width: `${winrate}%` }} />
-                            </div>
-                            <span className="text-[9px] font-mono text-gray-500">({stats.total} rounds)</span>
-                          </div>
-
-                          <button
-                            onClick={() => onRemove('Strats', strat.id)}
-                            className="p-1.5 bg-white/5 hover:bg-red-500/10 text-gray-400 hover:text-red-400 border border-white/5 rounded transition-all cursor-pointer"
-                            title="Remove Strategy"
-                          >
-                            <Trash2 className="w-3.5 h-3.5" />
-                          </button>
-                        </div>
-                      </div>
-                    );
-                  })}
-                </div>
-              )}
-            </div>
-          </div>
-        </div>
+        <StrategyGenerator data={data} theme={theme} onUpsert={onUpsert} />
       ) : subTab === 'chemistry' ? (
         <div className="space-y-6 animate-fadeIn">
           {/* COMPARATIVE PLAYER KPI & CLUTCH ANALYSIS */}
@@ -851,7 +449,7 @@ export default function AITacticalHub({ data, theme, onUpsert, onRemove }: Compo
                   <Activity className="w-4 h-4 text-[#ff4655]" />
                   <h3 className="font-black text-xs uppercase tracking-wider text-gray-200">Comparative Player KPI & Clutch Analysis</h3>
                 </div>
-                <p className="text-[10px] text-gray-400 font-mono">Comparing Previous Period (first 50% of matches) vs Current Period (last 50% of matches)</p>
+                <p className="text-xs text-gray-400 font-mono">Comparing Previous Period (first 50% of matches) vs Current Period (last 50% of matches)</p>
               </div>
               
               {/* Player Selector tabs */}
@@ -860,7 +458,7 @@ export default function AITacticalHub({ data, theme, onUpsert, onRemove }: Compo
                   <button
                     key={p}
                     onClick={() => setSelectedKpiPlayer(p)}
-                    className={`px-3 py-1.5 rounded-lg text-[10px] font-black font-mono uppercase transition-all ${
+                    className={`px-3 py-1.5 rounded-lg text-xs font-black font-mono transition-all ${
                       selectedKpiPlayer === p ? 'bg-white/10 text-white' : 'text-gray-400 hover:text-white'
                     }`}
                   >
@@ -899,20 +497,20 @@ export default function AITacticalHub({ data, theme, onUpsert, onRemove }: Compo
                     {/* Clutch Efficiency Card */}
                     <div className="p-4 rounded-xl border border-white/5 bg-black/25 space-y-3">
                       <div className="flex justify-between items-center border-b border-white/5 pb-2">
-                        <span className="text-[10px] uppercase font-bold text-gray-400 font-mono">Clutch Efficiency</span>
-                        <span className="text-[9px] bg-[#ff4655]/10 text-[#ff4655] px-1.5 py-0.5 rounded font-mono font-bold">In-Game KPI</span>
+                        <span className="text-xs uppercase font-bold text-gray-400 font-mono">Clutch Efficiency</span>
+                        <span className="text-xs bg-[#ff4655]/10 text-[#ff4655] px-1.5 py-0.5 rounded font-mono font-bold">In-Game KPI</span>
                       </div>
                       <div className="flex justify-between items-end">
                         <div className="space-y-0.5">
-                          <span className="text-[9px] text-gray-500 font-mono block">Previous Period</span>
-                          <span className={`text-sm font-black font-mono ${percentageTextClass(prevClutchRate)}`}>{prevClutchRate === null ? 'N/A' : `${prevClutchRate}%`} <span className="text-[10px] text-gray-500">({prev.clutchesWon ?? '—'}/{prev.clutchesAttempted ?? '—'})</span></span>
+                          <span className="text-xs text-gray-500 font-mono block">Previous Period</span>
+                          <span className={`text-sm font-black font-mono ${percentageTextClass(prevClutchRate)}`}>{prevClutchRate === null ? 'N/A' : `${prevClutchRate}%`} <span className="text-xs text-gray-500">({prev.clutchesWon ?? '—'}/{prev.clutchesAttempted ?? '—'})</span></span>
                         </div>
                         <div className="text-right space-y-0.5">
-                          <span className="text-[9px] text-[#ff4655] font-mono block font-black">Current Period</span>
-                          <span className={`text-xl font-black font-mono ${percentageTextClass(currClutchRate)}`}>{currClutchRate === null ? 'N/A' : `${currClutchRate}%`} <span className="text-[10px] text-gray-400">({curr.clutchesWon ?? '—'}/{curr.clutchesAttempted ?? '—'})</span></span>
+                          <span className="text-xs text-[#ff4655] font-mono block font-black">Current Period</span>
+                          <span className={`text-xl font-black font-mono ${percentageTextClass(currClutchRate)}`}>{currClutchRate === null ? 'N/A' : `${currClutchRate}%`} <span className="text-xs text-gray-400">({curr.clutchesWon ?? '—'}/{curr.clutchesAttempted ?? '—'})</span></span>
                         </div>
                       </div>
-                      <div className="flex items-center gap-1.5 text-[10px] font-mono mt-1">
+                      <div className="flex items-center gap-1.5 text-xs font-mono mt-1">
                         {currClutchRate === null || prevClutchRate === null ? (
                           <span className="text-gray-500 font-bold">Needs {minimumSamples} complete clutch attempts in both periods</span>
                         ) : currClutchRate >= prevClutchRate ? (
@@ -926,20 +524,20 @@ export default function AITacticalHub({ data, theme, onUpsert, onRemove }: Compo
                     {/* Spacing & Trade Efficiency Card */}
                     <div className="p-4 rounded-xl border border-white/5 bg-black/25 space-y-3">
                       <div className="flex justify-between items-center border-b border-white/5 pb-2">
-                        <span className="text-[10px] uppercase font-bold text-gray-400 font-mono">Un-Traded Death Rate</span>
-                        <span className="text-[9px] bg-[#ff4655]/10 text-[#ff4655] px-1.5 py-0.5 rounded font-mono font-bold">Spacing & Trades</span>
+                        <span className="text-xs uppercase font-bold text-gray-400 font-mono">Un-Traded Death Rate</span>
+                        <span className="text-xs bg-[#ff4655]/10 text-[#ff4655] px-1.5 py-0.5 rounded font-mono font-bold">Spacing & Trades</span>
                       </div>
                       <div className="flex justify-between items-end">
                         <div className="space-y-0.5">
-                          <span className="text-[9px] text-gray-500 font-mono block">Previous Period</span>
-                          <span className={`text-sm font-black font-mono ${percentageTextClass(prevUntradedRate, true)}`}>{prevUntradedRate === null ? 'N/A' : `${prevUntradedRate}%`} <span className="text-[10px] text-gray-500">({prev.tradeKnownDeaths} deaths with trade data)</span></span>
+                          <span className="text-xs text-gray-500 font-mono block">Previous Period</span>
+                          <span className={`text-sm font-black font-mono ${percentageTextClass(prevUntradedRate, true)}`}>{prevUntradedRate === null ? 'N/A' : `${prevUntradedRate}%`} <span className="text-xs text-gray-500">({prev.tradeKnownDeaths} deaths with trade data)</span></span>
                         </div>
                         <div className="text-right space-y-0.5">
-                          <span className="text-[9px] text-[#ff4655] font-mono block font-black">Current Period</span>
-                          <span className={`text-xl font-black font-mono ${percentageTextClass(currUntradedRate, true)}`}>{currUntradedRate === null ? 'N/A' : `${currUntradedRate}%`} <span className="text-[10px] text-gray-400">({curr.tradeKnownDeaths} deaths with trade data)</span></span>
+                          <span className="text-xs text-[#ff4655] font-mono block font-black">Current Period</span>
+                          <span className={`text-xl font-black font-mono ${percentageTextClass(currUntradedRate, true)}`}>{currUntradedRate === null ? 'N/A' : `${currUntradedRate}%`} <span className="text-xs text-gray-400">({curr.tradeKnownDeaths} deaths with trade data)</span></span>
                         </div>
                       </div>
-                      <div className="flex items-center gap-1.5 text-[10px] font-mono mt-1">
+                      <div className="flex items-center gap-1.5 text-xs font-mono mt-1">
                         {currUntradedRate === null || prevUntradedRate === null ? (
                           <span className="text-gray-500 font-bold">Insufficient trade evidence for a period comparison</span>
                         ) : currUntradedRate <= prevUntradedRate ? (
@@ -953,20 +551,20 @@ export default function AITacticalHub({ data, theme, onUpsert, onRemove }: Compo
                     {/* Discipline Throws Card */}
                     <div className="p-4 rounded-xl border border-white/5 bg-black/25 space-y-3">
                       <div className="flex justify-between items-center border-b border-white/5 pb-2">
-                        <span className="text-[10px] uppercase font-bold text-gray-400 font-mono">Discipline Throws</span>
-                        <span className="text-[9px] bg-[#ff4655]/10 text-[#ff4655] px-1.5 py-0.5 rounded font-mono font-bold">Discipline</span>
+                        <span className="text-xs uppercase font-bold text-gray-400 font-mono">Discipline Throws</span>
+                        <span className="text-xs bg-[#ff4655]/10 text-[#ff4655] px-1.5 py-0.5 rounded font-mono font-bold">Discipline</span>
                       </div>
                       <div className="flex justify-between items-end">
                         <div className="space-y-0.5">
-                          <span className="text-[9px] text-gray-500 font-mono block">Previous Period</span>
+                          <span className="text-xs text-gray-500 font-mono block">Previous Period</span>
                           <span className="text-sm font-black font-mono text-gray-400">{prev.throws ?? 'Unknown'} thrown rounds</span>
                         </div>
                         <div className="text-right space-y-0.5">
-                          <span className="text-[9px] text-[#ff4655] font-mono block font-black">Current Period</span>
+                          <span className="text-xs text-[#ff4655] font-mono block font-black">Current Period</span>
                           <span className="text-xl font-black font-mono text-white">{curr.throws ?? 'Unknown'} thrown rounds</span>
                         </div>
                       </div>
-                      <div className="flex items-center gap-1.5 text-[10px] font-mono mt-1">
+                      <div className="flex items-center gap-1.5 text-xs font-mono mt-1">
                         {throwsDiff === null ? (
                           <span className="text-gray-500 font-bold">Round logs needed in both periods</span>
                         ) : throwsDiff <= 0 ? (
@@ -980,20 +578,20 @@ export default function AITacticalHub({ data, theme, onUpsert, onRemove }: Compo
                     {/* Fragging & KD Ratio Card */}
                     <div className="p-4 rounded-xl border border-white/5 bg-black/25 space-y-3">
                       <div className="flex justify-between items-center border-b border-white/5 pb-2">
-                        <span className="text-[10px] uppercase font-bold text-gray-400 font-mono">Kill / Death Ratio</span>
-                        <span className="text-[9px] bg-[#ff4655]/10 text-[#ff4655] px-1.5 py-0.5 rounded font-mono font-bold">Mechanical</span>
+                        <span className="text-xs uppercase font-bold text-gray-400 font-mono">Kill / Death Ratio</span>
+                        <span className="text-xs bg-[#ff4655]/10 text-[#ff4655] px-1.5 py-0.5 rounded font-mono font-bold">Mechanical</span>
                       </div>
                       <div className="flex justify-between items-end">
                         <div className="space-y-0.5">
-                          <span className="text-[9px] text-gray-500 font-mono block">Previous Period</span>
-                          <span className="text-sm font-black font-mono text-gray-400">{prevKd ?? 'N/A'} K/D <span className="text-[10px] text-gray-500">({prev.kills ?? '—'} K)</span></span>
+                          <span className="text-xs text-gray-500 font-mono block">Previous Period</span>
+                          <span className="text-sm font-black font-mono text-gray-400">{prevKd ?? 'N/A'} K/D <span className="text-xs text-gray-500">({prev.kills ?? '—'} K)</span></span>
                         </div>
                         <div className="text-right space-y-0.5">
-                          <span className="text-[9px] text-[#ff4655] font-mono block font-black">Current Period</span>
-                          <span className="text-xl font-black font-mono text-white">{currKd ?? 'N/A'} K/D <span className="text-[10px] text-gray-400">({curr.kills ?? '—'} K)</span></span>
+                          <span className="text-xs text-[#ff4655] font-mono block font-black">Current Period</span>
+                          <span className="text-xl font-black font-mono text-white">{currKd ?? 'N/A'} K/D <span className="text-xs text-gray-400">({curr.kills ?? '—'} K)</span></span>
                         </div>
                       </div>
-                      <div className="flex items-center gap-1.5 text-[10px] font-mono mt-1">
+                      <div className="flex items-center gap-1.5 text-xs font-mono mt-1">
                         {currKd === null || prevKd === null ? (
                           <span className="text-gray-500 font-bold">Complete K/D needed in both periods</span>
                         ) : parseFloat(currKd) >= parseFloat(prevKd) ? (
@@ -1007,14 +605,14 @@ export default function AITacticalHub({ data, theme, onUpsert, onRemove }: Compo
                     {/* Headshot evidence card */}
                     <div className="p-4 rounded-xl border border-white/5 bg-black/25 space-y-3 sm:col-span-2">
                       <div className="flex justify-between items-center border-b border-white/5 pb-2">
-                        <span className="text-[10px] uppercase font-bold text-gray-400 font-mono">Headshot Rate</span>
-                        <span className="text-[9px] bg-[#ff4655]/10 text-[#ff4655] px-1.5 py-0.5 rounded font-mono font-bold">Evidence-aware</span>
+                        <span className="text-xs uppercase font-bold text-gray-400 font-mono">Headshot Rate</span>
+                        <span className="text-xs bg-[#ff4655]/10 text-[#ff4655] px-1.5 py-0.5 rounded font-mono font-bold">Evidence-aware</span>
                       </div>
                       <div className="grid grid-cols-2 gap-4">
-                        <div><span className="text-[9px] text-gray-500 font-mono block">Previous Period</span><span className="text-sm font-black font-mono text-gray-400">{prevHs.value === null ? 'N/A' : `${prevHs.value}%`}</span><span className="block text-[9px] text-gray-500">{prevHs.basis === 'kills' ? 'headshots ÷ eligible kills' : prevHs.basis === 'weighted-percent' ? 'kill-weighted match HS%' : 'no HS evidence'}</span></div>
-                        <div className="text-right"><span className="text-[9px] text-[#ff4655] font-mono block font-black">Current Period</span><span className="text-xl font-black font-mono text-white">{currHs.value === null ? 'N/A' : `${currHs.value}%`}</span><span className="block text-[9px] text-gray-400">{currHs.basis === 'kills' ? 'headshots ÷ eligible kills' : currHs.basis === 'weighted-percent' ? 'kill-weighted match HS%' : 'no HS evidence'}</span></div>
+                        <div><span className="text-xs text-gray-500 font-mono block">Previous Period</span><span className="text-sm font-black font-mono text-gray-400">{prevHs.value === null ? 'N/A' : `${prevHs.value}%`}</span><span className="block text-xs text-gray-500">{prevHs.basis === 'kills' ? 'headshots ÷ eligible kills' : prevHs.basis === 'weighted-percent' ? 'kill-weighted match HS%' : 'no HS evidence'}</span></div>
+                        <div className="text-right"><span className="text-xs text-[#ff4655] font-mono block font-black">Current Period</span><span className="text-xl font-black font-mono text-white">{currHs.value === null ? 'N/A' : `${currHs.value}%`}</span><span className="block text-xs text-gray-400">{currHs.basis === 'kills' ? 'headshots ÷ eligible kills' : currHs.basis === 'weighted-percent' ? 'kill-weighted match HS%' : 'no HS evidence'}</span></div>
                       </div>
-                      <p className="text-[10px] text-gray-500">Raw kill counters take precedence when available; zero-percent match rows remain valid evidence.</p>
+                      <p className="text-xs text-gray-500">Raw kill counters take precedence when available; zero-percent match rows remain valid evidence.</p>
                     </div>
                   </div>
 
@@ -1023,21 +621,21 @@ export default function AITacticalHub({ data, theme, onUpsert, onRemove }: Compo
                     <div className="space-y-3">
                       <div className="flex items-center gap-2">
                         <Activity className="w-4 h-4 text-amber-400" aria-hidden="true" />
-                        <span className="text-[10px] font-mono uppercase tracking-widest text-amber-400 font-black">KPI Diagnosis</span>
+                        <span className="text-xs font-mono uppercase tracking-widest text-amber-400 font-black">KPI Diagnosis</span>
                       </div>
-                      <p className="text-[10px] text-gray-500">Rule-based: fixed thresholds applied to this period's KPIs. No AI is used.</p>
+                      <p className="text-xs text-gray-500">Rule-based: fixed thresholds applied to this period's KPIs. No AI is used.</p>
                       
                       <div className="space-y-1">
-                        <span className="text-[9px] uppercase font-bold text-gray-400 font-mono">Primary Focus Area</span>
+                        <span className="text-xs uppercase font-bold text-gray-400 font-mono">Primary Focus Area</span>
                         <h4 className="text-xs font-black font-mono uppercase text-white tracking-tight">{rec.focus}</h4>
                       </div>
 
-                      <p className="text-[11px] font-mono text-gray-300 leading-relaxed bg-black/25 border border-white/5 rounded-lg p-3.5 italic">
+                      <p className="text-xs font-mono text-gray-300 leading-relaxed bg-black/25 border border-white/5 rounded-lg p-3.5 italic">
                         "{rec.text}"
                       </p>
                     </div>
 
-                    <div className="text-[9px] font-mono text-gray-500 border-t border-white/5 pt-3 mt-3 flex items-center justify-between">
+                    <div className="text-xs font-mono text-gray-500 border-t border-white/5 pt-3 mt-3 flex items-center justify-between">
                       <span>Status: {rec.severity === 'high' ? '🚨 CRITICAL' : rec.severity === 'medium' ? '⚠️ MONITOR' : rec.severity === 'unavailable' ? 'NOT ENOUGH EVIDENCE' : '🟢 STABLE'}</span>
                       <span>Target: Scrim Season</span>
                     </div>
@@ -1054,20 +652,20 @@ export default function AITacticalHub({ data, theme, onUpsert, onRemove }: Compo
                 <Users className="w-4 h-4 text-gray-400" />
                 <h3 className="font-black text-xs uppercase tracking-wider text-gray-200">Roster Synergy Heatmap (Round Win Rates)</h3>
               </div>
-              <span className="text-[9px] font-mono text-gray-500 uppercase">Cross-pair analytics</span>
+              <span className="text-xs font-mono text-gray-500 uppercase">Cross-pair analytics</span>
             </div>
 
             <div className="overflow-x-auto">
               <table className="w-full text-left border-collapse min-w-[550px]">
                 <thead>
-                  <tr className="border-b border-white/5 font-mono text-[9px] text-gray-400 uppercase">
+                  <tr className="border-b border-white/5 font-mono text-xs text-gray-400 uppercase">
                     <th className="py-2.5 px-3">Player</th>
                     {activePlayers.map(p => <th key={p} className="py-2.5 px-3 text-center font-bold">{p}</th>)}
                   </tr>
                 </thead>
                 <tbody>
                   {activePlayers.map((p1) => (
-                    <tr key={p1} className="border-b border-white/5 text-[11px] font-mono hover:bg-white/2">
+                    <tr key={p1} className="border-b border-white/5 text-xs font-mono hover:bg-white/2">
                       <td className="py-3 px-3 font-bold text-white uppercase">{p1}</td>
                       {activePlayers.map((p2) => {
                         if (p1 === p2) {
@@ -1112,27 +710,27 @@ export default function AITacticalHub({ data, theme, onUpsert, onRemove }: Compo
                     <div key={p} className="p-3 bg-black/25 border border-white/5 rounded-xl space-y-2.5">
                       <div className="flex justify-between items-center">
                         <span className="text-xs font-black text-white uppercase tracking-tight">{p}</span>
-                        <span className="text-[8px] font-mono text-gray-500">First-duel counts: {est.fbTotal + est.fdTotal}</span>
+                        <span className="text-xs font-mono text-gray-500">First-duel counts: {est.fbTotal + est.fdTotal}</span>
                       </div>
 
                       <div className="grid grid-cols-2 gap-4">
                         <div className="space-y-1">
-                          <span className="text-[9px] uppercase font-mono font-bold text-gray-400 block">First Blood Win Rate</span>
+                          <span className="text-xs uppercase font-mono font-bold text-gray-400 block">First Blood Win Rate</span>
                           <div className="flex items-center gap-2">
                             <span className={`text-xs font-mono font-black ${percentageTextClass(est.fbTotal > 0 ? fbWr : null)}`}>
                               {est.fbTotal > 0 ? `${fbWr}%` : 'N/A'}
                             </span>
-                            <span className="text-[9px] font-mono text-gray-500">({est.fbWon}/{est.fbTotal})</span>
+                            <span className="text-xs font-mono text-gray-500">({est.fbWon}/{est.fbTotal})</span>
                           </div>
                         </div>
 
                         <div className="space-y-1">
-                          <span className="text-[9px] uppercase font-mono font-bold text-gray-400 block">First Death Recovery</span>
+                          <span className="text-xs uppercase font-mono font-bold text-gray-400 block">First Death Recovery</span>
                           <div className="flex items-center gap-2">
                             <span className={`text-xs font-mono font-black ${percentageTextClass(est.fdTotal > 0 ? fdWr : null)}`}>
                               {est.fdTotal > 0 ? `${fdWr}%` : 'N/A'}
                             </span>
-                            <span className="text-[9px] font-mono text-gray-500">({est.fdWon}/{est.fdTotal})</span>
+                            <span className="text-xs font-mono text-gray-500">({est.fdWon}/{est.fdTotal})</span>
                           </div>
                         </div>
                       </div>
@@ -1149,13 +747,13 @@ export default function AITacticalHub({ data, theme, onUpsert, onRemove }: Compo
                   <UserCheck className="w-4 h-4 text-violet-400" />
                   <h3 className="font-black text-xs uppercase tracking-wider text-gray-200">Interactive Lineup Compatibility Simulator</h3>
                 </div>
-                <span className="text-[9px] font-mono text-gray-500 uppercase">Roster Optimizer</span>
+                <span className="text-xs font-mono text-gray-500 uppercase">Roster Optimizer</span>
               </div>
 
               {/* Sim Selectors */}
               <div className="grid grid-cols-2 gap-4 bg-black/15 p-3 rounded-xl border border-white/5">
                 <div className="space-y-1">
-                  <span className="text-[9px] uppercase font-bold text-gray-400 font-mono">Sim Map</span>
+                  <span className="text-xs uppercase font-bold text-gray-400 font-mono">Sim Map</span>
                   <select
                     aria-label="Sim map"
                     value={simMap}
@@ -1166,7 +764,7 @@ export default function AITacticalHub({ data, theme, onUpsert, onRemove }: Compo
                   </select>
                 </div>
                 <div className="space-y-1">
-                  <span className="text-[9px] uppercase font-bold text-gray-400 font-mono">Sim Side</span>
+                  <span className="text-xs uppercase font-bold text-gray-400 font-mono">Sim Side</span>
                   <select
                     aria-label="Sim side"
                     value={simSide}
@@ -1181,7 +779,7 @@ export default function AITacticalHub({ data, theme, onUpsert, onRemove }: Compo
 
               {/* Roster Pick list */}
               <div className="space-y-1.5">
-                <span className="text-[10px] uppercase font-bold text-gray-400 tracking-wider font-mono">Pick Active 5 Players:</span>
+                <span className="text-xs uppercase font-bold text-gray-400 tracking-wider font-mono">Pick Active 5 Players:</span>
                 <div className="flex flex-wrap gap-2">
                   {activePlayers.map(p => {
                     const isSelected = simRoster.includes(p);
@@ -1190,7 +788,7 @@ export default function AITacticalHub({ data, theme, onUpsert, onRemove }: Compo
                         key={p}
                         type="button"
                         onClick={() => handleToggleSimPlayer(p)}
-                        className={`py-2 px-3.5 border text-xs font-bold rounded-lg font-mono uppercase transition-all flex items-center gap-1.5 ${
+                        className={`py-2 px-3.5 border text-xs font-bold rounded-lg font-mono transition-all flex items-center gap-1.5 ${
                           isSelected
                             ? 'border-violet-500 bg-violet-500/10 text-white shadow-sm'
                             : 'border-white/15 bg-transparent text-gray-400 hover:text-white'
@@ -1214,26 +812,26 @@ export default function AITacticalHub({ data, theme, onUpsert, onRemove }: Compo
                   <div className="space-y-5 bg-violet-950/10 border border-violet-500/20 p-5 rounded-xl animate-fadeIn">
                     <div className="flex justify-between items-center border-b border-violet-500/20 pb-3">
                       <div>
-                        <span className="text-[9px] uppercase font-black text-violet-400 tracking-wider font-mono">Evidence summary</span>
+                        <span className="text-xs uppercase font-black text-violet-400 tracking-wider font-mono">Evidence summary</span>
                         <h4 className="text-sm font-black text-white uppercase tracking-tight font-sans mt-0.5">{simReport.verdict}</h4>
                       </div>
 
                       <div className="text-right">
-                        <span className="text-[9px] uppercase font-black text-violet-400 tracking-wider font-mono">Comparable coverage</span>
+                        <span className="text-xs uppercase font-black text-violet-400 tracking-wider font-mono">Comparable coverage</span>
                         <h4 className="mt-0.5 text-sm font-black font-mono text-cyan-200">{simReport.coverage.pairings} pairings · {simReport.coverage.callingRounds} calls</h4>
                       </div>
                     </div>
-                    <p className="text-[11px] leading-relaxed text-gray-400">These are descriptive observations from accepted rounds, not a predictive compatibility rating. Low coverage stays inconclusive.</p>
+                    <p className="text-xs leading-relaxed text-gray-400">These are descriptive observations from accepted rounds, not a predictive compatibility rating. Low coverage stays inconclusive.</p>
 
                     <div className="space-y-3">
                       {simReport.strengths.length > 0 && (
                         <div className="space-y-1.5">
-                          <span className="text-[9px] font-bold text-green-400 uppercase tracking-wider font-mono flex items-center gap-1">
+                          <span className="text-xs font-bold text-green-400 uppercase tracking-wider font-mono flex items-center gap-1">
                             <ArrowUpRight className="w-3.5 h-3.5" /> Lineup Strengths
                           </span>
                           <div className="space-y-1 pl-1">
                             {simReport.strengths.map((str, idx) => (
-                              <p key={idx} className="text-[11px] text-gray-300 font-mono leading-relaxed" dangerouslySetInnerHTML={{ __html: sanitizeInline(str) }} />
+                              <p key={idx} className="text-xs text-gray-300 font-mono leading-relaxed" dangerouslySetInnerHTML={{ __html: sanitizeInline(str) }} />
                             ))}
                           </div>
                         </div>
@@ -1241,12 +839,12 @@ export default function AITacticalHub({ data, theme, onUpsert, onRemove }: Compo
 
                       {simReport.weaknesses.length > 0 && (
                         <div className="space-y-1.5 pt-1.5 border-t border-white/5">
-                          <span className="text-[9px] font-bold text-red-400 uppercase tracking-wider font-mono flex items-center gap-1">
+                          <span className="text-xs font-bold text-red-400 uppercase tracking-wider font-mono flex items-center gap-1">
                             <AlertTriangle className="w-3.5 h-3.5" /> Frictional Risks
                           </span>
                           <div className="space-y-1 pl-1">
                             {simReport.weaknesses.map((weak, idx) => (
-                              <p key={idx} className="text-[11px] text-gray-300 font-mono leading-relaxed" dangerouslySetInnerHTML={{ __html: sanitizeInline(weak) }} />
+                              <p key={idx} className="text-xs text-gray-300 font-mono leading-relaxed" dangerouslySetInnerHTML={{ __html: sanitizeInline(weak) }} />
                             ))}
                           </div>
                         </div>
@@ -1269,24 +867,24 @@ export default function AITacticalHub({ data, theme, onUpsert, onRemove }: Compo
                   <Brain className="w-4 h-4 text-violet-400" />
                   <h3 className="font-black text-xs uppercase tracking-wider text-gray-200">Agent Proficiency Drafting Matrix</h3>
                 </div>
-                <p className="text-[10px] text-gray-400 font-mono">Calculated from scrim performance logs. Click on cells to dynamically cycle manual overrides (S ➡️ A ➡️ B ➡️ C ➡️ D ➡️ Auto) to simulate roster adjustments.</p>
+                <p className="text-xs text-gray-400 font-mono">Calculated from scrim performance logs. Click on cells to dynamically cycle manual overrides (S ➡️ A ➡️ B ➡️ C ➡️ D ➡️ Auto) to simulate roster adjustments.</p>
               </div>
-              <span className="text-[9px] bg-violet-500/10 text-violet-400 px-2 py-1 rounded font-mono font-bold shrink-0 uppercase">Click Cell to Override</span>
+              <span className="text-xs bg-violet-500/10 text-violet-400 px-2 py-1 rounded font-mono font-bold shrink-0 uppercase">Click Cell to Override</span>
             </div>
 
             <div className="overflow-x-auto select-none">
               <table className="w-full text-left border-collapse min-w-[700px]">
                 <thead>
-                  <tr className="border-b border-white/5 font-mono text-[9px] text-gray-400 uppercase">
+                  <tr className="border-b border-white/5 font-mono text-xs text-gray-400 uppercase">
                     <th className="py-2.5 px-3">Player</th>
                     {standardAgents.map(ag => (
-                      <th key={ag} className="py-2.5 px-2 text-center font-bold text-[9px] min-w-[55px]">{ag}</th>
+                      <th key={ag} className="py-2.5 px-2 text-center font-bold text-xs min-w-[55px]">{ag}</th>
                     ))}
                   </tr>
                 </thead>
                 <tbody>
                   {activePlayers.map((player) => (
-                    <tr key={player} className="border-b border-white/5 text-[11px] font-mono hover:bg-white/2 transition-colors">
+                    <tr key={player} className="border-b border-white/5 text-xs font-mono hover:bg-white/2 transition-colors">
                       <td className="py-3 px-3 font-bold text-white uppercase">{player}</td>
                       {standardAgents.map((agent) => {
                         const prof = finalProficiencies[player]?.[agent];
@@ -1306,13 +904,13 @@ export default function AITacticalHub({ data, theme, onUpsert, onRemove }: Compo
                             <button
                               type="button"
                               onClick={() => handleCycleOverride(player, agent)}
-                              className={`w-11 py-1 rounded text-[10px] font-black border transition-all cursor-pointer ${gradeColor} ${
+                              className={`w-11 py-1 rounded text-xs font-black border transition-all cursor-pointer ${gradeColor} ${
                                 isOverride ? 'ring-1 ring-violet-400 animate-pulse' : ''
                               }`}
                               title={`${player} on ${agent}: Grade ${grade ?? 'unknown'} (${count} games logged) ${isOverride ? '(Overridden)' : '(Auto)'}`}
                             >
                               {grade ?? '—'}
-                              {isOverride && <span className="text-[7px] block leading-none font-bold text-violet-400">OVR</span>}
+                              {isOverride && <span className="text-xs block leading-none font-bold text-violet-400">Ovr</span>}
                             </button>
                           </td>
                         );
@@ -1341,9 +939,9 @@ export default function AITacticalHub({ data, theme, onUpsert, onRemove }: Compo
                   return (
                     <div key={idx} className="p-3 bg-black/25 border border-white/5 rounded-xl space-y-2.5">
                       <div className="flex justify-between items-center">
-                        <span className="text-[10px] font-mono text-gray-400 uppercase font-black">Position {idx + 1}</span>
+                        <span className="text-xs font-mono text-gray-400 uppercase font-black">Position {idx + 1}</span>
                         {slot.agent && (
-                          <span className={`text-[9px] font-mono font-black uppercase px-2 py-0.5 rounded border ${
+                          <span className={`text-xs font-mono font-black uppercase px-2 py-0.5 rounded border ${
                             grade === 'S' ? 'text-purple-400 border-purple-500/25 bg-purple-500/5' :
                             grade === 'A' ? 'text-green-400 border-green-500/25 bg-green-500/5' :
                             grade === 'B' ? 'text-yellow-400 border-yellow-500/25 bg-yellow-500/5' :
@@ -1356,7 +954,7 @@ export default function AITacticalHub({ data, theme, onUpsert, onRemove }: Compo
 
                       <div className="grid grid-cols-2 gap-3">
                         <div className="space-y-1">
-                          <label className="text-[9px] uppercase font-bold text-gray-500 font-mono">Player</label>
+                          <label className="text-xs uppercase font-bold text-gray-500 font-mono">Player</label>
                           <select
                             value={slot.player}
                             onChange={(e) => {
@@ -1372,7 +970,7 @@ export default function AITacticalHub({ data, theme, onUpsert, onRemove }: Compo
                         </div>
 
                         <div className="space-y-1">
-                          <label className="text-[9px] uppercase font-bold text-gray-500 font-mono">Agent</label>
+                          <label className="text-xs uppercase font-bold text-gray-500 font-mono">Agent</label>
                           <select
                             value={slot.agent}
                             onChange={(e) => {
@@ -1401,12 +999,12 @@ export default function AITacticalHub({ data, theme, onUpsert, onRemove }: Compo
                     <Users className="w-4 h-4 text-[#ff4655]" />
                     <h3 className="font-black text-xs uppercase tracking-wider text-gray-200">Composition Style Analysis</h3>
                   </div>
-                  <span className="text-[10px] font-mono text-[#ff4655] uppercase tracking-wider font-black">{compStyle.archetype}</span>
+                  <span className="text-xs font-mono text-[#ff4655] uppercase tracking-wider font-black">{compStyle.archetype}</span>
                 </div>
 
                 {/* STYLE METER (Aggressive, Defensive, Balanced) */}
                 <div className="space-y-2">
-                  <div className="flex justify-between items-center text-[10px] font-mono font-bold text-gray-400">
+                  <div className="flex justify-between items-center text-xs font-mono font-bold text-gray-400">
                     <span className="text-red-400 flex items-center gap-1">🔴 Aggressive ({compStyle.agg}%)</span>
                     <span className="text-gray-300 flex items-center gap-1">⚪ Tactical ({compStyle.bal}%)</span>
                     <span className="text-blue-400 flex items-center gap-1">🔵 Defensive ({compStyle.def}%)</span>
@@ -1422,8 +1020,8 @@ export default function AITacticalHub({ data, theme, onUpsert, onRemove }: Compo
 
                 {/* Archetype explanation */}
                 <div className="p-4 rounded-xl border border-white/5 bg-black/25 space-y-2">
-                  <span className="text-[9px] uppercase font-bold text-gray-400 font-mono">Archetype Tactical Briefing</span>
-                  <p className="text-[11px] font-mono text-gray-300 leading-relaxed italic">
+                  <span className="text-xs uppercase font-bold text-gray-400 font-mono">Archetype Tactical Briefing</span>
+                  <p className="text-xs font-mono text-gray-300 leading-relaxed italic">
                     "{compStyle.text}"
                   </p>
                 </div>
@@ -1431,18 +1029,18 @@ export default function AITacticalHub({ data, theme, onUpsert, onRemove }: Compo
                 {/* Synergy rating display */}
                 <div className="grid grid-cols-2 gap-4">
                   <div className="p-3.5 rounded-xl border border-white/5 bg-black/25 text-center">
-                    <span className="text-[9px] uppercase font-bold text-gray-400 font-mono block mb-1">Draft Synergy Rating</span>
+                    <span className="text-xs uppercase font-bold text-gray-400 font-mono block mb-1">Draft Synergy Rating</span>
                     <span className="text-2xl font-black font-mono text-white">
                       {draftAnalytics.averageProficiency !== null ? `${draftAnalytics.averageProficiency}%` : '--'}
                     </span>
-                    <span className="text-[8px] font-mono text-gray-500 block mt-0.5">
+                    <span className="text-xs font-mono text-gray-500 block mt-0.5">
                       {draftAnalytics.averageProficiency === null ? 'Every pick needs agent evidence' : draftAnalytics.averageProficiency >= 88 ? '🟢 TIER-1 OPTIMIZED' : draftAnalytics.averageProficiency >= 78 ? '🟡 COMPETENT' : '🔴 NEEDS COMP REBUILD'}
                     </span>
                   </div>
 
                   <div className="p-3.5 rounded-xl border border-white/5 bg-black/25 space-y-1 text-xs">
-                    <span className="text-[9px] uppercase font-bold text-gray-400 font-mono block mb-1">Role Checklist</span>
-                    <div className="grid grid-cols-2 gap-x-2 gap-y-0.5 text-[10px] font-mono text-gray-300">
+                    <span className="text-xs uppercase font-bold text-gray-400 font-mono block mb-1">Role Checklist</span>
+                    <div className="grid grid-cols-2 gap-x-2 gap-y-0.5 text-xs font-mono text-gray-300">
                       <div className="flex justify-between"><span>Duelist:</span> <strong className="text-white">{draftAnalytics.duelistCount}</strong></div>
                       <div className="flex justify-between"><span>Sentinel:</span> <strong className="text-white">{draftAnalytics.sentinelCount}</strong></div>
                       <div className="flex justify-between"><span>Smokes:</span> <strong className="text-white">{draftAnalytics.controllerCount}</strong></div>
@@ -1460,7 +1058,7 @@ export default function AITacticalHub({ data, theme, onUpsert, onRemove }: Compo
                   </div>
                   <div className="space-y-1">
                     {draftAnalytics.warnings.map((w, i) => (
-                      <p key={i} className="text-[10px] font-mono text-gray-300 flex items-start gap-1.5">
+                      <p key={i} className="text-xs font-mono text-gray-300 flex items-start gap-1.5">
                         <span className="text-[#ff4655] select-none">▪</span> {w}
                       </p>
                     ))}

@@ -97,10 +97,9 @@ describe('analytics scope UI and routing', () => {
       expect(app).toMatch(new RegExp(`<${component}[^>]*data=\\{analyticsData\\}`));
     }
     expect(app).toMatch(/<AITacticalHub[^>]*data=\{coachReviewData \|\| analyticsData\}/);
-    for (const component of ['MatchLogRounds', 'ReplayWorkspace', 'VodReview', 'LineupLibrary', 'WebsiteMatchLog']) {
+    for (const component of ['MatchLogRounds', 'ReplayWorkspace', 'VodReview', 'LineupLibrary', 'WebsiteMatchLog', 'PlaybookStrategies']) {
       expect(app).toMatch(new RegExp(`<${component}[^>]*data=\\{workspaceData(?: \\|\\| data)?\\}`));
     }
-    expect(app).toMatch(/<MapBestStats[^>]*evidenceData=\{workspaceData \|\| data\}/);
     expect(app).not.toContain('activeWorkspaceData');
     expect(app).not.toContain('<AnalyticsScopeControl');
     expect(app).toMatch(/<SettingsControl[^>]*analyticsMapScope=\{analyticsMapScope\}/);

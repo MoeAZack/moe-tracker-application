@@ -76,7 +76,7 @@ export default function LoginScreen({ onLoginSuccess }: LoginScreenProps) {
             <Logo size={64} className="drop-shadow-[0_0_16px_rgba(255,70,85,0.45)]" />
           </div>
           <h2 className="text-2xl font-black tracking-wider text-white uppercase font-mono">
-            MoeAZack <span className="text-[#ff4655]">Valorant Tracker</span>
+            Moe <span className="text-[#ff4655]">Tracker</span>
           </h2>
           <p className="text-xs uppercase font-bold tracking-widest text-[#ff4655] bg-[#ff4655]/5 px-2.5 py-1 rounded inline-block">
             Your team workspace
@@ -86,7 +86,7 @@ export default function LoginScreen({ onLoginSuccess }: LoginScreenProps) {
         {/* Dynamic Help Banner */}
         <div className="liquid-subtle p-3.5 rounded-lg space-y-2 text-left">
           <div className="flex items-center justify-between">
-            <div className="flex items-center gap-1.5 text-[10px] uppercase font-bold tracking-widest text-[#3aa0ff]">
+            <div className="flex items-center gap-1.5 text-xs uppercase font-bold tracking-widest text-[#3aa0ff]">
               <span className="inline-block w-1.5 h-1.5 rounded-full bg-[#43d5c4]" />
               Welcome back
             </div>
@@ -104,7 +104,7 @@ export default function LoginScreen({ onLoginSuccess }: LoginScreenProps) {
           </p>
 
           {showHelp && (
-            <div className="mt-2 pt-2 border-t border-white/5 text-[9px] text-gray-400 space-y-1 bg-black/20 p-2.5 rounded border border-white/5">
+            <div className="mt-2 pt-2 border-t border-white/5 text-xs text-gray-400 space-y-1 bg-black/20 p-2.5 rounded border border-white/5">
               <p>💡 <strong>Coach access</strong>: Use the private coach password.</p>
               <p>👥 <strong>Player access</strong>: Use the player name and password chosen by your manager. Existing player access keys still work under Coach/access key.</p>
             </div>
@@ -127,11 +127,11 @@ export default function LoginScreen({ onLoginSuccess }: LoginScreenProps) {
         {/* Form */}
         <form onSubmit={handleSubmit} className="space-y-4 text-left">
           {mode === 'player' ? <>
-          <div className="space-y-1.5"><label htmlFor="player-name" className="text-[10px] font-bold uppercase tracking-widest text-gray-400 block">Player name</label><input id="player-name" required value={playerName} onChange={event => setPlayerName(event.target.value)} autoComplete="username" placeholder="Ahmed" className="ui-field w-full min-h-11 px-4 py-3 text-sm" /></div>
-          <div className="space-y-1.5"><label htmlFor="player-password" className="text-[10px] font-bold uppercase tracking-widest text-gray-400 block">Password</label><input id="player-password" type="password" minLength={10} required value={playerPassword} onChange={event => setPlayerPassword(event.target.value)} autoComplete="current-password" placeholder="10+ characters" className="ui-field w-full min-h-11 px-4 py-3 text-sm" /><p className="text-[10px] text-gray-500">Minimum 10 characters. Existing shorter passwords remain usable until the coach resets them.</p></div>
+          <div className="space-y-1.5"><label htmlFor="player-name" className="text-xs font-bold uppercase tracking-widest text-gray-400 block">Player name</label><input id="player-name" required value={playerName} onChange={event => setPlayerName(event.target.value)} autoComplete="username" placeholder="Ahmed" className="ui-field w-full min-h-11 px-4 py-3 text-sm" /></div>
+          <div className="space-y-1.5"><label htmlFor="player-password" className="text-xs font-bold uppercase tracking-widest text-gray-400 block">Password</label><input id="player-password" type="password" minLength={10} required value={playerPassword} onChange={event => setPlayerPassword(event.target.value)} autoComplete="current-password" placeholder="10+ characters" className="ui-field w-full min-h-11 px-4 py-3 text-sm" /><p className="text-xs text-gray-500">Minimum 10 characters. Existing shorter passwords remain usable until the coach resets them.</p></div>
           </> : <div className="space-y-1.5">
             <div className="flex justify-between items-center">
-              <label htmlFor="access-key" className="text-[10px] font-bold uppercase tracking-widest text-gray-400 block">
+              <label htmlFor="access-key" className="text-xs font-bold uppercase tracking-widest text-gray-400 block">
                 Access key
               </label>
             </div>
@@ -153,7 +153,7 @@ export default function LoginScreen({ onLoginSuccess }: LoginScreenProps) {
           <button
             type="submit"
             disabled={loading}
-            className="ui-button ui-button-primary w-full min-h-11 mt-2 px-4 py-3 disabled:opacity-50 font-mono font-bold text-xs uppercase tracking-widest flex items-center justify-center gap-2 cursor-pointer"
+            className="ui-button ui-button-primary w-full min-h-11 mt-2 px-4 py-3 disabled:opacity-50 font-mono font-bold text-xs tracking-widest flex items-center justify-center gap-2 cursor-pointer"
           >
             {loading ? (
               <span className="inline-block w-4 h-4 border-2 border-white/30 border-t-white rounded-full animate-spin" />
@@ -168,8 +168,8 @@ export default function LoginScreen({ onLoginSuccess }: LoginScreenProps) {
 
         {/* Footer info / help */}
         <div className="text-center pt-2">
-          <p className="text-[9px] text-gray-500 leading-loose uppercase tracking-widest font-mono">
-            MoeAZack Valorant Tracker · Secure Portal © 2026.
+          <p className="text-xs text-gray-500 leading-loose uppercase tracking-widest font-mono">
+            Moe Tracker · Secure Portal © 2026.
           </p>
         </div>
       </div>

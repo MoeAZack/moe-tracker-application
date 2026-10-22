@@ -308,23 +308,13 @@ export function shadowRatingReadiness(payload?: any): IntegrationReadiness {
   const calibrated = records.filter(item => item?.calibrationStatus === 'calibrated').length;
   return records.length ? { status: 'ready', detail: `${records.length} persisted shadow record${records.length === 1 ? '' : 's'}; ${eligible} accepted with coverage; ${calibrated} calibrated.` } : { status: 'unavailable', reason: 'baseline-missing', detail: 'No recomputed rating record exists for the active season.' };
 }
-export function rankedIntegrationReadiness(payload?: any): IntegrationReadiness {
-  const providers = values(payload?.ranked?.providers); const accounts = values(payload?.ranked?.accounts);
-  const consents = values(payload?.ranked?.consents).filter(item => !item?.revokedAt); const states = values(payload?.ranked?.states);
-  if (!providers.length && !accounts.length && !states.length) return { status: 'unavailable', reason: 'provider-ineligible', detail: 'No persisted ranked provider capability or active-season account exists.' };
-  if (!consents.length) return { status: 'unavailable', reason: 'consent-missing', detail: `${accounts.length} persisted account${accounts.length === 1 ? '' : 's'}; explicit player consent is missing.` };
-  const counts = ['fresh', 'partial', 'stale', 'error', 'blocked', 'never-synced'].map(status => `${states.filter(item => item?.status === status).length} ${status}`).join(', ');
-  return { status: 'ready', detail: `${consents.length} active consent${consents.length === 1 ? '' : 's'}; sync remains disabled. Health: ${counts}.` };
-}
 export const canOpenPrivateMatchReview = (role: string | null): boolean => role === 'coach';
 
 export function engineAdapterUiSummary(payload: any) {
   const replay = Array.isArray(payload?.replay) ? payload.replay : Object.values(payload?.replay || {});
   const ratings = Array.isArray(payload?.ratings) ? payload.ratings : Object.values(payload?.ratings?.records || {});
-  const consents = Object.values(payload?.ranked?.consents || {});
   return {
     replay: { configured: replay.some((item: any) => item?.status === 'accepted'), note: `${replay.length} persisted review${replay.length === 1 ? '' : 's'}; acceptance required` },
     shadowRating: { configured: ratings.some((item: any) => item?.status === 'accepted'), note: `${ratings.length} recomputed shadow record${ratings.length === 1 ? '' : 's'}; uncalibrated results stay experimental and never authoritative` },
-    rankedConsent: { configured: consents.some((item: any) => !item?.revokedAt), note: 'Offline consent/status only; provider sync remains disabled' },
   };
 }

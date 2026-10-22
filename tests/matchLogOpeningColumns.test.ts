@@ -13,7 +13,8 @@ describe('match log opening-duel columns', () => {
   });
 
   it('renders plant and discipline as three-state evidence instead of treating missing as No', () => {
-    const source = fs.readFileSync('src/components/MatchLogRounds.tsx', 'utf8');
+    // The round sheet editor lives in its own component; the round log stays in Match Review.
+    const source = ['src/components/MatchLogRounds.tsx', 'src/components/RoundSheetEditor.tsx'].map(file => fs.readFileSync(file, 'utf8')).join('\n');
     expect(source).toContain("roundFlag(r.plant) === true ? 'Yes' : roundFlag(r.plant) === false ? 'No' : '—'");
     expect(source).toContain('Round ${r.roundNo} plant status');
     expect(source).toContain('Round ${r.roundNo} discipline status');

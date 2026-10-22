@@ -200,11 +200,17 @@ function waitForHealth(port, timeoutMs = 20_000) {
   });
 }
 
+// Secrets the coach can store for the local service. A key saved by an older
+// build (such as the removed GRID key) stays encrypted on disk but is no longer
+// passed to the service.
+const INTEGRATION_SECRET_KEYS = ['GEMINI_API_KEY', 'DISCORD_WEBHOOK_URL'];
+
 async function startLocalServer() {
   const entry = path.join(applicationCodeRoot(), 'build', 'server.cjs');
   const integrationEnvironment = {};
   if (safeStorage.isEncryptionAvailable()) {
     for (const [key, encrypted] of Object.entries(runtime.config.integrationSecrets || {})) {
+      if (!INTEGRATION_SECRET_KEYS.includes(key)) continue;
       try { integrationEnvironment[key] = safeStorage.decryptString(Buffer.from(String(encrypted), 'base64')); }
       catch (error) { void recordLocalCrash('local-integration-secret-decrypt-failed', error, { key }); }
     }
@@ -804,13 +810,13 @@ handleTrusted('desktop:delete-replay', async (event, replayPath) => {
 });
 handleTrusted('desktop:get-integration-secret-status', async () => ({
   encryptionAvailable: safeStorage.isEncryptionAvailable(),
-  configured: Object.fromEntries(['GEMINI_API_KEY', 'GRID_API_KEY', 'DISCORD_WEBHOOK_URL'].map(key => [key, !!runtime.config.integrationSecrets?.[key]])),
+  configured: Object.fromEntries(INTEGRATION_SECRET_KEYS.map(key => [key, !!runtime.config.integrationSecrets?.[key]])),
   scope: 'local-device',
 }));
 handleTrusted('desktop:set-integration-secret', async (event, input = {}) => {
   requireTrustedSender(event);
   const key = String(input.key || ''); const value = String(input.value || '').trim();
-  if (!['GEMINI_API_KEY', 'GRID_API_KEY', 'DISCORD_WEBHOOK_URL'].includes(key)) throw new Error('Unknown integration secret.');
+  if (!INTEGRATION_SECRET_KEYS.includes(key)) throw new Error('Unknown integration secret.');
   if (!safeStorage.isEncryptionAvailable()) throw new Error('Windows credential encryption is unavailable for this user.');
   if (key === 'DISCORD_WEBHOOK_URL' && value && !/^https:\/\/(?:canary\.|ptb\.)?discord(?:app)?\.com\/api\/webhooks\//i.test(value)) throw new Error('Enter a valid Discord webhook URL.');
   runtime.config.integrationSecrets ||= {};
@@ -864,7 +870,7 @@ handleTrusted('desktop:export-team-package', async (event, input = {}) => {
 handleTrusted('desktop:preview-team-package', async (event, input = {}) => {
   requireTrustedSender(event);
   runtime.pendingImport = null;
-  const selection = await dialog.showOpenDialog(mainWindow, { properties: ['openFile'], title: 'Preview a MoeTracker package', filters: [{ name: 'MoeTracker packages', extensions: ['moetracker'] }] });
+  const selection = await dialog.showOpenDialog(mainWindow, { properties: ['openFile'], title: 'Preview a Moe Tracker package', filters: [{ name: 'Moe Tracker packages', extensions: ['moetracker'] }] });
   if (selection.canceled || !selection.filePaths[0]) return { canceled: true };
   const file = selection.filePaths[0]; const bytes = await fsp.readFile(file); if (bytes.length > MAX_ENVELOPE_BYTES) throw new Error('Portable package exceeds the safety limit.');
   const packageBytes = await decryptPortablePackage(bytes, input.password); const session = await bootstrapCoachSession();

@@ -1,58 +1,30 @@
 import React, { useState, useMemo } from 'react';
-import { TrackerData, Strat, StratRun } from '../types';
-import { Compass, Calculator, BookOpen, Plus, Edit2, Trash2, CheckCircle2, XCircle, TrendingUp, HelpCircle, ShieldAlert, AlertTriangle, UserMinus, Skull, Sparkles, Users } from 'lucide-react';
+import { TrackerData } from '../types';
+import { Compass, Calculator, TrendingUp, ShieldAlert, Skull, Sparkles, Users } from 'lucide-react';
 import { knownResult } from '../../lib/analyticsEvidence';
 import { classifyAverageLoadout, classifyTeamEquipment } from '../../lib/scrimRoundAnalytics';
 import ReplayMatchLog from './ReplayMatchLog';
 import MapRoundIntelligencePanel from './MapRoundIntelligencePanel';
 import { buildMapRoundIntelligence } from '../../lib/mapRoundAnalytics';
 import { percentageTextClass } from '../utils/percentageColor';
-import { activeResourceNames, buildResourceCatalog, canonicalResourceName } from '../../lib/resourceCatalog';
+import { activeResourceNames, canonicalResourceName } from '../../lib/resourceCatalog';
 import { bestMapInsight, buildBestMaps, buildMapStatsTable, sideRoundsComplete, teamKdComplete } from '../../lib/mapBestScores';
-import { confirmDialog } from '../utils/appDialogs';
+import { DEFAULT_MINIMUM_METRIC_SAMPLES, metricSampleGate } from '../../lib/metricTrust';
+import { sourceMixText } from '../../lib/statSource';
 
 interface ComponentProps {
   data: TrackerData;
-  evidenceData?: TrackerData;
   theme: any;
-  onUpsert: (sheet: string, row: any) => Promise<any>;
-  onRemove: (sheet: string, id: string) => Promise<any>;
 }
 
-export default function MapBestStats({ data, evidenceData = data, theme, onUpsert, onRemove }: ComponentProps) {
+export default function MapBestStats({ data, theme }: ComponentProps) {
   const isLight = data.settings.theme === 'daylight';
-  const [activeSubTab, setActiveSubTab] = useState<'stats' | 'calculator' | 'throws' | 'playbook'>('stats');
+  const [activeSubTab, setActiveSubTab] = useState<'stats' | 'calculator' | 'throws'>('stats');
 
-  const libraryMaps = useMemo(() => {
-    const names = new Map<string, string>();
-    const add = (value: unknown) => {
-      const display = String(value ?? '').trim();
-      const key = display.toLowerCase();
-      if (key && !names.has(key)) names.set(key, display);
-    };
-    buildResourceCatalog(evidenceData, 'map').forEach(entry => add(entry.name));
-    (evidenceData.matches || []).forEach(match => add(match.map));
-    (evidenceData.strats || []).forEach(strat => add(strat.map));
-    return [...names.values()];
-  }, [evidenceData]);
-
-  // --- PLAYBOOK STATE ---
-  const [selectedMap, setSelectedMap] = useState<string>(libraryMaps[0] || 'Ascent');
-  const [selectedSide, setSelectedSide] = useState<string>('All');
-  const [stratModalOpen, setStratModalOpen] = useState(false);
-  const [editingStrat, setEditingStrat] = useState<Partial<Strat> | null>(null);
-
-  // Strat Runs State
-  const [runLogOpen, setRunLogOpen] = useState(false);
-  const [selectedStratForRuns, setSelectedStratForRuns] = useState<Strat | null>(null);
-  const [newRunResult, setNewRunResult] = useState('W');
-  const [newRunReason, setNewRunReason] = useState('');
 
   const matches = data.matches || [];
   const playerStats = data.playerStats || [];
   const maps = useMemo(() => activeResourceNames(data, 'map'), [data]);
-  const stratsList = evidenceData.strats || [];
-  const stratRunsList = evidenceData.stratRuns || [];
   const roundIntelligenceByMap = useMemo(() => new Map(buildMapRoundIntelligence(matches, data.rounds || []).map(row => [row.map, row])), [matches, data.rounds]);
   const conversionText = (value?: { won: number; total: number }) => value?.total ? `${value.won}/${value.total} · ${Math.round(value.won / value.total * 100)}%` : '—';
   const conversionPercentage = (value?: { won: number; total: number }) => value?.total ? Math.round(value.won / value.total * 100) : null;
@@ -63,6 +35,7 @@ export default function MapBestStats({ data, evidenceData = data, theme, onUpser
   // --- BEST MAP CALCULATOR WEIGHTED ---
   const calculatedBestMaps = useMemo(() => buildBestMaps(data, mapStatsTable), [data, mapStatsTable]);
   const insight = bestMapInsight(calculatedBestMaps, data.settings);
+  const minimumMapSamples = data.settings.stats?.lowSample || DEFAULT_MINIMUM_METRIC_SAMPLES;
 
   // --- TACTICAL LOSS & THROW ANALYTICS ---
   const throwStats = useMemo(() => {
@@ -226,121 +199,21 @@ export default function MapBestStats({ data, evidenceData = data, theme, onUpser
   }, [throwStats]);
   const totalEvidenceLosses = useMemo(() => Object.values(throwStats.mapThrows).reduce((total, row: any) => total + row.evidenceLosses, 0), [throwStats]);
 
-  // --- PLAYBOOK STRAT COMPUTATION ---
-  const filteredStrats = useMemo(() => {
-    return stratsList.filter(s => {
-      const matchMap = s.map.trim().toLowerCase() === selectedMap.trim().toLowerCase();
-      const matchSide = selectedSide === 'All' || s.side === selectedSide;
-      return matchMap && matchSide;
-    });
-  }, [stratsList, selectedMap, selectedSide]);
-
-  const stratRunsStats = useMemo(() => {
-    const stats: Record<string, { wins: number; losses: number; reason: string }> = {};
-    stratsList.forEach(s => {
-      stats[s.id] = { wins: 0, losses: 0, reason: '' };
-    });
-
-    stratRunsList.forEach((r) => {
-      if (!stats[r.stratId]) return;
-      if (r.result === 'W') stats[r.stratId].wins++;
-      else {
-        stats[r.stratId].losses++;
-        if (r.reason) stats[r.stratId].reason = r.reason; // Capture last reason
-      }
-    });
-
-    return stats;
-  }, [stratsList, stratRunsList]);
-
-  // --- PLAYBOOK MUTATIONS ---
-  const handleOpenAddStrat = () => {
-    setEditingStrat({
-      id: '',
-      map: selectedMap,
-      side: 'Att',
-      name: '',
-      notes: '',
-      active: 'TRUE'
-    });
-    setStratModalOpen(true);
-  };
-
-  const handleOpenEditStrat = (s: Strat) => {
-    setEditingStrat({ ...s });
-    setStratModalOpen(true);
-  };
-
-  const handleSaveStratSubmit = async (e: React.FormEvent) => {
-    e.preventDefault();
-    if (!editingStrat || !editingStrat.name) return;
-    await onUpsert('Strats', editingStrat);
-    setStratModalOpen(false);
-    setEditingStrat(null);
-  };
-
-  const handleDeleteStrat = async (id: string) => {
-    if (data.settings.confirmOnDelete && !(await confirmDialog('Delete this strategy and its execution runs history?', { destructive: true, confirmLabel: 'Delete' }))) return;
-    await onRemove('Strats', id);
-    if (selectedStratForRuns?.id === id) {
-      setSelectedStratForRuns(null);
-      setRunLogOpen(false);
-    }
-  };
-
-  const handleOpenRunLog = (s: Strat) => {
-    setSelectedStratForRuns(s);
-    setNewRunResult('W');
-    setNewRunReason('');
-    setRunLogOpen(true);
-  };
-
-  const handleAddRunLogSubmit = async (e: React.FormEvent) => {
-    e.preventDefault();
-    if (!selectedStratForRuns) return;
-
-    const run: Partial<StratRun> = {
-      id: '',
-      stratId: selectedStratForRuns.id,
-      matchId: '',
-      date: new Date().toISOString().slice(0, 10),
-      map: selectedStratForRuns.map,
-      side: selectedStratForRuns.side,
-      result: newRunResult,
-      reason: newRunReason
-    };
-
-    await onUpsert('StratRuns', run);
-    setNewRunReason('');
-    // Refresh selections
-  };
-
-  const handleDeleteRunLog = async (id: string) => {
-    if (data.settings.confirmOnDelete && !(await confirmDialog('Delete this run log record?', { destructive: true, confirmLabel: 'Delete' }))) return;
-    await onRemove('StratRuns', id);
-  };
-
-  const runsForSelectedStrat = useMemo(() => {
-    if (!selectedStratForRuns) return [];
-    return stratRunsList.filter(sr => sr.stratId === selectedStratForRuns.id);
-  }, [stratRunsList, selectedStratForRuns]);
-
   return (
     <div className="space-y-6">
       {/* Sub tabs bar */}
       <div className="flex flex-wrap gap-2 border-b border-white/10 pb-4">
         {[
-          { id: 'stats', label: 'Map Pool Stats', icon: Compass },
-          { id: 'calculator', label: 'Best Map Calculator', icon: Calculator },
-          { id: 'throws', label: 'Tactical Error & Throws', icon: ShieldAlert },
-          { id: 'playbook', label: 'Playbook Strategy', icon: BookOpen }
+          { id: 'stats', label: 'Map pool stats', icon: Compass },
+          { id: 'calculator', label: 'Best map calculator', icon: Calculator },
+          { id: 'throws', label: 'Tactical errors & throws', icon: ShieldAlert }
         ].map(tb => {
           const Icon = tb.icon;
           return (
             <button
               key={tb.id}
               onClick={() => setActiveSubTab(tb.id as any)}
-              className={`flex items-center gap-2 px-4 py-2 text-xs font-black tracking-widest uppercase rounded-lg transition-all ${
+              className={`flex items-center gap-2 px-4 py-2 text-xs font-black tracking-widest rounded-lg transition-all ${
                 activeSubTab === tb.id
                   ? 'bg-white/5 text-white shadow-md border-b-2 border-white'
                   : 'text-gray-400 hover:text-white'
@@ -353,7 +226,7 @@ export default function MapBestStats({ data, evidenceData = data, theme, onUpser
         })}
       </div>
 
-      <ReplayMatchLog data={data} theme={theme} title="Map replay history" description="Accepted practice maps feed the pool table and calculator from this same reviewed match evidence." />
+      <ReplayMatchLog data={data} theme={theme} title="Map replay history" description="Matches whose screenshot or replay evidence you accepted. The pool table and calculator below count every recorded match on each map, including ones entered by hand." />
 
       {/* VIEW: MAP POOL STATS */}
       {activeSubTab === 'stats' && (
@@ -363,11 +236,12 @@ export default function MapBestStats({ data, evidenceData = data, theme, onUpser
             <Compass className={`w-5 h-5 ${theme.text}`} />
             <h4 className="font-black text-sm uppercase tracking-wide">Map Pool Breakdown</h4>
           </div>
+          {matches.length > 0 && <p className="text-xs text-slate-400">{sourceMixText(matches, data.playerStats)}</p>}
 
           <div className="overflow-x-auto">
             <table className="w-full min-w-[1580px] text-left border-collapse font-mono text-xs">
               <thead>
-                <tr className="border-b border-white/10 text-[9px] uppercase tracking-widest text-gray-500"><th className="px-3 py-2" colSpan={4}>Map results</th><th className="border-l border-white/10 px-3 py-2 text-center" colSpan={2}>Side win rate</th><th className="border-l border-white/10 px-3 py-2 text-center" colSpan={6}>Long-term opening conversion · first three rounds of each side</th><th className="border-l border-white/10 px-3 py-2 text-center">Combat</th></tr>
+                <tr className="border-b border-white/10 text-xs uppercase tracking-widest text-gray-500"><th className="px-3 py-2" colSpan={4}>Map results</th><th className="border-l border-white/10 px-3 py-2 text-center" colSpan={2}>Side win rate</th><th className="border-l border-white/10 px-3 py-2 text-center" colSpan={6}>Long-term opening conversion · first three rounds of each side</th><th className="border-l border-white/10 px-3 py-2 text-center">Combat</th></tr>
                 <tr className="border-b border-white/10 text-gray-500 uppercase font-bold">
                   <th className="py-3 px-3">Map</th><th className="py-3 px-3 text-center">Played</th><th className="py-3 px-3 text-center">W / L / D</th><th className="py-3 px-3 text-center">Win rate</th>
                   <th className="border-l border-white/10 py-3 px-3 text-center">ATT</th><th className="py-3 px-3 text-center">DEF</th>
@@ -387,6 +261,8 @@ export default function MapBestStats({ data, evidenceData = data, theme, onUpser
                   const defWr = sides && (s.defW + s.defL) > 0 ? ((s.defW / (s.defW + s.defL)) * 100).toFixed(0) : null;
                   const kd = teamKdComplete(s) && s.deaths > 0 ? (s.kills / s.deaths).toFixed(2) : '-';
                   const roundIntel = roundIntelligenceByMap.get(mName);
+                  // A raw rate from a handful of maps is shown, but marked and left uncoloured.
+                  const smallSample = metricSampleGate(played, minimumMapSamples).confidence === 'low';
 
                   return (
                     <tr key={mName} className="hover:bg-white/5">
@@ -396,7 +272,8 @@ export default function MapBestStats({ data, evidenceData = data, theme, onUpser
                         <span className="text-emerald-400 font-bold">{s.actualWon}</span> / <span className="text-rose-400 font-bold">{s.actualLost}</span> / {s.actualDrawn}
                       </td>
                       <td className="py-3.5 px-3 text-center font-black text-sm">
-                        <span className={weightedPlayed > 0 ? percentageTextClass(Number(winrate)) : 'text-slate-500'}>{weightedPlayed > 0 ? `${winrate}%` : '—'}</span>
+                        <span className={weightedPlayed > 0 ? smallSample ? 'text-slate-300' : percentageTextClass(Number(winrate)) : 'text-slate-500'}>{weightedPlayed > 0 ? `${winrate}%` : '—'}</span>
+                        {weightedPlayed > 0 && smallSample && <span className="mt-0.5 block text-xs font-semibold normal-case text-amber-300">Small sample · {played} of {minimumMapSamples} maps</span>}
                       </td>
                       <td className={`border-l border-white/5 py-3.5 px-3 text-center font-bold ${attWr !== null ? percentageTextClass(Number(attWr)) : 'text-slate-500'}`}>{attWr !== null ? `${attWr}%` : '—'}</td><td className={`py-3.5 px-3 text-center font-bold ${defWr !== null ? percentageTextClass(Number(defWr)) : 'text-slate-500'}`}>{defWr !== null ? `${defWr}%` : '—'}</td>
                       <td className={`border-l border-white/5 py-3.5 px-3 text-center ${percentageTextClass(conversionPercentage(roundIntel?.pistolBySide.attack))}`}>{conversionText(roundIntel?.pistolBySide.attack)}</td><td className={`py-3.5 px-3 text-center ${percentageTextClass(conversionPercentage(roundIntel?.pistolBySide.defense))}`}>{conversionText(roundIntel?.pistolBySide.defense)}</td>
@@ -421,9 +298,9 @@ export default function MapBestStats({ data, evidenceData = data, theme, onUpser
             <div className="flex flex-wrap items-start justify-between gap-3">
               <div className="flex items-center gap-2">
                 <Calculator className={`w-5 h-5 ${theme.text}`} />
-                <div><h4 className="font-black text-sm uppercase tracking-wide">Experimental best-map score</h4><p className="mt-1 text-[10px] text-gray-500">A descriptive composite of team results, side conversions, economy and team K/D. Unknown and undersampled inputs are excluded, never scored as average.</p></div>
+                <div><h4 className="font-black text-sm uppercase tracking-wide">Experimental best-map score</h4><p className="mt-1 text-xs text-gray-500">A descriptive composite of team results, side conversions, economy and team K/D. Unknown and undersampled inputs are excluded, never scored as average.</p></div>
               </div>
-              <span className="text-[10px] text-gray-500 font-mono uppercase bg-black/10 px-2 py-1 rounded">Shrink K: {data.settings.stats?.shrinkK || 10}</span>
+              <span className="text-xs text-gray-500 font-mono uppercase bg-black/10 px-2 py-1 rounded">Shrink K: {data.settings.stats?.shrinkK || 10}</span>
             </div>
 
             <div className="overflow-x-auto">
@@ -461,7 +338,7 @@ export default function MapBestStats({ data, evidenceData = data, theme, onUpser
                       <td className={`py-3.5 px-4 text-center ${percentageTextClass(cm.ecoWr)}`}>{cm.ecoWr === null ? 'Unknown' : `${cm.ecoWr}%`}</td>
                       <td className="py-3.5 px-4 text-center font-bold text-gray-300">{cm.kd ?? 'Unknown'}</td>
                       <td className={`py-3.5 px-4 text-center font-bold ${percentageTextClass(cm.playerPerformance)}`}>{cm.playerPerformance === null ? 'Unknown' : `${cm.playerPerformance}% · ${cm.contributingPlayers}P`}</td>
-                      <td className="py-3.5 px-4 text-center"><details className="relative"><summary className="cursor-pointer whitespace-nowrap text-cyan-300">{cm.ledger.coveragePercent}% · {cm.ledger.confidence}</summary><div className="mt-2 min-w-[280px] space-y-1 rounded-lg border border-white/10 bg-slate-950 p-2 text-left text-[10px]">{cm.ledger.contributions.map(item => <p key={item.key} className="flex justify-between gap-3"><span className={item.status === 'observed' ? 'text-slate-300' : 'text-amber-300'}>{item.label} · {item.samples} samples{item.status === 'insufficient-sample' ? ` (needs ${cm.ledger.minimumSamples})` : item.status === 'unknown' ? ' (unknown)' : ''}</span><strong>{item.status === 'observed' ? `${item.weightedPoints.toFixed(1)} / ${item.weight}` : 'Excluded'}</strong></p>)}</div></details></td>
+                      <td className="py-3.5 px-4 text-center"><details className="relative"><summary className="cursor-pointer whitespace-nowrap text-cyan-300">{cm.ledger.coveragePercent}% · {cm.ledger.confidence}</summary><div className="mt-2 min-w-[280px] space-y-1 rounded-lg border border-white/10 bg-slate-950 p-2 text-left text-xs">{cm.ledger.contributions.map(item => <p key={item.key} className="flex justify-between gap-3"><span className={item.status === 'observed' ? 'text-slate-300' : 'text-amber-300'}>{item.label} · {item.samples} samples{item.status === 'insufficient-sample' ? ` (needs ${cm.ledger.minimumSamples})` : item.status === 'unknown' ? ' (unknown)' : ''}</span><strong>{item.status === 'observed' ? `${item.weightedPoints.toFixed(1)} / ${item.weight}` : 'Excluded'}</strong></p>)}</div></details></td>
                     </tr>
                   ))}
                 </tbody>
@@ -475,7 +352,7 @@ export default function MapBestStats({ data, evidenceData = data, theme, onUpser
               <h5 className="text-xs uppercase font-black tracking-widest text-[#ff4655] font-mono">Experimental best-map insight</h5>
               <p className="text-xs text-gray-300 leading-relaxed font-mono">
                 Your highest experimental score is <strong className="text-white font-black">{insight.map}</strong> (Score Index of {insight.score}, {insight.ledger.coveragePercent}% of weight observed){insight.wr !== null ? `, with a ${insight.wr}% raw win rate across ${insight.n} recorded instances` : ''}{insight.playerPerformance !== null ? ` and ${insight.playerPerformance}% equal-weight player form from ${insight.contributingPlayers} players` : ''}.
-                {insight.kd !== null && Number(insight.kd) >= 1.1 ? ` Strong team KD ratio of ${insight.kd} on this map suggests robust map geometry familiarity & clean defensive anchor rotations.` : ''}
+                {insight.kd !== null ? ` Team K/D on this map is ${insight.kd}.` : ''}
                 {' '}Treat this as a descriptive, unvalidated pointer for veto discussion, not a recommendation.
               </p>
             </div>
@@ -489,15 +366,15 @@ export default function MapBestStats({ data, evidenceData = data, theme, onUpser
           {/* Top Quick Metrics */}
           <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
             <div className={`p-4 rounded-xl border ${isLight ? 'bg-white border-slate-200 text-slate-800 shadow-sm' : 'bg-white/5 border-white/10'} space-y-1`}>
-              <span className="text-[9px] uppercase font-bold text-gray-400 font-mono block">Evidence-costly losses</span>
+              <span className="text-xs uppercase font-bold text-gray-400 font-mono block">Evidence-costly losses</span>
               <div className="flex items-baseline gap-2">
                 <span className="text-2xl font-black text-rose-500">{totalEvidenceLosses}</span>
-                <span className="text-[9px] text-gray-500 font-mono">Auto-detected</span>
+                <span className="text-xs text-gray-500 font-mono">Auto-detected</span>
               </div>
             </div>
 
             <div className={`p-4 rounded-xl border ${isLight ? 'bg-white border-slate-200 text-slate-800 shadow-sm' : 'bg-white/5 border-white/10'} space-y-1`}>
-              <span className="text-[9px] uppercase font-bold text-gray-400 font-mono block">Primary Loss Driver</span>
+              <span className="text-xs uppercase font-bold text-gray-400 font-mono block">Primary Loss Driver</span>
               <div className="flex items-baseline gap-2">
                 <span className="text-sm font-black text-white truncate max-w-[130px]" title={topReason.reason}>{topReason.reason}</span>
                 <span className="text-xs text-rose-400 font-mono">({topReason.count})</span>
@@ -505,7 +382,7 @@ export default function MapBestStats({ data, evidenceData = data, theme, onUpser
             </div>
 
             <div className={`p-4 rounded-xl border ${isLight ? 'bg-white border-slate-200 text-slate-800 shadow-sm' : 'bg-white/5 border-white/10'} space-y-1`}>
-              <span className="text-[9px] uppercase font-bold text-gray-400 font-mono block">Highest costly-loss map</span>
+              <span className="text-xs uppercase font-bold text-gray-400 font-mono block">Highest costly-loss map</span>
               <div className="flex items-baseline gap-2">
                 <span className="text-sm font-black text-white truncate">{topMapThrow.map}</span>
                 <span className="text-xs text-rose-400 font-mono">({topMapThrow.count})</span>
@@ -513,10 +390,10 @@ export default function MapBestStats({ data, evidenceData = data, theme, onUpser
             </div>
 
             <div className={`p-4 rounded-xl border ${isLight ? 'bg-white border-slate-200 text-slate-800 shadow-sm' : 'bg-white/5 border-white/10'} space-y-1`}>
-              <span className="text-[9px] uppercase font-bold text-gray-400 font-mono block">Coach-confirmed throws</span>
+              <span className="text-xs uppercase font-bold text-gray-400 font-mono block">Coach-confirmed throws</span>
               <div className="flex items-baseline gap-2">
                 <span className="text-2xl font-black text-amber-400">{totalThrownRounds}</span>
-                <span className="text-[9px] text-gray-500 font-mono">Overpeek: {topOverpeeker.count ? `${topOverpeeker.name} (${topOverpeeker.count})` : 'not marked'}</span>
+                <span className="text-xs text-gray-500 font-mono">Overpeek: {topOverpeeker.count ? `${topOverpeeker.name} (${topOverpeeker.count})` : 'not marked'}</span>
               </div>
             </div>
           </div>
@@ -528,14 +405,14 @@ export default function MapBestStats({ data, evidenceData = data, theme, onUpser
                 <Compass className="w-4 h-4 text-[#ff4655]" />
                 Map Costly-Loss Densities
               </h4>
-              <p className="text-[9.5px] text-gray-400 font-mono leading-relaxed">
+              <p className="text-xs text-gray-400 font-mono leading-relaxed">
                 Automatic evidence flags economy punishments, failed post-pistol conversions, full-buy losses, and complete-event 2+ player advantage collapses. It does not assign player blame.
               </p>
 
               <div className="overflow-x-auto">
                 <table className="w-full text-left border-collapse font-mono text-xs">
                   <thead>
-                    <tr className="border-b border-white/10 text-gray-500 uppercase font-black text-[9px]">
+                    <tr className="border-b border-white/10 text-gray-500 uppercase font-black text-xs">
                       <th className="py-2">Map</th>
                       <th className="py-2 text-center">Costly losses</th>
                       <th className="py-2 text-center">Confirmed throws</th>
@@ -573,7 +450,7 @@ export default function MapBestStats({ data, evidenceData = data, theme, onUpser
                         <tr key={mName} className="hover:bg-white/5">
                           <td className="py-2 text-white font-bold">{mName}</td>
                           <td className="py-2 text-center">
-                            <span className={`px-2 py-0.5 rounded font-black text-[10px] ${
+                            <span className={`px-2 py-0.5 rounded font-black text-xs ${
                               stats.evidenceLosses > 4 ? 'bg-rose-500/10 text-rose-400 border border-rose-500/20' :
                               stats.evidenceLosses > 0 ? 'bg-amber-500/10 text-amber-400 border border-amber-500/20' :
                               'bg-gray-500/5 text-gray-600'
@@ -582,8 +459,8 @@ export default function MapBestStats({ data, evidenceData = data, theme, onUpser
                             </span>
                           </td>
                           <td className="py-2 text-center text-gray-400">{stats.totalThrows}</td>
-                          <td className="py-2 text-gray-300 text-[11px] truncate max-w-[120px]">{topMapReason}</td>
-                          <td className="py-2 text-amber-400 text-[11px] font-bold">{topMapPlayer}</td>
+                          <td className="py-2 text-gray-300 text-xs truncate max-w-[120px]">{topMapReason}</td>
+                          <td className="py-2 text-amber-400 text-xs font-bold">{topMapPlayer}</td>
                         </tr>
                       );
                     })}
@@ -600,14 +477,14 @@ export default function MapBestStats({ data, evidenceData = data, theme, onUpser
                   <Users className="w-4 h-4 text-[#ff4655]" />
                   Roster Discipline Leaderboard
                 </h4>
-                <p className="text-[9.5px] text-gray-400 font-mono leading-relaxed">
+                <p className="text-xs text-gray-400 font-mono leading-relaxed">
                   Player blame is coach-confirmed only. Screenshots cannot prove positioning intent such as an overpeek.
                 </p>
 
                 <div className="overflow-x-auto">
                   <table className="w-full text-left border-collapse font-mono text-xs">
                     <thead>
-                      <tr className="border-b border-white/10 text-gray-500 uppercase font-black text-[9px]">
+                      <tr className="border-b border-white/10 text-gray-500 uppercase font-black text-xs">
                         <th className="py-2">Player</th>
                         <th className="py-2 text-center text-amber-400">Overpeeks</th>
                         <th className="py-2 text-center text-cyan-400">Failed Clutches</th>
@@ -639,14 +516,14 @@ export default function MapBestStats({ data, evidenceData = data, theme, onUpser
                               <td className="py-2 text-center text-gray-500">{stats.otherThrows}</td>
                               <td className="py-2 text-center font-black text-white">{stats.total}</td>
                               <td className="py-2 text-right">
-                                <span className={`px-2 py-0.5 rounded text-[9px] uppercase ${riskBadge}`}>
+                                <span className={`px-2 py-0.5 rounded text-xs uppercase ${riskBadge}`}>
                                   {riskText}
                                 </span>
                               </td>
                             </tr>
                           );
                         })}
-                      {Object.values(throwStats.playerIssues).every((row: any) => row.total === 0) && <tr><td colSpan={6} className="py-5 text-center text-[10px] text-gray-500">No coach-attributed player errors. Automatic evidence is shown in the map table without assigning blame.</td></tr>}
+                      {Object.values(throwStats.playerIssues).every((row: any) => row.total === 0) && <tr><td colSpan={6} className="py-5 text-center text-xs text-gray-500">No coach-attributed player errors. Automatic evidence is shown in the map table without assigning blame.</td></tr>}
                     </tbody>
                   </table>
                 </div>
@@ -661,7 +538,7 @@ export default function MapBestStats({ data, evidenceData = data, theme, onUpser
 
                 <div className="space-y-2 pt-1 font-mono text-xs">
                   {Object.entries(throwStats.reasonFrequency).length === 0 ? (
-                    <p className="text-[10px] text-gray-500 text-center py-2">No automatic costly-loss pattern or coach-confirmed throw is available yet.</p>
+                    <p className="text-xs text-gray-500 text-center py-2">No automatic costly-loss pattern or coach-confirmed throw is available yet.</p>
                   ) : (
                     Object.entries(throwStats.reasonFrequency)
                       .sort((a, b) => (b[1] as number) - (a[1] as number))
@@ -671,7 +548,7 @@ export default function MapBestStats({ data, evidenceData = data, theme, onUpser
                         const pct = total > 0 ? Math.round((count / total) * 100) : 0;
                         return (
                           <div key={reasonStr} className="space-y-1">
-                            <div className="flex justify-between text-[11px]">
+                            <div className="flex justify-between text-xs">
                               <span className="font-bold text-white">{reasonStr}</span>
                               <span className="text-gray-400">{count} times ({pct}%)</span>
                             </div>
@@ -692,301 +569,17 @@ export default function MapBestStats({ data, evidenceData = data, theme, onUpser
 
           {/* Educational Tactical Note */}
           <div className="p-4 rounded-xl border border-white/5 bg-gradient-to-r from-red-500/5 to-transparent space-y-2 font-mono">
-            <h5 className="text-[10px] uppercase font-black tracking-widest text-[#ff4655] flex items-center gap-1.5">
+            <h5 className="text-xs uppercase font-black tracking-widest text-[#ff4655] flex items-center gap-1.5">
               <Sparkles className="w-3.5 h-3.5" />
               Tactical Loss & Discipline Diagnostics
             </h5>
-            <p className="text-[10.5px] text-gray-300 leading-relaxed">
+            <p className="text-xs text-gray-300 leading-relaxed">
               Economy mismatches, failed post-pistol conversions, full-buy losses and complete-event man-advantage collapses are calculated automatically. Overpeeking, the responsible player, and tactical intent remain coach-confirmed because screenshots cannot prove them reliably.
             </p>
           </div>
         </div>
       )}
 
-      {/* VIEW: PLAYBOOK STRATEGY */}
-      {activeSubTab === 'playbook' && (
-        <div className="grid grid-cols-1 lg:grid-cols-4 gap-6">
-          {/* Left panel map & side controllers */}
-          <div className={`p-5 rounded-xl border ${isLight ? 'bg-white border-slate-200 text-slate-800 shadow-sm' : 'bg-white/5 border-white/10'} space-y-4 lg:col-span-1 h-fit`}>
-            <div className="space-y-1">
-              <label className="text-[10px] uppercase font-black text-gray-400 font-mono">Filter Map</label>
-              <select
-                value={selectedMap}
-                onChange={e => setSelectedMap(e.target.value)}
-                className="w-full p-2 bg-black/20 text-white rounded border border-white/10 text-xs font-bold"
-              >
-                {libraryMaps.map(m => <option key={m} value={m}>{m}</option>)}
-              </select>
-            </div>
-
-            <div className="space-y-1">
-              <label className="text-[10px] uppercase font-black text-gray-400 font-mono">Side</label>
-              <div className="flex flex-col gap-1 text-xs">
-                {['All', 'Att', 'Def', 'Retake'].map(sd => (
-                  <button
-                    key={sd}
-                    onClick={() => setSelectedSide(sd)}
-                    className={`w-full text-left p-2 rounded transition-all font-mono font-bold ${
-                      selectedSide === sd
-                        ? 'bg-[#ff4655]/10 border-l-4 border-[#ff4655] text-[#ff4655]'
-                        : 'text-gray-400 hover:text-white hover:bg-white/5'
-                    }`}
-                  >
-                    {sd}
-                  </button>
-                ))}
-              </div>
-            </div>
-
-            <button
-              onClick={handleOpenAddStrat}
-              className="w-full py-2 bg-white/5 hover:bg-white/10 text-[10px] tracking-widest font-black uppercase text-white border border-white/10 rounded-lg flex items-center justify-center gap-1.5 transition-all"
-            >
-              <Plus className="w-4 h-4" /> NEW STRAT
-            </button>
-          </div>
-
-          {/* Strats table / lists */}
-          <div className="lg:col-span-3 space-y-4">
-            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-              {filteredStrats.map((st) => {
-                const sStats = stratRunsStats[st.id] || { wins: 0, losses: 0, reason: '' };
-                const total = sStats.wins + sStats.losses;
-                const winrate = total > 0 ? ((sStats.wins / total) * 100).toFixed(0) : '0';
-
-                return (
-                  <div key={st.id} className="p-5 bg-white/5 border border-white/5 rounded-xl flex flex-col justify-between group relative shadow-lg">
-                    <div className="absolute right-4 top-4 flex items-center gap-1.5 opacity-0 group-hover:opacity-100 transition-opacity">
-                      <button
-                        onClick={() => handleOpenEditStrat(st)}
-                        className="p-1 rounded hover:bg-white/10 text-gray-400 hover:text-white"
-                      >
-                        <Edit2 className="w-3.5 h-3.5" />
-                      </button>
-                      <button
-                        onClick={() => handleDeleteStrat(st.id)}
-                        className="p-1 rounded hover:bg-white/10 text-gray-400 hover:text-rose-500"
-                      >
-                        <Trash2 className="w-3.5 h-3.5" />
-                      </button>
-                    </div>
-
-                    <div className="space-y-3">
-                      <div className="flex items-center gap-2">
-                        <span className={`px-2 py-0.5 rounded text-[8px] font-black uppercase font-mono ${
-                          st.side === 'Att' ? 'bg-amber-500/10 text-amber-400 border border-amber-500/20' : 'bg-cyan-500/10 text-cyan-400 border border-cyan-500/20'
-                        }`}>
-                          {st.side}
-                        </span>
-                        <span className="text-[10px] text-gray-500 font-mono uppercase font-bold">{st.map}</span>
-                      </div>
-
-                      <div>
-                        <h5 className="text-base font-black tracking-tight leading-snug">{st.name}</h5>
-                        {st.notes && <p className="text-xs text-gray-400 mt-1 font-mono leading-relaxed">{st.notes}</p>}
-                      </div>
-                    </div>
-
-                    <div className="mt-5 pt-3 border-t border-white/5 flex justify-between items-center font-mono">
-                      <div className="text-[10px] text-gray-400">
-                        Runs: <span className="text-emerald-400 font-bold">{sStats.wins}W</span> - <span className="text-rose-400 font-bold">{sStats.losses}L</span> (<span className={total > 0 ? percentageTextClass(Number(winrate)) : 'text-slate-500'}>{total > 0 ? `${winrate}% WR` : '—'}</span>)
-                      </div>
-
-                      <button
-                        onClick={() => handleOpenRunLog(st)}
-                        className="px-2.5 py-1 text-[9px] font-bold rounded bg-white/5 border border-white/10 hover:bg-white/10 text-white uppercase"
-                      >
-                        Run Logs
-                      </button>
-                    </div>
-                  </div>
-                );
-              })}
-              {filteredStrats.length === 0 && (
-                <div className="col-span-full py-16 text-center text-gray-500 border border-dashed border-white/5 rounded-xl font-mono text-xs">
-                  No strategies added for {selectedMap} ({selectedSide} side).
-                </div>
-              )}
-            </div>
-          </div>
-        </div>
-      )}
-
-      {/* --- ADD / EDIT STRAT MODAL --- */}
-      {stratModalOpen && editingStrat && (
-        <div className="fixed inset-0 bg-black/80 flex items-center justify-center z-50 p-4 animate-fadeIn">
-          <form onSubmit={handleSaveStratSubmit} className={`w-full max-w-md p-6 rounded-2xl border ${isLight ? 'bg-white text-slate-800 border-slate-200' : 'bg-[#0f1923] text-white border-white/10'} space-y-4`}>
-            <div className="flex justify-between items-center border-b border-white/10 pb-3">
-              <h4 className="text-lg font-black tracking-tight uppercase">
-                {editingStrat.id ? 'EDIT STRATEGY' : 'ADD NEW STRATEGY'}
-              </h4>
-              <button
-                type="button"
-                onClick={() => setStratModalOpen(false)}
-                className="text-gray-400 hover:text-white font-bold"
-              >
-                ✕
-              </button>
-            </div>
-
-            <div className="grid grid-cols-2 gap-4">
-              <div className="space-y-1">
-                <label className="text-[10px] uppercase font-black text-gray-400 font-mono">Map</label>
-                <select
-                  value={editingStrat.map}
-                  onChange={e => setEditingStrat({ ...editingStrat, map: e.target.value })}
-                  className="w-full p-2.5 bg-black/20 text-white rounded border border-white/10 text-xs font-bold"
-                >
-                  {libraryMaps.map(m => <option key={m} value={m}>{m}</option>)}
-                </select>
-              </div>
-
-              <div className="space-y-1">
-                <label className="text-[10px] uppercase font-black text-gray-400 font-mono">Side</label>
-                <select
-                  value={editingStrat.side}
-                  onChange={e => setEditingStrat({ ...editingStrat, side: e.target.value })}
-                  className="w-full p-2.5 bg-black/20 text-white rounded border border-white/10 text-xs font-bold"
-                >
-                  <option value="Att">Att (Attack)</option>
-                  <option value="Def">Def (Defense)</option>
-                  <option value="Retake">Retake</option>
-                </select>
-              </div>
-            </div>
-
-            <div className="space-y-1">
-              <label className="text-[10px] uppercase font-black text-gray-400 font-mono">Strategy Name</label>
-              <input
-                type="text"
-                required
-                placeholder="e.g. A fast rush with Neon stun"
-                value={editingStrat.name}
-                onChange={e => setEditingStrat({ ...editingStrat, name: e.target.value })}
-                className="w-full p-2.5 bg-black/20 text-white rounded border border-white/10 text-xs"
-              />
-            </div>
-
-            <div className="space-y-1">
-              <label className="text-[10px] uppercase font-black text-gray-400 font-mono">Setup / Play Details</label>
-              <textarea
-                rows={4}
-                placeholder="List positions, agents, default util timing sequence, backup plans..."
-                value={editingStrat.notes}
-                onChange={e => setEditingStrat({ ...editingStrat, notes: e.target.value })}
-                className="w-full p-2.5 bg-black/20 text-white rounded border border-white/10 text-xs font-mono"
-              />
-            </div>
-
-            <div className="pt-4 flex justify-end gap-2 border-t border-white/10">
-              <button
-                type="button"
-                onClick={() => setStratModalOpen(false)}
-                className="px-4 py-2 bg-slate-500/10 hover:bg-slate-500/20 text-xs font-bold rounded cursor-pointer text-gray-400 hover:text-white font-mono"
-              >
-                CANCEL
-              </button>
-              <button
-                type="submit"
-                className={`px-4 py-2 ${theme.primaryBg} text-xs font-bold rounded cursor-pointer text-white font-mono`}
-              >
-                SAVE STRAT
-              </button>
-            </div>
-          </form>
-        </div>
-      )}
-
-      {/* --- STRAT RUN LOGS SEQUENCE DIALOG --- */}
-      {runLogOpen && selectedStratForRuns && (
-        <div className="fixed inset-0 bg-black/80 flex items-center justify-center z-50 p-4 animate-fadeIn">
-          <div className={`w-full max-w-2xl p-6 rounded-2xl border ${isLight ? 'bg-white text-slate-800 border-slate-200' : 'bg-[#0f1923] text-white border-white/10'} space-y-4`}>
-            <div className="flex justify-between items-center border-b border-white/10 pb-3">
-              <div>
-                <h4 className="text-lg font-black tracking-tight uppercase">Strategy execution history</h4>
-                <p className="text-xs text-gray-400 font-mono">{selectedStratForRuns.name} ({selectedStratForRuns.map} {selectedStratForRuns.side})</p>
-              </div>
-              <button
-                onClick={() => setRunLogOpen(false)}
-                className="text-gray-400 hover:text-white font-bold"
-              >
-                ✕
-              </button>
-            </div>
-
-            {/* Quick record run log form */}
-            <form onSubmit={handleAddRunLogSubmit} className="grid grid-cols-1 sm:grid-cols-3 gap-3 bg-black/20 p-3.5 rounded-xl border border-white/5 items-end">
-              <div className="space-y-1">
-                <label className="text-[9px] uppercase font-black text-gray-400 font-mono">Result</label>
-                <select
-                  value={newRunResult}
-                  onChange={e => setNewRunResult(e.target.value)}
-                  className="w-full p-2 bg-black text-white border border-white/10 rounded text-xs"
-                >
-                  <option value="W">W (Success)</option>
-                  <option value="L">L (Failure)</option>
-                </select>
-              </div>
-
-              <div className="space-y-1">
-                <label className="text-[9px] uppercase font-black text-gray-400 font-mono">Fail Reason / Split</label>
-                <input
-                  type="text"
-                  placeholder="e.g. missed block, bad trade"
-                  value={newRunReason}
-                  onChange={e => setNewRunReason(e.target.value)}
-                  className="w-full p-2 bg-black text-white border border-white/10 rounded text-xs"
-                />
-              </div>
-
-              <button
-                type="submit"
-                className={`w-full py-2 ${theme.primaryBg} text-white font-mono font-bold text-xs rounded`}
-              >
-                RECORD RUN
-              </button>
-            </form>
-
-            {/* Logs List */}
-            <div className="space-y-2 max-h-[250px] overflow-y-auto font-mono text-[11px] pr-1">
-              {runsForSelectedStrat.map((r) => (
-                <div key={r.id} className="flex justify-between items-center p-2.5 bg-white/5 border border-white/5 rounded-lg">
-                  <div className="flex items-center gap-2">
-                    {r.result === 'W' ? (
-                      <CheckCircle2 className="w-4.5 h-4.5 text-emerald-400 shrink-0" />
-                    ) : (
-                      <XCircle className="w-4.5 h-4.5 text-rose-500 shrink-0" />
-                    )}
-                    <div>
-                      <span className="text-white text-xs font-bold">{r.date}</span>
-                      {r.reason && <p className="text-gray-400 text-[10px] mt-0.5">Fail: {r.reason}</p>}
-                    </div>
-                  </div>
-
-                  <button
-                    onClick={() => handleDeleteRunLog(r.id)}
-                    className="p-1 rounded text-gray-500 hover:text-rose-400"
-                  >
-                    ✕
-                  </button>
-                </div>
-              ))}
-              {runsForSelectedStrat.length === 0 && (
-                <p className="text-center py-6 text-gray-500 text-xs font-mono">No execution runs logged for this strategy yet.</p>
-              )}
-            </div>
-
-            <div className="pt-4 border-t border-white/10 flex justify-end">
-              <button
-                onClick={() => setRunLogOpen(false)}
-                className="px-4 py-2 bg-slate-500/10 hover:bg-slate-500/20 text-xs font-bold rounded cursor-pointer text-gray-400 hover:text-white font-mono"
-              >
-                CLOSE
-              </button>
-            </div>
-          </div>
-        </div>
-      )}
     </div>
   );
 }
