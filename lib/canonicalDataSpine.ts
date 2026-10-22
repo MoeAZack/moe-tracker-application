@@ -32,6 +32,8 @@ function appearanceReference(base: EvidenceReferenceV1, row: any, playerId: stri
   if (!source && !row?.sourceMetadata) return base;
   return normalizeEvidenceReference({
     ...base, sourceTypes: source ? [source] : base.sourceTypes, round: null,
+    // A VOD row on a match from another source is anchored by its match id.
+    vod: source === 'vod' ? base.vod || { vodReviewId: null, noteId: null, atSeconds: null } : source ? null : base.vod,
     capturedAt: row?.sourceMetadata?.capturedAt || base.capturedAt,
     observedIdentities: observedName ? [{ playerId, observedName, agent: text(row?.agent), team: 'ours' }] : [],
     producer: base.producer,

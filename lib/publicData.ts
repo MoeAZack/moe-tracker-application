@@ -47,9 +47,16 @@ export function toPublicTrackerData(db: Record<string, any>, role: 'coach' | 'pl
     });
   }
   if (role === 'coach' && moe02FeatureEnabled('canonicalDataSpine', db.settings?.featureFlags)) {
-    const spine = buildCanonicalDataSpine(db); const validation = validateCanonicalDataSpine(spine);
-    if (!validation.ok) throw Object.assign(new Error('Canonical data spine contains broken references.'), { status: 500, issues: validation.issues });
-    publicData.canonicalDataSpine = spine;
+    // The spine is left out when it cannot be built or has broken references;
+    // it must never stop the rest of the workspace from loading.
+    try {
+      const spine = buildCanonicalDataSpine(db); const validation = validateCanonicalDataSpine(spine);
+      if (!validation.ok) throw Object.assign(new Error('Canonical data spine contains broken references.'), { issues: validation.issues });
+      publicData.canonicalDataSpine = spine;
+    } catch (error: any) {
+      delete publicData.canonicalDataSpine;
+      console.error(`[canonical-data-spine] left out: ${error?.message || error}`);
+    }
   } else delete publicData.canonicalDataSpine;
   if (role === 'coach') publicData.tryoutDecisionNotes = structuredClone(db.tryoutDecisionNotes || []);
   if (role === 'coach') publicData.identityCorrectionBatches = structuredClone(db.identityCorrectionBatches || []);
