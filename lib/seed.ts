@@ -8,7 +8,7 @@ export function createSeed() {
   const mo = String(new Date().getMonth() + 1).padStart(2, '0');
 
   const settings = {
-    teamName: 'MoeTracker',
+    teamName: 'Moe Tracker',
     season: '',
     theme: 'radiant',
     density: 'comfortable',

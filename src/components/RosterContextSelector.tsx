@@ -14,7 +14,7 @@ export default function RosterContextSelector({ data, value, onChange, allowUncl
   const needsBatch = value.kind === 'tryout' || value.kind === 'mixed';
   return (
     <div className="grid grid-cols-1 md:grid-cols-2 gap-3 p-3 rounded-lg border border-cyan-500/20 bg-cyan-500/5">
-      <label className="space-y-1 text-[10px] uppercase font-black text-gray-400 font-mono">
+      <label className="space-y-1 text-xs uppercase font-black text-gray-400 font-mono">
         Historical lineup context
         <select
           value={value.kind}
@@ -31,7 +31,7 @@ export default function RosterContextSelector({ data, value, onChange, allowUncl
         </select>
       </label>
       {needsBatch && (
-        <label className="space-y-1 text-[10px] uppercase font-black text-gray-400 font-mono">
+        <label className="space-y-1 text-xs uppercase font-black text-gray-400 font-mono">
           Tryout batch {value.kind === 'mixed' ? '(optional unless a tryout appears)' : ''}
           <select
             value={value.tryoutBatchId || ''}
@@ -44,7 +44,7 @@ export default function RosterContextSelector({ data, value, onChange, allowUncl
           </select>
         </label>
       )}
-      <p className="md:col-span-2 text-[10px] normal-case font-normal text-gray-400">
+      <p className="md:col-span-2 text-xs normal-case font-normal text-gray-400">
         Saved as historical context. Later promotion or membership changes do not rewrite past appearances.
       </p>
     </div>

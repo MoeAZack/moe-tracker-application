@@ -47,7 +47,7 @@ try {
     if (mobileNavigation) { const menu = page.getByRole('button', { name: 'Open navigation' }); await menu.focus(); await page.keyboard.press('Enter'); await page.getByRole('button', { name: 'Coaching', exact: true }).waitFor(); }
     const coaching = page.getByRole('button', { name: 'Coaching', exact: true }); await coaching.focus(); await page.keyboard.press('Enter');
     const schedule = page.getByRole('button', { name: 'Schedule & Goals', exact: true }); await schedule.waitFor(); await schedule.focus(); await page.keyboard.press('Enter');
-    await page.getByText('Schedule Calendar', { exact: true }).waitFor({ state: 'visible', timeout: 10_000 });
+    await page.getByText('Schedule calendar', { exact: true }).waitFor({ state: 'visible', timeout: 10_000 });
     const active = mobileNavigation ? 'page' : await schedule.getAttribute('aria-current').catch(() => null); const overflow = await page.evaluate(() => ({ document: document.documentElement.scrollWidth - document.documentElement.clientWidth, body: document.body.scrollWidth - document.body.clientWidth })); const motion = await page.locator('.animate-fadeIn').first().evaluate(element => getComputedStyle(element).animationDuration).catch(() => '0s'); const violations = await axe(page, `${zoom}% release workspace`);
     evidence.zoom.push({ zoom, viewport, skipLink: true, keyboardNavigation: active === 'page', overflow, reducedMotionDuration: motion, violations }); await context.close();
   }

@@ -17,7 +17,7 @@ interface Props {
 
 const SIDE_LABELS: Record<string, string> = { Att: 'Attack', Def: 'Defense', Retake: 'Retake' };
 
-/** The one place to write, edit and review strategies. AI tools and Live Logger only add to it. */
+/** The one place to write, edit and review strategies. AI tools and live recording only add to it. */
 export default function PlaybookStrategies({ data, theme, onUpsert, onRemove }: Props) {
   const isLight = data.settings.theme === 'daylight';
   const strats = data.strats || [];
@@ -97,7 +97,7 @@ export default function PlaybookStrategies({ data, theme, onUpsert, onRemove }: 
         <button type="button" disabled={!selectedMap} onClick={() => setEditing({ id: '', map: selectedMap, side: selectedSide === 'All' ? 'Att' : selectedSide, name: '', notes: '', active: 'TRUE' })} className="flex w-full items-center justify-center gap-1.5 rounded-lg border border-white/10 bg-white/5 py-2 text-xs font-semibold text-white hover:bg-white/10 disabled:opacity-50">
           <Plus className="h-4 w-4" aria-hidden="true" /> New strategy
         </button>
-        <p className="text-xs leading-relaxed text-slate-400">AI tools can draft a strategy and save it here. Picking strategies in Live Logger or the round editor logs a run and tags the round.</p>
+        <p className="text-xs leading-relaxed text-slate-400">AI tools can draft a strategy and save it here. Picking strategies while recording live, or in the round editor, logs a run and tags the round.</p>
       </div>
 
       <div className="grid grid-cols-1 gap-4 md:grid-cols-2 lg:col-span-3 content-start">

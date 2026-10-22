@@ -32,7 +32,7 @@ export default function PlayerPasswordForm({ playerId, playerName }: { playerId:
   if (!open) return <button type="button" onClick={() => setOpen(true)} className="ui-button min-h-9 px-3 text-xs"><KeyRound className="mr-1 inline h-3.5 w-3.5" />Password</button>;
   return <form onSubmit={save} className="w-full space-y-1 rounded-lg border border-white/10 bg-black/15 p-2">
     <div className="flex flex-wrap gap-1"><input aria-label={`New password for ${playerName}`} type="password" minLength={10} required value={password} onChange={event => setPassword(event.target.value)} placeholder="10+ characters" autoComplete="new-password" className="ui-field min-h-9 min-w-0 flex-1 px-2 text-xs" /><button disabled={busy || password.length < 10} className="ui-button min-h-9 px-2 text-xs font-bold disabled:opacity-50"><KeyRound className="mr-1 inline h-3.5 w-3.5" />Set</button><button type="button" onClick={dismiss} className="ui-button min-h-9 px-2 text-xs">Cancel</button></div>
-    <p className="text-[10px] text-gray-500">Minimum 10 characters. Resetting it immediately revokes prior password sessions.</p>
-    {error && <p role="alert" className="text-[10px] text-rose-400">{error}</p>}
+    <p className="text-xs text-gray-500">Minimum 10 characters. Resetting it immediately revokes prior password sessions.</p>
+    {error && <p role="alert" className="text-xs text-rose-400">{error}</p>}
   </form>;
 }

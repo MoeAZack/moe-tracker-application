@@ -425,14 +425,14 @@ export default function CoachWorkflow({
         <div className="flex gap-2">
           <button
             type="button"
-            className="ui-button min-h-10 px-3 text-xs"
+            className="ui-button inline-flex min-h-10 items-center gap-1.5 px-3 text-xs"
             onClick={() => setEditingLayout((value) => !value)}
           >
             {editingLayout ? "Done editing" : "Edit layout"}
           </button>
           <button
             type="button"
-            className="ui-button min-h-10 px-3 text-xs"
+            className="ui-button inline-flex min-h-10 items-center gap-1.5 px-3 text-xs"
             disabled={!!busy}
             onClick={() => load(true)}
           >
@@ -455,7 +455,7 @@ export default function CoachWorkflow({
       </header>
       <div className="space-y-3 rounded-xl border border-white/10 bg-black/10 p-3">
         <div className="flex flex-wrap items-end gap-3">
-          <label className="text-[10px] uppercase tracking-wider text-slate-400">
+          <label className="text-xs uppercase tracking-wider text-slate-400">
             Preset
             <select
               className="ui-field mt-1 h-10 w-full px-2 text-xs"
@@ -471,7 +471,7 @@ export default function CoachWorkflow({
           </label>
           <button
             type="button"
-            className="ui-button min-h-10 px-3 text-xs"
+            className="ui-button inline-flex min-h-10 items-center gap-1.5 px-3 text-xs"
             aria-expanded={filtersOpen}
             aria-controls="coach-workspace-filters"
             onClick={() => setFiltersOpen((open) => !open)}
@@ -482,7 +482,7 @@ export default function CoachWorkflow({
           {activeFilters > 0 && (
             <button
               type="button"
-              className="ui-button min-h-10 px-3 text-xs"
+              className="ui-button inline-flex min-h-10 items-center gap-1.5 px-3 text-xs"
               onClick={() => {
                 setView((current) => ({
                   ...current,
@@ -630,7 +630,7 @@ export default function CoachWorkflow({
             ).map((card) => (
               <button
                 key={card.id}
-                className="ui-button min-h-9 px-2 text-[10px]"
+                className="ui-button min-h-9 px-2 text-xs"
                 onClick={() =>
                   setView((current) => ({
                     ...current,
@@ -723,7 +723,7 @@ export default function CoachWorkflow({
           <div className="mt-3 flex justify-end gap-2">
             <button
               type="button"
-              className="ui-button min-h-10 px-3 text-xs"
+              className="ui-button inline-flex min-h-10 items-center gap-1.5 px-3 text-xs"
               onClick={() => setCorrection(null)}
             >
               Cancel
@@ -769,7 +769,7 @@ export default function CoachWorkflow({
                     </button>
                     <button
                       aria-label="Resize card"
-                      className="h-8 px-1 text-[9px] uppercase text-slate-400"
+                      className="h-8 px-1 text-xs text-slate-400"
                       onClick={() =>
                         setView((current) => ({
                           ...current,
@@ -906,7 +906,7 @@ function renderCard(
                   {signal.relatedActionId ? " · linked to active action" : ""}
                 </p>
               </div>
-              <span className="rounded-full border border-current/20 px-2 py-1 text-[10px] uppercase">
+              <span className="rounded-full border border-current/20 px-2 py-1 text-xs uppercase">
                 {signal.status}
               </span>
             </div>
@@ -914,13 +914,13 @@ function renderCard(
               {signal.status === "dismissed" ? (
                 <>
                   <button
-                    className="ui-button ui-button-primary min-h-9 px-3 text-[11px]"
+                    className="ui-button ui-button-primary min-h-9 px-3 text-xs"
                     onClick={() => mutate(signal, "new")}
                   >
                     Recover
                   </button>
                   <button
-                    className="ui-button min-h-9 border-rose-400/25 px-3 text-[11px] text-rose-300"
+                    className="ui-button min-h-9 border-rose-400/25 px-3 text-xs text-rose-300"
                     onClick={() => remove(signal)}
                   >
                     <Trash2 className="h-3.5 w-3.5" />
@@ -931,7 +931,7 @@ function renderCard(
                 <>
                   <button
                     disabled={signal.status === "reviewing"}
-                    className={`ui-button min-h-9 px-3 text-[11px] disabled:opacity-60 ${signal.status === "reviewing" ? "ui-button-primary" : ""}`}
+                    className={`ui-button min-h-9 px-3 text-xs disabled:opacity-60 ${signal.status === "reviewing" ? "ui-button-primary" : ""}`}
                     onClick={async () => {
                       const saved = await mutate(signal, "reviewing");
                       const target = signalReviewTarget(signal, rounds);
@@ -942,26 +942,26 @@ function renderCard(
                   </button>
                   <button
                     disabled={signal.status === "accepted"}
-                    className={`ui-button min-h-9 px-3 text-[11px] disabled:opacity-60 ${signal.status === "accepted" ? "ui-button-primary" : ""}`}
+                    className={`ui-button min-h-9 px-3 text-xs disabled:opacity-60 ${signal.status === "accepted" ? "ui-button-primary" : ""}`}
                     onClick={() => mutate(signal, "accepted")}
                   >
                     Accept
                   </button>
                   <button
                     disabled={signal.status === "needs-evidence"}
-                    className={`ui-button min-h-9 px-3 text-[11px] disabled:opacity-60 ${signal.status === "needs-evidence" ? "ui-button-primary" : ""}`}
+                    className={`ui-button min-h-9 px-3 text-xs disabled:opacity-60 ${signal.status === "needs-evidence" ? "ui-button-primary" : ""}`}
                     onClick={() => mutate(signal, "needs-evidence")}
                   >
                     Needs evidence
                   </button>
                   <button
-                    className="ui-button min-h-9 px-3 text-[11px]"
+                    className="ui-button min-h-9 px-3 text-xs"
                     onClick={() => correct(signal)}
                   >
                     Correct
                   </button>
                   <button
-                    className="ui-button min-h-9 px-3 text-[11px]"
+                    className="ui-button min-h-9 px-3 text-xs"
                     onClick={() => mutate(signal, "dismissed")}
                   >
                     Dismiss
@@ -970,7 +970,7 @@ function renderCard(
               )}
               {signal.status === "accepted" && !signal.relatedActionId && (
                 <button
-                  className="ui-button ui-button-primary min-h-9 px-3 text-[11px]"
+                  className="ui-button ui-button-primary min-h-9 px-3 text-xs"
                   onClick={() => makeAction(signal)}
                 >
                   Create action
@@ -978,7 +978,7 @@ function renderCard(
               )}
               {signal.matchIds[0] && (
                 <button
-                  className="ui-button min-h-9 px-3 text-[11px]"
+                  className="ui-button min-h-9 px-3 text-xs"
                   onClick={() => {
                     const target = signalReviewTarget(signal, rounds);
                     if (target) onOpenMatch(target.matchId, target.roundNo);
@@ -1004,7 +1004,7 @@ function renderCard(
           >
             <div className="flex items-center justify-between gap-3">
               <p className="text-sm font-semibold">{action.title}</p>
-              <span className="text-[10px] uppercase text-violet-200">
+              <span className="text-xs uppercase text-violet-200">
                 {action.state}
               </span>
             </div>
@@ -1021,19 +1021,19 @@ function renderCard(
             )}
             <div className="mt-2 flex flex-wrap gap-2">
               <button
-                className="ui-button min-h-8 px-2 text-[10px]"
+                className="ui-button min-h-8 px-2 text-xs"
                 onClick={() => mutateAction(action, "review-next-block")}
               >
                 Review next block
               </button>
               <button
-                className="ui-button min-h-8 px-2 text-[10px]"
+                className="ui-button min-h-8 px-2 text-xs"
                 onClick={() => mutateAction(action, "resolved")}
               >
                 Resolve
               </button>
               <button
-                className="ui-button min-h-8 px-2 text-[10px]"
+                className="ui-button min-h-8 px-2 text-xs"
                 onClick={() => mutateAction(action, "cancelled")}
               >
                 Cancel
@@ -1243,7 +1243,7 @@ function renderCard(
             ))}
         </div>
         {latest.mapResults.some((map) => !map.active) && (
-          <p className="mt-2 text-[10px] text-slate-500">
+          <p className="mt-2 text-xs text-slate-500">
             Inactive maps remain in historical exports but are excluded from the
             current map-pool card.
           </p>
@@ -1328,7 +1328,7 @@ function Metric({
 }) {
   return (
     <div className="rounded-xl border border-white/[0.07] bg-black/10 p-3">
-      <p className="text-[10px] uppercase tracking-wider text-slate-500">
+      <p className="text-xs uppercase tracking-wider text-slate-500">
         {label}
       </p>
       <p className="mt-1 text-base font-semibold">{value}</p>
@@ -1372,7 +1372,7 @@ function Filter({
   options: string[][];
 }) {
   return (
-    <label className="text-[10px] uppercase tracking-wider text-slate-400">
+    <label className="text-xs uppercase tracking-wider text-slate-400">
       {label}
       <select
         className="ui-field mt-1 h-10 w-full px-2 text-xs"
@@ -1394,7 +1394,7 @@ function ExportButton({ onClick }: { onClick: () => void }) {
     <button
       type="button"
       onClick={onClick}
-      className="mb-3 ml-auto flex min-h-8 items-center gap-1 text-[10px] uppercase tracking-wider text-cyan-300"
+      className="mb-3 ml-auto flex min-h-8 items-center gap-1 text-xs tracking-wider text-cyan-300"
     >
       <Download className="h-3 w-3" />
       Export CSV

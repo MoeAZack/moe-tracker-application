@@ -109,7 +109,7 @@ export default function App() {
     if (data && reviewMatchId && !(data.matches || []).some(match => match.id === reviewMatchId)) { setReviewMatchId(null); setReviewRoundNo(null); }
   }, [data, reviewMatchId]);
 
-  // Scrim Auto-Import modal
+  // Scrim auto-import modal
   const [scrimOpen, setScrimOpen] = useState(false);
 
   useEffect(() => {
@@ -514,7 +514,7 @@ export default function App() {
     if (resolved !== activeTab) setActiveTab(resolved);
   }, [activeTab, routableTabs]);
 
-  const appTitle = data?.settings?.teamName || 'MoeAZack Valorant Tracker';
+  const appTitle = data?.settings?.teamName || 'Moe Tracker';
   const themeMode = data?.settings?.theme || 'slate';
 
   if (!key) {
@@ -544,8 +544,8 @@ export default function App() {
           <div className="flex min-w-0 items-center gap-2.5">
             <Logo size={52} className="shrink-0 drop-shadow-[0_0_12px_rgba(92,232,244,0.28)]" />
             <div className="min-w-0 flex-1">
-              <span className="block whitespace-nowrap text-[18px] font-black uppercase italic leading-tight tracking-[-0.045em]">MOE TRACKER</span>
-              <span title={`Build ${__APP_REVISION__}`} className="text-[9px] font-mono text-gray-500 tracking-widest uppercase block -mt-1">SCRIM ENGINE · v{__APP_VERSION__}</span>
+              <span className="block whitespace-nowrap text-[18px] font-black uppercase italic leading-tight tracking-[-0.045em]">Moe Tracker</span>
+              <span title={`Build ${__APP_REVISION__}`} className="text-xs font-mono text-gray-500 tracking-widest uppercase block -mt-1">SCRIM ENGINE · v{__APP_VERSION__}</span>
             </div>
           </div>
           
@@ -557,7 +557,7 @@ export default function App() {
                   key={destination}
                   onClick={() => openDestination(destination)}
                   aria-current={isActive ? 'page' : undefined}
-                  className={`nav-item w-full flex items-center gap-4 px-3 py-2.5 text-left uppercase text-xs tracking-wider font-bold font-mono ${
+                  className={`nav-item w-full flex items-center gap-4 px-3 py-2.5 text-left text-xs tracking-wider font-bold font-mono ${
                     isActive
                       ? theme.navActive
                       : 'text-gray-400 hover:text-white'
@@ -580,8 +580,8 @@ export default function App() {
                 {role === 'coach' ? 'C' : 'P'}
               </div>
               <div className="min-w-0">
-                <span className="text-[9px] uppercase font-bold tracking-widest text-gray-500 block leading-none mb-1">Authenticated</span>
-                <span className="text-[11px] font-mono font-bold text-white block uppercase truncate">{username}</span>
+                <span className="text-xs uppercase font-bold tracking-widest text-gray-500 block leading-none mb-1">Authenticated</span>
+                <span className="text-xs font-mono font-bold text-white block uppercase truncate">{username}</span>
               </div>
             </div>
             
@@ -595,30 +595,30 @@ export default function App() {
                 setUsername(null);
                 setActiveTab('dashboard');
               }}
-              className="ui-button w-full min-h-9 px-3 py-1.5 hover:text-rose-300 text-gray-400 text-[9px] font-bold font-mono uppercase tracking-widest cursor-pointer flex items-center justify-center gap-1.5"
+              className="ui-button w-full min-h-9 px-3 py-1.5 hover:text-rose-300 text-gray-400 text-xs font-bold font-mono tracking-widest cursor-pointer flex items-center justify-center gap-1.5"
             >
-              Sign Out / Lock
+              Sign out / lock
             </button>
           </div>
 
           {/* Vision AI Import Module Button (Only Coach can use this) */}
           {desktopMode && role === 'coach' && (
             <div className="liquid-subtle p-4 rounded-xl space-y-2">
-              <div className="flex items-center gap-1.5 text-[#ff4655] font-black text-[10px] tracking-widest uppercase font-mono">
+              <div className="flex items-center gap-1.5 text-[#ff4655] font-black text-xs tracking-widest uppercase font-mono">
                 <Image className="w-4 h-4" /> SCOREBOARD IMPORT
               </div>
               <p className="text-sm text-gray-300 leading-normal">Read names and scores on your device for free, then review before saving.</p>
               <button
                 onClick={openReplayImport}
-                className="ui-button w-full min-h-10 px-3 py-2 text-xs font-bold text-[#ff6975] font-mono uppercase cursor-pointer"
+                className="ui-button w-full min-h-10 px-3 py-2 text-xs font-bold text-[#ff6975] font-mono cursor-pointer"
               >
-                IMPORT SCOREBOARD
+                Import scoreboard
               </button>
               <button
                 onClick={() => setScrimOpen(true)}
-                className="ui-button w-full min-h-10 px-3 py-2 text-xs font-bold text-gray-300 font-mono uppercase cursor-pointer"
+                className="ui-button w-full min-h-10 px-3 py-2 text-xs font-bold text-gray-300 font-mono cursor-pointer"
               >
-                Scrim Auto-Import
+                Scrim auto-import
               </button>
             </div>
           )}
@@ -629,7 +629,7 @@ export default function App() {
             </Suspense>
           )}
 
-          <footer className="text-[10px] font-mono text-gray-500 leading-relaxed">
+          <footer className="text-xs font-mono text-gray-500 leading-relaxed">
             <p>© {new Date().getFullYear()} {appTitle} Scrim Tracker.</p>
             <p className="mt-0.5 text-gray-600">Built for tournament-tier analysis.</p>
           </footer>
@@ -642,8 +642,8 @@ export default function App() {
           <div className="flex min-w-0 items-center gap-2">
             <Logo size={40} className="shrink-0" />
             <div className="min-w-0">
-              <span className="block whitespace-nowrap text-base font-black uppercase italic leading-tight tracking-[-0.04em]">MOE TRACKER</span>
-              <span title={`Build ${__APP_REVISION__}`} className="text-[8px] font-mono text-gray-500 tracking-widest block -mt-1 font-bold">SCRIM ENGINE · v{__APP_VERSION__}</span>
+              <span className="block whitespace-nowrap text-base font-black uppercase italic leading-tight tracking-[-0.04em]">Moe Tracker</span>
+              <span title={`Build ${__APP_REVISION__}`} className="text-xs font-mono text-gray-500 tracking-widest block -mt-1 font-bold">SCRIM ENGINE · v{__APP_VERSION__}</span>
             </div>
           </div>
 
@@ -682,7 +682,7 @@ export default function App() {
                     openDestination(destination);
                     setMobileMenuOpen(false);
                   }}
-                  className={`nav-item w-full min-h-11 flex items-center gap-3.5 px-3 py-2.5 text-left uppercase text-xs tracking-wider font-bold font-mono ${
+                  className={`nav-item w-full min-h-11 flex items-center gap-3.5 px-3 py-2.5 text-left text-xs tracking-wider font-bold font-mono ${
                     isActive
                       ? theme.navActive
                       : 'text-gray-400 hover:text-white'
@@ -698,7 +698,7 @@ export default function App() {
             {/* Mobile Session Status and Sign Out */}
             <div className="pt-3 border-t border-white/5 mt-2 space-y-2 text-left">
               <div className="flex justify-between items-center px-3 py-2 rounded bg-white/[0.02]">
-                <span className="text-[10px] uppercase tracking-widest font-mono text-gray-400">
+                <span className="text-xs uppercase tracking-widest font-mono text-gray-400">
                   User: <strong className="text-white font-mono">{username} ({role})</strong>
                 </span>
               </div>
@@ -713,16 +713,16 @@ export default function App() {
                   setMobileMenuOpen(false);
                   setActiveTab('dashboard');
                 }}
-                className="ui-button w-full min-h-11 px-3 py-2 text-rose-300 text-xs font-bold font-mono uppercase tracking-widest cursor-pointer text-center"
+                className="ui-button w-full min-h-11 px-3 py-2 text-rose-300 text-xs font-bold font-mono tracking-widest cursor-pointer text-center"
               >
-                Sign Out / Lock
+                Sign out / lock
               </button>
             </div>
           </nav>
         )}
 
         {data && desktopMode && <DesktopReplayAutomation data={data} role={role} onProcessed={fetchDatabase} onSaveMatch={handleSaveMatch} />}
-        <div className="aurora-utility-bar"><div className="aurora-utility-context"><span className="aurora-eyebrow">{data && activeTryoutPhase(data) ? `Tryouts · ${activeTryoutPhase(data)?.name}` : 'Team workspace'}</span><span className="aurora-version-badge" title="Installed MoeTracker version">v{__APP_VERSION__}</span></div>{data && <TeamSyncIndicator teamName={data.settings.teamName || 'MoeTracker team'} role={role} desktopMode={desktopMode} />}</div>
+        <div className="aurora-utility-bar"><div className="aurora-utility-context"><span className="aurora-eyebrow">{data && activeTryoutPhase(data) ? `Tryouts · ${activeTryoutPhase(data)?.name}` : 'Team workspace'}</span><span className="aurora-version-badge" title="Installed Moe Tracker version">v{__APP_VERSION__}</span></div>{data && <TeamSyncIndicator teamName={data.settings.teamName || 'Moe Tracker team'} role={role} desktopMode={desktopMode} />}</div>
         {data && ['dashboard', 'economy', 'maps', 'comps', 'roster', 'playerstats', 'comparisons'].includes(activeTab) && (data.tryoutBatches || []).some(batch => batch.status === 'archived') && <label className="mx-auto flex max-w-7xl w-full flex-wrap items-center gap-2 px-6 text-sm text-slate-300">Analytics history<select aria-label="Analytics phase" className="ui-field min-h-11 px-3" value={historicalTryoutId} onChange={event => setHistoricalTryoutId(event.target.value)}><option value="">Current workspace</option>{data.tryoutBatches.filter(batch => batch.status === 'archived').map(batch => <option key={batch.id} value={batch.id}>Archived tryouts · {batch.name}</option>)}</select>{historicalTryoutId && <span className="text-xs text-cyan-300">Viewing archived results only; new entries still use the current workspace.</span>}</label>}
 
         {/* Main Workspace Frame */}

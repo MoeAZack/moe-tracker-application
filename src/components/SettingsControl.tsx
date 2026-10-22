@@ -375,7 +375,7 @@ export default function SettingsControl({ data, theme, onSaveSettings, onRefresh
 
                 <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                   <div className="space-y-1">
-                    <label className="text-[10px] uppercase font-black text-gray-400 font-mono">Team / Workspace Name</label>
+                    <label className="text-xs uppercase font-black text-gray-400 font-mono">Team / Workspace Name</label>
                     <input
                       type="text"
                       required
@@ -386,7 +386,7 @@ export default function SettingsControl({ data, theme, onSaveSettings, onRefresh
                   </div>
 
                   <div className="space-y-1">
-                    <label className="text-[10px] uppercase font-black text-gray-400 font-mono">Visual UI Palette</label>
+                    <label className="text-xs uppercase font-black text-gray-400 font-mono">Visual UI Palette</label>
                     <select
                       value={themeMode}
                       onChange={e => setThemeMode(e.target.value)}
@@ -400,7 +400,7 @@ export default function SettingsControl({ data, theme, onSaveSettings, onRefresh
                 </div>
 
                 <div className="space-y-4 pt-4 border-t border-white/5">
-                  <h5 className="text-[10px] uppercase font-black text-gray-400 font-mono flex items-center gap-1.5">
+                  <h5 className="text-xs uppercase font-black text-gray-400 font-mono flex items-center gap-1.5">
                     <Key className="w-3.5 h-3.5 text-[#ff4655]" /> External API & Webhook Endpoints
                   </h5>
 
@@ -408,13 +408,13 @@ export default function SettingsControl({ data, theme, onSaveSettings, onRefresh
                 </div>
 
                 <div className="space-y-4 pt-4 border-t border-white/5 font-mono text-xs text-left">
-                  <h5 className="text-[10px] uppercase font-black text-gray-400 font-mono flex items-center gap-1.5">
+                  <h5 className="text-xs uppercase font-black text-gray-400 font-mono flex items-center gap-1.5">
                     <HardDrive className="w-3.5 h-3.5 text-[#ff4655]" /> Cloud AI
                   </h5>
 
                   <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                     <div className="space-y-1.5">
-                      <label className="text-[10px] uppercase font-black text-gray-500 block">AI Reasoning Model</label>
+                      <label className="text-xs uppercase font-black text-gray-500 block">AI Reasoning Model</label>
                       <select
                         value={aiModel}
                         onChange={e => setAiModel(e.target.value)}
@@ -425,21 +425,21 @@ export default function SettingsControl({ data, theme, onSaveSettings, onRefresh
                         <option value="gemini-1.5-flash">Gemini 1.5 Flash (Standard legacy)</option>
                         <option value="gemini-1.5-pro">Gemini 1.5 Pro (Deep analytical legacy)</option>
                       </select>
-                      <p className="text-[9px] text-gray-500 leading-relaxed">
+                      <p className="text-xs text-gray-500 leading-relaxed">
                         Select which Google Gemini reasoning engine powers the OCR scoreboard parser, strategy creator, and post-match tactical logs.
                       </p>
-                      <label className="mt-3 block text-[10px] uppercase font-black text-gray-500">Unresolved OCR fallback</label>
+                      <label className="mt-3 block text-xs uppercase font-black text-gray-500">Unresolved OCR fallback</label>
                       <select value={ocrFallback} onChange={event => setOcrFallback(event.target.value as 'local-only' | 'local-then-cloud')} className="w-full p-2.5 bg-black/25 text-white border border-white/10 rounded text-xs font-bold">
                         <option value="local-only">Local only · private</option>
                         <option value="local-then-cloud">Local first, Gemini only for unresolved captures</option>
                       </select>
-                      <p className="text-[9px] text-gray-500 leading-relaxed">Cloud fallback is off by default. When enabled, only an unresolved scoreboard is sent after local recognition fails; round screenshots stay local.</p>
+                      <p className="text-xs text-gray-500 leading-relaxed">Cloud fallback is off by default. When enabled, only an unresolved scoreboard is sent after local recognition fails; round screenshots stay local.</p>
                     </div>
                   </div>
                 </div>
 
                 <div className="space-y-2 pt-4 border-t border-white/5">
-                  <h5 className="text-[10px] uppercase font-black text-gray-400 font-mono">Safety Confirmations & Global Toggles</h5>
+                  <h5 className="text-xs uppercase font-black text-gray-400 font-mono">Safety Confirmations & Global Toggles</h5>
                   <div className="flex flex-col sm:flex-row gap-4 font-mono text-xs text-gray-400">
                     <label className="flex items-center gap-2 cursor-pointer">
                       <input
@@ -471,24 +471,24 @@ export default function SettingsControl({ data, theme, onSaveSettings, onRefresh
                   <p className="mt-2 text-xs leading-relaxed text-gray-400">Players check themselves in from their own account. The server decides on-time versus late in Africa/Cairo time, so changing a device clock cannot change the result.</p>
                 </div>
                 <div className="grid grid-cols-1 gap-4 md:grid-cols-3">
-                  <label className="space-y-1 text-[10px] font-black uppercase text-gray-400">Check-in opens before
-                    <div className="relative"><input aria-label="Check-in opens minutes before" type="number" min="0" max="1440" value={attendanceCheckInOpenMinutes} onChange={event => setAttendanceCheckInOpenMinutes(Number(event.target.value))} className="ui-field w-full p-2.5 text-sm" /><span className="absolute right-3 top-3 text-[9px] text-gray-500">MIN</span></div>
+                  <label className="space-y-1 text-xs font-black uppercase text-gray-400">Check-in opens before
+                    <div className="relative"><input aria-label="Check-in opens minutes before" type="number" min="0" max="1440" value={attendanceCheckInOpenMinutes} onChange={event => setAttendanceCheckInOpenMinutes(Number(event.target.value))} className="ui-field w-full p-2.5 text-sm" /><span className="absolute right-3 top-3 text-xs text-gray-500">MIN</span></div>
                   </label>
-                  <label className="space-y-1 text-[10px] font-black uppercase text-gray-400">On-time grace period
-                    <div className="relative"><input aria-label="Attendance grace minutes" type="number" min="0" max="120" value={attendanceGraceMinutes} onChange={event => setAttendanceGraceMinutes(Number(event.target.value))} className="ui-field w-full p-2.5 text-sm" /><span className="absolute right-3 top-3 text-[9px] text-gray-500">MIN</span></div>
+                  <label className="space-y-1 text-xs font-black uppercase text-gray-400">On-time grace period
+                    <div className="relative"><input aria-label="Attendance grace minutes" type="number" min="0" max="120" value={attendanceGraceMinutes} onChange={event => setAttendanceGraceMinutes(Number(event.target.value))} className="ui-field w-full p-2.5 text-sm" /><span className="absolute right-3 top-3 text-xs text-gray-500">MIN</span></div>
                   </label>
-                  <label className="space-y-1 text-[10px] font-black uppercase text-gray-400">Check-in closes after
-                    <div className="relative"><input aria-label="Check-in closes minutes after" type="number" min="10" max="1440" value={attendanceCheckInCloseMinutes} onChange={event => setAttendanceCheckInCloseMinutes(Number(event.target.value))} className="ui-field w-full p-2.5 text-sm" /><span className="absolute right-3 top-3 text-[9px] text-gray-500">MIN</span></div>
+                  <label className="space-y-1 text-xs font-black uppercase text-gray-400">Check-in closes after
+                    <div className="relative"><input aria-label="Check-in closes minutes after" type="number" min="10" max="1440" value={attendanceCheckInCloseMinutes} onChange={event => setAttendanceCheckInCloseMinutes(Number(event.target.value))} className="ui-field w-full p-2.5 text-sm" /><span className="absolute right-3 top-3 text-xs text-gray-500">MIN</span></div>
                   </label>
                 </div>
                 <div className="grid grid-cols-1 gap-4 border-t border-white/5 pt-5 md:grid-cols-3">
-                  <label className="space-y-1 text-[10px] font-black uppercase text-gray-400">Strikes per red dot
+                  <label className="space-y-1 text-xs font-black uppercase text-gray-400">Strikes per red dot
                     <input aria-label="Strikes per red dot" type="number" min="1" max="20" value={attendanceStrikesPerRedDot} onChange={event => setAttendanceStrikesPerRedDot(Number(event.target.value))} className="ui-field w-full p-2.5 text-sm" />
                   </label>
-                  <label className="space-y-1 text-[10px] font-black uppercase text-gray-400">Cost per active red dot
+                  <label className="space-y-1 text-xs font-black uppercase text-gray-400">Cost per active red dot
                     <input aria-label="Red dot cost" type="number" min="0" max="1000000" step="0.01" value={attendanceRedDotCost} onChange={event => setAttendanceRedDotCost(Number(event.target.value))} className="ui-field w-full p-2.5 text-sm" />
                   </label>
-                  <label className="space-y-1 text-[10px] font-black uppercase text-gray-400">Currency
+                  <label className="space-y-1 text-xs font-black uppercase text-gray-400">Currency
                     <input aria-label="Attendance currency" maxLength={12} value={attendanceCurrency} onChange={event => setAttendanceCurrency(event.target.value.toUpperCase())} className="ui-field w-full p-2.5 text-sm" />
                   </label>
                 </div>
@@ -502,12 +502,12 @@ export default function SettingsControl({ data, theme, onSaveSettings, onRefresh
               <div className="space-y-6">
                 <AnalyticsScopeControl scope={analyticsMapScope} context={analyticsMapScopeContext} onChange={onAnalyticsMapScopeChange} />
                 <div className="liquid-subtle space-y-3 rounded-xl border border-cyan-400/20 p-4">
-                  <div className="flex flex-wrap items-center justify-between gap-3"><div><h4 className="text-xs font-black uppercase tracking-widest text-cyan-300">Tryouts mode</h4><p className="mt-1 text-[10px] text-gray-400">Run repeatable candidate phases without changing the core roster.</p></div><span className={`rounded-full px-2 py-1 text-[10px] font-bold uppercase ${tryoutsMode ? 'bg-emerald-500/15 text-emerald-300' : 'bg-white/10 text-gray-400'}`}>{tryoutsMode ? 'On' : 'Off'}</span></div>
+                  <div className="flex flex-wrap items-center justify-between gap-3"><div><h4 className="text-xs font-black uppercase tracking-widest text-cyan-300">Tryouts mode</h4><p className="mt-1 text-xs text-gray-400">Run repeatable candidate phases without changing the core roster.</p></div><span className={`rounded-full px-2 py-1 text-xs font-bold uppercase ${tryoutsMode ? 'bg-emerald-500/15 text-emerald-300' : 'bg-white/10 text-gray-400'}`}>{tryoutsMode ? 'On' : 'Off'}</span></div>
                   {!tryoutsMode ? <div className="flex flex-col gap-2 sm:flex-row"><input aria-label="New tryout phase name" value={tryoutPhaseName} onChange={event => setTryoutPhaseName(event.target.value)} maxLength={100} placeholder="Phase name, e.g. October trials" className="ui-field min-h-11 flex-1 px-3" /><button type="button" disabled={tryoutModeBusy || !tryoutPhaseName.trim()} onClick={() => updateTryoutsMode(true)} className="ui-button ui-button-primary min-h-11 px-4 text-xs disabled:opacity-50">Start fresh phase</button></div> : <div className="space-y-2"><p className="text-xs text-amber-200">Turning Tryouts mode off archives the current phase and hides the active tryout workspace. Candidate history is preserved; nothing is deleted and core membership stays unchanged.</p><button type="button" disabled={tryoutModeBusy} onClick={() => updateTryoutsMode(false)} className="ui-button min-h-11 px-4 text-xs disabled:opacity-50">Turn off and archive phase</button></div>}
                   {tryoutModeError && <p role="alert" className="text-xs text-rose-400">{tryoutModeError}</p>}
                 </div>
                 <div className="liquid-subtle flex flex-wrap items-center justify-between gap-4 rounded-xl border border-white/10 p-4">
-                  <div><h4 className="text-xs font-black uppercase tracking-widest text-violet-300">Tryout comparisons navigation</h4><p className="mt-1 max-w-xl text-[10px] leading-relaxed text-gray-400">Keep the temporary comparison workspace under Team while you need it. Hiding it only affects this app session and does not delete any tryout data.</p></div>
+                  <div><h4 className="text-xs font-black uppercase tracking-widest text-violet-300">Tryout comparisons navigation</h4><p className="mt-1 max-w-xl text-xs leading-relaxed text-gray-400">Keep the temporary comparison workspace under Team while you need it. Hiding it only affects this app session and does not delete any tryout data.</p></div>
                   <button type="button" role="switch" aria-checked={showTryoutComparisons} onClick={() => onShowTryoutComparisonsChange(!showTryoutComparisons)} className={`ui-button min-h-11 min-w-28 px-4 text-xs font-bold ${showTryoutComparisons ? 'text-emerald-300' : 'text-gray-400'}`}>{showTryoutComparisons ? 'Shown in Team' : 'Hidden'}</button>
                 </div>
                 <div>
@@ -516,12 +516,12 @@ export default function SettingsControl({ data, theme, onSaveSettings, onRefresh
                     <button
                       type="button"
                       onClick={() => setShowRawTextarea(!showRawTextarea)}
-                      className="text-[9px] text-gray-500 hover:text-white uppercase px-2 py-0.5 border border-white/10 rounded font-bold"
+                      className="text-xs text-gray-500 hover:text-white px-2 py-0.5 border border-white/10 rounded font-bold"
                     >
                       {showRawTextarea ? "Show Interactive Lists" : "Show Advanced Raw Text"}
                     </button>
                   </h4>
-                  <p className="text-[9.5px] text-gray-400 font-mono mt-1">
+                  <p className="text-xs text-gray-400 font-mono mt-1">
                     Player identity and membership are managed in the main Roster tab. Toggle map and agent availability here.
                   </p>
                 </div>
@@ -530,14 +530,14 @@ export default function SettingsControl({ data, theme, onSaveSettings, onRefresh
                   <div className="space-y-4">
                     <div className="p-3 bg-rose-500/10 border border-rose-500/20 rounded-lg flex items-start gap-2">
                       <ShieldAlert className="w-4 h-4 text-rose-500 shrink-0 mt-0.5" />
-                      <p className="text-[9.5px] text-rose-400 font-mono leading-relaxed">
+                      <p className="text-xs text-rose-400 font-mono leading-relaxed">
                         WARNING: Raw editing replaces the entire lists and bypasses inactive-toggle memory. We recommend using the visual builders instead.
                       </p>
                     </div>
 
                     <div className="space-y-3">
                       <div className="space-y-1">
-                        <label className="text-[10px] uppercase font-black text-gray-400 font-mono block">Active Maps (Comma-separated)</label>
+                        <label className="text-xs uppercase font-black text-gray-400 font-mono block">Active Maps (Comma-separated)</label>
                         <textarea
                           rows={2}
                           value={rawMapsText}
@@ -547,7 +547,7 @@ export default function SettingsControl({ data, theme, onSaveSettings, onRefresh
                       </div>
 
                       <div className="space-y-1">
-                        <label className="text-[10px] uppercase font-black text-gray-400 font-mono block">Selectable Agents list (Comma-separated)</label>
+                        <label className="text-xs uppercase font-black text-gray-400 font-mono block">Selectable Agents list (Comma-separated)</label>
                         <textarea
                           rows={3}
                           value={rawAgentsText}
@@ -561,18 +561,18 @@ export default function SettingsControl({ data, theme, onSaveSettings, onRefresh
                   <div className="space-y-8">
                     {/* SECTION 1: MAP POOLS ROTATION */}
                     <div className="space-y-3 bg-black/10 p-4 rounded-xl border border-white/5">
-                      <h5 className="text-[11px] font-bold font-mono uppercase text-[#ff4655] tracking-wider">
+                      <h5 className="text-xs font-bold font-mono uppercase text-[#ff4655] tracking-wider">
                         1. MAPS POOLS ROTATION ({activeMaps.length} Active, {inactiveMaps.length} Rotated Out)
                       </h5>
-                      <p className="text-[9px] text-gray-500">Pool changes save immediately and update every selector and analytics surface.{poolSaving ? ' Saving…' : ''}</p>
+                      <p className="text-xs text-gray-500">Pool changes save immediately and update every selector and analytics surface.{poolSaving ? ' Saving…' : ''}</p>
                       
                       <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                         {/* Active Maps */}
                         <div className="space-y-1.5">
-                          <label className="text-[9px] uppercase font-black text-cyan-400 font-mono block">In Competitive Rotation</label>
+                          <label className="text-xs uppercase font-black text-cyan-400 font-mono block">In Competitive Rotation</label>
                           <div className="bg-black/20 rounded-lg p-2 border border-white/5 space-y-1 max-h-[160px] overflow-y-auto">
                             {activeMaps.length === 0 ? (
-                              <p className="text-[10px] text-gray-500 font-mono p-2 text-center">No active maps configured.</p>
+                              <p className="text-xs text-gray-500 font-mono p-2 text-center">No active maps configured.</p>
                             ) : (
                               activeMaps.map(m => (
                                 <div key={m} className="flex justify-between items-center text-xs p-1.5 rounded hover:bg-white/5 font-mono">
@@ -584,7 +584,7 @@ export default function SettingsControl({ data, theme, onSaveSettings, onRefresh
                                     <button
                                       type="button"
                                       onClick={() => handleToggleMap(m, true)}
-                                      className="text-[9px] font-bold text-gray-400 hover:text-amber-400 uppercase bg-black/20 px-1.5 py-0.5 rounded border border-white/5"
+                                      className="text-xs font-bold text-gray-400 hover:text-amber-400 bg-black/20 px-1.5 py-0.5 rounded border border-white/5"
                                       title="Toggle out of active pool"
                                     >
                                       Disable
@@ -605,10 +605,10 @@ export default function SettingsControl({ data, theme, onSaveSettings, onRefresh
 
                         {/* Inactive Maps */}
                         <div className="space-y-1.5">
-                          <label className="text-[9px] uppercase font-black text-gray-400 font-mono block">Rotated Out / Disabled</label>
+                          <label className="text-xs uppercase font-black text-gray-400 font-mono block">Rotated Out / Disabled</label>
                           <div className="bg-black/20 rounded-lg p-2 border border-white/5 space-y-1 max-h-[160px] overflow-y-auto">
                             {inactiveMaps.length === 0 ? (
-                              <p className="text-[10px] text-gray-600 font-mono p-2 text-center">No inactive maps.</p>
+                              <p className="text-xs text-gray-600 font-mono p-2 text-center">No inactive maps.</p>
                             ) : (
                               inactiveMaps.map(m => (
                                 <div key={m} className="flex justify-between items-center text-xs p-1.5 rounded hover:bg-white/5 font-mono">
@@ -620,7 +620,7 @@ export default function SettingsControl({ data, theme, onSaveSettings, onRefresh
                                     <button
                                       type="button"
                                       onClick={() => handleToggleMap(m, false)}
-                                      className="text-[9px] font-bold text-cyan-400 hover:text-cyan-300 uppercase bg-black/20 px-1.5 py-0.5 rounded border border-white/5"
+                                      className="text-xs font-bold text-cyan-400 hover:text-cyan-300 bg-black/20 px-1.5 py-0.5 rounded border border-white/5"
                                       title="Add to active pool"
                                     >
                                       Enable
@@ -655,7 +655,7 @@ export default function SettingsControl({ data, theme, onSaveSettings, onRefresh
                           onClick={() => void handleAddMap()}
                           className="px-4 py-2 bg-cyan-500 hover:bg-cyan-600 text-white font-black text-xs font-mono rounded-lg flex items-center gap-1.5"
                         >
-                          <Plus className="w-4 h-4" /> ADD MAP
+                          <Plus className="w-4 h-4" /> Add map
                         </button>
                       </div>
                     </div>
@@ -663,18 +663,18 @@ export default function SettingsControl({ data, theme, onSaveSettings, onRefresh
 
                     {/* SECTION 2: AGENTS ROTATION */}
                     <div className="space-y-3 bg-black/10 p-4 rounded-xl border border-white/5">
-                      <h5 className="text-[11px] font-bold font-mono uppercase text-[#ff4655] tracking-wider">
+                      <h5 className="text-xs font-bold font-mono uppercase text-[#ff4655] tracking-wider">
                         2. AGENT POOLS ({activeAgents.length} Active, {inactiveAgents.length} Inactive)
                       </h5>
-                      <p className="text-[9px] text-gray-500">Active agents populate selectors and metric rows immediately; disabled agents stay only in historical evidence.</p>
+                      <p className="text-xs text-gray-500">Active agents populate selectors and metric rows immediately; disabled agents stay only in historical evidence.</p>
                       
                       <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                         {/* Active Agents */}
                         <div className="space-y-1.5">
-                          <label className="text-[9px] uppercase font-black text-amber-500 font-mono block">Active / Common</label>
+                          <label className="text-xs uppercase font-black text-amber-500 font-mono block">Active / Common</label>
                           <div className="bg-black/20 rounded-lg p-2 border border-white/5 space-y-1 max-h-[160px] overflow-y-auto">
                             {activeAgents.length === 0 ? (
-                              <p className="text-[10px] text-gray-500 font-mono p-2 text-center">No active agents configured.</p>
+                              <p className="text-xs text-gray-500 font-mono p-2 text-center">No active agents configured.</p>
                             ) : (
                               activeAgents.map(a => (
                                 <div key={a} className="flex justify-between items-center text-xs p-1.5 rounded hover:bg-white/5 font-mono">
@@ -686,7 +686,7 @@ export default function SettingsControl({ data, theme, onSaveSettings, onRefresh
                                     <button
                                       type="button"
                                       onClick={() => handleToggleAgent(a, true)}
-                                      className="text-[9px] font-bold text-gray-400 hover:text-amber-400 uppercase bg-black/20 px-1.5 py-0.5 rounded border border-white/5"
+                                      className="text-xs font-bold text-gray-400 hover:text-amber-400 bg-black/20 px-1.5 py-0.5 rounded border border-white/5"
                                       title="Toggle to inactive/rare agent"
                                     >
                                       Disable
@@ -707,10 +707,10 @@ export default function SettingsControl({ data, theme, onSaveSettings, onRefresh
 
                         {/* Inactive Agents */}
                         <div className="space-y-1.5">
-                          <label className="text-[9px] uppercase font-black text-gray-400 font-mono block">Rare / Disabled Agents</label>
+                          <label className="text-xs uppercase font-black text-gray-400 font-mono block">Rare / Disabled Agents</label>
                           <div className="bg-black/20 rounded-lg p-2 border border-white/5 space-y-1 max-h-[160px] overflow-y-auto">
                             {inactiveAgents.length === 0 ? (
-                              <p className="text-[10px] text-gray-600 font-mono p-2 text-center">No inactive agents.</p>
+                              <p className="text-xs text-gray-600 font-mono p-2 text-center">No inactive agents.</p>
                             ) : (
                               inactiveAgents.map(a => (
                                 <div key={a} className="flex justify-between items-center text-xs p-1.5 rounded hover:bg-white/5 font-mono">
@@ -722,7 +722,7 @@ export default function SettingsControl({ data, theme, onSaveSettings, onRefresh
                                     <button
                                       type="button"
                                       onClick={() => handleToggleAgent(a, false)}
-                                      className="text-[9px] font-bold text-amber-400 hover:text-amber-300 uppercase bg-black/20 px-1.5 py-0.5 rounded border border-white/5"
+                                      className="text-xs font-bold text-amber-400 hover:text-amber-300 bg-black/20 px-1.5 py-0.5 rounded border border-white/5"
                                       title="Enable agent"
                                     >
                                       Enable
@@ -757,7 +757,7 @@ export default function SettingsControl({ data, theme, onSaveSettings, onRefresh
                           onClick={() => void handleAddAgent()}
                           className="px-4 py-2 bg-amber-500 hover:bg-amber-600 text-white font-black text-xs font-mono rounded-lg flex items-center gap-1.5"
                         >
-                          <Plus className="w-4 h-4" /> ADD AGENT
+                          <Plus className="w-4 h-4" /> Add agent
                         </button>
                       </div>
                     </div>
@@ -772,13 +772,13 @@ export default function SettingsControl({ data, theme, onSaveSettings, onRefresh
                 <h4 className="text-xs uppercase font-black tracking-widest text-[#ff4655] font-mono border-b border-white/5 pb-1">
                   Map Best Rating Coefficient Weights
                 </h4>
-                <p className="text-[10px] text-gray-400 font-mono leading-relaxed">
+                <p className="text-xs text-gray-400 font-mono leading-relaxed">
                   These weights adjust how much each metric influences the map rating algorithm. High-performance teams weight map wins and pistol rounds heavily to reflect tournament outcomes.
                 </p>
 
                 <div className="grid grid-cols-2 md:grid-cols-4 gap-4 font-mono text-xs">
                   <div className="space-y-1">
-                    <label className="text-[9px] uppercase font-bold text-gray-500">Map Win Weight</label>
+                    <label className="text-xs uppercase font-bold text-gray-500">Map Win Weight</label>
                     <input
                       type="number"
                       step={0.5}
@@ -788,7 +788,7 @@ export default function SettingsControl({ data, theme, onSaveSettings, onRefresh
                     />
                   </div>
                   <div className="space-y-1">
-                    <label className="text-[9px] uppercase font-bold text-gray-500">ATT Win weight</label>
+                    <label className="text-xs uppercase font-bold text-gray-500">ATT Win weight</label>
                     <input
                       type="number"
                       step={0.5}
@@ -798,7 +798,7 @@ export default function SettingsControl({ data, theme, onSaveSettings, onRefresh
                     />
                   </div>
                   <div className="space-y-1">
-                    <label className="text-[9px] uppercase font-bold text-gray-500">DEF Win weight</label>
+                    <label className="text-xs uppercase font-bold text-gray-500">DEF Win weight</label>
                     <input
                       type="number"
                       step={0.5}
@@ -808,7 +808,7 @@ export default function SettingsControl({ data, theme, onSaveSettings, onRefresh
                     />
                   </div>
                   <div className="space-y-1">
-                    <label className="text-[9px] uppercase font-bold text-gray-500">Pistols weight</label>
+                    <label className="text-xs uppercase font-bold text-gray-500">Pistols weight</label>
                     <input
                       type="number"
                       step={0.5}
@@ -818,7 +818,7 @@ export default function SettingsControl({ data, theme, onSaveSettings, onRefresh
                     />
                   </div>
                   <div className="space-y-1">
-                    <label className="text-[9px] uppercase font-bold text-gray-500">Ecos weight</label>
+                    <label className="text-xs uppercase font-bold text-gray-500">Ecos weight</label>
                     <input
                       type="number"
                       step={0.5}
@@ -828,7 +828,7 @@ export default function SettingsControl({ data, theme, onSaveSettings, onRefresh
                     />
                   </div>
                   <div className="space-y-1">
-                    <label className="text-[9px] uppercase font-bold text-gray-500">Bonus weight</label>
+                    <label className="text-xs uppercase font-bold text-gray-500">Bonus weight</label>
                     <input
                       type="number"
                       step={0.5}
@@ -838,7 +838,7 @@ export default function SettingsControl({ data, theme, onSaveSettings, onRefresh
                     />
                   </div>
                   <div className="space-y-1">
-                    <label className="text-[9px] uppercase font-bold text-gray-500">K/D weight</label>
+                    <label className="text-xs uppercase font-bold text-gray-500">K/D weight</label>
                     <input
                       type="number"
                       step={0.5}
@@ -851,35 +851,35 @@ export default function SettingsControl({ data, theme, onSaveSettings, onRefresh
 
                 <div className="grid grid-cols-1 md:grid-cols-2 gap-4 pt-4 border-t border-white/5 font-mono text-xs">
                   <div className="space-y-1">
-                    <label className="text-[10px] uppercase font-black text-gray-500 block">Small-sample smoothing</label>
+                    <label className="text-xs uppercase font-black text-gray-500 block">Small-sample smoothing</label>
                     <input
                       type="number"
                       value={shrinkK}
                       onChange={e => setShrinkK(Number(e.target.value))}
                       className="w-full p-2.5 bg-black/20 text-white border border-white/10 rounded"
                     />
-                    <p className="text-[9px] text-gray-500 leading-relaxed mt-0.5">Controls how cautiously map scores are shown when only a few matches have been played. Higher values keep small samples closer to the team average.</p>
+                    <p className="text-xs text-gray-500 leading-relaxed mt-0.5">Controls how cautiously map scores are shown when only a few matches have been played. Higher values keep small samples closer to the team average.</p>
                   </div>
 
                   <div className="space-y-1">
-                    <label className="text-[10px] uppercase font-black text-gray-500 block">Small-sample match limit</label>
+                    <label className="text-xs uppercase font-black text-gray-500 block">Small-sample match limit</label>
                     <input
                       type="number"
                       value={lowSample}
                       onChange={e => setLowSample(Number(e.target.value))}
                       className="w-full p-2.5 bg-black/20 text-white border border-white/10 rounded"
                     />
-                    <p className="text-[9px] text-gray-500 leading-relaxed mt-0.5">Maps with fewer matches than this are marked as a small sample, and their composite scores stay hidden.</p>
+                    <p className="text-xs text-gray-500 leading-relaxed mt-0.5">Maps with fewer matches than this are marked as a small sample, and their composite scores stay hidden.</p>
                   </div>
                 </div>
 
                 <label className="flex items-start gap-3 rounded-xl border border-amber-400/20 bg-amber-400/[0.04] p-3 text-xs">
                   <input type="checkbox" checked={experimentalCompositeScores} onChange={event => setExperimentalCompositeScores(event.target.checked)} className="mt-0.5 rounded" />
-                  <span><strong className="block text-amber-200">Show experimental composite scores</strong><span className="mt-1 block text-[10px] leading-relaxed text-gray-500">Displays unvalidated player ratings and best-map composites only when their sample gates pass. Raw K/D, KAST, win rates and evidence remain available regardless.</span></span>
+                  <span><strong className="block text-amber-200">Show experimental composite scores</strong><span className="mt-1 block text-xs leading-relaxed text-gray-500">Displays unvalidated player ratings and best-map composites only when their sample gates pass. Raw K/D, KAST, win rates and evidence remain available regardless.</span></span>
                 </label>
 
                 <div className="border-t border-white/5 pt-4 space-y-4 font-mono text-xs text-left">
-                  <h5 className="text-[11px] font-black uppercase text-[#ff4655]">Form Decay & Recency Controls</h5>
+                  <h5 className="text-xs font-black uppercase text-[#ff4655]">Form Decay & Recency Controls</h5>
                   
                   <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                     <div className="space-y-2">
@@ -892,11 +892,11 @@ export default function SettingsControl({ data, theme, onSaveSettings, onRefresh
                         />
                         Enable Recency-Based Time Decay
                       </label>
-                      <p className="text-[9px] text-gray-400 leading-relaxed">If enabled, older matches contribute less to current stats. Newer scrims/matches carry more predictive weight.</p>
+                      <p className="text-xs text-gray-400 leading-relaxed">If enabled, older matches contribute less to current stats. Newer scrims/matches carry more predictive weight.</p>
                     </div>
 
                     <div className="space-y-1">
-                      <label className="text-[10px] uppercase font-black text-gray-500 block">Half-Life of Match Weight (Days)</label>
+                      <label className="text-xs uppercase font-black text-gray-500 block">Half-Life of Match Weight (Days)</label>
                       <input
                         type="number"
                         disabled={!decayEnabled}
@@ -904,19 +904,19 @@ export default function SettingsControl({ data, theme, onSaveSettings, onRefresh
                         onChange={e => setHalfLifeDays(Number(e.target.value))}
                         className={`w-full p-2.5 bg-black/20 text-white border border-white/10 rounded ${!decayEnabled ? 'opacity-40 cursor-not-allowed' : ''}`}
                       />
-                      <p className="text-[9px] text-gray-500 leading-relaxed mt-0.5">The period after which a match's impact is reduced by 50%. (Default: 120 days)</p>
+                      <p className="text-xs text-gray-500 leading-relaxed mt-0.5">The period after which a match's impact is reduced by 50%. (Default: 120 days)</p>
                     </div>
                   </div>
 
                   <div className="space-y-1">
-                    <label className="text-[10px] uppercase font-black text-gray-500 block">Rolling Window Limit (Matches)</label>
+                    <label className="text-xs uppercase font-black text-gray-500 block">Rolling Window Limit (Matches)</label>
                     <input
                       type="number"
                       value={rollingWindow}
                       onChange={e => setRollingWindow(Number(e.target.value))}
                       className="w-full p-2.5 bg-black/20 text-white border border-white/10 rounded"
                     />
-                    <p className="text-[9px] text-gray-500 leading-relaxed mt-0.5">Determines the maximum number of recent matches to analyze in calculations (e.g. last 10 maps). Set to 0 to disable rolling window constraint.</p>
+                    <p className="text-xs text-gray-500 leading-relaxed mt-0.5">Determines the maximum number of recent matches to analyze in calculations (e.g. last 10 maps). Set to 0 to disable rolling window constraint.</p>
                   </div>
                 </div>
               </div>
@@ -931,7 +931,7 @@ export default function SettingsControl({ data, theme, onSaveSettings, onRefresh
                   <h4 className="text-xs uppercase font-black tracking-widest text-[#ff4655] font-mono">
                     Device, Sync, Storage &amp; Backup
                   </h4>
-                  <p className="text-[11px] text-gray-400 mt-1">Manage this PC, team synchronization, support files, updates, storage, and database backups.</p>
+                  <p className="text-xs text-gray-400 mt-1">Manage this PC, team synchronization, support files, updates, storage, and database backups.</p>
                 </div>
 
                 <StorageIndicator expanded />
@@ -946,7 +946,7 @@ export default function SettingsControl({ data, theme, onSaveSettings, onRefresh
                       </div>
                       <div>
                         <h5 className="text-xs font-bold font-mono">Export Local Database</h5>
-                        <p className="text-[10px] text-gray-400">Download a full JSON dump of your scrim logs, rosters, and stats.</p>
+                        <p className="text-xs text-gray-400">Download a full JSON dump of your scrim logs, rosters, and stats.</p>
                       </div>
                     </div>
                     
@@ -964,7 +964,7 @@ export default function SettingsControl({ data, theme, onSaveSettings, onRefresh
                       className="w-full py-2.5 bg-[#ff4655] hover:bg-[#ff4655]/90 text-white font-mono font-bold text-xs rounded transition flex items-center justify-center gap-2 cursor-pointer"
                     >
                       <Download className="w-4 h-4" />
-                      Download JSON Backup
+                      Download JSON backup
                     </button>
                   </div>
 
@@ -976,7 +976,7 @@ export default function SettingsControl({ data, theme, onSaveSettings, onRefresh
                       </div>
                       <div>
                         <h5 className="text-xs font-bold font-mono text-amber-500">Restore / Import Payload</h5>
-                        <p className="text-[10px] text-gray-400">Overwrite the database by uploading a valid JSON backup file.</p>
+                        <p className="text-xs text-gray-400">Overwrite the database by uploading a valid JSON backup file.</p>
                       </div>
                     </div>
 
@@ -1030,12 +1030,12 @@ export default function SettingsControl({ data, theme, onSaveSettings, onRefresh
                     </div>
 
                     {importSuccess && (
-                      <p className="text-[10px] text-emerald-400 font-mono font-bold animate-pulse">
+                      <p className="text-xs text-emerald-400 font-mono font-bold animate-pulse">
                         ✓ Import successful! Re-syncing and reloading the workspace...
                       </p>
                     )}
                     {importError && (
-                      <p className="text-[10px] text-rose-500 font-mono font-bold flex items-center gap-1">
+                      <p className="text-xs text-rose-500 font-mono font-bold flex items-center gap-1">
                         ⚠️ Error: {importError}
                       </p>
                     )}
@@ -1050,7 +1050,7 @@ export default function SettingsControl({ data, theme, onSaveSettings, onRefresh
                     </div>
                     <div>
                       <h5 className="text-xs font-bold font-mono text-rose-500 uppercase">Danger Zone — Reset Database Metrics</h5>
-                      <p className="text-[10px] text-gray-400 mt-1">Permanently erase all matches, player stats, round histories, vetos, schedule items, team goals, and strategy logs. Your customized roster players, maps, and theme settings will be preserved.</p>
+                      <p className="text-xs text-gray-400 mt-1">Permanently erase all matches, player stats, round histories, vetos, schedule items, team goals, and strategy logs. Your customized roster players, maps, and theme settings will be preserved.</p>
                     </div>
                   </div>
 
@@ -1079,7 +1079,7 @@ export default function SettingsControl({ data, theme, onSaveSettings, onRefresh
                     className="w-full md:w-auto px-6 py-2.5 bg-[#ff4655] hover:bg-[#ff4655]/90 text-white font-mono font-bold text-xs rounded transition flex items-center justify-center gap-2 cursor-pointer border border-[#ff4655]/30 hover:border-white/10"
                   >
                     <Trash2 className="w-4 h-4" />
-                    Reset All App Metrics (Fresh Restart)
+                    Reset all app metrics (fresh restart)
                   </button>
                 </div>
               </div>
@@ -1092,20 +1092,20 @@ export default function SettingsControl({ data, theme, onSaveSettings, onRefresh
                   <h4 className="text-xs uppercase font-black tracking-widest text-[#ff4655] font-mono">
                     Access Keys & Panel Control
                   </h4>
-                  <p className="text-[10px] text-gray-500 font-mono mt-1">
+                  <p className="text-xs text-gray-500 font-mono mt-1">
                     Create login keys for coaches or players. Revoking a key invalidates its active session and returns that user to the lock screen on their next request.
                   </p>
                 </div>
 
                 {/* Generator Section */}
                 <div className="p-4 rounded-xl bg-white/[0.02] border border-white/5 space-y-4">
-                  <h5 className="text-[11px] font-mono font-bold uppercase tracking-wider text-white flex items-center gap-1.5">
+                  <h5 className="text-xs font-mono font-bold uppercase tracking-wider text-white flex items-center gap-1.5">
                     <Plus className="w-4 h-4 text-[#ff4655]" /> Generate New Access Key
                   </h5>
                   
                   <div className="grid grid-cols-1 md:grid-cols-4 gap-4 items-end">
                     <div className="space-y-1">
-                      <label className="text-[9px] uppercase font-bold text-gray-400 font-mono">Key Owner / Name</label>
+                      <label className="text-xs uppercase font-bold text-gray-400 font-mono">Key Owner / Name</label>
                       <input
                         type="text"
                         placeholder="e.g. Player TenZ or Analyst"
@@ -1115,10 +1115,10 @@ export default function SettingsControl({ data, theme, onSaveSettings, onRefresh
                       />
                     </div>
 
-                    {newKeyRole === 'player' && <div className="space-y-1"><label className="text-[9px] uppercase font-bold text-gray-400 font-mono">Roster identity</label><select value={newKeyPlayerId} onChange={e => setNewKeyPlayerId(e.target.value)} className="w-full p-2.5 bg-black/30 text-white rounded border border-white/10 text-xs font-mono"><option value="">Select player</option>{(data.rosterPlayers || []).filter(player => !player.retiredAt).map(player => <option key={player.id} value={player.id}>{player.displayName}</option>)}</select></div>}
+                    {newKeyRole === 'player' && <div className="space-y-1"><label className="text-xs uppercase font-bold text-gray-400 font-mono">Roster identity</label><select value={newKeyPlayerId} onChange={e => setNewKeyPlayerId(e.target.value)} className="w-full p-2.5 bg-black/30 text-white rounded border border-white/10 text-xs font-mono"><option value="">Select player</option>{(data.rosterPlayers || []).filter(player => !player.retiredAt).map(player => <option key={player.id} value={player.id}>{player.displayName}</option>)}</select></div>}
 
                     <div className="space-y-1">
-                      <label className="text-[9px] uppercase font-bold text-gray-400 font-mono">Panel Role</label>
+                      <label className="text-xs uppercase font-bold text-gray-400 font-mono">Panel Role</label>
                       <select
                         value={newKeyRole}
                         onChange={e => setNewKeyRole(e.target.value as any)}
@@ -1132,9 +1132,9 @@ export default function SettingsControl({ data, theme, onSaveSettings, onRefresh
                     <button
                       type="button"
                       onClick={handleCreateKey}
-                      className="py-2.5 px-4 bg-[#ff4655] hover:bg-[#ff4655]/90 text-white font-mono font-bold text-xs rounded transition-all uppercase tracking-wider cursor-pointer"
+                      className="py-2.5 px-4 bg-[#ff4655] hover:bg-[#ff4655]/90 text-white font-mono font-bold text-xs rounded transition-all tracking-wider cursor-pointer"
                     >
-                      Generate Key
+                      Generate key
                     </button>
                   </div>
                 </div>
@@ -1142,13 +1142,13 @@ export default function SettingsControl({ data, theme, onSaveSettings, onRefresh
                 {newlyCreatedKey && <div role="status" className="liquid-panel rounded-xl border border-amber-400/35 p-4">
                   <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
                     <div className="min-w-0"><p className="text-xs font-bold uppercase tracking-wider text-amber-300">Copy this key now — shown once</p><p className="mt-1 text-xs text-slate-400">{newlyCreatedKey.label} · {newlyCreatedKey.role}</p><p className="mt-3 break-all rounded-lg border border-white/10 bg-black/25 p-3 font-mono text-sm text-cyan-100">{newlyCreatedKey.key}</p></div>
-                    <button type="button" onClick={() => void handleCopyKeyToClipboard(newlyCreatedKey.id, newlyCreatedKey.key)} className="ui-button ui-button-primary inline-flex min-h-11 shrink-0 items-center justify-center gap-2 px-4 text-xs font-bold uppercase">{copiedKeyId === newlyCreatedKey.id ? <><Check className="h-4 w-4" />Copied</> : <><Copy className="h-4 w-4" />Copy key</>}</button>
-                  </div><button type="button" onClick={() => setNewlyCreatedKey(null)} className="mt-3 text-[10px] font-bold uppercase tracking-wider text-slate-400 hover:text-white">I saved it — hide key</button>
+                    <button type="button" onClick={() => void handleCopyKeyToClipboard(newlyCreatedKey.id, newlyCreatedKey.key)} className="ui-button ui-button-primary inline-flex min-h-11 shrink-0 items-center justify-center gap-2 px-4 text-xs font-bold ">{copiedKeyId === newlyCreatedKey.id ? <><Check className="h-4 w-4" />Copied</> : <><Copy className="h-4 w-4" />Copy key</>}</button>
+                  </div><button type="button" onClick={() => setNewlyCreatedKey(null)} className="mt-3 text-xs font-bold tracking-wider text-slate-400 hover:text-white">I saved it — hide key</button>
                 </div>}
 
                 {/* Active Keys List Section */}
                 <div className="space-y-3">
-                  <h5 className="text-[11px] font-mono font-bold uppercase tracking-wider text-white flex items-center gap-1.5">
+                  <h5 className="text-xs font-mono font-bold uppercase tracking-wider text-white flex items-center gap-1.5">
                     <Key className="w-4 h-4 text-amber-400" /> Active Access Keys
                   </h5>
 
@@ -1159,7 +1159,7 @@ export default function SettingsControl({ data, theme, onSaveSettings, onRefresh
                   ) : keysList.length === 0 ? (
                     <div className="text-center p-6 rounded-xl border border-dashed border-white/5 bg-white/[0.01]">
                       <p className="text-xs text-gray-500 font-mono">No custom keys created yet.</p>
-                      <p className="text-[10px] text-gray-600 font-mono mt-1">Use the generator above to invite your players or assistant coaches.</p>
+                      <p className="text-xs text-gray-600 font-mono mt-1">Use the generator above to invite your players or assistant coaches.</p>
                     </div>
                   ) : (
                     <div className="space-y-2.5">
@@ -1173,7 +1173,7 @@ export default function SettingsControl({ data, theme, onSaveSettings, onRefresh
                             <div className="space-y-1 min-w-0">
                               <div className="flex items-center gap-2">
                                 <span className="font-bold text-white uppercase text-sm block truncate">{keyObj.label}</span>
-                                <span className={`px-2 py-0.5 rounded text-[9px] font-bold tracking-widest uppercase ${
+                                <span className={`px-2 py-0.5 rounded text-xs font-bold tracking-widest uppercase ${
                                   isCoach 
                                     ? 'bg-[#ff4655]/10 text-[#ff4655] border border-[#ff4655]/20' 
                                     : 'bg-[#3aa0ff]/10 text-[#3aa0ff] border border-[#3aa0ff]/20'
@@ -1181,14 +1181,14 @@ export default function SettingsControl({ data, theme, onSaveSettings, onRefresh
                                   {keyObj.role}
                                 </span>
                               </div>
-                              <p className="text-[10px] text-gray-500">Credential hidden · created {keyObj.createdAt ? new Date(keyObj.createdAt).toLocaleDateString() : 'previously'}</p>
+                              <p className="text-xs text-gray-500">Credential hidden · created {keyObj.createdAt ? new Date(keyObj.createdAt).toLocaleDateString() : 'previously'}</p>
                             </div>
 
                             <div className="flex items-center gap-2 shrink-0 self-end sm:self-center">
                               <button
                                 type="button"
                                 onClick={() => handleRevokeKey(keyObj.id, keyObj.label)}
-                                className="px-3 py-1.5 bg-rose-500/10 hover:bg-rose-500/20 text-rose-400 border border-rose-500/20 hover:border-rose-500/30 rounded text-[10px] font-bold transition-all uppercase flex items-center gap-1 cursor-pointer"
+                                className="px-3 py-1.5 bg-rose-500/10 hover:bg-rose-500/20 text-rose-400 border border-rose-500/20 hover:border-rose-500/30 rounded text-xs font-bold transition-all flex items-center gap-1 cursor-pointer"
                                 title="Revoke and Kick Out"
                               >
                                 <UserMinus className="w-3.5 h-3.5" /> Revoke

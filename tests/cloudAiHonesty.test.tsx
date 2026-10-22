@@ -48,7 +48,7 @@ describe('cloud AI availability', () => {
 describe('playbook generator gate', () => {
   const generateButton = () => {
     const html = renderToStaticMarkup(<AITacticalHub data={emptyData} theme={theme} onUpsert={vi.fn()} onRemove={vi.fn()} />);
-    const button = html.match(/<button[^>]*>(?:(?!<\/button>).)*GENERATE TACTICAL SETUP/s)?.[0] || '';
+    const button = html.match(/<button[^>]*>(?:(?!<\/button>).)*Generate tactical setup/s)?.[0] || '';
     expect(button).not.toBe('');
     return { html, disabled: /^<button[^>]*\sdisabled=""/.test(button) };
   };

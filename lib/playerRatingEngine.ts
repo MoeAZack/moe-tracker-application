@@ -7,7 +7,7 @@
  */
 
 export const SHADOW_RATING_ENGINE_VERSION = 'moe-shadow-rating-engine/1';
-export const MOE_RATING_LABEL = 'MoeTracker shadow performance score';
+export const MOE_RATING_LABEL = 'Moe Tracker shadow performance score';
 export const MOE_RATING_ADVISORY =
   'Retrospective, non-selective coaching context only; never roster or player-selection authority.';
 

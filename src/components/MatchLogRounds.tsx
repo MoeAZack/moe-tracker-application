@@ -357,8 +357,8 @@ export default function MatchLogRounds({ data, theme, onSaveMatch, onRemove, onS
       </div>
 
       {repeatOpponents.length > 0 && <section className={`rounded-xl border p-4 ${isLight ? 'border-slate-200 bg-white' : 'border-white/10 bg-white/[0.03]'}`} aria-labelledby="repeat-opponents-title">
-        <div className="flex flex-wrap items-end justify-between gap-2"><div><h4 id="repeat-opponents-title" className="text-xs font-black uppercase tracking-widest">Repeat opponent tracker</h4><p className="mt-1 text-xs text-gray-500">Teams with two or more recorded maps. Capitalization variants are combined.</p></div><span className="text-[10px] uppercase tracking-wider text-cyan-300">{repeatOpponents.length} recurring teams</span></div>
-        <div className="mt-3 grid gap-3 sm:grid-cols-2 lg:grid-cols-3">{repeatOpponents.map(opponent => <article key={opponent.key} className="rounded-lg border border-white/10 bg-black/10 p-3"><div className="flex items-center justify-between gap-3"><strong>{opponent.name}</strong><span className="font-mono text-sm">{opponent.games} games</span></div><p className="mt-2 text-xs text-slate-400"><span className="text-emerald-300">{opponent.wins}W</span> · <span className="text-rose-300">{opponent.losses}L</span>{opponent.ties ? ` · ${opponent.ties}T` : ''} · {opponent.maps.join(', ') || 'Map unknown'}</p><p className="mt-1 text-[10px] text-slate-500">Last played {opponent.lastPlayed}</p></article>)}</div>
+        <div className="flex flex-wrap items-end justify-between gap-2"><div><h4 id="repeat-opponents-title" className="text-xs font-black uppercase tracking-widest">Repeat opponent tracker</h4><p className="mt-1 text-xs text-gray-500">Teams with two or more recorded maps. Capitalization variants are combined.</p></div><span className="text-xs uppercase tracking-wider text-cyan-300">{repeatOpponents.length} recurring teams</span></div>
+        <div className="mt-3 grid gap-3 sm:grid-cols-2 lg:grid-cols-3">{repeatOpponents.map(opponent => <article key={opponent.key} className="rounded-lg border border-white/10 bg-black/10 p-3"><div className="flex items-center justify-between gap-3"><strong>{opponent.name}</strong><span className="font-mono text-sm">{opponent.games} games</span></div><p className="mt-2 text-xs text-slate-400"><span className="text-emerald-300">{opponent.wins}W</span> · <span className="text-rose-300">{opponent.losses}L</span>{opponent.ties ? ` · ${opponent.ties}T` : ''} · {opponent.maps.join(', ') || 'Map unknown'}</p><p className="mt-1 text-xs text-slate-500">Last played {opponent.lastPlayed}</p></article>)}</div>
       </section>}
 
       <div className="grid grid-cols-1 lg:grid-cols-4 gap-6">
@@ -383,8 +383,8 @@ export default function MatchLogRounds({ data, theme, onSaveMatch, onRemove, onS
                   }`}
                 >
                   <div className="flex justify-between items-center w-full">
-                    <span className="text-[10px] text-gray-500 font-mono">{m.date}</span>
-                    <span className={`px-2 py-0.5 rounded text-[8px] font-black uppercase font-mono ${
+                    <span className="text-xs text-gray-500 font-mono">{m.date}</span>
+                    <span className={`px-2 py-0.5 rounded text-xs font-black uppercase font-mono ${
                       m.type === 'Official' ? 'bg-rose-500/10 text-rose-400' : 'bg-slate-500/10 text-slate-400'
                     }`}>
                       {m.type}
@@ -400,9 +400,9 @@ export default function MatchLogRounds({ data, theme, onSaveMatch, onRemove, onS
                     </span>
                   </div>
 
-                  <div className="flex justify-between items-center text-[10px] font-mono text-gray-400">
+                  <div className="flex justify-between items-center text-xs font-mono text-gray-400">
                     <span>{m.map}</span>
-                    <span className={`px-1.5 py-0.5 rounded-sm ${won ? 'text-emerald-400' : 'text-rose-400'} font-black text-[9px]`}>
+                    <span className={`px-1.5 py-0.5 rounded-sm ${won ? 'text-emerald-400' : 'text-rose-400'} font-black text-xs`}>
                       {won ? 'WIN' : 'LOSS'}
                     </span>
                   </div>
@@ -428,11 +428,11 @@ export default function MatchLogRounds({ data, theme, onSaveMatch, onRemove, onS
               <div className="flex flex-col sm:flex-row justify-between sm:items-center gap-4 border-b border-white/5 pb-4">
                 <div>
                   <div className="flex items-center gap-2">
-                    <span className={`px-2.5 py-0.5 rounded text-[10px] font-black uppercase font-mono bg-white/5 ${theme.text}`}>
+                    <span className={`px-2.5 py-0.5 rounded text-xs font-black uppercase font-mono bg-white/5 ${theme.text}`}>
                       {selectedMatch.type}
                     </span>
                     <span className="text-xs text-gray-500 font-mono">{selectedMatch.date}</span>
-                    <span className="px-2 py-0.5 rounded text-[9px] uppercase font-black bg-cyan-500/10 text-cyan-300">
+                    <span className="px-2 py-0.5 rounded text-xs uppercase font-black bg-cyan-500/10 text-cyan-300">
                       {selectedMatch.rosterContext?.kind || 'unclassified'} lineup
                     </span>
                   </div>
@@ -444,13 +444,13 @@ export default function MatchLogRounds({ data, theme, onSaveMatch, onRemove, onS
                     onClick={() => handleOpenEditMatch(selectedMatch)}
                     className="px-3 py-1.5 bg-white/5 hover:bg-white/10 rounded border border-white/10 text-xs font-bold font-mono transition-colors"
                   >
-                    EDIT MATCH
+                    Edit match
                   </button>
                   <button
                     onClick={() => handleDeleteMatch(selectedMatch.id)}
                     className="px-3 py-1.5 bg-rose-500/10 hover:bg-rose-500/20 text-rose-400 rounded border border-rose-500/20 text-xs font-bold font-mono transition-colors"
                   >
-                    DELETE
+                    Delete
                   </button>
                 </div>
               </div>
@@ -458,19 +458,19 @@ export default function MatchLogRounds({ data, theme, onSaveMatch, onRemove, onS
               {/* Match Splittings Indicators Row */}
               <div className="grid grid-cols-2 md:grid-cols-4 gap-4 bg-black/10 p-4 rounded-xl border border-white/5 text-center font-mono text-xs">
                 <div>
-                  <p className="text-[10px] text-gray-500 uppercase font-black tracking-widest mb-1">SCORE</p>
+                  <p className="text-xs text-gray-500 uppercase font-black tracking-widest mb-1">SCORE</p>
                   <p className="text-lg font-black text-white">{selectedMatch.attW + selectedMatch.defW} - {selectedMatch.attL + selectedMatch.defL}</p>
                 </div>
                 <div>
-                  <p className="text-[10px] text-gray-500 uppercase font-black tracking-widest mb-1">ATT SPLIT</p>
+                  <p className="text-xs text-gray-500 uppercase font-black tracking-widest mb-1">ATT SPLIT</p>
                   <p className="text-lg font-black text-amber-500">{selectedMatch.attW}W - {selectedMatch.attL}L</p>
                 </div>
                 <div>
-                  <p className="text-[10px] text-gray-500 uppercase font-black tracking-widest mb-1">DEF SPLIT</p>
+                  <p className="text-xs text-gray-500 uppercase font-black tracking-widest mb-1">DEF SPLIT</p>
                   <p className="text-lg font-black text-cyan-500">{selectedMatch.defW}W - {selectedMatch.defL}L</p>
                 </div>
                 <div>
-                  <p className="text-[10px] text-gray-500 uppercase font-black tracking-widest mb-1">Pistol ATT/DEF</p>
+                  <p className="text-xs text-gray-500 uppercase font-black tracking-widest mb-1">Pistol ATT/DEF</p>
                   <p className="text-lg font-black text-emerald-400">{pistolResultLabel(selectedMatch.pistolAtt)} / {pistolResultLabel(selectedMatch.pistolDef)}</p>
                 </div>
               </div>
@@ -488,7 +488,7 @@ export default function MatchLogRounds({ data, theme, onSaveMatch, onRemove, onS
                     <button
                       key={tb.id}
                       onClick={() => setActiveTab(tb.id as any)}
-                      className={`flex items-center gap-1.5 px-3.5 py-1.5 text-xs font-bold font-mono uppercase border-b-2 transition-all ${
+                      className={`flex items-center gap-1.5 px-3.5 py-1.5 text-xs font-bold font-mono border-b-2 transition-all ${
                         activeTab === tb.id
                           ? 'border-[#ff4655] text-white'
                           : 'border-transparent text-gray-400 hover:text-white'
@@ -507,12 +507,12 @@ export default function MatchLogRounds({ data, theme, onSaveMatch, onRemove, onS
                   <div className="flex flex-wrap items-center justify-between gap-2 border-b border-white/10 px-4 py-3">
                     <div>
                       <p className="text-xs font-black uppercase tracking-[0.18em] text-white">Match scoreboard</p>
-                      <p className="mt-0.5 text-[10px] text-slate-400">Accepted replay evidence and coach-confirmed corrections</p>
+                      <p className="mt-0.5 text-xs text-slate-400">Accepted replay evidence and coach-confirmed corrections</p>
                     </div>
-                    <span className="rounded-full border border-cyan-300/20 bg-cyan-300/10 px-2.5 py-1 text-[9px] font-black uppercase tracking-widest text-cyan-200">{statsForSelectedMatch.length} players</span>
+                    <span className="rounded-full border border-cyan-300/20 bg-cyan-300/10 px-2.5 py-1 text-xs font-black uppercase tracking-widest text-cyan-200">{statsForSelectedMatch.length} players</span>
                   </div>
                   <div className="overflow-x-auto">
-                  <table className="w-full text-left border-collapse font-mono text-[11px]">
+                  <table className="w-full text-left border-collapse font-mono text-xs">
                     <thead>
                       <tr className="border-b border-white/10 bg-white/[0.025] text-gray-500 uppercase font-bold">
                         <th className="py-2 px-2.5">Player</th>
@@ -563,19 +563,19 @@ export default function MatchLogRounds({ data, theme, onSaveMatch, onRemove, onS
               {activeTab === 'rounds' && (
                 <div className="space-y-4">
                   <div className="flex justify-between items-center">
-                    <span className="text-[10px] text-gray-500 uppercase font-black font-mono">
+                    <span className="text-xs text-gray-500 uppercase font-black font-mono">
                       Round Logs ({roundsForSelectedMatch.length} rounds)
                     </span>
                     <button
                       onClick={handleOpenRoundEditor}
-                      className="px-2.5 py-1 text-[10px] font-black bg-white/5 border border-white/10 rounded hover:bg-white/10 uppercase font-mono"
+                      className="px-2.5 py-1 text-xs font-black bg-white/5 border border-white/10 rounded hover:bg-white/10 font-mono"
                     >
-                      EDIT ROUND SHEETS
+                      Edit round sheets
                     </button>
                   </div>
 
                   <div className="overflow-x-auto max-h-[450px] overflow-y-auto">
-                    <table className="w-full text-left border-collapse font-mono text-[11px]">
+                    <table className="w-full text-left border-collapse font-mono text-xs">
                       <thead>
                         <tr className="border-b border-white/5 text-gray-500 uppercase font-bold sticky top-0 bg-[#0f1923] z-10">
                           <th className="py-2 px-2.5">No.</th>
@@ -595,24 +595,24 @@ export default function MatchLogRounds({ data, theme, onSaveMatch, onRemove, onS
                       <tbody className="divide-y divide-white/5">
                         {roundsForSelectedMatch.map((r) => (
                           <tr key={r.id} className="hover:bg-white/5 transition-colors">
-                            <td className={`py-2 px-2.5 font-bold ${reviewRoundNo === r.roundNo ? 'text-cyan-300' : 'text-gray-400'}`}><button type="button" onClick={() => onReviewContextChange?.(selectedMatch.id, r.roundNo)} className="min-h-8 min-w-8 rounded hover:bg-white/5">{r.roundNo}</button>{onAcceptRoundEvidence && (r as any).screenshotEvidence && (r as any).screenshotEvidence.reviewStatus !== 'confirmed' && <button type="button" onClick={() => void onAcceptRoundEvidence(selectedMatch.id, r.roundNo).catch(() => {})} className="mt-1 block rounded border border-cyan-300/30 px-1 py-0.5 text-[9px] font-semibold text-cyan-200">Accept evidence</button>}</td>
+                            <td className={`py-2 px-2.5 font-bold ${reviewRoundNo === r.roundNo ? 'text-cyan-300' : 'text-gray-400'}`}><button type="button" onClick={() => onReviewContextChange?.(selectedMatch.id, r.roundNo)} className="min-h-8 min-w-8 rounded hover:bg-white/5">{r.roundNo}</button>{onAcceptRoundEvidence && (r as any).screenshotEvidence && (r as any).screenshotEvidence.reviewStatus !== 'confirmed' && <button type="button" onClick={() => void onAcceptRoundEvidence(selectedMatch.id, r.roundNo).catch(() => {})} className="mt-1 block rounded border border-cyan-300/30 px-1 py-0.5 text-xs font-semibold text-cyan-200">Accept evidence</button>}</td>
                             <td className={`py-2 px-2.5 font-bold ${r.side === 'Att' ? 'text-amber-500' : 'text-cyan-400'}`}>{r.side}</td>
                             <td className="py-2 px-2.5">
                               <span className="text-white font-medium">{r.buy}</span>
-                              <span className="text-[9px] text-gray-500 block">vs {r.enemyBuy || 'Full'}</span>
+                              <span className="text-xs text-gray-500 block">vs {r.enemyBuy || 'Full'}</span>
                             </td>
                             <td className="py-2 px-2.5 text-center">
-                              <span className={`px-1.5 py-0.5 rounded text-[9px] font-black ${
+                              <span className={`px-1.5 py-0.5 rounded text-xs font-black ${
                                 r.result === 'W' ? 'bg-emerald-500/10 text-emerald-400' : 'bg-rose-500/10 text-rose-400'
                               }`}>
                                 {r.result}
                               </span>
                             </td>
-                            <td className="py-2 px-2.5 text-[10px] text-emerald-400">{r.firstKillBy ? <span className="font-bold">{r.firstKillBy}</span> : <span className="text-gray-600">—</span>}</td>
-                            <td className="py-2 px-2.5 text-[10px] text-rose-400">{r.firstDeathBy ? <span className="font-bold">{r.firstDeathBy}</span> : <span className="text-gray-600">—</span>}</td>
+                            <td className="py-2 px-2.5 text-xs text-emerald-400">{r.firstKillBy ? <span className="font-bold">{r.firstKillBy}</span> : <span className="text-gray-600">—</span>}</td>
+                            <td className="py-2 px-2.5 text-xs text-rose-400">{r.firstDeathBy ? <span className="font-bold">{r.firstDeathBy}</span> : <span className="text-gray-600">—</span>}</td>
                             <td className="py-2 px-2.5">
                               {r.clutchType ? (
-                                <span className={`px-1.5 py-0.5 rounded text-[10px] font-bold ${
+                                <span className={`px-1.5 py-0.5 rounded text-xs font-bold ${
                                   r.clutchResult === 'W' ? 'bg-amber-500/10 text-amber-400' : 'bg-gray-500/10 text-gray-400'
                                 }`}>
                                   {r.clutchPlayer} in {r.clutchType} ({r.clutchResult === 'W' ? 'WON' : 'LOST'})
@@ -623,33 +623,33 @@ export default function MatchLogRounds({ data, theme, onSaveMatch, onRemove, onS
                             </td>
                             <td className="py-2 px-2.5">
                               {roundFlag(r.isThrow) === true ? (
-                                <span className="bg-rose-500/10 border border-rose-500/20 text-rose-400 p-1 px-2 rounded text-[10px] block font-bold" title={r.throwReason}>
+                                <span className="bg-rose-500/10 border border-rose-500/20 text-rose-400 p-1 px-2 rounded text-xs block font-bold" title={r.throwReason}>
                                   ⚠️ Choked: {r.thrownBy || 'Team'} ({r.throwReason || 'Advantage throw'})
                                 </span>
                               ) : roundFlag(r.isThrow) === false ? (
-                                <span className="text-emerald-500/80 font-bold text-[10px]">✓ Clean</span>
+                                <span className="text-emerald-500/80 font-bold text-xs">✓ Clean</span>
                               ) : (
-                                <span className="text-gray-600 italic text-[10px]">—</span>
+                                <span className="text-gray-600 italic text-xs">—</span>
                               )}
                             </td>
                             <td className="py-2 px-2.5 font-bold">
                               <div className="flex flex-col gap-1">
                                 {r.iglPlayer && r.iglPlayer !== 'None' ? (
-                                  <span className="text-violet-400 text-[10px] flex items-center gap-1">
+                                  <span className="text-violet-400 text-xs flex items-center gap-1">
                                     <span>{r.iglPlayer} ({r.iglRole || 'Caller'})</span>
                                     {(r.midRoundIglChange === true || r.midRoundIglChange === 'TRUE') && (
-                                      <span className="text-[9px] bg-white/5 border border-white/10 px-1 py-0.2 rounded text-white flex items-center gap-0.5" title="Mid-round strategy correction/change">
+                                      <span className="text-xs bg-white/5 border border-white/10 px-1 py-0.2 rounded text-white flex items-center gap-0.5" title="Mid-round strategy correction/change">
                                         🔄 Mid
                                       </span>
                                     )}
                                   </span>
                                 ) : (
-                                  <span className="text-gray-600 italic text-[10px]">-</span>
+                                  <span className="text-gray-600 italic text-xs">-</span>
                                 )}
                                 {r.strategies && (
                                   <div className="flex flex-wrap gap-1 mt-1">
                                     {r.strategies.split(', ').map(st => (
-                                      <span key={st} className="bg-violet-500/15 border border-violet-500/20 text-violet-300 text-[8px] px-1.5 py-0.5 rounded font-mono">
+                                      <span key={st} className="bg-violet-500/15 border border-violet-500/20 text-violet-300 text-xs px-1.5 py-0.5 rounded font-mono">
                                         🎯 {st}
                                       </span>
                                     ))}
@@ -679,19 +679,19 @@ export default function MatchLogRounds({ data, theme, onSaveMatch, onRemove, onS
               {activeTab === 'vetos' && (
                 <div className="space-y-4">
                   <div className="flex justify-between items-center">
-                    <span className="text-[10px] text-gray-500 uppercase font-black font-mono">
+                    <span className="text-xs text-gray-500 uppercase font-black font-mono">
                       Veto Draft Process ({vetosForSelectedMatch.length} steps)
                     </span>
                     <button
                       onClick={handleOpenVetoEditor}
-                      className="px-2.5 py-1 text-[10px] font-black bg-white/5 border border-white/10 rounded hover:bg-white/10 uppercase font-mono"
+                      className="px-2.5 py-1 text-xs font-black bg-white/5 border border-white/10 rounded hover:bg-white/10 font-mono"
                     >
-                      EDIT VETOES
+                      Edit vetoes
                     </button>
                   </div>
 
                   <div className="overflow-x-auto">
-                    <table className="w-full text-left border-collapse font-mono text-[11px]">
+                    <table className="w-full text-left border-collapse font-mono text-xs">
                       <thead>
                         <tr className="border-b border-white/5 text-gray-500 uppercase font-bold">
                           <th className="py-2 px-2.5">Seq</th>
@@ -739,7 +739,7 @@ export default function MatchLogRounds({ data, theme, onSaveMatch, onRemove, onS
                       <span>{discordStatusMsg}</span>
                       <button 
                         onClick={() => setDiscordStatusMsg('')} 
-                        className="text-[10px] font-bold hover:text-white"
+                        className="text-xs font-bold hover:text-white"
                       >
                         ✕
                       </button>
@@ -750,31 +750,31 @@ export default function MatchLogRounds({ data, theme, onSaveMatch, onRemove, onS
                   {discordCopyPayload && (
                     <div className="p-4 rounded-xl border border-blue-500/20 bg-blue-500/5 space-y-2.5">
                       <div className="flex justify-between items-center">
-                        <span className="text-[10px] font-mono text-blue-400 uppercase font-black">Copy Discord Payload</span>
+                        <span className="text-xs font-mono text-blue-400 uppercase font-black">Copy Discord Payload</span>
                         <button
                           onClick={() => {
                             navigator.clipboard.writeText(discordCopyPayload);
                             setCopiedStatus(true);
                             setTimeout(() => setCopiedStatus(false), 2000);
                           }}
-                          className="px-2.5 py-1 bg-blue-500 hover:bg-blue-600 text-white font-mono text-[9px] uppercase font-black rounded flex items-center gap-1.5 cursor-pointer"
+                          className="px-2.5 py-1 bg-blue-500 hover:bg-blue-600 text-white font-mono text-xs font-black rounded flex items-center gap-1.5 cursor-pointer"
                         >
                           {copiedStatus ? <Check className="w-3 h-3" /> : <Copy className="w-3 h-3" />}
                           {copiedStatus ? 'Copied!' : 'Copy markdown'}
                         </button>
                       </div>
-                      <p className="text-[10px] text-gray-400 font-mono leading-normal">The Discord webhook is not set up in Settings. Copy the markdown report below to paste it manually into your team Discord:</p>
+                      <p className="text-xs text-gray-400 font-mono leading-normal">The Discord webhook is not set up in Settings. Copy the markdown report below to paste it manually into your team Discord:</p>
                       <textarea
                         readOnly
                         value={discordCopyPayload}
-                        className="w-full bg-black/40 border border-white/10 rounded p-2 text-[9px] font-mono text-gray-400 h-24 focus:outline-none"
+                        className="w-full bg-black/40 border border-white/10 rounded p-2 text-xs font-mono text-gray-400 h-24 focus:outline-none"
                       />
                     </div>
                   )}
 
                   {/* Actions Header */}
                   <div className="flex justify-between items-center border-b border-white/5 pb-3 gap-2">
-                    <span className="text-[10px] text-gray-500 uppercase font-black font-mono">
+                    <span className="text-xs text-gray-500 uppercase font-black font-mono">
                       AI Coach Tactical Brief
                     </span>
                     <div className="flex gap-2 shrink-0">
@@ -821,12 +821,12 @@ export default function MatchLogRounds({ data, theme, onSaveMatch, onRemove, onS
                             setAnalyzingMatch(false);
                           }
                         }}
-                        className="px-2.5 py-1 text-[10px] font-black bg-white/5 border border-white/10 rounded hover:bg-white/10 uppercase font-mono flex items-center gap-1.5 cursor-pointer disabled:opacity-40"
+                        className="px-2.5 py-1 text-xs font-black bg-white/5 border border-white/10 rounded hover:bg-white/10 font-mono flex items-center gap-1.5 cursor-pointer disabled:opacity-40"
                       >
                         {analyzingMatch ? (
                           <>
                             <Loader2 className="w-3 h-3 animate-spin" />
-                            <span>ANALYZING...</span>
+                            <span>Analyzing...</span>
                           </>
                         ) : (
                           <>
@@ -866,14 +866,14 @@ export default function MatchLogRounds({ data, theme, onSaveMatch, onRemove, onS
                               setDiscordBroadcasting(false);
                             }
                           }}
-                          className="px-2.5 py-1 text-[10px] font-black bg-[#ff4655]/10 border border-[#ff4655]/20 hover:bg-[#ff4655] text-white hover:border-[#ff4655] rounded uppercase font-mono flex items-center gap-1.5 cursor-pointer"
+                          className="px-2.5 py-1 text-xs font-black bg-[#ff4655]/10 border border-[#ff4655]/20 hover:bg-[#ff4655] text-white hover:border-[#ff4655] rounded font-mono flex items-center gap-1.5 cursor-pointer"
                         >
                           {discordBroadcasting ? (
                             <Loader2 className="w-3 h-3 animate-spin" />
                           ) : (
                             <Send className="w-3 h-3" />
                           )}
-                          <span>DISCORD</span>
+                          <span>Discord</span>
                         </button>
                       )}
                     </div>
@@ -887,7 +887,7 @@ export default function MatchLogRounds({ data, theme, onSaveMatch, onRemove, onS
                       </div>
                       <div className="space-y-1">
                         <p className="text-xs font-bold text-white font-mono uppercase tracking-wider">Scrim Analyst Engine Active</p>
-                        <p className="text-[10px] text-gray-500 font-mono animate-pulse">{aiLoadMsg}</p>
+                        <p className="text-xs text-gray-500 font-mono animate-pulse">{aiLoadMsg}</p>
                       </div>
                     </div>
                   ) : selectedMatch.aiAnalysis ? (
@@ -907,7 +907,7 @@ export default function MatchLogRounds({ data, theme, onSaveMatch, onRemove, onS
                           const content = cleanLine.substring(1).trim();
                           const parts = content.split('**');
                           return (
-                            <div key={idx} className="flex items-start gap-2 text-[11px] font-mono text-gray-300 leading-relaxed my-1.5 pl-2">
+                            <div key={idx} className="flex items-start gap-2 text-xs font-mono text-gray-300 leading-relaxed my-1.5 pl-2">
                               <span className="text-[#ff4655] select-none font-sans">▪</span>
                               <span>
                                 {parts.map((part, i) => i % 2 === 1 ? <strong key={i} className="text-white font-black">{part}</strong> : part)}
@@ -920,7 +920,7 @@ export default function MatchLogRounds({ data, theme, onSaveMatch, onRemove, onS
                         }
                         const parts = cleanLine.split('**');
                         return (
-                          <p key={idx} className="text-[11px] font-mono text-gray-300 leading-relaxed my-1">
+                          <p key={idx} className="text-xs font-mono text-gray-300 leading-relaxed my-1">
                             {parts.map((part, i) => i % 2 === 1 ? <strong key={i} className="text-white font-black">{part}</strong> : part)}
                           </p>
                         );
@@ -933,8 +933,8 @@ export default function MatchLogRounds({ data, theme, onSaveMatch, onRemove, onS
                       </div>
                       <div className="max-w-xs mx-auto space-y-1">
                         <p className="text-xs font-black text-white uppercase tracking-tight">Generate Scrim Report Card</p>
-                        <p className="text-[10px] text-gray-500 leading-relaxed font-mono">Dissect round logs, space conversions, economic efficiency, throw triggers, and caller reviews automatically with Gemini.</p>
-                        {cloudAiAvailable === false && <p className="text-[10px] text-amber-300 leading-relaxed">{CLOUD_AI_OFF_MESSAGE}</p>}
+                        <p className="text-xs text-gray-500 leading-relaxed font-mono">Dissect round logs, space conversions, economic efficiency, throw triggers, and caller reviews automatically with Gemini.</p>
+                        {cloudAiAvailable === false && <p className="text-xs text-amber-300 leading-relaxed">{CLOUD_AI_OFF_MESSAGE}</p>}
                       </div>
                     </div>
                   )}
@@ -977,7 +977,7 @@ export default function MatchLogRounds({ data, theme, onSaveMatch, onRemove, onS
             {/* General details */}
             <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
               <div className="space-y-1">
-                <label className="text-[10px] uppercase font-black text-gray-400 font-mono">Date</label>
+                <label className="text-xs uppercase font-black text-gray-400 font-mono">Date</label>
                 <input
                   type="date"
                   aria-label="Match date"
@@ -989,7 +989,7 @@ export default function MatchLogRounds({ data, theme, onSaveMatch, onRemove, onS
               </div>
 
               <div className="space-y-1">
-                <label className="text-[10px] uppercase font-black text-gray-400 font-mono">Match Type</label>
+                <label className="text-xs uppercase font-black text-gray-400 font-mono">Match Type</label>
                 <select
                   value={editingMatch.type}
                   aria-label="Match type"
@@ -1001,7 +1001,7 @@ export default function MatchLogRounds({ data, theme, onSaveMatch, onRemove, onS
               </div>
 
               <div className="space-y-1">
-                <label className="text-[10px] uppercase font-black text-gray-400 font-mono">Opponent Team</label>
+                <label className="text-xs uppercase font-black text-gray-400 font-mono">Opponent Team</label>
                 <input
                   type="text"
                   list="match-log-opponents"
@@ -1016,12 +1016,12 @@ export default function MatchLogRounds({ data, theme, onSaveMatch, onRemove, onS
               </div>
 
               <div className="space-y-1">
-                <label className="text-[10px] uppercase font-black text-gray-400 font-mono">Opponent Category</label>
+                <label className="text-xs uppercase font-black text-gray-400 font-mono">Opponent Category</label>
                 <input type="text" maxLength={100} placeholder="Optional · academy, tier 2, mixed…" aria-label="Opponent category" value={editingMatch.opponentCategory || ''} onChange={e => setEditingMatch({ ...editingMatch, opponentCategory: e.target.value || undefined })} className="w-full p-2 bg-black/20 rounded border border-white/10 text-xs text-white" />
               </div>
 
               <div className="space-y-1">
-                <label className="text-[10px] uppercase font-black text-gray-400 font-mono">Map Selected</label>
+                <label className="text-xs uppercase font-black text-gray-400 font-mono">Map Selected</label>
                 <select
                   required
                   value={editingMatch.map}
@@ -1040,17 +1040,17 @@ export default function MatchLogRounds({ data, theme, onSaveMatch, onRemove, onS
               <h5 className="text-xs uppercase font-black tracking-widest text-gray-400 font-mono">Round Splits & Results</h5>
               {editingMatch.sourceMetadata?.method === 'screenshot' && (
                 <div className="rounded-lg border border-cyan-500/20 bg-cyan-500/5 p-3">
-                  <p className="text-[11px] text-cyan-100">Screenshot-prefilled K/D/A is retained as OCR evidence. Fill the missing map and final score, then confirm which side was your team.</p>
+                  <p className="text-xs text-cyan-100">Screenshot-prefilled K/D/A is retained as OCR evidence. Fill the missing map and final score, then confirm which side was your team.</p>
                   <div className="mt-2 grid grid-cols-2 gap-3">
-                    <label className="text-[10px] font-bold uppercase text-gray-400">Our final score<input required type="number" min={0} value={editingMatch.ourScore ?? ''} onChange={e => setEditingMatch({ ...editingMatch, ourScore: e.target.value === '' ? null : Number(e.target.value) })} className="mt-1 w-full rounded border border-white/10 bg-black/20 p-2 text-white" /></label>
-                    <label className="text-[10px] font-bold uppercase text-gray-400">Their final score<input required type="number" min={0} value={editingMatch.theirScore ?? ''} onChange={e => setEditingMatch({ ...editingMatch, theirScore: e.target.value === '' ? null : Number(e.target.value) })} className="mt-1 w-full rounded border border-white/10 bg-black/20 p-2 text-white" /></label>
+                    <label className="text-xs font-bold uppercase text-gray-400">Our final score<input required type="number" min={0} value={editingMatch.ourScore ?? ''} onChange={e => setEditingMatch({ ...editingMatch, ourScore: e.target.value === '' ? null : Number(e.target.value) })} className="mt-1 w-full rounded border border-white/10 bg-black/20 p-2 text-white" /></label>
+                    <label className="text-xs font-bold uppercase text-gray-400">Their final score<input required type="number" min={0} value={editingMatch.theirScore ?? ''} onChange={e => setEditingMatch({ ...editingMatch, theirScore: e.target.value === '' ? null : Number(e.target.value) })} className="mt-1 w-full rounded border border-white/10 bg-black/20 p-2 text-white" /></label>
                   </div>
                   <label className="mt-3 flex items-start gap-2 text-xs text-slate-200"><input required type="checkbox" checked={editingMatch.reviewConfirmation?.alliedSideConfirmed === true} onChange={e => setEditingMatch({ ...editingMatch, reviewConfirmation: e.target.checked ? { alliedSideConfirmed: true } as any : undefined })} className="mt-0.5 h-4 w-4 accent-cyan-500" /><span>I confirmed which scoreboard side belongs to our team and reviewed the manually completed fields.</span></label>
                 </div>
               )}
               <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
                 <div className="space-y-1">
-                  <label className="text-[10px] uppercase font-bold text-amber-500 font-mono">ATT Wins</label>
+                  <label className="text-xs uppercase font-bold text-amber-500 font-mono">ATT Wins</label>
                   <input
                     type="number"
                     min={0}
@@ -1060,7 +1060,7 @@ export default function MatchLogRounds({ data, theme, onSaveMatch, onRemove, onS
                   />
                 </div>
                 <div className="space-y-1">
-                  <label className="text-[10px] uppercase font-bold text-amber-500 font-mono">ATT Losses</label>
+                  <label className="text-xs uppercase font-bold text-amber-500 font-mono">ATT Losses</label>
                   <input
                     type="number"
                     min={0}
@@ -1070,7 +1070,7 @@ export default function MatchLogRounds({ data, theme, onSaveMatch, onRemove, onS
                   />
                 </div>
                 <div className="space-y-1">
-                  <label className="text-[10px] uppercase font-bold text-cyan-400 font-mono">DEF Wins</label>
+                  <label className="text-xs uppercase font-bold text-cyan-400 font-mono">DEF Wins</label>
                   <input
                     type="number"
                     min={0}
@@ -1080,7 +1080,7 @@ export default function MatchLogRounds({ data, theme, onSaveMatch, onRemove, onS
                   />
                 </div>
                 <div className="space-y-1">
-                  <label className="text-[10px] uppercase font-bold text-cyan-400 font-mono">DEF Losses</label>
+                  <label className="text-xs uppercase font-bold text-cyan-400 font-mono">DEF Losses</label>
                   <input
                     type="number"
                     min={0}
@@ -1095,7 +1095,7 @@ export default function MatchLogRounds({ data, theme, onSaveMatch, onRemove, onS
               <div className="grid grid-cols-2 sm:grid-cols-6 gap-3 pt-2 text-xs font-mono">
                 {['pistolAtt', 'pistolDef', 'ecoAtt', 'ecoDef', 'bonusAtt', 'bonusDef'].map((indKey) => (
                   <div key={indKey} className="space-y-1">
-                    <span className="text-[9px] uppercase font-bold text-gray-500 block truncate">{indKey}</span>
+                    <span className="text-xs uppercase font-bold text-gray-500 block truncate">{indKey}</span>
                     <select
                       value={(editingMatch as any)[indKey]}
                       onChange={e => setEditingMatch({ ...editingMatch, [indKey]: e.target.value })}
@@ -1158,7 +1158,7 @@ export default function MatchLogRounds({ data, theme, onSaveMatch, onRemove, onS
               )}
               <div className="space-y-3">
                 {editingStats.map((st, sIdx) => (
-                  <div key={sIdx} className="grid grid-cols-2 sm:grid-cols-11 gap-2 bg-black/10 p-3 rounded-lg border border-white/5 items-center font-mono text-[10px] text-white">
+                  <div key={sIdx} className="grid grid-cols-2 sm:grid-cols-11 gap-2 bg-black/10 p-3 rounded-lg border border-white/5 items-center font-mono text-xs text-white">
                     <div className="sm:col-span-2 space-y-1">
                       <div className="font-black text-xs truncate text-white">{st.displayNameSnapshot || st.player}</div>
                       <button type="button" className="min-h-9 text-xs text-rose-300" onClick={() => setEditingStats(old => old.filter((_, index) => index !== sIdx))}>Remove from this match</button>
@@ -1261,13 +1261,13 @@ export default function MatchLogRounds({ data, theme, onSaveMatch, onRemove, onS
                 onClick={() => setMatchModalOpen(false)}
                 className="px-4 py-2 bg-slate-500/10 hover:bg-slate-500/20 text-xs font-bold rounded cursor-pointer text-gray-400 hover:text-white font-mono"
               >
-                CANCEL
+                Cancel
               </button>
               <button
                 type="submit"
                 className={`px-4 py-2 ${theme.primaryBg} text-xs font-bold rounded cursor-pointer text-white font-mono`}
               >
-                SAVE MATCH DETAILS
+                Save match details
               </button>
             </div>
           </form>
@@ -1293,7 +1293,7 @@ export default function MatchLogRounds({ data, theme, onSaveMatch, onRemove, onS
 
             {/* Scrollable table grid */}
             <div className="overflow-x-auto max-h-[500px] overflow-y-auto pr-1">
-              <table className="w-full text-left border-collapse font-mono text-[10px]">
+              <table className="w-full text-left border-collapse font-mono text-xs">
                 <thead>
                   <tr className="border-b border-white/10 text-gray-500 uppercase font-bold sticky top-0 bg-[#0f1923] z-10">
                     <th className="py-2 px-1">Round</th>
@@ -1323,7 +1323,7 @@ export default function MatchLogRounds({ data, theme, onSaveMatch, onRemove, onS
                             updated[index].side = e.target.value;
                             setActiveRounds(updated);
                           }}
-                          className="bg-black text-[10px] p-1 rounded text-white"
+                          className="bg-black text-xs p-1 rounded text-white"
                         >
                           <option value="">Unknown</option>
                           <option value="Attack">Attack</option>
@@ -1338,7 +1338,7 @@ export default function MatchLogRounds({ data, theme, onSaveMatch, onRemove, onS
                             updated[index].buy = e.target.value;
                             setActiveRounds(updated);
                           }}
-                          className="bg-black text-[10px] p-1 rounded text-white"
+                          className="bg-black text-xs p-1 rounded text-white"
                         >
                           <option value="">Unknown</option>
                           {buyTypes.map(t => <option key={t} value={t}>{t}</option>)}
@@ -1352,7 +1352,7 @@ export default function MatchLogRounds({ data, theme, onSaveMatch, onRemove, onS
                             updated[index].enemyBuy = e.target.value;
                             setActiveRounds(updated);
                           }}
-                          className="bg-black text-[10px] p-1 rounded text-white"
+                          className="bg-black text-xs p-1 rounded text-white"
                         >
                           <option value="">Unknown</option>
                           {buyTypes.map(t => <option key={t} value={t}>{t}</option>)}
@@ -1366,7 +1366,7 @@ export default function MatchLogRounds({ data, theme, onSaveMatch, onRemove, onS
                             updated[index].result = e.target.value;
                             setActiveRounds(updated);
                           }}
-                          className={`bg-black text-[10px] font-black p-1 rounded ${r.result === 'W' ? 'text-emerald-400' : r.result === 'L' ? 'text-rose-400' : 'text-gray-400'}`}
+                          className={`bg-black text-xs font-black p-1 rounded ${r.result === 'W' ? 'text-emerald-400' : r.result === 'L' ? 'text-rose-400' : 'text-gray-400'}`}
                         >
                           <option value="">Unknown</option>
                           <option value="W">W</option>
@@ -1381,7 +1381,7 @@ export default function MatchLogRounds({ data, theme, onSaveMatch, onRemove, onS
                             updated[index].winBy = e.target.value;
                             setActiveRounds(updated);
                           }}
-                          className="bg-black text-[10px] p-1 rounded text-white"
+                          className="bg-black text-xs p-1 rounded text-white"
                         >
                           <option value="">Unknown</option>
                           {winReasons.map(rs => <option key={rs} value={rs}>{rs}</option>)}
@@ -1396,7 +1396,7 @@ export default function MatchLogRounds({ data, theme, onSaveMatch, onRemove, onS
                             updated[index].plant = e.target.value;
                             setActiveRounds(updated);
                           }}
-                          className="bg-black text-[10px] p-1 rounded text-white"
+                          className="bg-black text-xs p-1 rounded text-white"
                         >
                           <option value="">Unknown</option>
                           <option value="TRUE">Yes</option>
@@ -1411,7 +1411,7 @@ export default function MatchLogRounds({ data, theme, onSaveMatch, onRemove, onS
                             updated[index].site = e.target.value;
                             setActiveRounds(updated);
                           }}
-                          className="bg-black text-[10px] p-1 rounded text-white font-bold"
+                          className="bg-black text-xs p-1 rounded text-white font-bold"
                         >
                           <option value="">Unknown</option>
                           {sites.map(s => <option key={s} value={s}>{s}</option>)}
@@ -1426,7 +1426,7 @@ export default function MatchLogRounds({ data, theme, onSaveMatch, onRemove, onS
                             updated[index].isThrow = e.target.value;
                             setActiveRounds(updated);
                           }}
-                          className="bg-black text-[10px] p-1 rounded text-white"
+                          className="bg-black text-xs p-1 rounded text-white"
                         >
                           <option value="">Unknown</option>
                           <option value="FALSE">Clean</option>
@@ -1444,15 +1444,15 @@ export default function MatchLogRounds({ data, theme, onSaveMatch, onRemove, onS
                               setActiveRounds(updated);
                             }}
                             placeholder="Select/type..."
-                            className="bg-black text-[10px] p-1 rounded text-white w-[100px] border border-white/10"
+                            className="bg-black text-xs p-1 rounded text-white w-[100px] border border-white/10"
                           />
                           <div className="hidden group-hover:block hover:block absolute left-0 bottom-full bg-slate-900 border border-slate-700 p-2.5 rounded shadow-xl z-50 space-y-1.5 w-[140px]">
-                            <p className="text-[9px] text-gray-400 font-bold uppercase tracking-wider">Quick Select</p>
+                            <p className="text-xs text-gray-400 font-bold uppercase tracking-wider">Quick Select</p>
                             {players.map(p => {
                               const currentList = r.thrownBy ? r.thrownBy.split(', ').filter(Boolean) : [];
                               const isChecked = currentList.includes(p);
                               return (
-                                <label key={p} className="flex items-center gap-1.5 cursor-pointer text-[10px] text-white hover:text-rose-400">
+                                <label key={p} className="flex items-center gap-1.5 cursor-pointer text-xs text-white hover:text-rose-400">
                                   <input
                                     type="checkbox"
                                     checked={isChecked}
@@ -1484,7 +1484,7 @@ export default function MatchLogRounds({ data, theme, onSaveMatch, onRemove, onS
                             updated[index].throwReason = e.target.value;
                             setActiveRounds(updated);
                           }}
-                          className="bg-black text-[10px] p-1 rounded text-white max-w-[120px]"
+                          className="bg-black text-xs p-1 rounded text-white max-w-[120px]"
                         >
                           <option value="">-</option>
                           <option value="Overpeeking">Overpeeking</option>
@@ -1508,15 +1508,15 @@ export default function MatchLogRounds({ data, theme, onSaveMatch, onRemove, onS
                               setActiveRounds(updated);
                             }}
                             placeholder="No strat..."
-                            className="bg-black text-[10px] p-1 rounded text-white w-[110px] border border-white/10"
+                            className="bg-black text-xs p-1 rounded text-white w-[110px] border border-white/10"
                           />
                           <div className="hidden group-hover:block hover:block absolute right-0 bottom-full bg-slate-900 border border-slate-700 p-2.5 rounded shadow-xl z-50 space-y-1.5 w-[160px] max-h-[160px] overflow-y-auto">
-                            <p className="text-[9px] text-gray-400 font-bold uppercase tracking-wider">Map Strategies</p>
+                            <p className="text-xs text-gray-400 font-bold uppercase tracking-wider">Map Strategies</p>
                             {((data.strats || []).filter(s => s.map === selectedMatch.map)).map(st => {
                               const currentList = r.strategies ? r.strategies.split(', ').filter(Boolean) : [];
                               const isChecked = currentList.includes(st.name);
                               return (
-                                <label key={st.id} className="flex items-start gap-1.5 cursor-pointer text-[10px] text-white hover:text-violet-400">
+                                <label key={st.id} className="flex items-start gap-1.5 cursor-pointer text-xs text-white hover:text-violet-400">
                                   <input
                                     type="checkbox"
                                     checked={isChecked}
@@ -1538,7 +1538,7 @@ export default function MatchLogRounds({ data, theme, onSaveMatch, onRemove, onS
                               );
                             })}
                             {((data.strats || []).filter(s => s.map === selectedMatch.map)).length === 0 && (
-                              <p className="text-[9px] text-gray-500 italic">No strategies defined for {selectedMatch.map}</p>
+                              <p className="text-xs text-gray-500 italic">No strategies defined for {selectedMatch.map}</p>
                             )}
                           </div>
                         </div>
@@ -1553,7 +1553,7 @@ export default function MatchLogRounds({ data, theme, onSaveMatch, onRemove, onS
                             updated[index].notes = e.target.value;
                             setActiveRounds(updated);
                           }}
-                          className="w-full bg-black/40 border border-white/5 rounded p-1 text-white text-[10px]"
+                          className="w-full bg-black/40 border border-white/5 rounded p-1 text-white text-xs"
                         />
                       </td>
                     </tr>
@@ -1569,13 +1569,13 @@ export default function MatchLogRounds({ data, theme, onSaveMatch, onRemove, onS
                   onClick={() => setRoundEditorOpen(false)}
                   className="px-4 py-2 bg-slate-500/10 hover:bg-slate-500/20 text-xs font-bold rounded cursor-pointer text-gray-400 hover:text-white font-mono"
                 >
-                  CANCEL
+                  Cancel
                 </button>
                 <button
                   onClick={handleSaveRounds}
                   className={`px-4 py-2 ${theme.primaryBg} text-xs font-bold rounded cursor-pointer text-white flex items-center gap-1 font-mono`}
                 >
-                  <Save className="w-4 h-4" /> SAVE ROUNDS
+                  <Save className="w-4 h-4" /> Save rounds
                 </button>
               </div>
             </div>
@@ -1602,7 +1602,7 @@ export default function MatchLogRounds({ data, theme, onSaveMatch, onRemove, onS
 
             <div className="space-y-2 max-h-[350px] overflow-y-auto">
               {activeVetos.map((v, index) => (
-                <div key={index} className="grid grid-cols-4 gap-2 bg-black/25 p-2 rounded border border-white/5 items-center font-mono text-[10px]">
+                <div key={index} className="grid grid-cols-4 gap-2 bg-black/25 p-2 rounded border border-white/5 items-center font-mono text-xs">
                   <div className="text-gray-400 font-bold">Step {v.seq}</div>
                   
                   <select
@@ -1652,13 +1652,13 @@ export default function MatchLogRounds({ data, theme, onSaveMatch, onRemove, onS
                 onClick={() => setVetoEditorOpen(false)}
                 className="px-4 py-2 bg-slate-500/10 hover:bg-slate-500/20 text-xs font-bold rounded cursor-pointer text-gray-400 hover:text-white font-mono"
               >
-                CANCEL
+                Cancel
               </button>
               <button
                 onClick={handleSaveVetoSubmit}
                 className={`px-4 py-2 ${theme.primaryBg} text-xs font-bold rounded cursor-pointer text-white flex items-center gap-1 font-mono`}
               >
-                <Save className="w-4 h-4" /> SAVE VETOES
+                <Save className="w-4 h-4" /> Save vetoes
               </button>
             </div>
           </div>

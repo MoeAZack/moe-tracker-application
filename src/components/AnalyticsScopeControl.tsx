@@ -20,7 +20,7 @@ export default function AnalyticsScopeControl({ scope, context, onChange }: {
     <section className="liquid-subtle rounded-xl border border-cyan-400/20 p-4" aria-label="Analytics map scope">
       <div className="grid gap-4 lg:grid-cols-[minmax(0,1fr)_minmax(18rem,1.1fr)] lg:items-end">
         <fieldset className="min-w-0">
-          <legend className="mb-2 text-[10px] font-black uppercase tracking-widest text-cyan-300">Analytics map scope</legend>
+          <legend className="mb-2 text-xs font-black uppercase tracking-widest text-cyan-300">Analytics map scope</legend>
           <div className="grid gap-2 sm:grid-cols-2">
           <label className={`ui-button flex min-h-11 cursor-pointer items-center justify-center px-3 py-2 text-center text-xs font-bold ${scope === 'all' ? 'text-white ring-1 ring-cyan-400/50' : 'text-gray-400'}`}>
             <input className="sr-only" type="radio" name="analytics-map-scope" value="all" checked={scope === 'all'} onChange={() => onChange('all')} />

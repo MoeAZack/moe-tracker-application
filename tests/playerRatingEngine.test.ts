@@ -77,7 +77,7 @@ describe('shadow player rating engine', () => {
   it('produces a transparent deterministic shadow calculation with preserved context', () => {
     const result = calculateShadowPlayerRating(input(), baseline(), formula());
 
-    expect(result.label).toBe('MoeTracker shadow performance score');
+    expect(result.label).toBe('Moe Tracker shadow performance score');
     expect(result.mode).toBe('shadow');
     expect(result.selectionAuthority).toBe(false);
     expect(result.officialRiotRankOrRR).toBe(false);

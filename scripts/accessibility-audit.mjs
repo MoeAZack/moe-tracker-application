@@ -83,7 +83,7 @@ async function auditDesktopWorkspaces() {
 
   // A destructive confirmation is an in-app modal: labelled, focused on Cancel, dismissed by Escape without acting.
   await open(`#/match-review?match=${matchId}`);
-  await page.getByRole('button', { name: 'DELETE', exact: true }).click();
+  await page.getByRole('button', { name: 'Delete', exact: true }).click();
   const dialog = page.getByRole('alertdialog'); await dialog.waitFor();
   check(await page.evaluate(() => document.activeElement?.textContent) === 'Cancel', 'the destructive confirmation did not start on Cancel.');
   await audit(page, 'desktop destructive confirmation dialog');

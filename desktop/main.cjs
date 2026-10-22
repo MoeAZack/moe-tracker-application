@@ -868,7 +868,7 @@ handleTrusted('desktop:export-team-package', async (event, input = {}) => {
 handleTrusted('desktop:preview-team-package', async (event, input = {}) => {
   requireTrustedSender(event);
   runtime.pendingImport = null;
-  const selection = await dialog.showOpenDialog(mainWindow, { properties: ['openFile'], title: 'Preview a MoeTracker package', filters: [{ name: 'MoeTracker packages', extensions: ['moetracker'] }] });
+  const selection = await dialog.showOpenDialog(mainWindow, { properties: ['openFile'], title: 'Preview a Moe Tracker package', filters: [{ name: 'Moe Tracker packages', extensions: ['moetracker'] }] });
   if (selection.canceled || !selection.filePaths[0]) return { canceled: true };
   const file = selection.filePaths[0]; const bytes = await fsp.readFile(file); if (bytes.length > MAX_ENVELOPE_BYTES) throw new Error('Portable package exceeds the safety limit.');
   const packageBytes = await decryptPortablePackage(bytes, input.password); const session = await bootstrapCoachSession();

@@ -65,7 +65,7 @@ describe('liquid UI presentation contract', () => {
   it('routes free scoreboard imports to Replay and traps focus in both remaining dialogs', () => {
     expect(app).toContain("setActiveTab('replays')");
     expect(app).toContain('onClick={openReplayImport}');
-    expect(app).toContain('IMPORT SCOREBOARD');
+    expect(app).toContain('Import scoreboard');
     expect(app).not.toContain('ocrDialogRef');
 
     for (const dialog of [scoreboardCrop, matchLogRounds]) {

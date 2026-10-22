@@ -203,16 +203,16 @@ export default function MapBestStats({ data, theme }: ComponentProps) {
       {/* Sub tabs bar */}
       <div className="flex flex-wrap gap-2 border-b border-white/10 pb-4">
         {[
-          { id: 'stats', label: 'Map Pool Stats', icon: Compass },
-          { id: 'calculator', label: 'Best Map Calculator', icon: Calculator },
-          { id: 'throws', label: 'Tactical Error & Throws', icon: ShieldAlert }
+          { id: 'stats', label: 'Map pool stats', icon: Compass },
+          { id: 'calculator', label: 'Best map calculator', icon: Calculator },
+          { id: 'throws', label: 'Tactical errors & throws', icon: ShieldAlert }
         ].map(tb => {
           const Icon = tb.icon;
           return (
             <button
               key={tb.id}
               onClick={() => setActiveSubTab(tb.id as any)}
-              className={`flex items-center gap-2 px-4 py-2 text-xs font-black tracking-widest uppercase rounded-lg transition-all ${
+              className={`flex items-center gap-2 px-4 py-2 text-xs font-black tracking-widest rounded-lg transition-all ${
                 activeSubTab === tb.id
                   ? 'bg-white/5 text-white shadow-md border-b-2 border-white'
                   : 'text-gray-400 hover:text-white'
@@ -239,7 +239,7 @@ export default function MapBestStats({ data, theme }: ComponentProps) {
           <div className="overflow-x-auto">
             <table className="w-full min-w-[1580px] text-left border-collapse font-mono text-xs">
               <thead>
-                <tr className="border-b border-white/10 text-[9px] uppercase tracking-widest text-gray-500"><th className="px-3 py-2" colSpan={4}>Map results</th><th className="border-l border-white/10 px-3 py-2 text-center" colSpan={2}>Side win rate</th><th className="border-l border-white/10 px-3 py-2 text-center" colSpan={6}>Long-term opening conversion · first three rounds of each side</th><th className="border-l border-white/10 px-3 py-2 text-center">Combat</th></tr>
+                <tr className="border-b border-white/10 text-xs uppercase tracking-widest text-gray-500"><th className="px-3 py-2" colSpan={4}>Map results</th><th className="border-l border-white/10 px-3 py-2 text-center" colSpan={2}>Side win rate</th><th className="border-l border-white/10 px-3 py-2 text-center" colSpan={6}>Long-term opening conversion · first three rounds of each side</th><th className="border-l border-white/10 px-3 py-2 text-center">Combat</th></tr>
                 <tr className="border-b border-white/10 text-gray-500 uppercase font-bold">
                   <th className="py-3 px-3">Map</th><th className="py-3 px-3 text-center">Played</th><th className="py-3 px-3 text-center">W / L / D</th><th className="py-3 px-3 text-center">Win rate</th>
                   <th className="border-l border-white/10 py-3 px-3 text-center">ATT</th><th className="py-3 px-3 text-center">DEF</th>
@@ -271,7 +271,7 @@ export default function MapBestStats({ data, theme }: ComponentProps) {
                       </td>
                       <td className="py-3.5 px-3 text-center font-black text-sm">
                         <span className={weightedPlayed > 0 ? smallSample ? 'text-slate-300' : percentageTextClass(Number(winrate)) : 'text-slate-500'}>{weightedPlayed > 0 ? `${winrate}%` : '—'}</span>
-                        {weightedPlayed > 0 && smallSample && <span className="mt-0.5 block text-[9px] font-semibold normal-case text-amber-300">Small sample · {played} of {minimumMapSamples} maps</span>}
+                        {weightedPlayed > 0 && smallSample && <span className="mt-0.5 block text-xs font-semibold normal-case text-amber-300">Small sample · {played} of {minimumMapSamples} maps</span>}
                       </td>
                       <td className={`border-l border-white/5 py-3.5 px-3 text-center font-bold ${attWr !== null ? percentageTextClass(Number(attWr)) : 'text-slate-500'}`}>{attWr !== null ? `${attWr}%` : '—'}</td><td className={`py-3.5 px-3 text-center font-bold ${defWr !== null ? percentageTextClass(Number(defWr)) : 'text-slate-500'}`}>{defWr !== null ? `${defWr}%` : '—'}</td>
                       <td className={`border-l border-white/5 py-3.5 px-3 text-center ${percentageTextClass(conversionPercentage(roundIntel?.pistolBySide.attack))}`}>{conversionText(roundIntel?.pistolBySide.attack)}</td><td className={`py-3.5 px-3 text-center ${percentageTextClass(conversionPercentage(roundIntel?.pistolBySide.defense))}`}>{conversionText(roundIntel?.pistolBySide.defense)}</td>
@@ -296,9 +296,9 @@ export default function MapBestStats({ data, theme }: ComponentProps) {
             <div className="flex flex-wrap items-start justify-between gap-3">
               <div className="flex items-center gap-2">
                 <Calculator className={`w-5 h-5 ${theme.text}`} />
-                <div><h4 className="font-black text-sm uppercase tracking-wide">Experimental best-map score</h4><p className="mt-1 text-[10px] text-gray-500">A descriptive composite of team results, side conversions, economy and team K/D. Unknown and undersampled inputs are excluded, never scored as average.</p></div>
+                <div><h4 className="font-black text-sm uppercase tracking-wide">Experimental best-map score</h4><p className="mt-1 text-xs text-gray-500">A descriptive composite of team results, side conversions, economy and team K/D. Unknown and undersampled inputs are excluded, never scored as average.</p></div>
               </div>
-              <span className="text-[10px] text-gray-500 font-mono uppercase bg-black/10 px-2 py-1 rounded">Shrink K: {data.settings.stats?.shrinkK || 10}</span>
+              <span className="text-xs text-gray-500 font-mono uppercase bg-black/10 px-2 py-1 rounded">Shrink K: {data.settings.stats?.shrinkK || 10}</span>
             </div>
 
             <div className="overflow-x-auto">
@@ -336,7 +336,7 @@ export default function MapBestStats({ data, theme }: ComponentProps) {
                       <td className={`py-3.5 px-4 text-center ${percentageTextClass(cm.ecoWr)}`}>{cm.ecoWr === null ? 'Unknown' : `${cm.ecoWr}%`}</td>
                       <td className="py-3.5 px-4 text-center font-bold text-gray-300">{cm.kd ?? 'Unknown'}</td>
                       <td className={`py-3.5 px-4 text-center font-bold ${percentageTextClass(cm.playerPerformance)}`}>{cm.playerPerformance === null ? 'Unknown' : `${cm.playerPerformance}% · ${cm.contributingPlayers}P`}</td>
-                      <td className="py-3.5 px-4 text-center"><details className="relative"><summary className="cursor-pointer whitespace-nowrap text-cyan-300">{cm.ledger.coveragePercent}% · {cm.ledger.confidence}</summary><div className="mt-2 min-w-[280px] space-y-1 rounded-lg border border-white/10 bg-slate-950 p-2 text-left text-[10px]">{cm.ledger.contributions.map(item => <p key={item.key} className="flex justify-between gap-3"><span className={item.status === 'observed' ? 'text-slate-300' : 'text-amber-300'}>{item.label} · {item.samples} samples{item.status === 'insufficient-sample' ? ` (needs ${cm.ledger.minimumSamples})` : item.status === 'unknown' ? ' (unknown)' : ''}</span><strong>{item.status === 'observed' ? `${item.weightedPoints.toFixed(1)} / ${item.weight}` : 'Excluded'}</strong></p>)}</div></details></td>
+                      <td className="py-3.5 px-4 text-center"><details className="relative"><summary className="cursor-pointer whitespace-nowrap text-cyan-300">{cm.ledger.coveragePercent}% · {cm.ledger.confidence}</summary><div className="mt-2 min-w-[280px] space-y-1 rounded-lg border border-white/10 bg-slate-950 p-2 text-left text-xs">{cm.ledger.contributions.map(item => <p key={item.key} className="flex justify-between gap-3"><span className={item.status === 'observed' ? 'text-slate-300' : 'text-amber-300'}>{item.label} · {item.samples} samples{item.status === 'insufficient-sample' ? ` (needs ${cm.ledger.minimumSamples})` : item.status === 'unknown' ? ' (unknown)' : ''}</span><strong>{item.status === 'observed' ? `${item.weightedPoints.toFixed(1)} / ${item.weight}` : 'Excluded'}</strong></p>)}</div></details></td>
                     </tr>
                   ))}
                 </tbody>
@@ -364,15 +364,15 @@ export default function MapBestStats({ data, theme }: ComponentProps) {
           {/* Top Quick Metrics */}
           <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
             <div className={`p-4 rounded-xl border ${isLight ? 'bg-white border-slate-200 text-slate-800 shadow-sm' : 'bg-white/5 border-white/10'} space-y-1`}>
-              <span className="text-[9px] uppercase font-bold text-gray-400 font-mono block">Evidence-costly losses</span>
+              <span className="text-xs uppercase font-bold text-gray-400 font-mono block">Evidence-costly losses</span>
               <div className="flex items-baseline gap-2">
                 <span className="text-2xl font-black text-rose-500">{totalEvidenceLosses}</span>
-                <span className="text-[9px] text-gray-500 font-mono">Auto-detected</span>
+                <span className="text-xs text-gray-500 font-mono">Auto-detected</span>
               </div>
             </div>
 
             <div className={`p-4 rounded-xl border ${isLight ? 'bg-white border-slate-200 text-slate-800 shadow-sm' : 'bg-white/5 border-white/10'} space-y-1`}>
-              <span className="text-[9px] uppercase font-bold text-gray-400 font-mono block">Primary Loss Driver</span>
+              <span className="text-xs uppercase font-bold text-gray-400 font-mono block">Primary Loss Driver</span>
               <div className="flex items-baseline gap-2">
                 <span className="text-sm font-black text-white truncate max-w-[130px]" title={topReason.reason}>{topReason.reason}</span>
                 <span className="text-xs text-rose-400 font-mono">({topReason.count})</span>
@@ -380,7 +380,7 @@ export default function MapBestStats({ data, theme }: ComponentProps) {
             </div>
 
             <div className={`p-4 rounded-xl border ${isLight ? 'bg-white border-slate-200 text-slate-800 shadow-sm' : 'bg-white/5 border-white/10'} space-y-1`}>
-              <span className="text-[9px] uppercase font-bold text-gray-400 font-mono block">Highest costly-loss map</span>
+              <span className="text-xs uppercase font-bold text-gray-400 font-mono block">Highest costly-loss map</span>
               <div className="flex items-baseline gap-2">
                 <span className="text-sm font-black text-white truncate">{topMapThrow.map}</span>
                 <span className="text-xs text-rose-400 font-mono">({topMapThrow.count})</span>
@@ -388,10 +388,10 @@ export default function MapBestStats({ data, theme }: ComponentProps) {
             </div>
 
             <div className={`p-4 rounded-xl border ${isLight ? 'bg-white border-slate-200 text-slate-800 shadow-sm' : 'bg-white/5 border-white/10'} space-y-1`}>
-              <span className="text-[9px] uppercase font-bold text-gray-400 font-mono block">Coach-confirmed throws</span>
+              <span className="text-xs uppercase font-bold text-gray-400 font-mono block">Coach-confirmed throws</span>
               <div className="flex items-baseline gap-2">
                 <span className="text-2xl font-black text-amber-400">{totalThrownRounds}</span>
-                <span className="text-[9px] text-gray-500 font-mono">Overpeek: {topOverpeeker.count ? `${topOverpeeker.name} (${topOverpeeker.count})` : 'not marked'}</span>
+                <span className="text-xs text-gray-500 font-mono">Overpeek: {topOverpeeker.count ? `${topOverpeeker.name} (${topOverpeeker.count})` : 'not marked'}</span>
               </div>
             </div>
           </div>
@@ -403,14 +403,14 @@ export default function MapBestStats({ data, theme }: ComponentProps) {
                 <Compass className="w-4 h-4 text-[#ff4655]" />
                 Map Costly-Loss Densities
               </h4>
-              <p className="text-[9.5px] text-gray-400 font-mono leading-relaxed">
+              <p className="text-xs text-gray-400 font-mono leading-relaxed">
                 Automatic evidence flags economy punishments, failed post-pistol conversions, full-buy losses, and complete-event 2+ player advantage collapses. It does not assign player blame.
               </p>
 
               <div className="overflow-x-auto">
                 <table className="w-full text-left border-collapse font-mono text-xs">
                   <thead>
-                    <tr className="border-b border-white/10 text-gray-500 uppercase font-black text-[9px]">
+                    <tr className="border-b border-white/10 text-gray-500 uppercase font-black text-xs">
                       <th className="py-2">Map</th>
                       <th className="py-2 text-center">Costly losses</th>
                       <th className="py-2 text-center">Confirmed throws</th>
@@ -448,7 +448,7 @@ export default function MapBestStats({ data, theme }: ComponentProps) {
                         <tr key={mName} className="hover:bg-white/5">
                           <td className="py-2 text-white font-bold">{mName}</td>
                           <td className="py-2 text-center">
-                            <span className={`px-2 py-0.5 rounded font-black text-[10px] ${
+                            <span className={`px-2 py-0.5 rounded font-black text-xs ${
                               stats.evidenceLosses > 4 ? 'bg-rose-500/10 text-rose-400 border border-rose-500/20' :
                               stats.evidenceLosses > 0 ? 'bg-amber-500/10 text-amber-400 border border-amber-500/20' :
                               'bg-gray-500/5 text-gray-600'
@@ -457,8 +457,8 @@ export default function MapBestStats({ data, theme }: ComponentProps) {
                             </span>
                           </td>
                           <td className="py-2 text-center text-gray-400">{stats.totalThrows}</td>
-                          <td className="py-2 text-gray-300 text-[11px] truncate max-w-[120px]">{topMapReason}</td>
-                          <td className="py-2 text-amber-400 text-[11px] font-bold">{topMapPlayer}</td>
+                          <td className="py-2 text-gray-300 text-xs truncate max-w-[120px]">{topMapReason}</td>
+                          <td className="py-2 text-amber-400 text-xs font-bold">{topMapPlayer}</td>
                         </tr>
                       );
                     })}
@@ -475,14 +475,14 @@ export default function MapBestStats({ data, theme }: ComponentProps) {
                   <Users className="w-4 h-4 text-[#ff4655]" />
                   Roster Discipline Leaderboard
                 </h4>
-                <p className="text-[9.5px] text-gray-400 font-mono leading-relaxed">
+                <p className="text-xs text-gray-400 font-mono leading-relaxed">
                   Player blame is coach-confirmed only. Screenshots cannot prove positioning intent such as an overpeek.
                 </p>
 
                 <div className="overflow-x-auto">
                   <table className="w-full text-left border-collapse font-mono text-xs">
                     <thead>
-                      <tr className="border-b border-white/10 text-gray-500 uppercase font-black text-[9px]">
+                      <tr className="border-b border-white/10 text-gray-500 uppercase font-black text-xs">
                         <th className="py-2">Player</th>
                         <th className="py-2 text-center text-amber-400">Overpeeks</th>
                         <th className="py-2 text-center text-cyan-400">Failed Clutches</th>
@@ -514,14 +514,14 @@ export default function MapBestStats({ data, theme }: ComponentProps) {
                               <td className="py-2 text-center text-gray-500">{stats.otherThrows}</td>
                               <td className="py-2 text-center font-black text-white">{stats.total}</td>
                               <td className="py-2 text-right">
-                                <span className={`px-2 py-0.5 rounded text-[9px] uppercase ${riskBadge}`}>
+                                <span className={`px-2 py-0.5 rounded text-xs uppercase ${riskBadge}`}>
                                   {riskText}
                                 </span>
                               </td>
                             </tr>
                           );
                         })}
-                      {Object.values(throwStats.playerIssues).every((row: any) => row.total === 0) && <tr><td colSpan={6} className="py-5 text-center text-[10px] text-gray-500">No coach-attributed player errors. Automatic evidence is shown in the map table without assigning blame.</td></tr>}
+                      {Object.values(throwStats.playerIssues).every((row: any) => row.total === 0) && <tr><td colSpan={6} className="py-5 text-center text-xs text-gray-500">No coach-attributed player errors. Automatic evidence is shown in the map table without assigning blame.</td></tr>}
                     </tbody>
                   </table>
                 </div>
@@ -536,7 +536,7 @@ export default function MapBestStats({ data, theme }: ComponentProps) {
 
                 <div className="space-y-2 pt-1 font-mono text-xs">
                   {Object.entries(throwStats.reasonFrequency).length === 0 ? (
-                    <p className="text-[10px] text-gray-500 text-center py-2">No automatic costly-loss pattern or coach-confirmed throw is available yet.</p>
+                    <p className="text-xs text-gray-500 text-center py-2">No automatic costly-loss pattern or coach-confirmed throw is available yet.</p>
                   ) : (
                     Object.entries(throwStats.reasonFrequency)
                       .sort((a, b) => (b[1] as number) - (a[1] as number))
@@ -546,7 +546,7 @@ export default function MapBestStats({ data, theme }: ComponentProps) {
                         const pct = total > 0 ? Math.round((count / total) * 100) : 0;
                         return (
                           <div key={reasonStr} className="space-y-1">
-                            <div className="flex justify-between text-[11px]">
+                            <div className="flex justify-between text-xs">
                               <span className="font-bold text-white">{reasonStr}</span>
                               <span className="text-gray-400">{count} times ({pct}%)</span>
                             </div>
@@ -567,11 +567,11 @@ export default function MapBestStats({ data, theme }: ComponentProps) {
 
           {/* Educational Tactical Note */}
           <div className="p-4 rounded-xl border border-white/5 bg-gradient-to-r from-red-500/5 to-transparent space-y-2 font-mono">
-            <h5 className="text-[10px] uppercase font-black tracking-widest text-[#ff4655] flex items-center gap-1.5">
+            <h5 className="text-xs uppercase font-black tracking-widest text-[#ff4655] flex items-center gap-1.5">
               <Sparkles className="w-3.5 h-3.5" />
               Tactical Loss & Discipline Diagnostics
             </h5>
-            <p className="text-[10.5px] text-gray-300 leading-relaxed">
+            <p className="text-xs text-gray-300 leading-relaxed">
               Economy mismatches, failed post-pistol conversions, full-buy losses and complete-event man-advantage collapses are calculated automatically. Overpeeking, the responsible player, and tactical intent remain coach-confirmed because screenshots cannot prove them reliably.
             </p>
           </div>
