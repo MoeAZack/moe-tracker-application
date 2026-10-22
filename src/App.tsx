@@ -394,6 +394,19 @@ export default function App() {
     }
   };
 
+  const handleAcceptRoundEvidence = async (matchId: string, roundNo: number) => {
+    try {
+      const res = await apiFetch('/api/round-evidence-accept', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ matchId, roundNo }) });
+      if (!res.ok) throw await saveError(res, 'Failed to accept round evidence.');
+      const resJson = await res.json();
+      if (resJson.screenshotSummary && window.moeDesktop) await window.moeDesktop.queueScreenshotSummary(resJson.screenshotSummary);
+      setData(prev => prev ? mergeRoundsResult(prev, matchId, resJson) : prev);
+    } catch (err: any) {
+      notify(err.message || 'Error accepting round evidence.', 'error');
+      throw err;
+    }
+  };
+
   const handleDuplicateReview = async (matchId: string, decision: 'keep-both' | 'discard-this') => {
     try {
       const res = await apiFetch('/api/match-duplicate-review', {
@@ -738,6 +751,7 @@ export default function App() {
                 reviewRoundNo={reviewRoundNo}
                 onReviewContextChange={(matchId, roundNo) => { setReviewMatchId(matchId); setReviewRoundNo(roundNo || null); }}
                 onDuplicateReview={handleDuplicateReview}
+                onAcceptRoundEvidence={role === 'coach' ? handleAcceptRoundEvidence : undefined}
               />
             )}
             {activeTab === 'matches' && workspaceData && !desktopMode && <WebsiteMatchLog data={workspaceData} theme={theme} focusMatchId={reviewMatchId} />}

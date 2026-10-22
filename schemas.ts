@@ -146,6 +146,7 @@ export const saveMatchSchema = z.object({
 }).strict();
 export const matchDuplicateReviewSchema = z.object({ matchId: nonEmpty, decision: z.enum(['keep-both', 'discard-this']) }).strict();
 export const saveRoundsSchema = z.object({ matchId: nonEmpty, rows: z.array(looseObject).optional() });
+export const roundEvidenceAcceptSchema = z.object({ matchId: nonEmpty, roundNo: z.number().int().min(1).max(99) }).strict();
 export const saveVetoSchema = z.object({ matchId: nonEmpty, meta: looseObject, actions: z.array(looseObject).optional() });
 
 export const setSecretSchema = z.object({ name: z.string().min(1).max(100), value: z.string().max(8000).optional().nullable() });
