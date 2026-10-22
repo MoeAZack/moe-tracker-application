@@ -15,6 +15,7 @@ import { purgeExpiredRosterPlayers } from '../roster';
 import { applyScheduleEdit, normalizeScheduleRow, removeScheduleRows, repeatedHourlyScheduleRows } from '../schedule';
 import { findExactRoundEvidenceDuplicate, findExactSourceDuplicate, purgeMatchGraph, isDuplicateQuarantined, purgeRemovedRoundReferences, refreshDuplicateQuarantine, stableRoundReplacement } from '../matchIntegrity';
 import { autoLinkPracticeSession } from '../practiceSessionProgress';
+import { acceptRoundEvidence } from '../roundEvidenceAcceptance';
 import { buildCalibratedPlayerRatings } from '../calibratedPlayerRatings';
 
 // Core data + match logging: full payload, reset, settings, generic upsert/remove,
@@ -542,6 +543,28 @@ export function registerDataRoutes(app: Express, options: { websiteSummaryOnly?:
       refreshCoachingWorkflow(db, (req as any).user?.username || 'Unknown coach');
       await saveDB(db);
       res.json(roundSaveResult(db, matchId, replacement, match));
+    } catch (err: any) {
+      sendError(res, err);
+    }
+  });
+
+  // POST coach acceptance of one saved round's screenshot evidence. Goes
+  // through the same duplicate check and materializers as a round save.
+  app.post('/api/round-evidence-accept', async (req, res) => {
+    try {
+      if (!requireCoach(req, res)) return;
+      const body = validate(schemas.roundEvidenceAcceptSchema, req.body, res); if (!body) return;
+      const db = await readDB();
+      if (!(db.matches || []).some((item: any) => item.id === body.matchId)) return res.status(404).json({ error: 'Match was not found.' });
+      const actor = (req as any).user?.username || 'Unknown coach';
+      const rows = acceptRoundEvidence((db.rounds || []).filter((round: any) => round.matchId === body.matchId), body.roundNo, actor);
+      if (!rows) return res.status(409).json({ error: 'This round has no evidence waiting for review.' });
+      const replacement = planRoundReplacement(db, body.matchId, rows);
+      const match = applyRoundReplacement(db, body.matchId, replacement);
+      refreshDuplicateQuarantine(db);
+      refreshCoachingWorkflow(db, actor);
+      await saveDB(db);
+      res.json(roundSaveResult(db, body.matchId, replacement, match));
     } catch (err: any) {
       sendError(res, err);
     }
