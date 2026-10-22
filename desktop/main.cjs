@@ -117,6 +117,9 @@ async function ensureRuntime() {
   const paths = appPaths();
   await Promise.all(Object.values({ local: paths.local, logs: paths.logs, replays: paths.replays, screenshots: paths.screenshots, exports: paths.exports, backups: paths.backups }).map(folder => fsp.mkdir(folder, { recursive: true })));
   let config = await json(paths.config, null);
+  // A config from an earlier launch means this PC already had a workspace: a
+  // missing database is then lost, and the local service must not seed over it.
+  const workspaceEstablished = !!config;
   if (!config) {
     config = {
       schemaVersion: 1,
@@ -142,7 +145,7 @@ async function ensureRuntime() {
   config.localPort = await chooseLocalPort({ saved: config.localPort, freePort });
   await atomicJson(paths.config, persistedConfig(config));
   if (!await json(paths.syncState, null)) await atomicJson(paths.syncState, { schemaVersion: 1, outbox: [], inbox: [], completed: [] });
-  runtime = { paths, config, port: config.localPort, session: null, coachSession: null };
+  runtime = { paths, config, port: config.localPort, session: null, coachSession: null, workspaceEstablished };
   await recoverIngestionJobsOnStartup();
   return runtime;
 }
@@ -230,6 +233,7 @@ async function startLocalServer() {
     APP_VERSION: app.getVersion(),
     // The replay collector reports this id; saved captures use it to pair.
     DESKTOP_DEVICE_ID: runtime.config.deviceId,
+    ...(runtime.workspaceEstablished ? { DESKTOP_WORKSPACE_ESTABLISHED: 'true' } : {}),
     ...integrationEnvironment,
   }});
   serverProcess = child;

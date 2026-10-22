@@ -3,9 +3,10 @@ import path from 'path';
 import crypto from 'crypto';
 import { gzipSync, gunzipSync } from 'node:zlib';
 import { createSeed } from './seed';
+import { DESTRUCTIVE_SAVE } from './destructiveSave';
 import { assertSeasonArchivesStorageSize } from './roster';
 import { ensureWorkspaceIdentity } from './evidenceReference';
-import { ensureStorageSchema, migrateHydratedEvidence, validateTrackerState } from './storageSchema';
+import { ensureStorageSchema, migrateHydratedEvidence, STORAGE_SCHEMA_VERSION, validateTrackerState } from './storageSchema';
 import { artifactRetentionMs, evidenceArtifactReferences, externalizeEvidenceArtifacts, hydrateEvidenceArtifacts, planArtifactCollection, type EvidenceArtifact } from './evidenceArtifacts';
 
 // Runtime state never defaults to the repository's historical/demo db.json.
@@ -13,6 +14,8 @@ import { artifactRetentionMs, evidenceArtifactReferences, externalizeEvidenceArt
 // an empty structural seed under the private runtime data directory.
 export const DB_PATH = process.env.DB_PATH || path.join(process.cwd(), 'data', 'db.json');
 export const EVIDENCE_ARTIFACT_DIR = process.env.EVIDENCE_ARTIFACT_DIR || `${DB_PATH}.evidence`;
+/** Where private and automatic recovery backups live (the desktop app points this at Local Workspace\\Backups). */
+export function privateBackupRoot() { return path.resolve(process.env.PRIVATE_BACKUP_DIR || path.join(path.dirname(DB_PATH), 'private-backups')); }
 // The Google Cloud Firestore backend was removed. A deployment that still asks
 // for it must stop loudly rather than quietly start an empty local workspace.
 if (process.env.USE_FIRESTORE === 'true') throw new Error('USE_FIRESTORE is no longer supported: the Firestore backend was removed. Use the local workspace or Cloudflare D1.');
@@ -21,6 +24,12 @@ const remoteGcIntervalMs = () => Math.max(0, Number(process.env.EVIDENCE_GC_INTE
 let lastRemoteGcAt = -Infinity;
 const remoteGcDue = (now = Date.now()) => { if (now - lastRemoteGcAt < remoteGcIntervalMs()) return false; lastRemoteGcAt = now; return true; };
 const VERSION = Symbol('tracker-version');
+export { DESTRUCTIVE_SAVE } from './destructiveSave';
+/** Counts and schema of the stored index a state was read from. */
+const STORED = Symbol('stored-index');
+const GUARDED_COLLECTIONS = ['matches', 'rounds', 'playerStats'] as const;
+/** Set once this process has written over an older storage schema. */
+let migratedInThisProcess = false;
 let d1: any = null;
 const LOGIN_THROTTLE_MAX_FAILS = 5;
 const LOGIN_THROTTLE_LOCK_MS = 10 * 60 * 1000;
@@ -72,12 +81,28 @@ function removeLegacySecrets(data: any) {
   }
 }
 
-function attachVersion<T extends Record<string, any>>(data: T, version: string | number): T {
+function attachVersion<T extends Record<string, any>>(data: T, version: string | number, stored?: StoredIndex): T {
   Object.defineProperty(data, VERSION, { value: version, enumerable: false, configurable: true });
+  if (stored) Object.defineProperty(data, STORED, { value: stored, enumerable: false, configurable: true });
   return data;
 }
 
 const storedSchemaVersion = (state: any) => Number(state?._storage?.schemaVersion || 1);
+
+type StoredIndex = { schemaVersion: number; counts: Record<string, number> };
+const indexCounts = (state: any) => Object.fromEntries(GUARDED_COLLECTIONS.map(key => [key, Array.isArray(state?.[key]) ? state[key].length : 0]));
+
+/**
+ * An ordinary save never takes matches, rounds or player stats from some to
+ * none. A route that really means to (deleting the last match, a metrics
+ * reset, a season archive, a restore) keeps a copy first and sets DESTRUCTIVE_SAVE.
+ */
+function assertNotEmptying(data: any) {
+  const stored: StoredIndex | undefined = data?.[STORED];
+  if (!stored || data?.[DESTRUCTIVE_SAVE] === true) return;
+  const emptied = GUARDED_COLLECTIONS.filter(key => stored.counts[key] > 0 && !(Array.isArray(data[key]) && data[key].length));
+  if (emptied.length) throw Object.assign(new Error(`This save would remove every ${emptied.map(key => ({ matches: 'match', rounds: 'round', playerStats: 'player stat' })[key]).join(', ')} in the workspace, so nothing was written.`), { status: 409, code: 'WORKSPACE_EMPTYING_REFUSED', emptied, stored: stored.counts });
+}
 
 function hashText(text: string) { return crypto.createHash('sha256').update(text).digest('hex'); }
 
@@ -152,6 +177,11 @@ async function writeJsonFile(data: any, expected: string | undefined, allowCreat
   if (currentText === null && !allowCreate) throw Object.assign(new Error('Database revision is required for ordinary writes.'), { status: 409 });
   if (currentText !== null && expected === undefined) throw Object.assign(new Error('Database revision is required for ordinary writes.'), { status: 409 });
   if (currentText !== null && hashText(currentText) !== expected) throw Object.assign(new Error('Data changed while this request was being processed. Please retry.'), { status: 409 });
+  let previous: any = null;
+  if (currentText !== null) { try { previous = JSON.parse(currentText); } catch { previous = null; } }
+  const previousSchema = previous ? storedSchemaVersion(previous) : STORAGE_SCHEMA_VERSION;
+  // The first save over an older schema keeps the exact stored bytes first.
+  if (currentText !== null && previousSchema < STORAGE_SCHEMA_VERSION) await keepPreMigrationCopy(currentText, previousSchema);
   await fs.mkdir(path.dirname(DB_PATH), { recursive: true });
   const tempPath = `${DB_PATH}.${process.pid}.${crypto.randomBytes(8).toString('hex')}.tmp`;
   const planned = externalizeEvidenceArtifacts(data);
@@ -161,7 +191,9 @@ async function writeJsonFile(data: any, expected: string | undefined, allowCreat
   try { await handle.writeFile(serialized, 'utf8'); await handle.sync(); } finally { await handle.close(); }
   await fs.rename(tempPath, DB_PATH);
   await syncDirectory(path.dirname(DB_PATH)).catch(() => {});
-  await pruneLocalArtifacts(evidenceArtifactReferences(planned.state)).catch(() => {});
+  if (previousSchema < STORAGE_SCHEMA_VERSION) migratedInThisProcess = true;
+  const active = evidenceArtifactReferences(planned.state);
+  if (!sweepLooksUnsafe(previous, active)) await pruneLocalArtifacts(active).catch(() => {});
   return hashText(serialized);
 }
 
@@ -191,20 +223,89 @@ export async function hydrateFromEvidenceVault(state: any) {
   return hydrateEvidenceArtifacts(state, activeArtifactLoader());
 }
 
+/** Raw copy of the stored database, taken once per old schema before it is written over. */
+async function keepPreMigrationCopy(currentText: string, schema: number) {
+  const dir = path.dirname(DB_PATH); const prefix = `${path.basename(DB_PATH)}.pre-migration-v${schema}-`;
+  if ((await fs.readdir(dir).catch(() => [] as string[])).some(name => name.startsWith(prefix))) return;
+  const target = path.join(dir, `${prefix}${new Date().toISOString().replace(/[:.]/g, '-')}`);
+  const handle = await fs.open(target, 'wx', 0o600);
+  try { await handle.writeFile(currentText, 'utf8'); await handle.sync(); } finally { await handle.close(); }
+  await syncDirectory(dir).catch(() => {});
+}
+
+/**
+ * The orphaned-evidence sweep starts the clock on files it no longer sees
+ * referenced. It skips a write whose index references nothing, one that drops
+ * more than half of what the previous index referenced, and every write in a
+ * process that just migrated: in each case the new index, not the evidence,
+ * is the likelier thing to be wrong.
+ */
+function sweepLooksUnsafe(previous: any, active: ReadonlySet<string>) {
+  if (migratedInThisProcess) return true;
+  if (active.size === 0) return true;
+  if (!previous) return false;
+  const before = evidenceArtifactReferences(previous);
+  let dropped = 0; for (const sha256 of before) if (!active.has(sha256)) dropped += 1;
+  return before.size >= 4 && dropped * 2 > before.size;
+}
+
+/**
+ * Signs that this database path held a workspace before: recovery backups, a
+ * database moved aside earlier, stored evidence artifacts, or a desktop app
+ * that had already been set up. A missing file with any of these is a lost
+ * workspace, not a first run, so it is never replaced by an empty one.
+ */
+async function priorWorkspaceSigns() {
+  const signs: string[] = [];
+  const dir = path.dirname(DB_PATH); const base = path.basename(DB_PATH);
+  const siblings = await fs.readdir(dir).catch(() => [] as string[]);
+  if (siblings.some(name => name.startsWith(`${base}.corrupt-`))) signs.push('an unreadable copy was moved aside earlier');
+  const backups = await fs.readdir(privateBackupRoot(), { withFileTypes: true }).catch(() => []);
+  for (const entry of backups) {
+    if (!entry.isDirectory()) continue;
+    try { await fs.access(path.join(privateBackupRoot(), entry.name, 'manifest.json')); signs.push('recovery backups exist'); break; } catch { /* not a backup folder */ }
+  }
+  if ((await fs.readdir(EVIDENCE_ARTIFACT_DIR).catch(() => [] as string[])).some(name => name.endsWith('.json.gz'))) signs.push('stored evidence exists');
+  if (process.env.DESKTOP_WORKSPACE_ESTABLISHED === 'true') signs.push('this desktop app was set up before');
+  return signs;
+}
+
+const workspaceUnavailable = (message: string, code: string, extra: Record<string, unknown> = {}) => Object.assign(new Error(message), { status: 503, code, ...extra });
+
+/** Moves an unreadable database aside, byte for byte, so it can be repaired or restored over. */
+async function quarantineUnreadableDatabase() {
+  const target = `${DB_PATH}.corrupt-${new Date().toISOString().replace(/[:.]/g, '-')}`;
+  await fs.rename(DB_PATH, target);
+  await syncDirectory(path.dirname(DB_PATH)).catch(() => {});
+  return target;
+}
+
 async function readStoredState(hydrate: boolean) {
   if (d1) return readDBD1(hydrate);
   let storedText: string;
   try { storedText = await fs.readFile(DB_PATH, 'utf8'); }
   catch (error: any) {
     if (error?.code !== 'ENOENT') throw error;
+    const signs = await priorWorkspaceSigns();
+    if (signs.length) throw workspaceUnavailable(`The workspace database is missing, but ${signs.join(', ')}. Nothing was created over it: restore the newest backup.`, 'WORKSPACE_DATABASE_MISSING', { signs });
     const seed = ensureStorageSchema(createSeed());
     const version = await writeJsonFile(seed, undefined, true);
     return attachVersion(seed, version);
   }
-  const data = JSON.parse(storedText); const declared = storedSchemaVersion(data); ensureStorageSchema(data);
-  if (hydrate) { await hydrateEvidenceArtifacts(data, loadLocalArtifact); migrateHydratedEvidence(data, declared); }
+  let data: any;
+  try { data = JSON.parse(storedText); }
+  catch (error) {
+    // A crash can leave the file NUL-filled. Keep its bytes, never seed over it.
+    const quarantined = await quarantineUnreadableDatabase();
+    throw workspaceUnavailable(`The workspace database could not be read and was moved aside to ${path.basename(quarantined)}. Nothing was created over it: restore the newest backup.`, 'WORKSPACE_DATABASE_UNREADABLE', { quarantined, cause: error });
+  }
+  const declared = storedSchemaVersion(data); const stored = { schemaVersion: declared, counts: indexCounts(data) };
+  // Evidence loads before migrations so they see real rows, not artifact stubs.
+  if (hydrate) await hydrateEvidenceArtifacts(data, loadLocalArtifact);
+  ensureStorageSchema(data);
+  if (hydrate) migrateHydratedEvidence(data, declared);
   validateTrackerState(data, { jsonFile: true });
-  return attachVersion(data, hashText(storedText));
+  return attachVersion(data, hashText(storedText), stored);
 }
 
 let writeQueue: Promise<void> = Promise.resolve();
@@ -213,9 +314,11 @@ export async function saveDB(data: any) {
   const run = writeQueue.then(async () => {
     const expected = data[VERSION];
     if (expected === undefined) throw Object.assign(new Error('Database revision is required for ordinary writes.'), { status: 409 });
-    removeLegacySecrets(data); ensureStorageSchema(data);
+    removeLegacySecrets(data); ensureStorageSchema(data); assertNotEmptying(data);
     if (d1) await activateD1Revision(data, Number(expected), 'ordinary');
     else await writeJsonFile(data, String(expected), false);
+    // The flag covers one save only.
+    delete data[DESTRUCTIVE_SAVE];
   });
   writeQueue = run.catch(() => {});
   return run;
@@ -236,7 +339,48 @@ export async function replaceDB(data: any) {
   return run;
 }
 
-export const storeInternals = { VERSION, writeJsonFile };
+export const storeInternals = { VERSION, writeJsonFile, resetMigrationMark: () => { migratedInThisProcess = false; } };
+
+/** Whether the workspace database can be opened, and if not, why (see readStoredState). */
+export async function workspaceRecoveryStatus(): Promise<{ status: 'ok' } | { status: 'missing' | 'unreadable'; message: string }> {
+  try { await readDBIndex(); return { status: 'ok' }; }
+  catch (error: any) {
+    if (error?.code === 'WORKSPACE_DATABASE_MISSING') return { status: 'missing', message: error.message };
+    if (error?.code === 'WORKSPACE_DATABASE_UNREADABLE') return { status: 'unreadable', message: error.message };
+    throw error;
+  }
+}
+
+/**
+ * The coach's explicit choice, after a lost database, to start over instead
+ * of restoring. Backups, evidence and any moved-aside copy all stay where they are.
+ */
+export async function startEmptyWorkspace() {
+  if (d1) throw Object.assign(new Error('Starting an empty workspace is only available in the desktop app.'), { status: 409 });
+  const run = writeQueue.then(async () => {
+    try { await fs.access(DB_PATH); throw Object.assign(new Error('A workspace database already exists.'), { status: 409 }); }
+    catch (error: any) { if (error?.code !== 'ENOENT') throw error; }
+    await writeJsonFile(ensureStorageSchema(createSeed()), undefined, true);
+  });
+  writeQueue = run.catch(() => {});
+  return run;
+}
+
+/** True for the desktop and local server, which keep the workspace in files on this machine. */
+export function usesLocalWorkspaceFiles() { return !d1; }
+
+export const MATCH_REMOVAL_LOG = `${DB_PATH}.match-removals.log`;
+
+/**
+ * Append-only record of match removals and restores, kept beside the database
+ * so it outlives any later change to the database itself. Each line is JSON.
+ */
+export async function appendMatchRemovalLog(entry: Record<string, unknown>) {
+  if (d1) return;
+  await fs.mkdir(path.dirname(MATCH_REMOVAL_LOG), { recursive: true });
+  const handle = await fs.open(MATCH_REMOVAL_LOG, 'a', 0o600);
+  try { await handle.appendFile(`${JSON.stringify(entry)}\n`, 'utf8'); await handle.sync(); } finally { await handle.close(); }
+}
 
 const D1_CHUNK_CHARS = 200_000;
 const D1_MAX_CHUNKS = 32;
@@ -281,10 +425,12 @@ async function readDBD1(hydrate = true) {
   if (rows.length !== Number(meta.chunk_count)) throw new Error('Active D1 revision is incomplete.');
   const serialized = rows.map((row: any) => row.payload).join('');
   if (hashText(serialized) !== meta.sha256) throw new Error('Active D1 revision failed integrity validation.');
-  const state = JSON.parse(serialized); const declared = storedSchemaVersion(state); ensureStorageSchema(state);
-  if (hydrate) { await hydrateEvidenceArtifacts(state, loadD1Artifact); migrateHydratedEvidence(state, declared); }
+  const state = JSON.parse(serialized); const declared = storedSchemaVersion(state); const stored = { schemaVersion: declared, counts: indexCounts(state) };
+  if (hydrate) await hydrateEvidenceArtifacts(state, loadD1Artifact);
+  ensureStorageSchema(state);
+  if (hydrate) migrateHydratedEvidence(state, declared);
   validateTrackerState(state);
-  return attachVersion(state, Number(meta.version));
+  return attachVersion(state, Number(meta.version), stored);
 }
 
 async function loadD1Artifact(sha256: string) {

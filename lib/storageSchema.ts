@@ -21,7 +21,7 @@ const CORE_ARRAYS = [
   'vodSubmissions',
   'attendanceCredits',
   'coachingSignals', 'coachingActions', 'dashboardViews',
-  'evidenceFusionResolutions', 'calibratedPlayerRatings',
+  'evidenceFusionResolutions', 'calibratedPlayerRatings', 'removedMatches',
 ] as const;
 
 export type StorageMetadata = {
@@ -76,13 +76,16 @@ export function ensureStorageSchema(input: any, now = new Date().toISOString()) 
     materializeRoundOpeningsFromScreenshotEvidence(input);
     materializeRoundPlantsFromScreenshotEvidence(input);
     materializeFirstDeathsFromRoundEvidence(input, { overwrite: false });
-    for (const archive of Array.isArray(input.seasonArchives) ? input.seasonArchives : []) {
+    // An archive read as a stored index (evidence not loaded) holds stubs in
+    // place of its collections; only loaded archives can be migrated.
+    const loadedArchives = (Array.isArray(input.seasonArchives) ? input.seasonArchives : []).filter((archive: any) => Array.isArray(archive?.matches) && Array.isArray(archive?.rounds ?? []) && Array.isArray(archive?.playerStats ?? []));
+    for (const archive of loadedArchives) {
       materializeRoundOpeningsFromScreenshotEvidence(archive);
       materializeRoundPlantsFromScreenshotEvidence(archive);
       materializeFirstDeathsFromRoundEvidence(archive, { overwrite: false });
     }
     migrateAcceptedMatchAggregates(input);
-    for (const archive of input.seasonArchives || []) migrateAcceptedMatchAggregates(archive);
+    for (const archive of loadedArchives) migrateAcceptedMatchAggregates(archive);
     if (!Array.isArray(input.attendanceCredits)) input.attendanceCredits = [];
     if (!Array.isArray(input.coachingSignals)) input.coachingSignals = [];
     if (!Array.isArray(input.coachingActions)) input.coachingActions = [];

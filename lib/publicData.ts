@@ -3,7 +3,7 @@ import { buildCanonicalDataSpine, validateCanonicalDataSpine } from './canonical
 import { moe02FeatureEnabled } from './featureFlags';
 import { isDuplicateQuarantined } from './matchIntegrity';
 
-const PRIVATE_TOP_LEVEL_KEYS = new Set(['authKeys', 'allowedUsers', 'secretValues', '_storage', 'authenticatedViewer', 'tryoutDecisionNotes', 'identityCorrectionBatches']);
+const PRIVATE_TOP_LEVEL_KEYS = new Set(['authKeys', 'allowedUsers', 'secretValues', '_storage', 'authenticatedViewer', 'tryoutDecisionNotes', 'identityCorrectionBatches', 'removedMatches']);
 const PRIVATE_SETTING_KEYS = new Set(['discordWebhook', 'gridApiKey', 'henrikApiKey', 'praccCalendarUrl', 'praccCalendarLastAttemptAt', 'praccCalendarLastSyncedAt', 'praccCalendarLastError', 'deletedCoachingSignalFingerprints']);
 
 /** Build the tracker payload that is safe to send to the authenticated role. */

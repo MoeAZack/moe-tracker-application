@@ -18,6 +18,7 @@ import { createPlayerPasswordVerifier, verifyPlayerPassword } from './lib/player
 import { stripLegacySecrets, toPublicTrackerData } from './lib/publicData';
 import { registerReplayDeviceRoutes, registerReplayDeviceUploadRoute } from './lib/routes/replayIntake';
 import { registerPortablePackageRoutes } from './lib/routes/portablePackages';
+import { registerWorkspaceRecoveryRoutes } from './lib/routes/workspaceRecovery';
 import { registerComparisonRoutes } from './lib/routes/comparisons';
 import { registerCoachingRoutes } from './lib/routes/coaching';
 import { buildInfo } from './lib/buildInfo';
@@ -207,8 +208,16 @@ export async function createApp(serveFrontend = true) {
     let userRole = '';
     let username = '';
 
+    let workspaceUnavailable: any = null;
     {
-      const db = await readDB();
+      // The master coach session needs no workspace data, so it still works
+      // when the database is lost: that is how the app reaches recovery.
+      let db: any;
+      try { db = await readDB(); }
+      catch (error: any) {
+        if (error?.code !== 'WORKSPACE_DATABASE_MISSING' && error?.code !== 'WORKSPACE_DATABASE_UNREADABLE') throw error;
+        workspaceUnavailable = error; db = { authKeys: [], rosterPlayers: [] };
+      }
       if (!db.authKeys) db.authKeys = [];
       // Long-lived keys are accepted only by the throttled login exchange.
       // Every protected route requires an expiring, signed session.
@@ -244,6 +253,7 @@ export async function createApp(serveFrontend = true) {
     }
 
     if (userRole !== 'coach' && userRole !== 'player') {
+      if (workspaceUnavailable) return res.status(503).json({ error: workspaceUnavailable.message, code: workspaceUnavailable.code });
       return res.status(401).json({ error: 'Access Key has been revoked or is invalid.' });
     }
 
@@ -437,6 +447,7 @@ export async function createApp(serveFrontend = true) {
 
   await registerReplayDeviceRoutes(app);
   registerPortablePackageRoutes(app);
+  if (process.env.APP_DESKTOP === 'true') registerWorkspaceRecoveryRoutes(app);
 
   // Integrations routes (secret status, calendar export, PRACC) — extracted module
   registerIntegrationRoutes(app);

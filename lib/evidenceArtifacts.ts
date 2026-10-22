@@ -85,6 +85,13 @@ function externalizeArchive(archive: any, artifacts: Map<string, EvidenceArtifac
   if (archive?.engineAdapters !== undefined) archive.engineAdapters = artifact(archive.engineAdapters, artifacts);
 }
 
+/** A match kept in "Recently deleted" is stored like a one-match archive. */
+function externalizeRemovedGraph(entry: any, artifacts: Map<string, EvidenceArtifact>) {
+  if (!entry?.graph || typeof entry.graph !== 'object') return;
+  externalizeArchive(entry.graph, artifacts);
+  if (entry.graph.ownedNodes !== undefined) entry.graph.ownedNodes = artifact(entry.graph.ownedNodes, artifacts);
+}
+
 /** Produce the small active index written by Storage v2 plus immutable,
  * content-addressed evidence payloads. The caller commits artifacts first and
  * activates the index last, so interrupted writes cannot create broken refs. */
@@ -93,6 +100,7 @@ export function externalizeEvidenceArtifacts(input: any) {
   const state = clone(input); const artifacts = new Map<string, EvidenceArtifact>();
   externalizeContainer(state, artifacts);
   for (const archive of state.seasonArchives || []) externalizeArchive(archive, artifacts);
+  for (const entry of Array.isArray(state.removedMatches) ? state.removedMatches : []) externalizeRemovedGraph(entry, artifacts);
   state._storage ||= {};
   state._storage.evidenceArtifacts = {
     schemaVersion: EVIDENCE_ARTIFACT_SCHEMA,
@@ -144,6 +152,11 @@ async function hydrateArchive(archive: any, load: (sha256: string) => Promise<st
 export async function hydrateEvidenceArtifacts(input: any, load: (sha256: string) => Promise<string>) {
   await hydrateContainer(input, load);
   for (const archive of input.seasonArchives || []) await hydrateArchive(archive, load);
+  for (const entry of Array.isArray(input.removedMatches) ? input.removedMatches : []) {
+    if (!entry?.graph || typeof entry.graph !== 'object') continue;
+    await hydrateArchive(entry.graph, load);
+    entry.graph.ownedNodes = await hydrateValue(entry.graph.ownedNodes, load);
+  }
   return input;
 }
 
