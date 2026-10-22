@@ -35,3 +35,43 @@ describe('unified ingestion jobs', () => {
     expect(() => updateIngestionJob(completed, { status: 'running' })).toThrow(/immutable/);
   });
 });
+
+describe('clearing the ingestion job history', () => {
+  const { clearIngestionHistory, listedIngestionJobs } = require('../desktop/ingestion-jobs.cjs');
+  const { sweepOrphanedVodDirectories } = require('../desktop/vod-timeline-analyzer.cjs');
+  const now = '2026-10-22T23:00:00.000Z';
+  const job = (id: string, patch: Record<string, unknown>) => ({ ...createIngestionJob({ id, source: 'local-vod', retainedSource: true }), ...patch });
+  const history = () => [
+    job('done', { status: 'completed', resumable: false, retainedSource: false }),
+    job('failed', { status: 'failed', resumable: false, retainedSource: false }),
+    job('paused', { status: 'paused', resumable: true, cacheId: '11111111-1111-1111-1111-111111111111' }),
+    job('probe', { status: 'ready', resumable: true, cacheId: '22222222-2222-2222-2222-222222222222' }),
+    job('running', { status: 'running', resumable: false }),
+  ];
+
+  it('drops finished entries, hides ones that hold a retained video, and leaves running work alone', () => {
+    const result = clearIngestionHistory(history(), null, now);
+    expect(result).toMatchObject({ removed: 2, hidden: 2 });
+    expect(result.jobs.map((item: any) => [item.id, item.clearedAt ?? null])).toEqual([['paused', now], ['probe', now], ['running', null]]);
+    expect(listedIngestionJobs(result.jobs).map((item: any) => item.id)).toEqual(['running']);
+    // A hidden paused job keeps its record, so it can still be resumed by id.
+    expect(result.jobs.find((item: any) => item.id === 'paused')).toMatchObject({ status: 'paused', resumable: true });
+  });
+
+  it('clears only the chosen entries', () => {
+    const result = clearIngestionHistory(history(), ['failed', 'running'], now);
+    expect(result).toMatchObject({ removed: 1, hidden: 0 });
+    expect(result.jobs.map((item: any) => item.id)).toEqual(['done', 'paused', 'probe', 'running']);
+  });
+
+  it('keeps every retained video folder through the next startup sweep', async () => {
+    const fs = await import('node:fs/promises'); const os = await import('node:os'); const path = await import('node:path');
+    const root = await fs.mkdtemp(path.join(os.tmpdir(), 'vod-sweep-'));
+    try {
+      const folders = ['11111111-1111-1111-1111-111111111111', '22222222-2222-2222-2222-222222222222'].map(id => path.join(root, `source-${id}`));
+      for (const folder of folders) { await fs.mkdir(folder); await fs.writeFile(path.join(folder, 'video.mp4'), 'x'); }
+      await sweepOrphanedVodDirectories(root, clearIngestionHistory(history(), null, now).jobs);
+      for (const folder of folders) await expect(fs.stat(path.join(folder, 'video.mp4'))).resolves.toBeTruthy();
+    } finally { await fs.rm(root, { recursive: true, force: true }); }
+  });
+});

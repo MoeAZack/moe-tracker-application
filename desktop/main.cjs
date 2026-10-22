@@ -24,7 +24,7 @@ const { loginCredentials } = require('./session-credentials.cjs');
 const { publicSession, apiRequestFilter, createSessionHeaderInjector } = require('./renderer-session.cjs');
 const { analyzeVodTimeline, normalizeTimelinePlayers, discoverVodGames, releaseVodSource, createReviewClips, readOwnedVodFrame, sweepOrphanedVodDirectories } = require('./vod-timeline-analyzer.cjs');
 const { launchScrimCapture } = require('./capture-launch.cjs');
-const { createIngestionJob, updateIngestionJob: evolveIngestionJob, recoverInterruptedJobs, publicIngestionJob } = require('./ingestion-jobs.cjs');
+const { createIngestionJob, updateIngestionJob: evolveIngestionJob, recoverInterruptedJobs, publicIngestionJob, clearIngestionHistory, listedIngestionJobs } = require('./ingestion-jobs.cjs');
 const { chooseLocalPort, createStrandedLearningRecovery } = require('./local-origin.cjs');
 const { bundledRevision } = require('./build-info.cjs');
 
@@ -689,8 +689,14 @@ let ingestionJobMutation = Promise.resolve();
 function updateIngestionJob(id, patch) { const task = ingestionJobMutation.then(async () => { const jobs = await readIngestionJobs(); const index = jobs.findIndex(item => item.id === id); const base = index >= 0 ? jobs[index] : createIngestionJob({ id, source: patch.source, kind: patch.kind, retainedSource: patch.retainedSource, expectedGames: patch.expectedGames }); const next = evolveIngestionJob(base, patch); if (index >= 0) jobs[index] = next; else jobs.unshift(next); await atomicJson(ingestionJobFile(), jobs.slice(0, 200)); return next; }); ingestionJobMutation = task.catch(() => {}); return task; }
 async function recoverIngestionJobsOnStartup() { const jobs = await readIngestionJobs(); const recovered = recoverInterruptedJobs(jobs).slice(0, 200); if (jobs.length) await atomicJson(ingestionJobFile(), recovered); await sweepOrphanedVodDirectories(path.join(runtime.paths.local, 'Vod Analysis'), recovered).catch(() => []); }
 const isVodJob = job => ['youtube', 'local-file', 'youtube-vod', 'local-vod'].includes(job.source);
-handleTrusted('desktop:list-ingestion-jobs', async () => (await readIngestionJobs()).map(publicIngestionJob));
-handleTrusted('desktop:list-vod-jobs', async () => (await readIngestionJobs()).filter(isVodJob).map(publicIngestionJob));
+handleTrusted('desktop:list-ingestion-jobs', async () => listedIngestionJobs(await readIngestionJobs()).map(publicIngestionJob));
+handleTrusted('desktop:list-vod-jobs', async () => listedIngestionJobs(await readIngestionJobs()).filter(isVodJob).map(publicIngestionJob));
+// Clears history entries only: no match, evidence or retained video is touched.
+handleTrusted('desktop:clear-ingestion-jobs', async (_event, ids) => {
+  const wanted = Array.isArray(ids) ? ids.map(String).slice(0, 200) : null;
+  const task = ingestionJobMutation.then(async () => { const result = clearIngestionHistory(await readIngestionJobs(), wanted); await atomicJson(ingestionJobFile(), result.jobs); return { removed: result.removed, hidden: result.hidden }; });
+  ingestionJobMutation = task.catch(() => {}); return task;
+});
 handleTrusted('desktop:begin-ingestion-job', async (_event, input = {}) => {
   const source = String(input.source || ''); if (!['screenshot'].includes(source)) throw new Error('Renderer-created jobs are limited to local screenshot ingestion.');
   const id = crypto.randomUUID(); return publicIngestionJob(await updateIngestionJob(id, { source, kind: 'local-ocr', status: 'running', stage: 'read-source', percent: 0, message: 'Reading local screenshot…', retainedSource: false }));

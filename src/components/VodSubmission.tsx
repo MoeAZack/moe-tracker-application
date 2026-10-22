@@ -17,6 +17,8 @@ import {
 } from '../utils/vodImportRunner';
 import { activeResourceNames } from '../../lib/resourceCatalog';
 import VodImportQueue from './VodImportQueue';
+import { clearableJob, ingestionClearMessage } from '../utils/ingestionHistory';
+import { confirmDialog, notify } from '../utils/appDialogs';
 
 export { boundaryTimelinePlayers } from '../utils/vodImportRunner';
 
@@ -221,6 +223,16 @@ export default function VodSubmission({ data, role, onRefresh }: Props) {
   const cancelTimeline = async () => {
     const result = await window.moeDesktop?.cancelVodAnalysis();
     if (result?.cancelled) setTimelineProgress(current => (current ? { ...current, message: 'Cancelling safely…' } : current));
+  };
+  // Clears job-history entries only; matches, evidence and videos stay.
+  const clearJobHistory = async (ids?: string[]) => {
+    const desktop = window.moeDesktop; if (!desktop?.clearIngestionJobs) return;
+    const targets = ids ? vodJobs.filter(job => ids.includes(job.id)) : vodJobs;
+    if (!targets.some(clearableJob) || !(await confirmDialog(ingestionClearMessage(targets), { confirmLabel: 'Clear' }))) return;
+    try {
+      await desktop.clearIngestionJobs(ids);
+      setVodJobs((await desktop.listIngestionJobs()) as any);
+    } catch (error: any) { notify(error?.message || 'The job history could not be cleared.', 'error'); }
   };
   const restartVodJob = async (jobId: string) => {
     if (!window.moeDesktop) return;
@@ -456,6 +468,11 @@ export default function VodSubmission({ data, role, onRefresh }: Props) {
           {vodJobs.length > 0 && (
             <details className="mt-4 rounded-xl border border-white/10 bg-black/10 p-3">
               <summary className="cursor-pointer text-xs font-semibold">Ingestion job history · {vodJobs.length}</summary>
+              {window.moeDesktop?.clearIngestionJobs && vodJobs.some(clearableJob) && (
+                <button type="button" onClick={() => void clearJobHistory()} className="ui-button mt-3 min-h-8 px-3 text-xs">
+                  Clear history
+                </button>
+              )}
               <div className="mt-3 space-y-2">
                 {vodJobs.slice(0, 8).map(job => (
                   <div key={job.id} className="grid grid-cols-[1fr_auto] gap-3 rounded-lg border border-white/5 p-2 text-xs">
@@ -480,6 +497,11 @@ export default function VodSubmission({ data, role, onRefresh }: Props) {
                             Resume
                           </button>
                         )}
+                      {window.moeDesktop?.clearIngestionJobs && clearableJob(job) && (
+                        <button type="button" aria-label={`Remove ${job.stage} from the job history`} onClick={() => void clearJobHistory([job.id])} className="ui-button min-h-7 px-2 text-xs">
+                          Remove
+                        </button>
+                      )}
                     </span>
                   </div>
                 ))}
