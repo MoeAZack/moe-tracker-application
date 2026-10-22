@@ -1,9 +1,10 @@
 import React from 'react';
 import { renderToStaticMarkup } from 'react-dom/server';
 import { afterEach, describe, expect, it, vi } from 'vitest';
-import { cancelVodImport, splitVodLinks, startVodBatchImport, vodImportStore, type VodBatchImportInput, type VodImportDeps } from '../src/utils/vodImportRunner';
+import { cancelVodImport, knownScoreboardRows, splitVodLinks, startVodBatchImport, vodImportStore, type VodBatchImportInput, type VodImportDeps } from '../src/utils/vodImportRunner';
 import VodImportStatus from '../src/components/VodImportStatus';
 import VodImportQueue from '../src/components/VodImportQueue';
+import VodTeamPick from '../src/components/VodTeamPick';
 
 const frame = { base64: Buffer.from('frame').toString('base64'), mediaType: 'image/png' };
 const boundary = (timestampMs: number, map: string) => ({ timestampMs, score: 1, agentSelectScore: 1, map, mediaType: 'image/png', frame: `f-${timestampMs}` });
@@ -162,7 +163,80 @@ describe('VOD import runner survives leaving the VOD tab', () => {
     expect(state.progress?.status).toBe('done');
     expect(state.batchResult.map(game => game.status)).toEqual(['Timeline imported · scoreboard pending · players not named yet', 'Timeline imported · scoreboard pending · players not named yet']);
     expect(state.message).toContain('No player names were known for these games');
-    expect(state.message).toContain('Add your players under Roster');
+    expect(state.message).toContain('Players are added automatically from the end-of-game scoreboard');
+  });
+
+  it('asks the coach for our five before adding anyone, then recognises them in the next game', async () => {
+    const h = harness();
+    // ACS-ranked board: opponents hold four of the top five rows; only Alpha is on the roster.
+    const names = ['Alpha', 'Foe1', 'Foe2', 'Foe3', 'Foe4', 'Bravo', 'Charlie', 'Delta', 'Echo', 'Foe5'];
+    const board = (map: string, theirScore: number) => ({ imageSha256: map === 'Ascent' ? 'a'.repeat(64) : 'b'.repeat(64), draft: { match: { map, ourScore: 13, theirScore }, stats: names.map((extractedName, index) => ({ extractedName, rosterMatch: { status: extractedName === 'Alpha' ? 'matched' : 'unmatched' }, matchedPlayerId: extractedName === 'Alpha' ? 'p1' : null, agent: 'Jett', kills: 20 - index, deaths: 10, assists: 3 })) } });
+    (h.deps as any).extractScoreboard = vi.fn().mockResolvedValueOnce(board('Ascent', 5)).mockResolvedValueOnce(board('Bind', 9));
+    discovery.games = [{ timestampMs: 280_000, frame: 'g1' }, { timestampMs: 590_000, frame: 'g2' }] as any;
+    h.apiFetch.mockImplementation(async (url: string, init?: RequestInit) => {
+      if (url === '/api/data') return new Response(JSON.stringify({ matches: [], playerStats: [] }), { status: 200 });
+      const body = JSON.parse(String(init?.body));
+      return new Response(JSON.stringify({ submission: { linkMode: 'new-match', integration: { addedPlayers: body.map === 'Ascent' ? ['Bravo', 'Charlie', 'Delta', 'Echo'] : [] } } }), { status: 200 });
+    });
+    const ours = [0, 5, 6, 7, 8];
+    try {
+      // A saved game with the same date, map and score must not be linked: the new players are in no saved game.
+      const run = startVodBatchImport(input({ matches: [{ id: 'saved', date: '2026-10-20', map: 'Ascent', ourScore: 13, theirScore: 5 }] as any, playerStats: [{ matchId: 'saved', playerId: 'p1' }] as any }), h.deps);
+      for (let i = 0; i < 50 && !vodImportStore.getSnapshot().teamPick; i += 1) await new Promise(resolve => setTimeout(resolve, 0));
+      const pick = vodImportStore.getSnapshot().teamPick!;
+      expect(pick.rows.filter(row => row.known).map(row => row.index)).toEqual([0]);
+      expect(h.desktop.analyzeVod).not.toHaveBeenCalled();
+      expect((h.apiFetch.mock.calls as any[]).some(([url]) => url === '/api/vod-submissions')).toBe(false);
+      const card = renderToStaticMarkup(React.createElement(VodTeamPick));
+      for (const name of names) expect(card).toContain(name);
+      expect(card).toContain('These are our five (1/5)');
+      expect(vodImportStore.answerTeamPick([0, 5, 6, 7])).toBe(false);
+      expect(vodImportStore.answerTeamPick(ours)).toBe(true);
+      await h.finishAnalysis(); await h.finishAnalysis();
+      await expect(run).resolves.toBe(true);
+      const posts = (h.apiFetch.mock.calls as any[]).filter(([url]) => url === '/api/vod-submissions').map(([, init]) => JSON.parse(String(init.body)));
+      expect(posts).toHaveLength(2);
+      expect(posts[0]).toMatchObject({ addObservedPlayers: true, coachTeamEvidence: true });
+      // The second game names the same five, so it neither asks again nor adds anyone.
+      expect(posts[1].addObservedPlayers).toBeUndefined();
+      for (const body of posts) {
+        expect(body.matchId).toBeUndefined();
+        expect(body.players.map((player: any) => player.observedName)).toEqual(ours.map(index => names[index]));
+      }
+      const [request] = h.desktop.analyzeVod.mock.calls[0] as any[];
+      expect(request.players.filter((player: any) => player.team === 'ours').map((player: any) => player.name)).toEqual(ours.map(index => names[index]));
+      const state = vodImportStore.getSnapshot();
+      expect(state.teamPick).toBeNull();
+      expect(state.batchResult.map(game => game.status)).toEqual(['New match created · 4 new players added', 'New match created']);
+      expect(state.message).toContain('4 new players were added from the scoreboard names');
+    } finally { discovery.games = []; }
+  });
+
+  it('saves a game without names when the coach skips the pick, and stops cleanly when cancelled', async () => {
+    const names = Array.from({ length: 10 }, (_, index) => `Name${index}`);
+    const board = { imageSha256: 'c'.repeat(64), draft: { match: { map: 'Ascent', ourScore: 13, theirScore: 4 }, stats: names.map(extractedName => ({ extractedName, rosterMatch: { status: 'unmatched' }, matchedPlayerId: null, agent: null, kills: 10, deaths: 10, assists: 1 })) } };
+    discovery.games = [{ timestampMs: 280_000, frame: 'g1' }] as any;
+    const waitForPick = async () => { for (let i = 0; i < 50 && !vodImportStore.getSnapshot().teamPick; i += 1) await new Promise(resolve => setTimeout(resolve, 0)); };
+    try {
+      const skip = harness(); (skip.deps as any).extractScoreboard = vi.fn().mockResolvedValue(board);
+      const skipped = startVodBatchImport(input({ expectedGames: 1 }), skip.deps);
+      await waitForPick(); vodImportStore.answerTeamPick(null); await skip.finishAnalysis();
+      await expect(skipped).resolves.toBe(true);
+      const [, init] = (skip.apiFetch.mock.calls as any[]).find(([url]) => url === '/api/vod-submissions');
+      const body = JSON.parse(String(init.body));
+      expect(body.players).toEqual([]); expect(body.addObservedPlayers).toBeUndefined();
+      expect((skip.desktop.analyzeVod.mock.calls[0] as any[])[0].players).toEqual([]);
+      expect(vodImportStore.getSnapshot().batchResult[0].status).toContain('players not named');
+      vodImportStore.reset();
+
+      const stop = harness(); (stop.deps as any).extractScoreboard = vi.fn().mockResolvedValue(board);
+      const cancelled = startVodBatchImport(input({ expectedGames: 1 }), stop.deps);
+      await waitForPick();
+      await expect(cancelVodImport(stop.deps)).resolves.toBe(true);
+      await expect(cancelled).resolves.toBe(false);
+      expect((stop.apiFetch.mock.calls as any[]).some(([url]) => url === '/api/vod-submissions')).toBe(false);
+      expect(vodImportStore.getSnapshot().message).toContain('cancelled while it waited');
+    } finally { discovery.games = []; }
   });
 
   it('splits a pasted list of links into one VOD each', () => {
@@ -201,5 +275,19 @@ describe('VOD import runner survives leaving the VOD tab', () => {
     expect(renderToStaticMarkup(React.createElement(VodImportStatus, { onOpen }))).toContain('Video import complete');
     vodImportStore.dismiss();
     expect(renderToStaticMarkup(React.createElement(VodImportStatus, { onOpen }))).toBe('');
+  });
+});
+
+describe('known rows on a VOD scoreboard', () => {
+  const NAMES = ['Alpha', 'Bravo', 'Charlie', 'Delta', 'Echo', 'Foxtrot', 'Golf', 'Hotel', 'India', 'Juliet'];
+  const stats = (matched: number[]) => NAMES.map((extractedName, index) => ({ extractedName, rosterMatch: { status: matched.includes(index) ? 'matched' : 'unmatched' } }));
+  it('counts only roster matches and names already saved as ours, never board position', () => {
+    expect(knownScoreboardRows(stats([1, 3, 5, 7, 9]), [])).toEqual([1, 3, 5, 7, 9]);
+    // An opponent ranked in the top five is not adopted.
+    expect(knownScoreboardRows(stats([]), [])).toEqual([]);
+    expect(knownScoreboardRows(stats([6]), [])).toEqual([6]);
+    expect(knownScoreboardRows(stats([6]), ['india', 'Alpha'])).toEqual([0, 6, 8]);
+    // A near miss is asked about again, not guessed.
+    expect(knownScoreboardRows(stats([]), ['Alpha1'])).toEqual([]);
   });
 });

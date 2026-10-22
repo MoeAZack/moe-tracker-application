@@ -853,7 +853,7 @@ export interface VodSubmission {
   rosterMatchCount: number;
   players: VodSubmissionPlayer[];
   timelineEvidence?: VodTimelineEvidence | null;
-  integration: { createdMatch: boolean; createdStats: number; filledFields: number; preservedFields: number };
+  integration: { createdMatch: boolean; createdStats: number; filledFields: number; preservedFields: number; addedPlayers?: string[] };
   createdAt: string;
   integratedAt: string;
 }
