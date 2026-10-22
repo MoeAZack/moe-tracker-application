@@ -18,6 +18,7 @@ const { resolveReplayRuntime } = require('./replay-runtime.cjs');
 const { collectChildOutput, collectJson } = require('./collector-command.cjs');
 const { canonical, refreshScreenshotOutboxFromData } = require('./sync-outbox.cjs');
 const { hasRecentRecoveryBackup } = require('./recovery-backup.cjs');
+const { matchEndOffer } = require('./match-end-offer.cjs');
 const { isTrustedSenderUrl, sessionIsFresh } = require('./session-security.cjs');
 const { loginCredentials } = require('./session-credentials.cjs');
 const { publicSession, apiRequestFilter, createSessionHeaderInjector } = require('./renderer-session.cjs');
@@ -37,6 +38,7 @@ let captureInboxTimer;
 let backupTimer;
 let lastNotifiedCaptureId = null;
 let captureActivity = null;
+let matchEndTimer = null;
 let syncStateMutation = Promise.resolve();
 let runtime;
 let updateController;
@@ -129,7 +131,7 @@ async function ensureRuntime() {
   }
   protectConfigSecrets(config);
   config.capturePaused = config.capturePaused === true;
-  config.capturePreferences = { profile: 'fullscreen-windowed', display: 'primary', notification: 'open-review', offlineQueue: true, elevated: false, ...(config.capturePreferences || {}) };
+  config.capturePreferences = { profile: 'fullscreen-windowed', display: 'primary', notification: 'open-review', offlineQueue: true, matchEndOffer: 'notify', elevated: false, ...(config.capturePreferences || {}) };
   if (!config.deviceId) {
     config.deviceId = `desktop-${crypto.randomUUID()}`;
   }
@@ -538,6 +540,19 @@ async function showMainWindow() {
   window.show(); window.focus();
 }
 
+let lastMatchEndOfferKey = null;
+async function offerCaptureAtMatchEnd() {
+  const captures = (await allPendingScoreboards()).filter(record => record.capture);
+  const offer = matchEndOffer({ replays: await replayInventory(), captures, lastOfferedKey: lastMatchEndOfferKey, paused: runtime.config.capturePaused, preference: runtime.config.capturePreferences?.matchEndOffer });
+  if (!offer) return;
+  lastMatchEndOfferKey = offer.key;
+  if (!Notification.isSupported()) return;
+  const notification = new Notification({ title: 'Match finished', body: 'Open the match Timeline in VALORANT, then click here to capture the scoreboard.' });
+  // Clicking is the coach's go-ahead; nothing starts on its own.
+  notification.on('click', () => { void startScrimCapture({}).catch(error => recordLocalCrash('match-end-capture-failed', error)); });
+  notification.show();
+}
+
 async function notifyLatestCapture() {
   const captures = (await allPendingScoreboards()).filter(record => record.capture);
   const latest = captures.at(-1);
@@ -729,7 +744,8 @@ handleTrusted('desktop:set-capture-preferences', async (_event, input = {}) => {
   const profile = ['fullscreen', 'fullscreen-windowed', 'windowed'].includes(input.profile) ? input.profile : runtime.config.capturePreferences.profile;
   const display = /^(primary|display:\d{1,2})$/.test(String(input.display || '')) ? String(input.display) : runtime.config.capturePreferences.display;
   const notification = ['open-review', 'notify-only', 'silent'].includes(input.notification) ? input.notification : runtime.config.capturePreferences.notification;
-  runtime.config.capturePreferences = { profile, display, notification, offlineQueue: input.offlineQueue !== false, elevated: input.elevated === true }; await saveRuntimeConfig(); return runtime.config.capturePreferences;
+  const matchEndOfferPreference = input.matchEndOffer === 'off' ? 'off' : 'notify';
+  runtime.config.capturePreferences = { profile, display, notification, offlineQueue: input.offlineQueue !== false, elevated: input.elevated === true, matchEndOffer: matchEndOfferPreference }; await saveRuntimeConfig(); return runtime.config.capturePreferences;
 });
 handleTrusted('desktop:disconnect-device', async () => { delete runtime.config.cloudPairing; delete runtime.config.identity; runtime.config.mode = 'offline-first'; runtime.config.role = 'coach'; runtime.session = null; runtime.coachSession = null; await saveRuntimeConfig(); return { disconnected: true }; });
 handleTrusted('desktop:list-scoreboards', async () => (await allPendingScoreboards()).map(({ file: _privatePath, capture: privateCapture, ...record }) => ({ ...record, capture: privateCapture ? { captureId: privateCapture.captureId, template: privateCapture.template, requestedRounds: privateCapture.requestedRounds } : null })));
@@ -761,7 +777,7 @@ handleTrusted('desktop:complete-scoreboard', async (_event, id) => {
   runtime.config.processedScoreboardHashes = [...new Set([...(runtime.config.processedScoreboardHashes || []), loaded.imageSha256])].slice(-50_000);
   await saveRuntimeConfig(); return { completed: true };
 });
-handleTrusted('desktop:start-scrim-capture', async (_event, input = {}) => {
+async function startScrimCapture(input = {}) {
   if (runtime.config.capturePaused) throw new Error('Capture is paused. Resume it from the tray or Settings first.');
   const roundCount = input.roundCount === undefined || input.roundCount === null || input.roundCount === '' ? 0 : Number(input.roundCount);
   if (!Number.isInteger(roundCount) || roundCount < 0 || roundCount > 32) throw new Error('Round count must be automatic or between 1 and 32.');
@@ -772,7 +788,8 @@ handleTrusted('desktop:start-scrim-capture', async (_event, input = {}) => {
   try { await launchScrimCapture({ launcher, roundCount, preferences: runtime.config.capturePreferences }, spawn); }
   catch (error) { captureActivity = null; throw error; }
   return { started: true, message: `Capture started${roundCount ? ` for ${roundCount} rounds` : ' with automatic round detection'}. ${elevated ? 'Approve Windows elevation, then return' : 'Return'} to VALORANT before the countdown ends.` };
-});
+}
+handleTrusted('desktop:start-scrim-capture', async (_event, input = {}) => startScrimCapture(input));
 handleTrusted('desktop:delete-replay', async (event, replayPath) => {
   requireTrustedSender(event);
   const requested = path.resolve(String(replayPath || ''));
@@ -886,6 +903,7 @@ if (singleInstanceLock) app.whenReady().then(async () => {
   await startLocalServer(); await startCollector(); await createWindow(); createTray();
   captureInboxTimer = setInterval(() => { void notifyLatestCapture().catch(error => recordLocalCrash('capture-inbox-watch-failed', error)); }, 2_000); captureInboxTimer.unref?.();
   setTimeout(() => void notifyLatestCapture().catch(error => recordLocalCrash('capture-inbox-watch-failed', error)), 750);
+  matchEndTimer = setInterval(() => { void offerCaptureAtMatchEnd().catch(error => console.warn(`[match-end] ${error.message}`)); }, 15_000); matchEndTimer.unref?.();
   if (healthState.state === 'verifying') await updateHealth.confirmHealthy(app.getVersion());
   collectorImportTimer = setInterval(() => { void autoImportProcessedEvidence().catch(error => console.warn(`[collector-import] ${error.message}`)); }, 5_000); collectorImportTimer.unref?.();
   setTimeout(() => void autoImportProcessedEvidence().catch(error => console.warn(`[collector-import] ${error.message}`)), 1_000);
@@ -898,5 +916,5 @@ if (singleInstanceLock) app.whenReady().then(async () => {
   app.on('activate', () => { void showMainWindow().catch(error => recordLocalCrash('open-window-failed', error)); });
 }).catch(error => { dialog.showErrorBox('Moe Tracker could not start', error.message); app.quit(); });
 
-app.on('before-quit', () => { quitting = true; updateController?.stop(); if (collectorImportTimer) clearInterval(collectorImportTimer); if (syncTimer) clearInterval(syncTimer); if (captureInboxTimer) clearInterval(captureInboxTimer); if (backupTimer) clearInterval(backupTimer); tray?.destroy(); collectorProcess?.kill(); serverProcess?.kill(); });
+app.on('before-quit', () => { quitting = true; updateController?.stop(); if (collectorImportTimer) clearInterval(collectorImportTimer); if (syncTimer) clearInterval(syncTimer); if (captureInboxTimer) clearInterval(captureInboxTimer); if (matchEndTimer) clearInterval(matchEndTimer); if (backupTimer) clearInterval(backupTimer); tray?.destroy(); collectorProcess?.kill(); serverProcess?.kill(); });
 app.on('window-all-closed', () => { /* The tray keeps replay watching and synchronization alive. */ });
