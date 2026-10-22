@@ -316,6 +316,14 @@ async function recognizeFrames(frames, spec, worker, progress, offset, total, si
 async function readCheckpoint(file) { if (!file) return null; try { return JSON.parse(await fsp.readFile(file, 'utf8')); } catch { return null; } }
 async function writeCheckpoint(file, value) { if (!file) return; await fsp.mkdir(path.dirname(file), { recursive: true }); const temporary = `${file}.${process.pid}.tmp`; await fsp.writeFile(temporary, JSON.stringify(value), { mode: 0o600 }); await fsp.rename(temporary, file); }
 
+// Up to ten named identities from the renderer. An empty list is valid: the
+// first import on a fresh workspace knows no names yet.
+function normalizeTimelinePlayers(raw) {
+  if (!Array.isArray(raw)) return [];
+  const count = value => Number.isInteger(value) && value >= 0 ? value : null;
+  return raw.slice(0, 10).map(item => ({ name: String(item?.name || '').trim().slice(0, 100), team: item?.team === 'theirs' ? 'theirs' : 'ours', expectedKills: count(item?.expectedKills), expectedDeaths: count(item?.expectedDeaths) })).filter(item => item.name);
+}
+
 function inferPovPlayer(snapshots, players) {
   const counts = players.map(player => ({ name: player.name, count: snapshots.filter(snapshot => {
     const normalized = String(snapshot.text || '').toLowerCase().replace(/[^a-z0-9]/g, ''); const needle = String(player.name || '').toLowerCase().replace(/[^a-z0-9]/g, ''); return needle.length >= 3 && normalized.includes(needle);
@@ -402,4 +410,4 @@ async function readVodFrame(directory, frame) {
   return { mediaType: 'image/png', base64: (await fsp.readFile(path.join(path.resolve(directory), name))).toString('base64') };
 }
 
-module.exports = { sweepOrphanedVodDirectories, readOwnedVodFrame, readVodFrame, normalizeYoutubeUrl, youtubeVideoId, probeVideo, analyzeVodTimeline, discoverVodGames, releaseVodSource, createReviewClips, changedFrames, frameDifference, visualSignature, ensureDiskSpace, scoreboardGeometryScore, agentSelectGeometryScore, chooseGameBoundaries, inferPovPlayer };
+module.exports = { sweepOrphanedVodDirectories, readOwnedVodFrame, readVodFrame, normalizeYoutubeUrl, youtubeVideoId, probeVideo, analyzeVodTimeline, normalizeTimelinePlayers, discoverVodGames, releaseVodSource, createReviewClips, changedFrames, frameDifference, visualSignature, ensureDiskSpace, scoreboardGeometryScore, agentSelectGeometryScore, chooseGameBoundaries, inferPovPlayer };

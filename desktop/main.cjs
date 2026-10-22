@@ -22,7 +22,7 @@ const { matchEndOffer } = require('./match-end-offer.cjs');
 const { isTrustedSenderUrl, sessionIsFresh } = require('./session-security.cjs');
 const { loginCredentials } = require('./session-credentials.cjs');
 const { publicSession, apiRequestFilter, createSessionHeaderInjector } = require('./renderer-session.cjs');
-const { analyzeVodTimeline, discoverVodGames, releaseVodSource, createReviewClips, readOwnedVodFrame, sweepOrphanedVodDirectories } = require('./vod-timeline-analyzer.cjs');
+const { analyzeVodTimeline, normalizeTimelinePlayers, discoverVodGames, releaseVodSource, createReviewClips, readOwnedVodFrame, sweepOrphanedVodDirectories } = require('./vod-timeline-analyzer.cjs');
 const { launchScrimCapture } = require('./capture-launch.cjs');
 const { createIngestionJob, updateIngestionJob: evolveIngestionJob, recoverInterruptedJobs, publicIngestionJob } = require('./ingestion-jobs.cjs');
 const { chooseLocalPort, createStrandedLearningRecovery } = require('./local-origin.cjs');
@@ -734,8 +734,9 @@ handleTrusted('desktop:read-vod-frame', async (event, input = {}) => {
   return readOwnedVodFrame(discoveredVodSources, event.sender.id, input);
 });
 handleTrusted('desktop:analyze-vod', async (event, input = {}) => {
-  const players = Array.isArray(input.players) ? input.players.slice(0, 10).map(item => ({ name: String(item?.name || '').trim().slice(0, 100), team: item?.team === 'theirs' ? 'theirs' : 'ours', expectedKills: Number.isInteger(item?.expectedKills) && item.expectedKills >= 0 ? item.expectedKills : null, expectedDeaths: Number.isInteger(item?.expectedDeaths) && item.expectedDeaths >= 0 ? item.expectedDeaths : null })).filter(item => item.name) : [];
-  if (players.length < 1) throw new Error('Timeline analysis needs at least one observed player identity.');
+  // A fresh workspace has no roster and no proven scoreboard yet, so the list
+  // can be empty. The scan still runs; kills stay uncredited instead of failing.
+  const players = normalizeTimelinePlayers(input.players);
   const cached = input.cacheId ? discoveredVodSources.get(String(input.cacheId)) : null;
   if (input.cacheId && (!cached || cached.owner !== event.sender.id)) throw new Error('The detected VOD session expired. Detect the games again.');
   const localPath = cached?.file || (input.localPath ? path.resolve(String(input.localPath)) : null);
