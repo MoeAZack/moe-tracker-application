@@ -32,7 +32,7 @@ describe('public tracker data', () => {
       allowedUsers: [{ email: 'coach@example.com' }],
       secretValues: { GRID_API_KEY: 'database-secret' },
       settings: {
-        teamName: 'RAAD',
+        teamName: 'Synthetic Squad',
         gridApiKey: 'legacy-grid',
         henrikApiKey: 'legacy-henrik',
         discordWebhook: 'https://discord.example/hook'
@@ -43,7 +43,7 @@ describe('public tracker data', () => {
     expect(result).not.toHaveProperty('authKeys');
     expect(result).not.toHaveProperty('allowedUsers');
     expect(result).not.toHaveProperty('secretValues');
-    expect(result.settings).toEqual({ teamName: 'RAAD' });
+    expect(result.settings).toEqual({ teamName: 'Synthetic Squad' });
     expect(result.secrets.GRID_API_KEY).toBe(true);
     expect(JSON.stringify(result)).not.toContain('server-only');
   });
@@ -51,14 +51,14 @@ describe('public tracker data', () => {
   it('scrubs legacy secrets from backup imports', () => {
     const result = stripLegacySecrets({
       secretValues: { GRID_API_KEY: 'secret' },
-      settings: { teamName: 'RAAD', gridApiKey: 'secret' }
+      settings: { teamName: 'Synthetic Squad', gridApiKey: 'secret' }
     });
-    expect(result).toEqual({ settings: { teamName: 'RAAD' } });
+    expect(result).toEqual({ settings: { teamName: 'Synthetic Squad' } });
   });
 
   it('keeps archive bodies and Riot IDs coach-only', () => {
     const db = {
-      settings: { teamName: 'RAAD', riotIds: { Alpha: { name: 'Private', tag: 'TAG', region: 'eu' } } },
+      settings: { teamName: 'Synthetic Squad', riotIds: { Alpha: { name: 'Private', tag: 'TAG', region: 'eu' } } },
       seasonArchives: [{
         id: 'archive-1', name: 'Private season', riotIds: { Alpha: { tag: 'TAG' } },
         vodReviews: [{ id: 'private-vod', notes: [{ text: 'private coaching note' }] }],
@@ -88,7 +88,7 @@ describe('public tracker data', () => {
         reviews: { replay: { mappings: [{ parserPlayerId: 'RAW-IDENTITY', rosterPlayerId: 'PRIVATE-PLAYER' }] } },
       },
       engineAdapters: { replay: { match: { draft: { observations: ['PRIVATE-OBSERVATION'] } } }, ratings: { records: { one: { input: 'PRIVATE-RATING-INPUT' } } } },
-      matches: [{ id: 'safe-match' }], settings: { teamName: 'RAAD' },
+      matches: [{ id: 'safe-match' }], settings: { teamName: 'Synthetic Squad' },
     };
     for (const role of ['coach', 'player'] as const) {
       const result = toPublicTrackerData(privateStores, role); const serialized = JSON.stringify(result);
@@ -99,7 +99,7 @@ describe('public tracker data', () => {
 
   it('projects only accepted website summary fields and drops detailed desktop evidence', () => {
     const result = toWebsiteTrackerData({
-      settings: { teamName: 'RAAD', theme: 'slate', praccCalendarUrl: 'https://pracc.com/api/matches/private/calendar.ics', praccCalendarLastError: 'private feed detail', riotIds: { Alpha: { name: 'Private', tag: 'TAG' } }, vlr: { teamId: 'private' }, ai: { model: 'private' }, calendars: [{ key: 'team', name: 'Team', color: '#fff', gcalId: 'private-calendar', sync: true }] },
+      settings: { teamName: 'Synthetic Squad', theme: 'slate', praccCalendarUrl: 'https://pracc.com/api/matches/private/calendar.ics', praccCalendarLastError: 'private feed detail', riotIds: { Alpha: { name: 'Private', tag: 'TAG' } }, vlr: { teamId: 'private' }, ai: { model: 'private' }, calendars: [{ key: 'team', name: 'Team', color: '#fff', gcalId: 'private-calendar', sync: true }] },
       matches: [{ id: 'm1', date: '2026-10-13', type: 'Scrim', opponent: 'Other', map: 'Haven', ourScore: 13, theirScore: 9, notes: 'private coach note', vod: 'private-vod' }],
       playerStats: [{ id: 'p1', matchId: 'm1', player: 'Alpha', kills: 20, deaths: 10, corrections: [{ correctedBy: 'private-coach' }] }],
       rounds: [{ id: 'r1', matchId: 'm1', notes: 'private round detail' }], vetos: [{ id: 'v1' }], strats: [{ id: 's1', notes: 'private strat' }], stratRuns: [{ id: 'sr1' }],

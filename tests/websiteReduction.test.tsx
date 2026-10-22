@@ -9,7 +9,7 @@ import { buildTryoutComparison } from '../lib/tryoutComparison';
 import { routableWorkspaceTabs } from '../src/utils/workspaceRoute';
 
 const data: any = {
-  settings: { teamName: 'RAAD' },
+  settings: { teamName: 'Synthetic Squad' },
   matches: [{ id: 'm1', date: '2026-10-13', type: 'Scrim', opponent: 'Other', map: 'Haven', ourScore: 13, theirScore: 9 }],
   playerStats: [{ id: 'p1', matchId: 'm1', player: 'Alpha', kills: 20, deaths: 10, assists: 4 }],
 };

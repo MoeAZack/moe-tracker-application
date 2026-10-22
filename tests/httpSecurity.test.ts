@@ -145,7 +145,7 @@ describe('HTTP authentication and authorization boundary', () => {
     const response = await request('/api/keys/create', coach, { label: 'New coach', role: 'coach' });
     expect(response.status).toBe(200);
     const created = await response.json();
-    expect(created.key).toMatch(/^RAAD-COACH-[A-F0-9]{32}$/);
+    expect(created.key).toMatch(/^MT-COACH-[A-F0-9]{32}$/);
     expect(created).not.toHaveProperty('keyHash');
     const db = JSON.parse(await fs.readFile(dbPath, 'utf8'));
     const stored = db.authKeys.find((entry: { id: string }) => entry.id === created.id);
