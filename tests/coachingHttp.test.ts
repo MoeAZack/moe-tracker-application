@@ -7,6 +7,7 @@ import type { AddressInfo } from 'net';
 import { afterAll, beforeAll, beforeEach, describe, expect, it, vi } from 'vitest';
 import { createSeed } from '../lib/seed';
 import { recomputeAcceptedMatchAggregates } from '../lib/aggregateVersioning';
+import { buildAutomaticCaptureImport } from '../lib/automaticCaptureImport';
 
 const adminKey = 'coaching-master-secret-at-least-24-characters'; const playerKey = 'coaching-player-key'; const playerId = '00000000-0000-4000-8000-000000000011';
 let tempDir: string; let dbPath: string; let server: Server; let origin: string;
@@ -35,6 +36,27 @@ describe('coaching workflow HTTP contract', () => {
     expect((await request(player, '/api/practice-sessions/link', body)).status).toBe(403);
     const coach = await login(adminKey); const response = await request(coach, '/api/practice-sessions/link', body); expect(response.status).toBe(200);
     const result = await response.json(); expect(result).toMatchObject({ session: { linkedGoalIds: ['goal-1'] }, block: { matchIds: ['m1'] }, progress: { linked: true } });
+  });
+  it('links an automatically saved capture to the PRACC session it was played in', async () => {
+    const db = fixture(); db.schedule.push({ id: 'pracc-slot', source: 'pracc', date: '2026-10-20', startTime: '20:00', durationMinutes: 120, primary: 'Practice vs Nova', secondary: '', attendance: {} }); await fs.writeFile(dbPath, JSON.stringify(db));
+    const coach = await login(adminKey);
+    const match = { date: '2026-10-20', type: 'Scrim', opponent: 'Nova', map: 'Ascent', ourScore: 13, theirScore: 9, reviewConfirmation: { alliedSideConfirmed: true }, automation: { mode: 'complete-capture-consensus', editable: true, praccScheduleId: 'pracc-slot' } };
+    const response = await request(coach, '/api/save-match', { match, statsUpdate: { operation: 'preserve' } }); expect(response.status).toBe(200);
+    const saved = (await response.json()).match; const data = await (await request(coach, '/api/data')).json();
+    const session = data.schedule.find((item: any) => item.id === 'pracc-slot'); expect(session).toMatchObject({ progressLinkedAutomatically: true });
+    expect(data.practiceBlocks.find((block: any) => block.id === session.practiceBlockId).matchIds).toEqual([saved.id]);
+  });
+  it('accepts the payload the automatic capture pipeline builds', async () => {
+    const coach = await login(adminKey); const current = await (await request(coach, '/api/data')).json();
+    const extracted = {
+      meta: { map: current.settings.maps[0], ourScore: 13, theirScore: 9 }, startingSide: { firstHalf: 'Att' }, reconciled: { missing: [] },
+      sourceMetadata: { method: 'screenshot', capturedAt: '2026-10-20T18:30:00.000Z', provider: 'tesseract-local', model: 'tesseract/eng-1.0.0/parser-v1' },
+      players: Array.from({ length: 10 }, (_, index) => ({ include: index < 5, matchedPlayerId: null, extractedName: `Auto${"abcdefghij"[index]}`, agent: 'Jett', kills: 10 + index, deaths: 8, assists: 4 })),
+      rounds: Array.from({ length: 22 }, (_, index) => ({ roundNo: index + 1, result: index < 13 ? 'W' : 'L', screenshotEvidence: { schemaVersion: 1, reviewStatus: 'confirmed', confidence: 'high', players: [], events: [], objectives: [], eventsComplete: false } })),
+    };
+    const { payload, decision } = buildAutomaticCaptureImport(extracted, current, 'auto-capture', '2026-10-20T18:30:00.000Z'); expect(decision.reasons).toEqual([]);
+    const response = await request(coach, '/api/save-match', { match: payload!.match, statsUpdate: { operation: 'replace', stats: payload!.stats }, rounds: payload!.roundRows });
+    expect(response.status).toBe(200); expect((await response.json()).match).toMatchObject({ opponent: 'Unknown opponent', reviewConfirmation: { alliedSideConfirmed: true } });
   });
   it('links Team Talk and Debrief symmetrically and rejects unrelated event types', async () => {
     const coach = await login(adminKey); const talk = fixture().schedule.find((item: any) => item.id === 'talk');
