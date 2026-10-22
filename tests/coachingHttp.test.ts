@@ -52,6 +52,19 @@ describe('coaching workflow HTTP contract', () => {
     expect(staff.action).toMatchObject({ visibility: 'staff', state: 'planned', ownerIds: [], sourceRound: { roundNo: 1, vodSeconds: null } });
     expect((await (await request(player, '/api/coaching')).json()).actions.map((item: any) => item.id)).toEqual([action.id]);
   });
+  it('keeps a drawing on a VOD note as clean vectors and refuses a broken one', async () => {
+    const coach = await login(adminKey);
+    const reviews = await (await request(coach, '/api/vod/save', { review: { title: 'Player1 POV', vodUrl: 'https://youtu.be/abcdefghijk', matchId: 'm1' } })).json();
+    const reviewId = reviews[0].id;
+    const drawing = { strokes: [{ tool: 'arrow', color: '#ff4655', points: [[0.1, 0.2], [0.3, 0.3], [1.4, -0.2]] }, { tool: 'laser', color: '#ff4655', points: [[0, 0], [1, 1]] }] };
+    const saved = await request(coach, '/api/vod/note', { reviewId, seconds: 754, timeLabel: '12:34', roundNo: 2, text: 'Swing wide here', drawing });
+    expect(saved.status).toBe(200);
+    const note = (await saved.json()).find((review: any) => review.id === reviewId).notes[0];
+    expect(note).toMatchObject({ seconds: 754, roundNo: 2, text: 'Swing wide here', drawing: { schema: 'moetracker.frame-drawing/v1', strokes: [{ tool: 'arrow', color: '#ff4655', points: [[0.1, 0.2], [1, 0]] }] } });
+    expect((await request(coach, '/api/vod/note', { reviewId, seconds: 5, text: 'Nothing drawn', drawing: { strokes: [] } })).status).toBe(400);
+    const plain = await (await request(coach, '/api/vod/note', { reviewId, seconds: 6, text: 'No drawing' })).json();
+    expect(plain.find((review: any) => review.id === reviewId).notes.find((item: any) => item.text === 'No drawing')).not.toHaveProperty('drawing');
+  });
   it('lets only a coach link a PRACC session to match and goal progress', async () => {
     const player = await login(playerKey); const body = { scheduleId: '00000000-0000-4000-8000-000000000020', matchIds: ['m1'], goalIds: ['goal-1'] };
     expect((await request(player, '/api/practice-sessions/link', body)).status).toBe(403);

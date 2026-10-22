@@ -779,6 +779,8 @@ export interface VodNote {
   role: string;
   createdAt: string;
   roundNo?: number;
+  /** Arrows and lines drawn over the paused frame at `seconds`. */
+  drawing?: import('../lib/frameDrawing').FrameDrawing;
   replies: ThreadReply[];
 }
 

@@ -199,7 +199,7 @@ export const tryoutDecisionNoteSchema = z.object({ id: rosterId.optional(), play
 export const tryoutDecisionNoteRemoveSchema = z.object({ id: rosterId }).strict();
 
 export const vodSaveSchema = z.object({ review: looseObject });
-export const vodNoteSchema = z.object({ reviewId: nonEmpty, seconds: z.number().min(0).max(86_400).optional(), timeLabel: z.string().max(20).optional(), roundNo: z.number().int().min(1).max(100).optional(), text: shortText });
+export const vodNoteSchema = z.object({ reviewId: nonEmpty, seconds: z.number().min(0).max(86_400).optional(), timeLabel: z.string().max(20).optional(), roundNo: z.number().int().min(1).max(100).optional(), text: shortText, drawing: z.unknown().optional() });
 export const vodNoteRemoveSchema = z.object({ reviewId: nonEmpty, noteId: nonEmpty });
 export const vodReplySchema = z.object({ reviewId: nonEmpty, noteId: nonEmpty, text: shortText });
 export const vodRoundReviewSchema = z.object({

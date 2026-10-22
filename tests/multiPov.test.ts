@@ -1,7 +1,7 @@
 import React from 'react';
 import { renderToStaticMarkup } from 'react-dom/server';
 import { describe, expect, it, vi } from 'vitest';
-import { alignForRound, defaultOffset, driftCorrections, matchPovs, roundSeekTargets, youtubeVideoId, type Pov } from '../lib/multiPov';
+import { alignForRound, defaultOffset, roundAnchors, driftCorrections, matchPovs, roundSeekTargets, youtubeVideoId, type Pov } from '../lib/multiPov';
 import { YOUTUBE_EMBED_ORIGIN, videoElementPlayer, youtubeEmbedUrl, youtubePlayer } from '../src/utils/povPlayers';
 import MultiPovReview from '../src/components/MultiPovReview';
 
@@ -16,6 +16,10 @@ describe('multi-POV sync clock', () => {
     expect(youtubeVideoId('https://www.twitch.tv/videos/123')).toBeNull();
     expect(youtubeVideoId('https://evil.example/watch?v=abcdefghijk')).toBeNull();
     expect(youtubeVideoId('not a link')).toBeNull();
+  });
+
+  it('uses the first note of a round as its anchor', () => {
+    expect(roundAnchors([{ roundNo: 4, seconds: 300 }, { roundNo: 4, seconds: 330 }, { roundNo: 5 }, { seconds: 10 }])).toEqual({ 4: 300 });
   });
 
   it('starts from the saved offset, then round 1, then zero', () => {

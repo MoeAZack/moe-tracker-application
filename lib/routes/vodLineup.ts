@@ -3,6 +3,7 @@ import { readDB, saveDB } from '../store';
 import { uid, validate } from '../utils';
 import * as schemas from '../../schemas';
 import { refreshCoachingWorkflow } from './coaching';
+import { normalizeDrawing } from '../frameDrawing';
 
 const author = (req: any) => ({ name: req.user?.username || 'Unknown', role: req.user?.role || 'player' });
 
@@ -48,13 +49,16 @@ export function registerVodLineupRoutes(app: Express) {
     try {
       const body = validate(schemas.vodNoteSchema, req.body, res); if (!body) return;
       const { reviewId, seconds, timeLabel, roundNo, text } = body;
+      // A drawing over the frame is optional; a malformed one is refused rather than saved half-empty.
+      const drawing = body.drawing === undefined ? null : normalizeDrawing(body.drawing);
+      if (body.drawing !== undefined && !drawing) return res.status(400).json({ error: 'The drawing is empty or not readable.' });
       const db = await readDB();
       const review = (db.vodReviews || []).find((v: any) => v.id === reviewId);
       if (!review) return res.status(404).json({ error: 'VOD review not found.' });
       if (!review.notes) review.notes = [];
       review.notes.push({
         id: uid(), seconds: Number(seconds) || 0, timeLabel: timeLabel || '0:00', ...(roundNo ? { roundNo } : {}),
-        text, ...author(req), createdAt: new Date().toISOString(), replies: []
+        text, ...(drawing ? { drawing } : {}), ...author(req), createdAt: new Date().toISOString(), replies: []
       });
       review.notes.sort((a: any, b: any) => (a.seconds || 0) - (b.seconds || 0));
       await saveDB(db);
