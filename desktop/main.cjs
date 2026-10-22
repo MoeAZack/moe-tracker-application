@@ -60,7 +60,9 @@ const json = async (file, fallback = null) => {
 async function atomicJson(file, value) {
   await fsp.mkdir(path.dirname(file), { recursive: true });
   const temp = `${file}.${process.pid}.${crypto.randomBytes(8).toString('hex')}.tmp`;
-  await fsp.writeFile(temp, JSON.stringify(value, null, 2), 'utf8');
+  // Flush before the rename so a crash cannot leave a NUL-filled file behind.
+  const handle = await fsp.open(temp, 'w');
+  try { await handle.writeFile(JSON.stringify(value, null, 2), 'utf8'); await handle.sync(); } finally { await handle.close(); }
   await fsp.rename(temp, file);
 }
 
@@ -902,7 +904,16 @@ if (singleInstanceLock) app.whenReady().then(async () => {
   const updatesEnabled = app.isPackaged && healthState.state !== 'safe-mode';
   updateController = createUpdateController({ autoUpdater, enabled: updatesEnabled, currentVersion: app.getVersion(), updateHealth, trust: updateTrust });
   updateController.start();
-  await startLocalServer(); await startCollector(); await createWindow(); createTray();
+  await startLocalServer();
+  // Replay watching is optional: a collector failure must not keep the rest of
+  // the app from opening. It is reported and retried with backoff.
+  const collectorStartError = await startCollector().then(() => null, error => error);
+  await createWindow(); createTray();
+  if (collectorStartError) {
+    void recordLocalCrash('collector-start-failed', collectorStartError);
+    superviseRestart('collector', startCollector);
+    void dialog.showMessageBox(mainWindow, { type: 'warning', title: 'Replay watching is paused', message: 'Moe Tracker opened, but automatic replay watching could not start.', detail: `${String(collectorStartError.message || collectorStartError).replace(/\0/g, '')}\n\nEverything else works. Moe Tracker will retry in the background; export a support bundle from Settings if this keeps happening.` }).catch(() => {});
+  }
   captureInboxTimer = setInterval(() => { void notifyLatestCapture().catch(error => recordLocalCrash('capture-inbox-watch-failed', error)); }, 2_000); captureInboxTimer.unref?.();
   setTimeout(() => void notifyLatestCapture().catch(error => recordLocalCrash('capture-inbox-watch-failed', error)), 750);
   matchEndTimer = setInterval(() => { void offerCaptureAtMatchEnd().catch(error => console.warn(`[match-end] ${error.message}`)); }, 15_000); matchEndTimer.unref?.();
@@ -916,7 +927,7 @@ if (singleInstanceLock) app.whenReady().then(async () => {
   // encrypted recovery backup is taken even without a restart.
   backupTimer = setInterval(() => void createRecoveryBackup().catch(error => console.warn(`[backup] ${error.message}`)), 6 * 60 * 60 * 1000);
   app.on('activate', () => { void showMainWindow().catch(error => recordLocalCrash('open-window-failed', error)); });
-}).catch(error => { dialog.showErrorBox('Moe Tracker could not start', error.message); app.quit(); });
+}).catch(error => { dialog.showErrorBox('Moe Tracker could not start', String(error?.message || error).replace(/\0/g, '')); app.quit(); });
 
 app.on('before-quit', () => { quitting = true; updateController?.stop(); if (collectorImportTimer) clearInterval(collectorImportTimer); if (syncTimer) clearInterval(syncTimer); if (captureInboxTimer) clearInterval(captureInboxTimer); if (matchEndTimer) clearInterval(matchEndTimer); if (backupTimer) clearInterval(backupTimer); tray?.destroy(); collectorProcess?.kill(); serverProcess?.kill(); });
 app.on('window-all-closed', () => { /* The tray keeps replay watching and synchronization alive. */ });
