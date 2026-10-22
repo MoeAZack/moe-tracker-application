@@ -1,7 +1,9 @@
 import React, { useEffect, useMemo, useRef, useState } from 'react';
-import { ExternalLink, Pause, Play, Plus, RotateCcw, RotateCw, Save, SplitSquareHorizontal, Volume2, X } from 'lucide-react';
+import { ExternalLink, Pause, PenLine, Play, Plus, RotateCcw, RotateCw, Save, SplitSquareHorizontal, Volume2, X } from 'lucide-react';
 import type { VodReview as VodReviewRecord } from '../types';
 import { MAX_POVS, alignForRound, driftCorrections, formatClock, formatOffset, matchPovs, matchTimeFor, offsetToAlign, videoTimeFor, type Pov } from '../../lib/multiPov';
+import type { FrameDrawing } from '../../lib/frameDrawing';
+import { DrawableFrame } from './FrameDrawing';
 import { videoElementPlayer, youtubeEmbedUrl, youtubePlayer, type PovPlayer } from '../utils/povPlayers';
 
 type Props = {
@@ -13,6 +15,8 @@ type Props = {
   selectedRoundNo?: number | null;
   onRoundChange?: (roundNo: number) => void;
   onSaveOffset: (reviewId: string, vodUrl: string, offset: number) => Promise<boolean>;
+  /** Saves a drawing over the paused frame as a VOD note on that view's review. */
+  onSaveNote?: (reviewId: string, note: { seconds: number; timeLabel: string; roundNo?: number; text: string; drawing: FrameDrawing }) => Promise<boolean>;
   defaultOpen?: boolean;
 };
 
@@ -62,7 +66,7 @@ function PovTile({ pov, startAt, main, sound, onPlayer }: { pov: Pov; startAt: n
  * is the main view: play, pause and scrub it (or use the buttons), and the
  * others follow. Round jumps use each video's own round anchor when it has one.
  */
-export default function MultiPovReview({ reviews, matchId, rounds, selectedRoundNo, onRoundChange, onSaveOffset, defaultOpen = false }: Props) {
+export default function MultiPovReview({ reviews, matchId, rounds, selectedRoundNo, onRoundChange, onSaveOffset, onSaveNote, defaultOpen = false }: Props) {
   const saved = useMemo(() => matchPovs(reviews, matchId), [reviews, matchId]);
   const [open, setOpen] = useState(defaultOpen);
   const [localPovs, setLocalPovs] = useState<Pov[]>([]);
@@ -74,6 +78,8 @@ export default function MultiPovReview({ reviews, matchId, rounds, selectedRound
   const [message, setMessage] = useState('');
   const [roundNo, setRoundNo] = useState(selectedRoundNo ? String(selectedRoundNo) : '');
   const players = useRef<Record<string, PovPlayer | null>>({});
+  const [drawingOn, setDrawingOn] = useState<string | null>(null);
+  const [shownDrawing, setShownDrawing] = useState<{ povId: string; noteId: string } | null>(null);
   const lastMainTime = useRef<number | null>(null);
   const stillTicks = useRef(0);
   // Videos buffer for a moment after play or a seek; don't read that as the coach pausing.
@@ -160,6 +166,26 @@ export default function MultiPovReview({ reviews, matchId, rounds, selectedRound
   const removeLocal = (pov: Pov) => {
     URL.revokeObjectURL(pov.vodUrl); localUrls.current = localUrls.current.filter(url => url !== pov.vodUrl);
     setLocalPovs(current => current.filter(item => item.id !== pov.id)); setChosen(current => current.filter(id => id !== pov.id));
+  };
+  const notesWithDrawings = (pov: Pov) => (pov.reviewId ? reviews.find(review => review.id === pov.reviewId)?.notes || [] : []).filter(note => !!note.drawing);
+  const startDrawing = (pov: Pov) => { pauseAll(); setShownDrawing(null); setDrawingOn(pov.id); };
+  const saveDrawing = async (pov: Pov, drawing: FrameDrawing, text: string) => {
+    const time = players.current[pov.id]?.time();
+    if (!pov.reviewId || !onSaveNote) return;
+    if (typeof time !== 'number') return setMessage('The video has not loaded yet.');
+    const seconds = Math.floor(time); const round = Number(roundNo);
+    if (await onSaveNote(pov.reviewId, { seconds, timeLabel: formatClock(seconds), ...(round ? { roundNo: round } : {}), text: text || `Drawing at ${formatClock(seconds)}`, drawing })) {
+      setDrawingOn(null);
+      setMessage(`Saved the drawing at ${formatClock(seconds)} on ${pov.title}.`);
+    }
+  };
+  // Every view goes to the moment the drawing was made; the drawing shows on its own view.
+  const showDrawing = (pov: Pov, note: { id: string; seconds: number }) => {
+    const matchTime = matchTimeFor(pov, note.seconds);
+    pauseAll();
+    each((player, item) => player.seek(item.id === pov.id ? note.seconds : videoTimeFor(item, matchTime)));
+    setDrawingOn(null);
+    setShownDrawing({ povId: pov.id, noteId: note.id });
   };
   const savedOffset = (pov: Pov) => saved.find(item => item.id === pov.id)?.offset;
   const startFor = (pov: Pov) => { const matchTime = mainMatchTime(); return matchTime === null ? pov.offset : videoTimeFor(pov, matchTime); };
@@ -258,9 +284,36 @@ export default function MultiPovReview({ reviews, matchId, rounds, selectedRound
           {onScreen.map(pov => {
             const isMain = pov.id === main?.id;
             const changed = pov.reviewId && savedOffset(pov) !== pov.offset;
+            const tile = <PovTile pov={pov} startAt={startFor(pov)} main={isMain} sound={pov.id === sound} onPlayer={(id, player) => { players.current[id] = player; }} />;
+            const drawings = notesWithDrawings(pov);
+            const shownNote = shownDrawing?.povId === pov.id ? drawings.find(note => note.id === shownDrawing.noteId) || null : null;
             return (
               <article key={pov.id} className={`rounded-xl border p-2 ${isMain ? 'border-cyan-300/30' : 'border-white/10'}`}>
-                <PovTile pov={pov} startAt={startFor(pov)} main={isMain} sound={pov.id === sound} onPlayer={(id, player) => { players.current[id] = player; }} />
+                <DrawableFrame
+                  frame={tile}
+                  drawing={drawingOn === pov.id}
+                  shown={shownNote?.drawing ? { drawing: shownNote.drawing, label: `Drawing at ${shownNote.timeLabel}` } : null}
+                  saveLabel="Save as note"
+                  disabledReason={!pov.reviewId || !onSaveNote ? 'Drawings are saved on a saved VOD review. Add this video as a VOD review to keep the drawing.' : undefined}
+                  onSave={(drawing, text) => void saveDrawing(pov, drawing, text)}
+                  onCancel={() => setDrawingOn(null)}
+                />
+                {(drawings.length > 0 || shownNote) && (
+                  <div className="mt-2 flex flex-wrap items-center gap-2 text-xs">
+                    <span className="text-gray-400">Drawings:</span>
+                    {drawings.map(note => (
+                      <button key={note.id} type="button" aria-label={`Show drawing at ${note.timeLabel}${note.roundNo ? `, round ${note.roundNo}` : ''}`} onClick={() => showDrawing(pov, note)} aria-pressed={shownNote?.id === note.id} className="ui-button inline-flex min-h-8 items-center gap-1 px-2 text-xs">
+                        <PenLine className="h-3.5 w-3.5" /> {note.timeLabel}
+                        {note.roundNo ? ` · R${note.roundNo}` : ''}
+                      </button>
+                    ))}
+                    {shownNote && (
+                      <button type="button" onClick={() => setShownDrawing(null)} className="ui-button min-h-8 px-2 text-xs">
+                        Hide drawing
+                      </button>
+                    )}
+                  </div>
+                )}
                 <div className="mt-2 flex flex-wrap items-center gap-2 text-xs">
                   <span className="min-w-0 flex-1 truncate font-semibold" title={pov.title}>
                     {pov.title}
@@ -279,6 +332,11 @@ export default function MultiPovReview({ reviews, matchId, rounds, selectedRound
                       </button>
                     </>
                   ) : null}
+                  {pov.kind !== 'link' && drawingOn !== pov.id && (
+                    <button type="button" onClick={() => startDrawing(pov)} className="ui-button inline-flex items-center gap-1.5 min-h-8 px-2 text-xs">
+                      <PenLine className="h-3.5 w-3.5" /> Draw on this frame
+                    </button>
+                  )}
                   {changed && (
                     <button type="button" onClick={() => void saveOffset(pov)} className="ui-button inline-flex items-center gap-1.5 min-h-8 px-2 text-xs">
                       <Save className="h-3.5 w-3.5" /> Save sync

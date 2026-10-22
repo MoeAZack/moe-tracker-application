@@ -8,6 +8,7 @@ import { uid, validate, safeEqual, hashAccessKey, clientIp, cached } from './lib
 import { clearLoginThrottle, loginThrottleRemaining, readDB, recordLoginThrottleFailure, saveDB } from './lib/store';
 import { evidenceStorageFootprint } from './lib/evidenceArtifacts';
 import { registerVodLineupRoutes } from './lib/routes/vodLineup';
+import { registerMapImageRoutes } from './lib/routes/mapImages';
 import { registerVodSubmissionRoutes } from './lib/routes/vodSubmissions';
 import { registerIntegrationRoutes } from './lib/routes/integrations';
 import { registerDataRoutes } from './lib/routes/data';
@@ -420,6 +421,7 @@ export async function createApp(serveFrontend = true) {
 
   // VOD Review + Lineup Library routes (extracted module)
   registerVodLineupRoutes(app);
+  registerMapImageRoutes(app);
   registerVodSubmissionRoutes(app);
 
   // Core data + match logging routes (extracted module)

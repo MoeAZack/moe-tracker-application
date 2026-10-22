@@ -85,6 +85,18 @@ async function auditDesktopWorkspaces() {
   await page.getByRole('button', { name: 'Open side-by-side review' }).click(); await page.getByRole('group', { name: /Views on screen/ }).waitFor();
   await audit(page, 'desktop vod review side-by-side POVs');
 
+  // A strategy's board: markers, steps and the drawing tools.
+  const strat = await fetch(`${origin}/api/upsert`, { method: 'POST', headers: auth, body: JSON.stringify({ sheet: 'Strats', row: { map: 'Ascent', side: 'Att', name: 'Synthetic A split', active: 'TRUE', board: { phases: [{ id: 'phase-1', name: 'Setup', tokens: [{ id: 't1', kind: 'ally', agent: 'Sova', x: 0.3, y: 0.4 }, { id: 't2', kind: 'enemy', x: 0.6, y: 0.6 }], note: 'Default' }] } } }) });
+  check(strat.ok, `synthetic strategy seed failed (${strat.status}).`);
+  // A hash change does not reload the page, so reload to pick up the seeded strategy.
+  await open('#/strategies'); await page.reload({ waitUntil: 'domcontentloaded' }); await page.locator('#main-content').waitFor({ state: 'visible', timeout: 20_000 });
+  await page.locator('main select').first().selectOption('Ascent');
+  await page.getByRole('button', { name: /^Board/ }).first().click(); await page.getByRole('dialog').getByRole('group', { name: 'Steps' }).waitFor();
+  await page.getByRole('dialog').getByRole('button', { name: 'Draw lines' }).click();
+  await audit(page, 'desktop strategy board');
+  await page.keyboard.press('Escape');
+  check(await page.getByRole('dialog').count() === 0, 'Escape did not close the strategy board.');
+
   // A destructive confirmation is an in-app modal: labelled, focused on Cancel, dismissed by Escape without acting.
   await open(`#/match-review?match=${matchId}`);
   await page.getByRole('button', { name: 'Delete', exact: true }).click();

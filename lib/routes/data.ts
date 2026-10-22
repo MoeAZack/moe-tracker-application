@@ -2,6 +2,7 @@ import type { Express } from 'express';
 import { readDB, saveDB } from '../store';
 import { uid, validate } from '../utils';
 import { postDiscordReport } from '../services';
+import { normalizeBoard } from '../strategyBoard';
 import * as schemas from '../../schemas';
 import { toPublicTrackerData, toWebsiteTrackerData } from '../publicData';
 import { preserveExistingRosterContext, validateAndNormalizeLineup } from '../matchContext';
@@ -189,6 +190,12 @@ export function registerDataRoutes(app: Express, options: { websiteSummaryOnly?:
         if (row.roundId && !(db.rounds || []).some((round: any) => round.id === row.roundId && round.matchId === row.matchId)) return res.status(400).json({ error: 'Linked round does not belong to the selected match.' });
         row.evidenceClipId = typeof row.evidenceClipId === 'string' && row.evidenceClipId.trim() ? row.evidenceClipId.trim() : undefined;
         if (row.evidenceClipId && !(db.rounds || []).some((round: any) => round.id === row.roundId && round.reviewCockpit?.clips?.some((clip: any) => clip.id === row.evidenceClipId))) return res.status(400).json({ error: 'Linked evidence clip does not belong to the selected round.' });
+      }
+
+      if (sheet === 'Strats') {
+        // A strategy's board is stored only in its cleaned form; an empty board is dropped.
+        const board = row.board === undefined ? null : normalizeBoard(row.board);
+        if (board) row.board = board; else delete row.board;
       }
 
       if (!row.id) {

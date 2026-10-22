@@ -52,6 +52,43 @@ describe('coaching workflow HTTP contract', () => {
     expect(staff.action).toMatchObject({ visibility: 'staff', state: 'planned', ownerIds: [], sourceRound: { roundNo: 1, vodSeconds: null } });
     expect((await (await request(player, '/api/coaching')).json()).actions.map((item: any) => item.id)).toEqual([action.id]);
   });
+  it('keeps a drawing on a VOD note as clean vectors and refuses a broken one', async () => {
+    const coach = await login(adminKey);
+    const reviews = await (await request(coach, '/api/vod/save', { review: { title: 'Player1 POV', vodUrl: 'https://youtu.be/abcdefghijk', matchId: 'm1' } })).json();
+    const reviewId = reviews[0].id;
+    const drawing = { strokes: [{ tool: 'arrow', color: '#ff4655', points: [[0.1, 0.2], [0.3, 0.3], [1.4, -0.2]] }, { tool: 'laser', color: '#ff4655', points: [[0, 0], [1, 1]] }] };
+    const saved = await request(coach, '/api/vod/note', { reviewId, seconds: 754, timeLabel: '12:34', roundNo: 2, text: 'Swing wide here', drawing });
+    expect(saved.status).toBe(200);
+    const note = (await saved.json()).find((review: any) => review.id === reviewId).notes[0];
+    expect(note).toMatchObject({ seconds: 754, roundNo: 2, text: 'Swing wide here', drawing: { schema: 'moetracker.frame-drawing/v1', strokes: [{ tool: 'arrow', color: '#ff4655', points: [[0.1, 0.2], [1, 0]] }] } });
+    expect((await request(coach, '/api/vod/note', { reviewId, seconds: 5, text: 'Nothing drawn', drawing: { strokes: [] } })).status).toBe(400);
+    const plain = await (await request(coach, '/api/vod/note', { reviewId, seconds: 6, text: 'No drawing' })).json();
+    expect(plain.find((review: any) => review.id === reviewId).notes.find((item: any) => item.text === 'No drawing')).not.toHaveProperty('drawing');
+  });
+  it('stores a strategy board only in its cleaned form and keeps the minimap image beside the database', async () => {
+    const coach = await login(adminKey); const player = await login(playerKey);
+    const board = { phases: [{ id: 'phase-1', name: 'Setup', note: 'Default', tokens: [{ id: 't1', kind: 'ally', agent: 'Sova', x: 0.4, y: 1.7 }, { id: 't2', kind: 'turret', x: 0.1, y: 0.1 }], drawing: { strokes: [{ tool: 'arrow', color: '#ff4655', points: [[0, 0], [0.5, 0.5]] }] } }] };
+    const saved = await (await request(coach, '/api/upsert', { sheet: 'Strats', row: { map: 'Ascent', side: 'Att', name: 'A split', active: 'TRUE', board } })).json();
+    expect(saved.board).toEqual({ schema: 'moetracker.strategy-board/v1', phases: [{ id: 'phase-1', name: 'Setup', note: 'Default', tokens: [{ id: 't1', kind: 'ally', agent: 'Sova', x: 0.4, y: 1 }], drawing: { schema: 'moetracker.frame-drawing/v1', strokes: [{ tool: 'arrow', color: '#ff4655', points: [[0, 0], [0.5, 0.5]] }] } }] });
+    const cleared = await (await request(coach, '/api/upsert', { sheet: 'Strats', row: { ...saved, board: { phases: [{ tokens: [] }] } } })).json();
+    expect(cleared).not.toHaveProperty('board');
+
+    const png = Buffer.concat([Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a]), Buffer.alloc(32)]);
+    const image = `data:image/png;base64,${png.toString('base64')}`;
+    expect((await request(player, '/api/map-images/Ascent', { image })).status).toBe(403);
+    expect((await request(coach, '/api/map-images/Ascent', { image: 'data:image/png;base64,PHN2Zz4=' })).status).toBe(400);
+    expect((await request(coach, '/api/map-images/Ascent', { image: `data:image/svg+xml;base64,${png.toString('base64')}` })).status).toBe(400);
+    expect((await request(player, '/api/map-images/Ascent')).status).toBe(204);
+    const stored = await request(coach, '/api/map-images/Ascent', { image }); expect(stored.status).toBe(200);
+    expect(await stored.json()).toEqual({ map: 'ascent', type: 'image/png', bytes: png.length });
+    const read = await request(player, '/api/map-images/ascent'); expect(read.status).toBe(200);
+    expect(read.headers.get('content-type')).toBe('image/png'); expect(Buffer.from(await read.arrayBuffer()).equals(png)).toBe(true);
+    await expect(fs.stat(path.join(tempDir, 'map-images', 'ascent.png'))).resolves.toBeTruthy();
+    const jpeg = Buffer.concat([Buffer.from([0xff, 0xd8, 0xff, 0xe0]), Buffer.alloc(16)]);
+    expect((await request(coach, '/api/map-images/Ascent', { image: `data:image/jpeg;base64,${jpeg.toString('base64')}` })).status).toBe(200);
+    await expect(fs.stat(path.join(tempDir, 'map-images', 'ascent.png'))).rejects.toThrow();
+    expect((await request(coach, '/api/map-images/Ascent')).headers.get('content-type')).toBe('image/jpeg');
+  });
   it('lets only a coach link a PRACC session to match and goal progress', async () => {
     const player = await login(playerKey); const body = { scheduleId: '00000000-0000-4000-8000-000000000020', matchIds: ['m1'], goalIds: ['goal-1'] };
     expect((await request(player, '/api/practice-sessions/link', body)).status).toBe(403);

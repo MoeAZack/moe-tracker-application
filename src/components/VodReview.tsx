@@ -6,6 +6,7 @@ import { cairoDateKeyAt, resolveInitialVodSelection, vodContextMatchId } from '.
 import { matchPracticeCompleteness } from '../../lib/practiceCompleteness';
 import RoundReviewCockpit from './RoundReviewCockpit';
 import MultiPovReview from './MultiPovReview';
+import { DrawingView } from './FrameDrawing';
 import ReviewIntelligencePanels from './ReviewIntelligencePanels';
 
 interface Props {
@@ -383,6 +384,7 @@ export default function VodReview({ data, theme, role, onRefresh, initialMatchId
           selectedRoundNo={selectedRoundNo}
           onRoundChange={roundNo => onReviewContextChange?.(focusedMatch.id, roundNo)}
           onSaveOffset={(reviewId, vodUrl, offset) => post('/api/vod/save', { review: { id: reviewId, vodUrl, syncOffsetSeconds: offset } })}
+          onSaveNote={(reviewId, note) => post('/api/vod/note', { reviewId, ...note })}
         />
       )}
       {focusedMatch && completeness && (
@@ -704,6 +706,13 @@ export default function VodReview({ data, theme, role, onRefresh, initialMatchId
                         </button>
                       )}
                     </div>
+                    {n.drawing && (
+                      <DrawingView
+                        drawing={n.drawing}
+                        label={`Drawing at ${n.timeLabel}. Open Watch POVs together to see it on the video.`}
+                        className="aspect-video w-48 rounded-md border border-white/10 bg-black/60"
+                      />
+                    )}
                     <div className="text-xs uppercase tracking-widest text-gray-500 font-mono">
                       {n.name} · {n.role}
                     </div>
