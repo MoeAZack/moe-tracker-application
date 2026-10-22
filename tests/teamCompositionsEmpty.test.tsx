@@ -13,6 +13,8 @@ describe('compositions empty state', () => {
     expect(html.match(/No compositions logged yet/g)).toHaveLength(1);
     expect(html).not.toContain('ready for its first logged composition');
     expect(html).not.toContain('>Haven<');
+    expect(html).toContain('No agents logged yet');
+    expect(html).not.toContain('0W');
   });
 
   it('lists only maps with a logged composition and names the rest in one line', () => {
@@ -21,5 +23,6 @@ describe('compositions empty state', () => {
     expect(html).toContain('>Haven<');
     expect(html).not.toContain('No compositions logged yet');
     expect(html).toContain('No composition logged yet on Bind.');
+    expect(html).not.toContain('No agents logged yet');
   });
 });

@@ -65,6 +65,8 @@ export default function TeamCompositions({ data, theme }: ComponentProps) {
   const minimumSamples = data.settings.stats?.lowSample || DEFAULT_MINIMUM_METRIC_SAMPLES;
   const mapCompositions = useMemo(() => buildMapCompositions(data, maps, activeAgentKeys, minimumSamples), [data, maps, activeAgentKeys, minimumSamples]);
   const agentPerformance = useMemo(() => buildAgentPerformance(data, agentsList, minimumSamples), [data, agentsList, minimumSamples]);
+  // Before any agent is logged, one empty state replaces a row of 0W-0L for every agent.
+  const agentRows = agentPerformance.some(row => row.played > 0) ? agentPerformance : [];
   const mapEntries = Object.entries(mapCompositions);
   const mapsWithoutComps = mapEntries.filter(([, comps]) => Object.keys(comps).length === 0).map(([mapName]) => mapName);
 
@@ -91,7 +93,7 @@ export default function TeamCompositions({ data, theme }: ComponentProps) {
                 </tr>
               </thead>
               <tbody className="divide-y divide-white/5">
-                {agentPerformance.map((ap) => (
+                {agentRows.map((ap) => (
                   <tr key={ap.agent} className="hover:bg-white/5">
                     <td className="py-2.5 px-3 font-bold text-white text-xs"><span className="flex items-center gap-2"><AgentPortrait name={ap.agent} className="h-9 w-9 rounded-lg" />{ap.agent}</span></td>
                     <td className="py-2.5 px-3 text-center font-bold text-gray-300">{ap.played}</td>
@@ -104,9 +106,9 @@ export default function TeamCompositions({ data, theme }: ComponentProps) {
                     <td className="py-2.5 px-3 text-center text-gray-400">{ap.pickRate === null ? 'Unknown' : `${ap.pickRate}%`}</td>
                   </tr>
                 ))}
-                {agentPerformance.length === 0 && (
+                {agentRows.length === 0 && (
                   <tr>
-                    <td colSpan={5} className="py-10 text-center text-gray-500">No agent metrics recorded. Record some matches first!</td>
+                    <td colSpan={5} className="py-10 text-center text-gray-500">No agents logged yet. Agent results appear once a match has its player agents recorded.</td>
                   </tr>
                 )}
               </tbody>
