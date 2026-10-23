@@ -91,6 +91,8 @@ describe('reading the score on the in-game HUD', () => {
 describe('the last HUD read and kill-feed names', () => {
   it('reads a HUD with no timer as a bare score used only for the partial', () => {
     expect(parseRoundStateSnapshot({ timestampMs: 1, text: '12  12' })).toMatchObject({ score: null, bareScore: [12, 12] });
+    expect(parseRoundStateSnapshot({ timestampMs: 1, text: '12 © \\ 12' })).toMatchObject({ score: null, bareScore: [12, 12] });
+    expect(parseRoundStateSnapshot({ timestampMs: 1, text: '12 12 3' })?.bareScore).toBeUndefined();
     const result = aggregateVideoEvidence({ players: [], roundStateSnapshots: [{ timestampMs: 1000, text: '9  1:40  9' }, { timestampMs: 90_000, text: '10  1:12  10' }, { timestampMs: 200_000, text: '12  12' }] });
     expect(deriveFinalScore(result)).toBeNull();
     expect(deriveFinalScore(result, { partial: true })).toMatchObject({ left: 12, right: 12 });

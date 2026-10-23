@@ -477,11 +477,14 @@ const TAB_BOX = { x0: .297, x1: .702, y0: .03, y1: .97 };
 const TAB_FRAME = { width: 518, height: 676 };
 const TAB_OUR_ROWS = [.329, .361, .393, .424, .456];
 const TAB_ROW_HALF = .015;
+// The enemy five sit under the DEF/ATK strips, ~6.85 pitches below ours; scoring all ten rows keeps
+// the strips (lit icons on a dark band) from passing for two of our rows.
+const TAB_ENEMY_ROWS = TAB_OUR_ROWS.map(centre => +(centre + .2165).toFixed(4));
 // Measured on the 2782 s frame: name 0.333-0.43 (the agent icon ends at 0.316, ULTIMATE starts at 0.439);
 // K 0.492-0.502, D 0.513-0.523, A 0.535-0.540, each padded so a two-digit value still fits.
 const TAB_CELLS = { name: { x0: .333, x1: .43 }, kills: { x0: .489, x1: .506 }, deaths: { x0: .510, x1: .527 }, assists: { x0: .531, x1: .548 } };
 
-// Cheap test before any OCR: on the board each of our rows has a few lit K/D/A glyph pixels over a
+// Cheap test before any OCR: on the board each of our rows has a few K/D/A glyph pixels well above a
 // darker row (teal or dark grey); gameplay rarely gives that in five rows at the board's pitch. Per-line
 // counts are taken once, then every vertical offset is scored; returns the best { rows, dy }.
 function tabBoardFit(pixels, width, height) {
@@ -489,54 +492,139 @@ function tabBoardFit(pixels, width, height) {
   const px = value => Math.round((value - TAB_BOX.x0) / (TAB_BOX.x1 - TAB_BOX.x0) * width), py = value => Math.round((value - TAB_BOX.y0) / (TAB_BOX.y1 - TAB_BOX.y0) * height);
   const x0 = Math.max(0, px(TAB_CELLS.kills.x0)), x1 = Math.min(width - 1, px(TAB_CELLS.assists.x1));
   const lit = new Float64Array(height), dim = new Float64Array(height), dimSum = new Float64Array(height);
-  for (let y = 0; y < height; y += 1) for (let x = x0; x <= x1; x += 1) { const value = pixels[y * width + x]; if (value > 170) lit[y] += 1; else { dim[y] += 1; dimSum[y] += value; } }
+  // Lit is relative to the line's own mean: on a 720p coach VOD the thin white digits blur to ~150 over a ~60 teal row.
+  for (let y = 0; y < height; y += 1) { let sum = 0; for (let x = x0; x <= x1; x += 1) sum += pixels[y * width + x]; const mean = sum / (x1 - x0 + 1); for (let x = x0; x <= x1; x += 1) { const value = pixels[y * width + x]; if (value > Math.max(mean + 40, 90)) lit[y] += 1; else { dim[y] += 1; dimSum[y] += value; } } }
   const rowOk = (top, bottom) => { let l = 0, d = 0, sum = 0; for (let y = Math.max(0, top); y <= Math.min(height - 1, bottom); y += 1) { l += lit[y]; d += dim[y]; sum += dimSum[y]; } const count = l + d; return count > 0 && l / count >= .02 && l / count <= .4 && d > 0 && sum / d < 140; };
   const lineHeight = (TAB_BOX.y1 - TAB_BOX.y0) / height, scored = [];
   const low = TAB_BOX.y0 + TAB_ROW_HALF - TAB_OUR_ROWS[0], high = TAB_BOX.y1 - TAB_ROW_HALF - TAB_OUR_ROWS.at(-1);
-  for (let dy = low; dy <= high; dy += lineHeight) { let rows = 0; for (const centre of TAB_OUR_ROWS) if (rowOk(py(centre + dy - TAB_ROW_HALF), py(centre + dy + TAB_ROW_HALF))) rows += 1; scored.push({ rows, dy }); }
+  const ok = (centre, dy) => rowOk(py(centre + dy - TAB_ROW_HALF), py(centre + dy + TAB_ROW_HALF));
+  for (let dy = low; dy <= high; dy += lineHeight) { const rows = TAB_OUR_ROWS.filter(centre => ok(centre, dy)).length; scored.push({ rows, total: rows + TAB_ENEMY_ROWS.filter(centre => centre + dy + TAB_ROW_HALF <= TAB_BOX.y1 && ok(centre, dy)).length, dy }); }
   // A window still passes when it only half covers the digits, so the best offset is the middle of the longest run at the top count.
-  const top = Math.max(0, ...scored.map(item => item.rows)); if (!top) return { rows: 0, dy: 0 };
+  const top = Math.max(0, ...scored.map(item => item.total)); if (!top) return { rows: 0, dy: 0 };
   let run = [], longest = [];
-  for (const item of scored) { if (item.rows === top) run.push(item); else run = []; if (run.length > longest.length) longest = [...run]; }
-  return { rows: top, dy: longest[Math.floor(longest.length / 2)].dy };
+  for (const item of scored) { if (item.total === top) run.push(item); else run = []; if (run.length > longest.length) longest = [...run]; }
+  const best = longest[Math.floor(longest.length / 2)]; return { rows: best.rows, dy: best.dy };
 }
 function tabBoardRows(pixels, width, height) { return tabBoardFit(pixels, width, height).rows; }
 
+// A TAB cell as Paddle and Tesseract like it: the grey crop contrast-stretched from the cell's median
+// (the row) to its brightest pixel (the digits), bilinear-upscaled, dark on white. Also returns the
+// glyph runs: a cell whose every glyph is narrow is all 1s, which PP-OCR tends to drop when alone.
+function tabCellImage(pixels, width, height, box, scale = 6) {
+  if (!pixels || pixels.length < width * height) return null;
+  const px = value => (value - TAB_BOX.x0) / (TAB_BOX.x1 - TAB_BOX.x0) * width, py = value => (value - TAB_BOX.y0) / (TAB_BOX.y1 - TAB_BOX.y0) * height;
+  const x0 = Math.max(0, px(box.x0)), x1 = Math.min(width - 2, px(box.x1)), y0 = Math.max(0, py(box.y0)), y1 = Math.min(height - 2, py(box.y1)); if (x1 <= x0 || y1 <= y0) return null;
+  const values = []; for (let y = Math.floor(y0); y <= Math.ceil(y1); y += 1) for (let x = Math.floor(x0); x <= Math.ceil(x1); x += 1) values.push(pixels[y * width + x]);
+  values.sort((a, b) => a - b); const background = values[values.length >> 1], ink = values.at(-1); if (ink - background < 25) return null;
+  const w = Math.round((x1 - x0) * scale), h = Math.round((y1 - y0) * scale), out = Buffer.alloc(w * h, 255), dark = new Uint8Array(w * h);
+  for (let j = 0; j < h; j += 1) for (let i = 0; i < w; i += 1) {
+    const sx = x0 + i / scale, sy = y0 + j / scale, ix = Math.floor(sx), iy = Math.floor(sy), fx = sx - ix, fy = sy - iy, at = (x, y) => pixels[y * width + x];
+    const value = at(ix, iy) * (1 - fx) * (1 - fy) + at(ix + 1, iy) * fx * (1 - fy) + at(ix, iy + 1) * (1 - fx) * fy + at(ix + 1, iy + 1) * fx * fy;
+    const t = Math.max(0, Math.min(1, (value - background) / (ink - background))); out[j * w + i] = Math.round(255 * (1 - t)); if (t > .5) dark[j * w + i] = 1;
+  }
+  const runs = []; for (let i = 0; i < w; i += 1) { let top = -1, bottom = -1; for (let j = 0; j < h; j += 1) if (dark[j * w + i]) { if (top < 0) top = j; bottom = j; } if (top < 0) continue; const run = runs.at(-1); if (run && i - run.end <= 1) { run.end = i; run.top = Math.min(run.top, top); run.bottom = Math.max(run.bottom, bottom); } else runs.push({ start: i, end: i, top, bottom }); }
+  const tallest = Math.max(0, ...runs.map(run => run.bottom - run.top + 1)), glyphs = runs.filter(run => run.bottom - run.top + 1 >= tallest * .6);
+  return { pixels: out, width: w, height: h, glyphs: glyphs.map(run => ({ width: run.end - run.start + 1, height: run.bottom - run.top + 1 })) };
+}
+
+// Where the digits of one of our rows actually sit: the weighted centre of the bright lines over the
+// K/D/A columns near the expected row (the fitted offset is only good to a few pixels).
+function tabRowCentre(pixels, width, height, centre) {
+  const px = value => Math.round((value - TAB_BOX.x0) / (TAB_BOX.x1 - TAB_BOX.x0) * width), py = value => Math.round((value - TAB_BOX.y0) / (TAB_BOX.y1 - TAB_BOX.y0) * height);
+  const x0 = Math.max(0, px(TAB_CELLS.kills.x0)), x1 = Math.min(width - 1, px(TAB_CELLS.assists.x1)); let weight = 0, sum = 0;
+  for (let y = Math.max(0, py(centre - TAB_ROW_HALF)); y <= Math.min(height - 1, py(centre + TAB_ROW_HALF)); y += 1) {
+    let total = 0; for (let x = x0; x <= x1; x += 1) total += pixels[y * width + x]; const mean = total / (x1 - x0 + 1);
+    let count = 0; for (let x = x0; x <= x1; x += 1) if (pixels[y * width + x] > Math.max(mean + 40, 90)) count += 1; weight += count; sum += count * y;
+  }
+  return weight ? TAB_BOX.y0 + sum / weight / height * (TAB_BOX.y1 - TAB_BOX.y0) : centre;
+}
+
+// PP-OCRv4 digit reader for the TAB cells, loaded once from the build's own staged assets (the same
+// ONNX Runtime WebAssembly and model the Settings "Number reader" uses). No network. Null when the
+// assets are missing; the cells then fall back to Tesseract.
+let paddleReaderPromise = null;
+function paddleAssetsDir() {
+  for (const candidate of [path.join(__dirname, '..', 'dist', 'ocr-assets'), path.join(__dirname, '..', 'public', 'ocr-assets')]) { const dir = unpackedExecutable(candidate); if (fs.existsSync(path.join(dir, 'onnx', 'ort.wasm.bundle.min.mjs')) && fs.existsSync(path.join(dir, 'paddle', 'ch_PP-OCRv4_rec_infer.onnx'))) return dir; }
+  return null;
+}
+function paddleTensor(image, inputHeight = 48, padFraction = .25) {
+  const pad = Math.max(1, Math.round(image.height * padFraction)), sourceWidth = image.width + pad * 2, sourceHeight = image.height + pad * 2;
+  const sample = (x, y) => { const ix = x - pad, iy = y - pad; return ix < 0 || iy < 0 || ix >= image.width || iy >= image.height ? 255 : image.pixels[iy * image.width + ix]; };
+  const height = inputHeight, width = Math.max(16, Math.round(sourceWidth * height / sourceHeight)), plane = width * height, tensor = new Float32Array(3 * plane);
+  for (let y = 0; y < height; y += 1) {
+    const sy = Math.max(0, Math.min(sourceHeight - 1, (y + .5) * sourceHeight / height - .5)), y0 = Math.floor(sy), y1 = Math.min(sourceHeight - 1, y0 + 1), fy = sy - y0;
+    for (let x = 0; x < width; x += 1) {
+      const sx = Math.max(0, Math.min(sourceWidth - 1, (x + .5) * sourceWidth / width - .5)), x0 = Math.floor(sx), x1 = Math.min(sourceWidth - 1, x0 + 1), fx = sx - x0;
+      const value = ((sample(x0, y0) * (1 - fx) + sample(x1, y0) * fx) * (1 - fy) + (sample(x0, y1) * (1 - fx) + sample(x1, y1) * fx) * fy) / 255 * 2 - 1;
+      tensor[y * width + x] = value; tensor[plane + y * width + x] = value; tensor[2 * plane + y * width + x] = value;
+    }
+  }
+  return { tensor, width, height };
+}
+// Greedy CTC over the blank and the ten digits only; confidence is the weakest emitted digit, mapped
+// like lib/ocrEngines.ts (probability 0.75 -> 70, the K/D/A floor).
+function decodePaddleDigits(data, steps, classes, characters) {
+  const digits = characters.map((character, index) => /^[0-9]$/.test(character) ? index : -1).filter(index => index > 0); let text = '', previous = -1, low = Infinity;
+  for (let step = 0; step < steps; step += 1) { const offset = step * classes; let best = 0, probability = Number(data[offset]); for (const index of digits) if (Number(data[offset + index]) > probability) { probability = Number(data[offset + index]); best = index; } if (best !== 0 && best !== previous) { text += characters[best]; low = Math.min(low, probability); } previous = best; }
+  if (!text) return { text, confidence: null }; const value = Math.max(0, Math.min(1, low));
+  return { text, confidence: value <= .75 ? value / .75 * 70 : 70 + (value - .75) / .25 * 30 };
+}
+function loadPaddleDigitReader(log = line => void line) {
+  paddleReaderPromise ||= (async () => {
+    const dir = paddleAssetsDir(); if (!dir) { log('tab-board: PaddleOCR assets not found, cells read by Tesseract'); return null; }
+    const imported = await import(require('node:url').pathToFileURL(path.join(dir, 'onnx', 'ort.wasm.bundle.min.mjs')).href); const ort = imported.default?.InferenceSession ? imported.default : imported;
+    ort.env.wasm.numThreads = 1; ort.env.wasm.proxy = false;
+    const lines = fs.readFileSync(path.join(dir, 'paddle', 'ppocr_keys_v1.txt'), 'utf8').split(/\r?\n/); if (lines.at(-1) === '') lines.pop(); const characters = ['', ...lines, ' '];
+    const session = await ort.InferenceSession.create(new Uint8Array(fs.readFileSync(path.join(dir, 'paddle', 'ch_PP-OCRv4_rec_infer.onnx'))));
+    return { async read(image) { const { tensor, width, height } = paddleTensor(image); const outputs = await session.run({ [session.inputNames[0]]: new ort.Tensor('float32', tensor, [1, 3, height, width]) }); const output = outputs[session.outputNames[0]]; return decodePaddleDigits(output.data, output.dims[1], output.dims[2], characters); } };
+  })().catch(error => { log(`tab-board: PaddleOCR did not start (${String(error?.message || error).slice(0, 400)}), cells read by Tesseract`); return null; });
+  return paddleReaderPromise;
+}
+
 /**
- * Read our five rows of each TAB board the coach opened: the name cell as text, then K, D and A each
- * digits-only from its own cell. A board counts when three of the five rows read all three numbers.
+ * Read our five rows of each TAB board the coach opened: K, D and A each from its own cell (PP-OCR,
+ * digits only, kept at confidence 70 or more; a cell of narrow glyphs only is 1s), then the name cell
+ * as text. A board counts when three of the five rows read all three numbers.
  * Returns [{ timestampMs, rows: [{ row, name, kills, deaths, assists }] }], oldest first.
  */
-async function readCoachTabBoards(frames, worker, log = line => void line, limit = 12) {
-  const counts = { frames: (frames || []).length, looked: 0, tried: 0, boards: 0 }; const boards = [];
+async function readCoachTabBoards(frames, worker, log = line => void line, limit = 12, digitReader = undefined) {
+  const counts = { frames: (frames || []).length, looked: 0, tried: 0, boards: 0, cells: 0, cellsRead: 0, ones: 0 }; const boards = [];
   const chosen = [];
   for (const frame of frames || []) { const { rows, dy } = tabBoardFit(frame.pixels, frame.width, frame.height); if (rows >= 4) { counts.looked += 1; chosen.push({ frame, rows, dy }); } }
   // Best-looking frames first, at least 5 s apart (one tap gives several frames at 4 fps).
   const picked = []; for (const item of chosen.sort((a, b) => b.rows - a.rows)) { if (picked.length >= limit) break; if (picked.every(other => Math.abs(other.frame.timestampMs - item.frame.timestampMs) >= 5000)) picked.push(item); }
-  const cell = (frame, centre, column, minGlyphHeight) => scoreBoxCrop(frame.pixels, frame.width, frame.height, { x0: column.x0, x1: column.x1, y0: centre - TAB_ROW_HALF, y1: centre + TAB_ROW_HALF }, 3, null, { frameBox: TAB_BOX, minGlyphHeight });
   const text = async image => String((await worker.recognize(pgm(image.pixels, image.width, image.height)))?.data?.text || '');
+  const reader = digitReader === undefined ? (picked.length ? await loadPaddleDigitReader(log) : null) : digitReader;
+  const readNumber = async image => {
+    if (!image) return null; counts.cells += 1;
+    if (image.glyphs.length && image.glyphs.length <= 2 && image.glyphs.every(glyph => glyph.width / glyph.height < .42)) { counts.ones += 1; counts.cellsRead += 1; return Number('1'.repeat(image.glyphs.length)); }
+    let read = null;
+    if (reader) { const result = await reader.read(image); if (/^\d{1,2}$/.test(result.text) && (result.confidence ?? 0) >= 70) read = Number(result.text); }
+    else if (worker) { const value = (await text(image)).trim(); if (/^\d{1,2}$/.test(value)) read = Number(value); }
+    if (read !== null && read <= 80) { counts.cellsRead += 1; return read; } return null;
+  };
   try {
     if (picked.length && worker) {
       counts.tried = picked.length;
       await worker.setParameters({ tessedit_char_whitelist: '0123456789', tessedit_pageseg_mode: '7' });
       for (const item of picked) {
-        item.read = [];
-        for (const [row, centre] of TAB_OUR_ROWS.entries()) {
-          const values = {};
-          for (const field of ['kills', 'deaths', 'assists']) { const crop = cell(item.frame, centre + item.dy, TAB_CELLS[field], .3); const read = crop ? await readScoreBox(crop, text) : null; values[field] = read?.value && Number(read.value) <= 80 ? Number(read.value) : null; }
+        item.read = []; item.centres = [];
+        for (const [row, measured] of TAB_OUR_ROWS.entries()) {
+          const centre = tabRowCentre(item.frame.pixels, item.frame.width, item.frame.height, measured + item.dy); item.centres.push(centre); const values = {};
+          for (const field of ['kills', 'deaths', 'assists']) values[field] = await readNumber(tabCellImage(item.frame.pixels, item.frame.width, item.frame.height, { x0: TAB_CELLS[field].x0, x1: TAB_CELLS[field].x1, y0: centre - .0105, y1: centre + .0105 }));
           item.read.push({ row, name: null, ...values });
         }
       }
       await worker.setParameters({ tessedit_char_whitelist: '', tessedit_pageseg_mode: '7' });
       for (const item of picked) {
         if (item.read.filter(row => [row.kills, row.deaths, row.assists].every(Number.isInteger)).length < 3) continue;
-        for (const row of item.read) { const crop = cell(item.frame, TAB_OUR_ROWS[row.row] + item.dy, TAB_CELLS.name, .3); row.name = crop ? (await text(crop)).trim().replace(/\s+/g, ' ') || null : null; }
+        for (const row of item.read) { const crop = tabCellImage(item.frame.pixels, item.frame.width, item.frame.height, { ...TAB_CELLS.name, y0: item.centres[row.row] - .0105, y1: item.centres[row.row] + .0105 }, 4); row.name = crop ? (await text(crop)).trim().replace(/\s+/g, ' ') || null : null; }
         counts.boards += 1; boards.push({ timestampMs: item.frame.timestampMs, rows: item.read });
       }
     }
   } finally {
     if (picked.length && worker) await worker.setParameters({ tessedit_char_whitelist: '', tessedit_pageseg_mode: '11' }).catch(() => {});
-    log(`tab-board: frames ${counts.frames}, looked like a board ${counts.looked}, tried ${counts.tried}, boards read ${counts.boards}${boards.length ? `, last at ${Math.round(boards.at(-1).timestampMs / 1000)}s` : ''}`);
+    log(`tab-board: frames ${counts.frames}, looked like a board ${counts.looked}, tried ${counts.tried}, boards read ${counts.boards}${boards.length ? `, last at ${Math.round(boards.at(-1).timestampMs / 1000)}s` : ''}; cells ${counts.cells}, numbers read ${counts.cellsRead} (${counts.ones} as 1s), reader ${reader ? 'paddle' : 'tesseract'}`);
   }
   return boards.sort((a, b) => a.timestampMs - b.timestampMs);
 }
@@ -754,6 +842,9 @@ async function analyzeVodTimeline(input, options = {}) {
     const inferredPov = input.observerMode ? null : (input.povPlayerName || inferPovPlayer(snapshots.povSnapshots || [], input.players || []));
     const evidence = aggregateVideoEvidence({ players: input.players || [], povPlayerName: inferredPov || null, observerMode: !!input.observerMode, durationMs: rangeDurationMs, killFeedSnapshots: snapshots.killFeedSnapshots, objectiveSnapshots: snapshots.objectiveSnapshots, roundStateSnapshots: snapshots.roundStateSnapshots, ultimateSnapshots: snapshots.ultimateSnapshots, povSnapshots: snapshots.povSnapshots, scoreboardSnapshots: snapshots.scoreboardSnapshots, endBannerSnapshots: snapshots.endBannerSnapshots, tabBoards: snapshots.tabBoards || [] });
     log(killFeedSummary(snapshots.killFeedSnapshots, input.players || [], evidence));
+    // Where the HUD reads stop: the last few top-centre reads that held any digit (score and timer text only).
+    const hudTail = (snapshots.roundStateSnapshots || []).filter(item => /\d/.test(item.text || '')).slice(-6);
+    log(`hud-tail: ${(snapshots.roundStateSnapshots || []).length} reads; ${hudTail.map(item => `${Math.round(item.timestampMs / 1000)}s ${JSON.stringify(String(item.text).replace(/[^0-9:\s\-]/g, '*').replace(/\s+/g, ' ').trim().slice(0, 24))}`).join(', ') || 'none with digits'}`);
     evidence.limitations.push(inferredPov ? `POV identity used for personal orb and ultimate evidence: ${inferredPov}.` : 'No single player POV identity was proven; personal orb and ultimate totals remain unknown.');
     evidence.source = { kind: input.sourceKind || (downloaded ? 'youtube' : 'local-file'), videoId: input.videoId || youtubeVideoId(input.vodUrl), sha256: input.sourceSha256 || await sha256File(file), width: probe.width, height: probe.height, durationMs: probe.durationMs, analyzedAt: new Date().toISOString() };
     checkpoint.completedAt = new Date().toISOString(); await writeCheckpoint(options.checkpointFile, checkpoint); progress?.({ stage: 'complete', percent: 100, message: `Timeline scan complete · ${evidence.observations.length} supported observations.` }); return evidence;
@@ -797,4 +888,4 @@ async function readVodFrame(directory, frame) {
   return { mediaType: 'image/png', base64: (await fsp.readFile(path.join(path.resolve(directory), name))).toString('base64') };
 }
 
-module.exports = { tabBoardRows, tabBoardFit, readCoachTabBoards, TAB_BOX, TAB_FRAME, TAB_OUR_ROWS, TAB_CELLS, killFeedSummary, createChangeCollector, readScoreBox, KILL_FEED_BOX, killFeedCrop, scoreBoxCrop, fixSevens, SCORE_BOXES, rowText, stretchedBanner, splitDigitCrop, bannerDigitCrop, readBannerDigits, sweepOrphanedVodDirectories, readOwnedVodFrame, readVodFrame, normalizeYoutubeUrl, youtubeVideoId, probeVideo, analyzeVodTimeline, normalizeTimelinePlayers, discoverVodGames, releaseVodSource, createReviewClips, changedFrames, changedFramesTogether, sampleRegions, recognizeFrames, createOcrPool, frameDifference, visualSignature, ensureDiskSpace, scoreboardGeometryScore, agentSelectGeometryScore, chooseGameBoundaries, inferPovPlayer };
+module.exports = { tabBoardRows, tabBoardFit, tabCellImage, loadPaddleDigitReader, readCoachTabBoards, TAB_BOX, TAB_FRAME, TAB_OUR_ROWS, TAB_CELLS, killFeedSummary, createChangeCollector, readScoreBox, KILL_FEED_BOX, killFeedCrop, scoreBoxCrop, fixSevens, SCORE_BOXES, rowText, stretchedBanner, splitDigitCrop, bannerDigitCrop, readBannerDigits, sweepOrphanedVodDirectories, readOwnedVodFrame, readVodFrame, normalizeYoutubeUrl, youtubeVideoId, probeVideo, analyzeVodTimeline, normalizeTimelinePlayers, discoverVodGames, releaseVodSource, createReviewClips, changedFrames, changedFramesTogether, sampleRegions, recognizeFrames, createOcrPool, frameDifference, visualSignature, ensureDiskSpace, scoreboardGeometryScore, agentSelectGeometryScore, chooseGameBoundaries, inferPovPlayer };
