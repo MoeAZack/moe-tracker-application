@@ -404,7 +404,13 @@ function acceptReviewIntoEngines(db: any, store: ReplayStore, job: ReplayParserJ
     const eliminationEvents = (round.events || []).filter((event: any) => event.kind === 'player-elimination');
     const identitiesComplete = eliminationEvents.every((event: any) => rawRows.get(event.victimPlayerId)?.teamId && rawRows.get(event.killerPlayerId)?.teamId);
     const ordered = eliminationEvents.every((event: any, index: number) => index === 0 || (event.timestampMs ?? index) >= (eliminationEvents[index - 1].timestampMs ?? index - 1));
-    const advantageEvidence = deriveRoundAdvantage({ source: 'replay', complete: eliminationsComplete && identitiesComplete && ordered, winner: round.winnerTeamId ? (round.winnerTeamId === review.teamId ? 'ours' : 'theirs') : 'unknown', events: eliminationEvents.map((event: any, index: number) => ({ sequence: index + 1, victimTeam: rawRows.get(event.victimPlayerId)?.teamId === review.teamId ? 'ours' : rawRows.get(event.victimPlayerId)?.teamId ? 'theirs' : null })) });
+    // These derived fields are null whenever replayOpeningEngine rejects this round's
+    // order, identities, life state, or foreign events. Global coverage cannot bypass it.
+    const engineValidated = Array.isArray(round.derived?.multikills)
+      && Array.isArray(round.derived?.tradedDeathPlayerIds)
+      && typeof round.derived?.tradeOpportunities === 'number'
+      && typeof round.derived?.successfulTrades === 'number';
+    const advantageEvidence = deriveRoundAdvantage({ source: 'replay', complete: eliminationsComplete && engineValidated && identitiesComplete && ordered, winner: round.winnerTeamId ? (round.winnerTeamId === review.teamId ? 'ours' : 'theirs') : 'unknown', events: eliminationEvents.map((event: any, index: number) => ({ sequence: index + 1, victimTeam: rawRows.get(event.victimPlayerId)?.teamId === review.teamId ? 'ours' : rawRows.get(event.victimPlayerId)?.teamId ? 'theirs' : null })) });
     const replayRound = { side: replaySide, result: round.winnerTeamId ? (round.winnerTeamId === review.teamId ? 'W' : 'L') : null, winBy: round.endReason || null,
       firstKillBy: opening.status === 'resolved' ? displayNames.get(opening.firstKillPlayerId) || opening.firstKillPlayerId || null : null,
       firstDeathBy: opening.status === 'resolved' ? displayNames.get(opening.firstDeathPlayerId) || opening.firstDeathPlayerId || null : null };

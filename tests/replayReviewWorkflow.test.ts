@@ -54,6 +54,39 @@ beforeEach(async () => {
 afterEach(async () => { if (server) { server.closeAllConnections(); await new Promise<void>((resolve, reject) => server!.close(error => error ? reject(error) : resolve())); server = undefined; } vi.unstubAllEnvs(); vi.resetModules(); if (tempDir) await fs.rm(tempDir, { recursive: true, force: true }); });
 
 describe('coach replay review workflow', () => {
+  it.each([
+    ['tied unresolved ordering', [{ kind: 'player-elimination', timestampMs: 1_000, killerPlayerId: 'raw-a', victimPlayerId: 'raw-x' }, { kind: 'player-elimination', timestampMs: 1_000, killerPlayerId: 'raw-b', victimPlayerId: 'raw-y' }]],
+    ['repeated impossible death', [{ kind: 'player-elimination', timestampMs: 1_000, killerPlayerId: 'raw-a', victimPlayerId: 'raw-x' }, { kind: 'player-elimination', timestampMs: 2_000, killerPlayerId: 'raw-b', victimPlayerId: 'raw-x' }]],
+    ['incomplete participant identity', [{ kind: 'player-elimination', timestampMs: 1_000, killerPlayerId: 'raw-a', victimPlayerId: 'missing-player' }]],
+  ])('does not accept complete advantage evidence from %s', async (_label, events) => {
+    const coach = await login(adminKey); const seeded = JSON.parse(await fs.readFile(dbPath, 'utf8'));
+    const round = seeded.replayIntake.parserJobs.job1.result.reviewDraft.evidence.rounds[0];
+    round.events = events; round.winnerTeamId = 'team-them';
+    round.derived = { tradeOpportunities: null, successfulTrades: null, tradedDeathPlayerIds: null, multikills: null, clutches: null };
+    await fs.writeFile(dbPath, JSON.stringify(seeded));
+    expect((await request(`/api/replay-intake/uploads/${sha256}/review`, coach, { expectedRevision: 0, requestId: `invalid-${_label}`, matchId: 'm1', teamId: 'team-us', mappings })).status).toBe(200);
+    expect((await request(`/api/replay-intake/uploads/${sha256}/accept`, coach, { expectedRevision: 1, requestId: `accept-${_label}`, confirmed: true })).status).toBe(200);
+    const stored = JSON.parse(await fs.readFile(dbPath, 'utf8')); const advantage = stored.rounds.find((item: any) => item.matchId === 'm1' && item.roundNo === 1).advantageEvidence;
+    expect(advantage).toMatchObject({ status: 'partial', states: [] });
+  });
+
+  it('accepts a replay-engine-validated lost 5v3 advantage', async () => {
+    const coach = await login(adminKey); const seeded = JSON.parse(await fs.readFile(dbPath, 'utf8'));
+    const round = seeded.replayIntake.parserJobs.job1.result.reviewDraft.evidence.rounds[0];
+    round.events = [
+      { kind: 'player-elimination', timestampMs: 1_000, killerPlayerId: 'raw-a', victimPlayerId: 'raw-x' },
+      { kind: 'player-elimination', timestampMs: 2_000, killerPlayerId: 'raw-b', victimPlayerId: 'raw-y' },
+      { kind: 'player-elimination', timestampMs: 3_000, killerPlayerId: 'raw-x', victimPlayerId: 'raw-a' },
+      { kind: 'player-elimination', timestampMs: 4_000, killerPlayerId: 'raw-y', victimPlayerId: 'raw-b' },
+    ];
+    round.winnerTeamId = 'team-them'; round.derived = { tradeOpportunities: 2, successfulTrades: 0, tradedDeathPlayerIds: [], multikills: [], clutches: [] };
+    await fs.writeFile(dbPath, JSON.stringify(seeded));
+    expect((await request(`/api/replay-intake/uploads/${sha256}/review`, coach, { expectedRevision: 0, requestId: 'valid-5v3', matchId: 'm1', teamId: 'team-us', mappings })).status).toBe(200);
+    expect((await request(`/api/replay-intake/uploads/${sha256}/accept`, coach, { expectedRevision: 1, requestId: 'accept-valid-5v3', confirmed: true })).status).toBe(200);
+    const stored = JSON.parse(await fs.readFile(dbPath, 'utf8')); const advantage = stored.rounds.find((item: any) => item.matchId === 'm1' && item.roundNo === 1).advantageEvidence;
+    expect(advantage).toMatchObject({ status: 'complete', roundOutcome: 'lost', states: expect.arrayContaining([expect.objectContaining({ label: '5v3', differential: 2, outcome: 'lost' })]) });
+  });
+
   it('keeps the existing score and uncertainty when accepted replay score is incomplete', async () => {
     const coach = await login(adminKey); const seeded = JSON.parse(await fs.readFile(dbPath, 'utf8'));
     seeded.matches[0].ourScore = 8; seeded.matches[0].theirScore = 16;
