@@ -347,6 +347,11 @@ async function sampleRegions(file, specs, durationSeconds, progress, signal, ran
  * cut out what lies between them: the two scores, binarized dark-on-light so the red digit
  * survives as well as the teal one. Returns null when the line does not split that way.
  */
+function medianGray(pixels, width, height) {
+  if (!pixels || pixels.length < width * height) return 255; const histogram = new Uint32Array(256); for (let index = 0; index < width * height; index += 1) histogram[pixels[index]] += 1;
+  let seen = 0; for (let value = 0; value < 256; value += 1) { seen += histogram[value]; if (seen >= width * height / 2) return value; } return 255;
+}
+
 function bannerDigitCrop(pixels, width, height) {
   if (!pixels || pixels.length < width * height) return null;
   const histogram = new Uint32Array(256); let max = 0; for (let index = 0; index < width * height; index += 1) { histogram[pixels[index]] += 1; if (pixels[index] > max) max = pixels[index]; }
@@ -391,6 +396,42 @@ function splitDigitCrop(crop) {
   return [cut(left[0].start, left.at(-1).end), cut(right[0].start, right.at(-1).end)];
 }
 
+// Where the two scores sit on the custom-game end screen, as fractions of the full frame (measured on
+// a 1280x720 coach VOD; the layout scales with the screen). The banner crop spans x 0.15-0.85, y 0.42-0.55.
+const KILL_FEED_BOX = { x0: .74, x1: .99, y0: .085, y1: .30 };
+const killFeedCrop = (box = KILL_FEED_BOX) => `crop=iw*${+(box.x1 - box.x0).toFixed(3)}:ih*${+(box.y1 - box.y0).toFixed(3)}:iw*${box.x0}:ih*${box.y0}`;
+const BANNER_CROP = { x0: .15, x1: .85, y0: .42, y1: .55 };
+const SCORE_BOXES = [{ x0: .255, x1: .295, y0: .445, y1: .525 }, { x0: .690, x1: .735, y0: .445, y1: .525 }];
+
+// One score cut from its fixed box: lit pixels (gray > 110; the overlay is ~25) as ink, dark on
+// white, trimmed, padded and scaled up 3x (its height). Each glyph's width/height goes with it for the 7/1 check.
+function scoreBoxCrop(pixels, width, height, box, scale = 3, light = 110) {
+  if (!pixels || pixels.length < width * height) return null;
+  const px = value => Math.round((value - BANNER_CROP.x0) / (BANNER_CROP.x1 - BANNER_CROP.x0) * width), py = value => Math.round((value - BANNER_CROP.y0) / (BANNER_CROP.y1 - BANNER_CROP.y0) * height);
+  const left = Math.max(0, px(box.x0)), right = Math.min(width - 1, px(box.x1)), top = Math.max(0, py(box.y0)), bottom = Math.min(height - 1, py(box.y1));
+  const lit = (x, y) => pixels[y * width + x] > light; const glyphs = [];
+  for (let x = left; x <= right; x += 1) {
+    let first = -1, last = -1, count = 0; for (let y = top; y <= bottom; y += 1) if (lit(x, y)) { count += 1; if (first < 0) first = y; last = y; }
+    if (count < 2) continue; const run = glyphs.at(-1);
+    if (run && x - run.end <= 2) { run.end = x; run.top = Math.min(run.top, first); run.bottom = Math.max(run.bottom, last); } else glyphs.push({ start: x, end: x, top: first, bottom: last });
+  }
+  // Digits fill ~70% of the box height; the words (~25%) and specks do not count.
+  const kept = glyphs.filter(run => run.bottom - run.top + 1 >= (bottom - top + 1) * .5); if (!kept.length) return null;
+  // The crop is squeezed (980x182 from a 16:9 band 0.70 wide, 0.13 tall): widths are stretched back
+  // so glyph shapes, and the 7/1 width check, are as on screen.
+  const aspect = ((BANNER_CROP.x1 - BANNER_CROP.x0) * 16) / ((BANNER_CROP.y1 - BANNER_CROP.y0) * 9) / (width / height); const sx = Math.max(1, Math.round(scale * aspect)), sy = scale;
+  const x0 = kept[0].start, x1 = kept.at(-1).end, y0 = Math.min(...kept.map(run => run.top)), y1 = Math.max(...kept.map(run => run.bottom));
+  const pad = 10, cropWidth = (x1 - x0 + 1 + pad * 2) * sx, cropHeight = (y1 - y0 + 1 + pad * 2) * sy; const out = Buffer.alloc(cropWidth * cropHeight, 255);
+  for (let y = y0; y <= y1; y += 1) for (let x = x0; x <= x1; x += 1) if (lit(x, y)) for (let dy = 0; dy < sy; dy += 1) { const row = ((y - y0 + pad) * sy + dy) * cropWidth; out.fill(0, row + (x - x0 + pad) * sx, row + (x - x0 + pad + 1) * sx); }
+  return { pixels: out, width: cropWidth, height: cropHeight, glyphs: kept.map(run => ({ width: Math.round((run.end - run.start + 1) * aspect), height: run.bottom - run.top + 1 })) };
+}
+
+// This font's lone 7 reads as "1" to Tesseract. A 1 is narrow (width/height ~0.28), a 7 is not (~0.44).
+function fixSevens(read, glyphs) {
+  const digits = String(read || '').replace(/\D/g, ''); if (!digits || !glyphs || digits.length !== glyphs.length) return digits || null;
+  return [...digits].map((digit, index) => digit === '1' && glyphs[index].width / glyphs[index].height > .35 ? '7' : digit).join('');
+}
+
 const BANNER_LINE = /\ballies\b[^\d]{0,24}?(\d{1,2})[^\d]{1,24}?(\d{1,2})[^\d]{0,24}?\benemies\b/i;
 
 /**
@@ -407,8 +448,9 @@ async function readBannerDigits(frames, snapshots, worker, log = line => void li
     const snapshot = textAt.get(frame.timestampMs); if (snapshot) counts.withText += 1;
     const word = /allies|enemies/i.test(snapshot?.text || ''); if (word) counts.anchorWord += 1;
     const crop = bannerDigitCrop(frame.pixels, frame.width, frame.height);
-    const dark = !!crop && crop.background < 70; if (dark) counts.darkSplit += 1;
-    if (crop && (word || dark)) chosen.push({ frame, crop, snapshot, word });
+    // The end screen is a dark full-screen overlay; the words may have run into the scores, so the split is not required.
+    const dark = (crop ? crop.background : medianGray(frame.pixels, frame.width, frame.height)) < 70; if (dark) counts.darkSplit += 1;
+    if (word || dark) chosen.push({ frame, crop, snapshot, word });
   }
   const text = async image => String((await worker.recognize(pgm(image.pixels, image.width, image.height)))?.data?.text || '');
   try {
@@ -426,18 +468,22 @@ async function readBannerDigits(frames, snapshots, worker, log = line => void li
       await worker.setParameters({ tessedit_char_whitelist: '0123456789', tessedit_pageseg_mode: '7' });
       const reads = [];
       for (const item of tried) {
-        let left = null, right = null; const halves = splitDigitCrop(item.crop); const raw = item.raw || {};
-        if (halves) { raw.left = await text(halves[0]); raw.right = await text(halves[1]); left = raw.left.match(/\d{1,2}/)?.[0]; right = raw.right.match(/\d{1,2}/)?.[0]; }
-        if (!left || !right) { raw.middle = await text(item.crop); const match = raw.middle.match(/(\d{1,2})\D+(\d{1,2})/); if (match) [left, right] = [match[1], match[2]]; }
+        let left = null, right = null; const halves = item.crop ? splitDigitCrop(item.crop) : null; const raw = item.raw || {};
+        const boxes = SCORE_BOXES.map(box => scoreBoxCrop(item.frame.pixels, item.frame.width, item.frame.height, box));
+        if (boxes.every(Boolean)) { raw.boxLeft = await text(boxes[0]); raw.boxRight = await text(boxes[1]); left = fixSevens(raw.boxLeft, boxes[0].glyphs)?.slice(0, 2); right = fixSevens(raw.boxRight, boxes[1].glyphs)?.slice(0, 2); }
+        if ((!left || !right) && halves) { raw.left = await text(halves[0]); raw.right = await text(halves[1]); left = raw.left.match(/\d{1,2}/)?.[0]; right = raw.right.match(/\d{1,2}/)?.[0]; }
+        if ((!left || !right) && item.crop) { raw.middle = await text(item.crop); const match = raw.middle.match(/(\d{1,2})\D+(\d{1,2})/); if (match) [left, right] = [match[1], match[2]]; }
         // Every attempt's raw OCR text, so a miss shows which crop read what.
-        log(`end-banner attempt ${Math.round(item.frame.timestampMs / 1000)}s: crop ${item.crop.width}x${item.crop.height}, split ${halves ? halves.map(half => half.width).join('+') : 'none'}, ${['line7', 'line6', 'left', 'right', 'middle'].filter(key => key in raw).map(key => `${key} ${JSON.stringify(String(raw[key]).trim().slice(0, 60))}`).join(', ')}`);
+        log(`end-banner attempt ${Math.round(item.frame.timestampMs / 1000)}s: crop ${item.crop ? `${item.crop.width}x${item.crop.height}` : 'none'}, split ${halves ? halves.map(half => half.width).join('+') : 'none'}, boxes ${boxes.map(box => box ? box.glyphs.map(glyph => `${glyph.width}x${glyph.height}`).join('/') : 'empty').join(' + ')}, ${['line7', 'line6', 'boxLeft', 'boxRight', 'left', 'right', 'middle'].filter(key => key in raw).map(key => `${key} ${JSON.stringify(String(raw[key]).trim().slice(0, 60))}`).join(', ')}`);
         if ((!left || !right) && item.line) { const match = item.line.match(BANNER_LINE); [left, right] = [match[1], match[2]]; }
         if (left && right) reads.push({ ...item, banner: `ALLIES ${Number(left)} - ${Number(right)} ENEMIES` });
       }
       // A frame that names a side stands alone. A dark split without a word could be any dark
       // scene, so it counts only when another frame read the same score: the end screen stays up.
+      // A dark split also needs the words seen on some frame of this game: a lobby or loading screen is dark too.
+      const named = tried.some(item => item.word);
       for (const item of reads) {
-        if (!item.word && reads.filter(other => other.banner === item.banner).length < 2) continue;
+        if (!item.word && (!named || reads.filter(other => other.banner === item.banner).length < 2)) continue;
         counts.read += 1;
         if (item.snapshot) item.snapshot.text = item.banner; else out.push({ timestampMs: item.frame.timestampMs, text: item.banner, confidence: null });
       }
@@ -546,7 +592,9 @@ async function analyzeVodTimeline(input, options = {}) {
     else file = await downloadYoutube(input.vodUrl, jobDirectory, progress, signal);
     const probe = await probeVideo(file, signal); progress?.({ stage: 'probe', percent: 100, message: `${Math.ceil(probe.durationSeconds / 60)} minute VOD detected · ${probe.width}×${probe.height}` });
     const specs = [
-      { key: 'killFeedSnapshots', label: 'kill feed', fps: 2, crop: 'crop=iw*0.42:ih*0.38:iw*0.58:0', width: 720, height: 366, threshold: .15, burstFrames: 3, maxCandidates: 3600, rows: true },
+      // Only the feed's own box (x 0.74-0.99, y 0.085-0.30; rows ~0.033 of the height apart), scaled ~3x at
+      // 720p: in the old wide crop a 720p row's names were ~13 px tall, too small for Tesseract to read.
+      { key: 'killFeedSnapshots', label: 'kill feed', fps: 2, crop: killFeedCrop(), width: 960, height: 464, threshold: .15, burstFrames: 3, maxCandidates: 3600, rows: true },
       { key: 'objectiveSnapshots', label: 'round and objective notices', fps: 1, crop: 'crop=iw*0.62:ih*0.34:iw*0.19:ih*0.02', width: 720, height: 222, threshold: .15, burstFrames: 2, maxCandidates: 1800 },
       { key: 'roundStateSnapshots', label: 'round state and score', fps: 1, crop: 'crop=iw*0.46:ih*0.20:iw*0.27:0', width: 700, height: 240, threshold: .10, burstFrames: 2, maxCandidates: 1800 },
       { key: 'ultimateSnapshots', label: 'ultimate state', fps: 1, crop: 'crop=iw*0.28:ih*0.25:iw*0.36:ih*0.72', width: 520, height: 260, threshold: .12, burstFrames: 2, maxCandidates: 1800 },
@@ -621,4 +669,4 @@ async function readVodFrame(directory, frame) {
   return { mediaType: 'image/png', base64: (await fsp.readFile(path.join(path.resolve(directory), name))).toString('base64') };
 }
 
-module.exports = { rowText, stretchedBanner, splitDigitCrop, bannerDigitCrop, readBannerDigits, sweepOrphanedVodDirectories, readOwnedVodFrame, readVodFrame, normalizeYoutubeUrl, youtubeVideoId, probeVideo, analyzeVodTimeline, normalizeTimelinePlayers, discoverVodGames, releaseVodSource, createReviewClips, changedFrames, changedFramesTogether, sampleRegions, recognizeFrames, createOcrPool, frameDifference, visualSignature, ensureDiskSpace, scoreboardGeometryScore, agentSelectGeometryScore, chooseGameBoundaries, inferPovPlayer };
+module.exports = { KILL_FEED_BOX, killFeedCrop, scoreBoxCrop, fixSevens, SCORE_BOXES, rowText, stretchedBanner, splitDigitCrop, bannerDigitCrop, readBannerDigits, sweepOrphanedVodDirectories, readOwnedVodFrame, readVodFrame, normalizeYoutubeUrl, youtubeVideoId, probeVideo, analyzeVodTimeline, normalizeTimelinePlayers, discoverVodGames, releaseVodSource, createReviewClips, changedFrames, changedFramesTogether, sampleRegions, recognizeFrames, createOcrPool, frameDifference, visualSignature, ensureDiskSpace, scoreboardGeometryScore, agentSelectGeometryScore, chooseGameBoundaries, inferPovPlayer };

@@ -280,6 +280,8 @@ export interface Match {
   vodSubmissionIds?: string[];
   /** Set when the final score was read from a VOD's in-game HUD (left side counted as ours) instead of a scoreboard or the coach. */
   scoreEvidence?: { source: 'vod-hud'; basis: 'final-read' | 'last-round' | 'end-banner'; reads: number; orientation: 'left-is-ours'; derivedAt: string };
+  /** The last HUD score of a VOD game that never showed a final score. Not a result. */
+  partialScore?: { ours: number; theirs: number; source: 'vod-hud'; basis: 'last-hud'; reads: number; orientation: 'left-is-ours'; derivedAt: string };
   /** Server-owned same-game duplicate state. Quarantined matches are excluded from analytics until a coach decides. */
   duplicateReview?: MatchDuplicateReview;
 }
@@ -855,7 +857,7 @@ export interface VodSubmission {
   rosterMatchCount: number;
   players: VodSubmissionPlayer[];
   timelineEvidence?: VodTimelineEvidence | null;
-  integration: { createdMatch: boolean; createdStats: number; filledFields: number; preservedFields: number; addedPlayers?: string[]; scoreFromHud?: { ourScore: number; theirScore: number; basis: 'final-read' | 'last-round' | 'end-banner' } };
+  integration: { createdMatch: boolean; createdStats: number; filledFields: number; preservedFields: number; addedPlayers?: string[]; scoreFromHud?: { ourScore: number; theirScore: number; basis: 'final-read' | 'last-round' | 'end-banner' }; partialScoreFromHud?: { ourScore: number; theirScore: number } };
   createdAt: string;
   integratedAt: string;
 }

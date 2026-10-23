@@ -100,10 +100,10 @@ const finalScore=([left,right])=>{ const high=Math.max(left,right), low=Math.min
  * (or leads by two in overtime), provided that read is from the final
  * round. Anything else stays unknown.
  */
-function deriveFinalScore(evidence) {
+function deriveFinalScore(evidence, options={}) {
   // The end screen names the sides: Allies first, so it beats any HUD read.
   const banners=(evidence?.observations||[]).filter(item=>item?.kind==='end-banner'&&Array.isArray(item.score)&&item.score.length===2&&item.score.every(Number.isInteger)).sort((a,b)=>a.timestampMs-b.timestampMs);
-  if (banners.length) { const [left,right]=banners.at(-1).score; return { left, right, basis:'end-banner', reads:banners.length }; }
+  if (banners.length&&!options.partial) { const [left,right]=banners.at(-1).score; return { left, right, basis:'end-banner', reads:banners.length }; }
   const observed=(evidence?.observations||[]).filter(item=>item?.kind==='round-state'&&item.scoreSource&&Array.isArray(item.score)&&item.score.length===2&&item.score.every(Number.isInteger)&&plausibleScore(item.score)).sort((a,b)=>a.timestampMs-b.timestampMs).slice(-2000), reads=observed.map(item=>item.score);
   if (!reads.length) return null;
   const length=reads.map(()=>1), previous=reads.map(()=>-1);
@@ -111,6 +111,7 @@ function deriveFinalScore(evidence) {
   let end=0; for (let index=1; index<reads.length; index+=1) if (length[index]>=length[end]) end=index;
   const chain=length[end]; if (chain<3) return null;
   const [left,right]=reads[end];
+  if (options.partial) return { left, right, basis:'last-hud', reads:chain };
   if (finalScore([left,right])) return { left, right, basis:'final-read', reads:chain };
   // The rule needs the final round itself: the last read must sit within one round of the end of what was seen.
   const lastSeen=Math.max(...(evidence.observations||[]).map(item=>Number(item?.timestampMs)||0));
@@ -121,4 +122,8 @@ function deriveFinalScore(evidence) {
   return next ? { left:next[0], right:next[1], basis:'last-round', reads:chain } : null;
 }
 
-module.exports={NO_IDENTITIES_LIMITATION,normalizeName,nameAppears,signatureDistance,applyVisualTemplates,parseKillFeedSnapshot,parseObjectiveSnapshot,parseRoundStateSnapshot,parseEndBannerSnapshot,parseUltimateSnapshots,parseScoreboardSnapshots,trackKillFeedRows,buildObserverSegments,observerAt,dedupeEvents,groupRounds,buildRoundTimeline,reconcileEvidence,aggregateVideoEvidence,fuseVodEvidence,deriveFinalScore};
+// A game with no final score (no end screen, the VOD cut off or the game abandoned) still showed a
+// HUD score: the last read of the rising HUD chain, kept as partial and never as a result.
+function deriveLastHudScore(evidence) { return deriveFinalScore(evidence,{partial:true}); }
+
+module.exports={deriveLastHudScore,NO_IDENTITIES_LIMITATION,normalizeName,nameAppears,signatureDistance,applyVisualTemplates,parseKillFeedSnapshot,parseObjectiveSnapshot,parseRoundStateSnapshot,parseEndBannerSnapshot,parseUltimateSnapshots,parseScoreboardSnapshots,trackKillFeedRows,buildObserverSegments,observerAt,dedupeEvents,groupRounds,buildRoundTimeline,reconcileEvidence,aggregateVideoEvidence,fuseVodEvidence,deriveFinalScore};

@@ -522,6 +522,9 @@ export function registerDataRoutes(app: Express, options: { websiteSummaryOnly?:
       // from a form that shows it (scoreConfirmed) or changes it. Server-owned too.
       const confirmsScore = match.scoreConfirmed === true; delete match.scoreConfirmed; delete match.scoreEvidence;
       if (existingMatch?.scoreEvidence && !confirmsScore && match.ourScore === existingMatch.ourScore && match.theirScore === existingMatch.theirScore) match.scoreEvidence = existingMatch.scoreEvidence;
+      // The partial HUD score is server-owned and lasts only while the match has no score.
+      delete match.partialScore;
+      if (existingMatch?.partialScore && (match.ourScore === null || match.ourScore === undefined) && (match.theirScore === null || match.theirScore === undefined)) match.partialScore = existingMatch.partialScore;
       if (!match.id) match.id = uid();
 
       let savedStats: any[] | undefined;

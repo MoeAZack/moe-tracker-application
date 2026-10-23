@@ -5,7 +5,7 @@ import { findMatchCandidates, normalizedMatchName, similarMatchName } from './ma
 import { captureRosterFromIdentity } from './identityResolver';
 import { refreshDuplicateQuarantine } from './matchIntegrity';
 import { activeCorePlayerIds, ensureObservedRosterPlayer, setObservedRosterStatus, setTryoutsMode } from './roster';
-import { applyVodHudScore } from './vodScore';
+import { applyVodHudScore, applyVodPartialScore } from './vodScore';
 
 const { fuseVodEvidence } = evidenceModule as { fuseVodEvidence: (items: VodTimelineEvidence[]) => VodTimelineEvidence | null };
 
@@ -176,10 +176,11 @@ export function integrateVodSubmission(db: any, input: SubmissionInput, actorNam
   if (duplicate) Object.assign(duplicate, { timelineEvidence: submission.timelineEvidence, integration: submission.integration, integratedAt: now });
   else db.vodSubmissions.unshift(submission);
   const fused = fuseVodEvidence((db.vodSubmissions as VodSubmission[]).filter(item => item.linkedMatchId === match!.id && item.timelineEvidence).map(item => item.timelineEvidence!));
-  let derivedScore: ReturnType<typeof applyVodHudScore> = null;
+  let derivedScore: ReturnType<typeof applyVodHudScore> = null; let partialScore: ReturnType<typeof applyVodPartialScore> = null;
   if (fused) {
     (match as any).vodTimelineEvidence = fused;
     derivedScore = applyVodHudScore(match, fused, now);
+    partialScore = derivedScore ? null : applyVodPartialScore(match, fused, now);
     if (derivedScore) Object.assign(duplicate || submission, { ourScore: match.ourScore, theirScore: match.theirScore });
     db.rounds ||= [];
     const submissionIds = (db.vodSubmissions as VodSubmission[]).filter(item => item.linkedMatchId === match!.id && item.timelineEvidence).map(item => item.id);
@@ -198,6 +199,7 @@ export function integrateVodSubmission(db: any, input: SubmissionInput, actorNam
     }
   }
   if (derivedScore) (duplicate || submission).integration = { ...(duplicate || submission).integration, scoreFromHud: { ourScore: derivedScore.left, theirScore: derivedScore.right, basis: derivedScore.basis } };
+  if (partialScore) (duplicate || submission).integration = { ...(duplicate || submission).integration, partialScoreFromHud: { ourScore: partialScore.left, theirScore: partialScore.right } };
   refreshDuplicateQuarantine(db, now);
   return duplicate || submission;
 }

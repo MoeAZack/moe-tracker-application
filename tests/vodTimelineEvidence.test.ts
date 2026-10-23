@@ -7,7 +7,7 @@ import analyzerModule from '../desktop/vod-timeline-analyzer.cjs';
 import { boundaryTimelinePlayers } from '../src/components/VodSubmission';
 
 const { aggregateVideoEvidence, NO_IDENTITIES_LIMITATION, parseKillFeedSnapshot, parseUltimateSnapshots, parseRoundStateSnapshot, buildRoundTimeline, buildObserverSegments, applyVisualTemplates, fuseVodEvidence } = evidenceModule;
-const { rowText, stretchedBanner, splitDigitCrop, bannerDigitCrop, readBannerDigits, sweepOrphanedVodDirectories, normalizeYoutubeUrl, youtubeVideoId, frameDifference, visualSignature, scoreboardGeometryScore, agentSelectGeometryScore, chooseGameBoundaries, inferPovPlayer, analyzeVodTimeline, releaseVodSource, discoverVodGames, readVodFrame, readOwnedVodFrame, normalizeTimelinePlayers } = analyzerModule;
+const { KILL_FEED_BOX, killFeedCrop, scoreBoxCrop, fixSevens, SCORE_BOXES, rowText, stretchedBanner, splitDigitCrop, bannerDigitCrop, readBannerDigits, sweepOrphanedVodDirectories, normalizeYoutubeUrl, youtubeVideoId, frameDifference, visualSignature, scoreboardGeometryScore, agentSelectGeometryScore, chooseGameBoundaries, inferPovPlayer, analyzeVodTimeline, releaseVodSource, discoverVodGames, readVodFrame, readOwnedVodFrame, normalizeTimelinePlayers } = analyzerModule;
 const players = [
   { name: 'Alpha', team: 'ours' }, { name: 'Bravo', team: 'ours' }, { name: 'Charlie', team: 'ours' }, { name: 'Delta', team: 'ours' }, { name: 'Echo', team: 'ours' },
   { name: 'EnemyOne', team: 'theirs' }, { name: 'EnemyTwo', team: 'theirs' }, { name: 'EnemyThree', team: 'theirs' }, { name: 'EnemyFour', team: 'theirs' }, { name: 'EnemyFive', team: 'theirs' },
@@ -203,12 +203,26 @@ describe('VOD timeline evidence', () => {
     expect(bannerDigitCrop(Buffer.alloc(400 * 60, 30), 400, 60)).toBeNull();
   });
 
-  // A fake worker that answers by what it is shown: the stretched full line, one score's crop, or the whole middle.
-  const fakeWorker = (answers: { line: string; left: string; right: string; middle: string }) => {
+  // The end screen as the analyzer crops it (x 0.15-0.85, y 0.42-0.55 of the frame, 980x182), with
+  // glyphs where the trial VOD showed them at 7-17: dim teal/red words, lit digits, a dark overlay.
+  const endScreenFrame = () => {
+    const width = 980, height = 182, pixels = Buffer.alloc(width * height, 25);
+    const x = (value: number) => Math.round((value - .15) / .70 * width), y = (value: number) => Math.round((value - .42) / .13 * height);
+    const block = (x0: number, x1: number, y0: number, y1: number, value: number) => { for (let row = y(y0); row <= y(y1); row += 1) for (let col = x(x0); col <= x(x1); col += 1) pixels[row * width + col] = value; };
+    block(.195, .255, .47, .49, 140); block(.740, .812, .47, .49, 120);
+    block(.267, .281, .457, .514, 210);
+    block(.702, .711, .458, .514, 190); block(.714, .725, .458, .514, 190);
+    return { pixels, width, height };
+  };
+
+  // A fake worker that answers by what it is shown: the stretched full line, a score box, or anything else.
+  const fakeWorker = (answers: { line: string; boxLeft: string; boxRight: string; other?: string }) => {
+    const frame = endScreenFrame(); const [left, right] = SCORE_BOXES.map((box: any) => scoreBoxCrop(frame.pixels, frame.width, frame.height, box));
     const calls: any[] = [];
     const worker = { calls, setParameters: vi.fn(async (params: any) => { calls.push(params); }), recognize: vi.fn(async (image: Buffer) => {
-      const width = Number(String(image.subarray(0, 20)).split(/\s+/)[1]);
-      return { data: { text: width === 400 ? answers.line : width === 36 ? answers.left : width === 51 ? answers.right : answers.middle } };
+      const [, w, h] = String(image.subarray(0, 20)).split(/\s+/).map(Number);
+      const text = w === 980 ? answers.line : w === left.width && h === left.height ? answers.boxLeft : w === right.width && h === right.height ? answers.boxRight : answers.other ?? '';
+      return { data: { text } };
     }) };
     return worker;
   };
@@ -225,25 +239,49 @@ describe('VOD timeline evidence', () => {
     expect(splitDigitCrop(dashed).map((half: any) => half.width)).toEqual([7 + 20, 15 + 20]);
   });
 
-  it('reads the end-screen words from the stretched line and each score from its own crop, then restores the worker', async () => {
-    const frame = bannerFrame(); const worker = fakeWorker({ line: 'ALLIES | ENEMIES', left: '7', right: '17', middle: '717' });
-    const snapshots = [{ timestampMs: 700_000, text: 'ALLIES | 1' }, { timestampMs: 900_000, text: 'spike planted' }]; const lines: string[] = [];
-    const out = await readBannerDigits([{ ...frame, timestampMs: 1 }, { ...frame, timestampMs: 700_000 }, { ...frame, timestampMs: 900_000 }], snapshots, worker, (line: string) => lines.push(line));
-    expect(out.map((item: any) => [item.timestampMs, item.text])).toEqual([[1, 'ALLIES 7 - 17 ENEMIES'], [700_000, 'ALLIES 7 - 17 ENEMIES'], [900_000, 'ALLIES 7 - 17 ENEMIES']]);
+  it('cuts each score from its fixed end-screen box, lit pixels only, scaled up 3x, without the words', () => {
+    const frame = endScreenFrame(); const [left, right] = SCORE_BOXES.map((box: any) => scoreBoxCrop(frame.pixels, frame.width, frame.height, box));
+    expect(left.glyphs).toHaveLength(1); expect(left.glyphs[0].width / left.glyphs[0].height).toBeGreaterThan(.35);
+    expect(left.height % 3).toBe(0); expect(left.pixels[0]).toBe(255); expect(left.pixels.includes(0)).toBe(true);
+    expect(right.glyphs).toHaveLength(2); expect(right.glyphs[0].width / right.glyphs[0].height).toBeLessThan(.35);
+    // An empty box (no score there) gives nothing.
+    expect(scoreBoxCrop(Buffer.alloc(980 * 182, 25), 980, 182, SCORE_BOXES[0])).toBeNull();
+  });
+
+  it('reads a wide lone glyph that Tesseract calls "1" as a 7, and leaves a narrow 1 alone', () => {
+    expect(fixSevens('1', [{ width: 18, height: 41 }])).toBe('7');
+    expect(fixSevens('11', [{ width: 11, height: 40 }, { width: 17, height: 40 }])).toBe('17');
+    expect(fixSevens('1', [{ width: 11, height: 40 }])).toBe('1');
+    expect(fixSevens('17\n', [{ width: 28, height: 40 }])).toBe('17');
+    expect(fixSevens('', [])).toBeNull();
+  });
+
+  it('reads the end-screen words from the stretched line and each score from its own box, then restores the worker', async () => {
+    const frame = endScreenFrame(); const worker = fakeWorker({ line: 'ALLIES | ENEMIES', boxLeft: '1', boxRight: '17', other: '717' });
+    const snapshots = [{ timestampMs: 2_850_000, text: 'ALLIES | 1' }, { timestampMs: 2_900_000, text: 'spike planted' }]; const lines: string[] = [];
+    const out = await readBannerDigits([{ ...frame, timestampMs: 2_800_000 }, { ...frame, timestampMs: 2_850_000 }, { ...frame, timestampMs: 2_900_000 }], snapshots, worker, (line: string) => lines.push(line));
+    expect(out.map((item: any) => [item.timestampMs, item.text])).toEqual([[2_800_000, 'ALLIES 7 - 17 ENEMIES'], [2_850_000, 'ALLIES 7 - 17 ENEMIES'], [2_900_000, 'ALLIES 7 - 17 ENEMIES']]);
     expect(lines.at(-1)).toBe('end-banner: frames 3, with text 2, anchor word 1, dark split 3, tried 3, anchor read 3, digits read 3');
     // One line per attempt with each crop's raw OCR text.
-    expect(lines.slice(0, -1)).toEqual([0, 700, 900].map(second => `end-banner attempt ${second}s: crop 199x50, split 36+51, line7 "ALLIES | ENEMIES", line6 "ALLIES | ENEMIES", left "7", right "17"`));
+    expect(lines[0]).toMatch(/^end-banner attempt 2800s: crop (\d+x\d+|none), split .*, boxes \d+x\d+ \+ \d+x\d+\/\d+x\d+, line7 "ALLIES \| ENEMIES", line6 "ALLIES \| ENEMIES", boxLeft "1", boxRight "17"$/);
     expect(worker.calls).toEqual([{ tessedit_char_whitelist: '', tessedit_pageseg_mode: '7' }, { tessedit_char_whitelist: '', tessedit_pageseg_mode: '6' }, { tessedit_char_whitelist: '0123456789', tessedit_pageseg_mode: '7' }, { tessedit_char_whitelist: '', tessedit_pageseg_mode: '11' }]);
   });
 
-  it('takes the scores from the stretched line when the digit crops read nothing', async () => {
-    const frame = bannerFrame(); const worker = fakeWorker({ line: 'ALLIES 13 - 11 ENEMIES', left: '', right: '', middle: '' });
+  it('takes the scores from the stretched line when no score crop reads', async () => {
+    const frame = endScreenFrame(); const worker = fakeWorker({ line: 'ALLIES 13 - 11 ENEMIES', boxLeft: '', boxRight: '' });
     expect((await readBannerDigits([{ ...frame, timestampMs: 5 }], [], worker)).map((item: any) => item.text)).toEqual(['ALLIES 13 - 11 ENEMIES']);
   });
 
-  it('does not take a lone dark split that names no side and nothing confirms for the end screen', async () => {
-    const frame = bannerFrame(); const worker = fakeWorker({ line: '', left: '3', right: '5', middle: '3 5' });
-    expect((await readBannerDigits([{ ...frame, timestampMs: 1 }], [], worker)).length).toBe(0);
+  it('never takes dark frames for the end screen when no frame of the game names a side (lobby, loading)', async () => {
+    const frame = endScreenFrame(); const worker = fakeWorker({ line: '', boxLeft: '3', boxRight: '5', other: '3 5' });
+    expect((await readBannerDigits([{ ...frame, timestampMs: 1 }, { ...frame, timestampMs: 2 }], [], worker)).length).toBe(0);
+  });
+
+  it('crops the kill feed to its own box, which holds the coach-view rows measured at 720p', () => {
+    expect(killFeedCrop()).toBe('crop=iw*0.25:ih*0.215:iw*0.74:ih*0.085');
+    for (const row of [{ x0: .746, x1: .988, y0: .090, y1: .121 }, { x0: .762, x1: .990, y0: .088, y1: .121 }]) expect(row.x0 >= KILL_FEED_BOX.x0 && row.x1 <= KILL_FEED_BOX.x1 && row.y0 >= KILL_FEED_BOX.y0 && row.y1 <= KILL_FEED_BOX.y1).toBe(true);
+    // Six rows at the measured pitch fit.
+    expect(KILL_FEED_BOX.y0 + 6 * .033).toBeLessThanOrEqual(KILL_FEED_BOX.y1);
   });
 
   it('puts kill-feed words back into rows so killer and victim share a line', () => {
