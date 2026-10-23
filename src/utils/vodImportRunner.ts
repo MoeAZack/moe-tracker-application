@@ -336,7 +336,7 @@ async function runOneImport(input: VodBatchImportInput, deps: VodImportDeps): Pr
       const payload = await response.json(); if (!response.ok) throw new Error(payload.error || `Game ${index + 1} could not be integrated.`);
       const added: string[] = payload.submission.integration?.addedPlayers || []; added.forEach(name => addedPlayers.add(name));
       if (!selected.length) unnamedGames += 1;
-      imported.push({ map: map || 'Unknown map', matchId: payload.submission.linkedMatchId, score: hudScore(payload) || scoreLabel, status: `${payload.submission.linkMode === 'new-match' ? 'New match created' : 'Linked to existing match'}${added.length ? ` · ${added.length} new player${added.length === 1 ? '' : 's'} added` : ''}${selected.length ? '' : ' · players not named'}${hudScore(payload) ? ' · score read from the in-game HUD' : ''}` });
+      imported.push({ map: map || 'Unknown map', matchId: payload.submission.linkedMatchId, score: hudScore(payload) || scoreLabel, status: `${payload.submission.linkMode === 'new-match' ? 'New match created' : 'Linked to existing match'}${added.length ? ` · ${added.length} new player${added.length === 1 ? '' : 's'} added` : ''}${selected.length ? '' : ' · players not named'}${hudScore(payload) ? ' · score read from the in-game HUD (left side counted as yours; Edit if reversed)' : ''}` });
       setState({ batchResult: [...imported] });
     };
 
@@ -357,7 +357,7 @@ async function runOneImport(input: VodBatchImportInput, deps: VodImportDeps): Pr
       const payload = await response.json(); if (!response.ok) throw new Error(payload.error || `Game ${index + 1} could not be integrated.`);
       const unnamed = players.length === 0; if (unnamed) unnamedGames += 1;
       const score = linked && typeof linked.ourScore === 'number' ? `${linked.ourScore}–${linked.theirScore}` : hudScore(payload);
-      imported.push({ map: mapName, matchId: payload.submission.linkedMatchId, mapRead: boundary.mapRead, mapSource: boundary.mapSource ?? null, firedTokens: boundary.firedTokens, score: score || 'Score pending', status: `${payload.submission.linkMode === 'new-match' ? 'Timeline imported · scoreboard pending' : 'Linked and timeline imported'}${unnamed ? ' · players not named yet' : ''}${!linked && score ? ' · score read from the in-game HUD' : ''}` });
+      imported.push({ map: mapName, matchId: payload.submission.linkedMatchId, mapRead: boundary.mapRead, mapSource: boundary.mapSource ?? null, firedTokens: boundary.firedTokens, score: score || 'Score pending', status: `${payload.submission.linkMode === 'new-match' ? 'Timeline imported · scoreboard pending' : 'Linked and timeline imported'}${unnamed ? ' · players not named yet' : ''}${!linked && score ? ' · score read from the in-game HUD (left side counted as yours; Edit if reversed)' : ''}` });
       if (boundary.mapSource === 'learned') imported[imported.length - 1].status += ' · map remembered from your correction';
       setState({ batchResult: [...imported] });
     };

@@ -2,6 +2,7 @@ import { describe, expect, it } from 'vitest';
 import evidenceModule from '../desktop/vod-timeline-evidence.cjs';
 import { createSeed } from '../lib/seed';
 import { integrateVodSubmission } from '../lib/vodSubmissions';
+import { applyVodHudScore } from '../lib/vodScore';
 import { matchResult, matchScore, sideSplit } from '../src/utils/matchScore';
 
 const { parseRoundStateSnapshot, deriveFinalScore, aggregateVideoEvidence } = evidenceModule;
@@ -52,6 +53,13 @@ describe('reading the score on the in-game HUD', () => {
     expect(deriveFinalScore(evidence(reads))).toMatchObject({ left: 13, right: 9, reads: 3 });
   });
 
+  it('never uses reads without a HUD tag, even when they would make a valid score', () => {
+    // Older evidence stored timer reads as scores with no tag; they must never count.
+    const untagged = [[0, 0], [6, 4], [12, 7]].map((score, index) => ({ kind: 'round-state', timestampMs: (index + 1) * 100_000, score }));
+    expect(deriveFinalScore(evidence(untagged))).toBeNull();
+    expect(deriveFinalScore(evidence(untagged.map(item => ({ ...item, scoreSource: 'hud' }))))).toMatchObject({ left: 13, right: 7 });
+  });
+
   it('keeps the HUD reads in the evidence a game produces', () => {
     const result = aggregateVideoEvidence({ players: [], roundStateSnapshots: [{ timestampMs: 1000, text: '0  1:40  0' }, { timestampMs: 90_000, text: '12  1:12  9' }] });
     expect(result.observations.filter((item: any) => item.kind === 'round-state').map((item: any) => [item.score, item.scoreSource])).toEqual([[[0, 0], 'hud'], [[12, 9], 'hud']]);
@@ -71,6 +79,15 @@ describe('a VOD match takes its missing score from the HUD', () => {
     expect(saved).toMatchObject({ ourScore: 13, theirScore: 7 });
   });
 
+  it('does not derive the score again once the coach cleared it', () => {
+    const state = db(); integrateVodSubmission(state, submission(), 'Coach', ids(), '2026-10-23T00:00:00Z');
+    const match = state.matches[0]; match.ourScore = null; match.theirScore = null;
+    expect(applyVodHudScore(match, match.vodTimelineEvidence)).toBeNull();
+    expect(match).toMatchObject({ ourScore: null, theirScore: null });
+    integrateVodSubmission(state, submission({ imageSha256: 'b'.repeat(64), matchId: match.id }), 'Coach', ids(), '2026-10-23T00:05:00Z');
+    expect(state.matches[0]).toMatchObject({ ourScore: null, theirScore: null });
+  });
+
   it('never replaces a score from a scoreboard, and leaves the score empty when the HUD cannot decide it', () => {
     const fromBoard = db(); integrateVodSubmission(fromBoard, submission({ ourScore: 9, theirScore: 13 }), 'Coach', ids(), '2026-10-23T00:00:00Z');
     expect(fromBoard.matches[0]).toMatchObject({ ourScore: 9, theirScore: 13 }); expect(fromBoard.matches[0].scoreEvidence).toBeUndefined();
@@ -84,6 +101,9 @@ describe('a match with no score shows no result', () => {
     expect(matchScore({ ourScore: 13, theirScore: 7, attW: null })).toEqual({ ours: 13, theirs: 7 });
     expect(matchScore({ ourScore: null, theirScore: null, attW: 7, attL: 5, defW: 6, defL: 2 })).toEqual({ ours: 13, theirs: 7 });
     expect(matchScore({ ourScore: null, theirScore: null, attW: null, attL: null, defW: null, defL: null })).toBeNull();
+    // Half a side split is no score: one side was never recorded.
+    expect(matchScore({ ourScore: null, theirScore: null, attW: 7, attL: 5, defW: null, defL: null })).toBeNull();
+    expect(matchScore({ ourScore: 13, theirScore: null, attW: null })).toBeNull();
     expect(matchResult({ ourScore: null, theirScore: null })).toBeNull();
     expect(matchResult({ ourScore: 9, theirScore: 13 })).toBe('LOSS');
     expect(matchResult({ ourScore: 13, theirScore: 13 })).toBe('DRAW');
