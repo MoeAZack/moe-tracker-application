@@ -17,6 +17,10 @@ const assets = [
   ['node_modules/tesseract.js-core/tesseract-core-simd.wasm.js', 'core/tesseract-core-simd.wasm.js', '6b61ef4e911b5cf57e656bbfe983d6e2b3711a02dd164154ddda064566e8e09d'],
   ['node_modules/tesseract.js-core/tesseract-core.wasm.js', 'core/tesseract-core.wasm.js', '0bc6ce3e5fbbd0cd89706cf2fd70960e3372f4f01ee24265b26990808aaeb286'],
   // Optional PaddleOCR number engine (lib/ocrEngines.ts): ONNX Runtime 1.30.0 WebAssembly and the PP-OCRv4 recognition model.
+  // The ES modules the desktop VOD analyzer imports in Node to read TAB-board cells (desktop/vod-timeline-analyzer.cjs);
+  // under Node the bundle loads its WebAssembly glue from the separate .mjs.
+  ['node_modules/onnxruntime-web/dist/ort.wasm.bundle.min.mjs', 'onnx/ort.wasm.bundle.min.mjs', '11e64bd8ffe11bd1a2a2f0d6275fdfbbba7262f0b76b99b53d228a8a22ef3d90'],
+  ['node_modules/onnxruntime-web/dist/ort-wasm-simd-threaded.mjs', 'onnx/ort-wasm-simd-threaded.mjs', 'e13f7f94fc51b4ca72b12faeb1ee95f4ace6dfbc8939bc718aabdc0a27c4299b'],
   ['node_modules/onnxruntime-web/dist/ort-wasm-simd-threaded.wasm', 'onnx/ort-wasm-simd-threaded.wasm', '3398c10d07d229bd91b364548e130e0e51a8e5704b88c7c083ebbeb78842dee2'],
   ['node_modules/@gutenye/ocr-models/assets/ch_PP-OCRv4_rec_infer.onnx', 'paddle/ch_PP-OCRv4_rec_infer.onnx', '06b3e6af6c59a1ba5d53790ed8c2e4b2de389870b6cf5a97f349f3412cb269c0'],
   ['node_modules/@gutenye/ocr-models/assets/ppocr_keys_v1.txt', 'paddle/ppocr_keys_v1.txt', '28b2362ad4ab2dc38769aa72feb535e3a9ddb3fd2a7585a05920e6393b1dc7f7'],

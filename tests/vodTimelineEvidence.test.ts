@@ -7,7 +7,7 @@ import analyzerModule from '../desktop/vod-timeline-analyzer.cjs';
 import { boundaryTimelinePlayers } from '../src/components/VodSubmission';
 
 const { aggregateVideoEvidence, NO_IDENTITIES_LIMITATION, parseKillFeedSnapshot, parseUltimateSnapshots, parseRoundStateSnapshot, buildRoundTimeline, buildObserverSegments, applyVisualTemplates, fuseVodEvidence } = evidenceModule;
-const { tabBoardRows, tabBoardFit, readCoachTabBoards, TAB_BOX, TAB_FRAME, TAB_OUR_ROWS, TAB_CELLS, killFeedSummary, createChangeCollector, readScoreBox, KILL_FEED_BOX, killFeedCrop, scoreBoxCrop, fixSevens, SCORE_BOXES, rowText, stretchedBanner, splitDigitCrop, bannerDigitCrop, readBannerDigits, sweepOrphanedVodDirectories, normalizeYoutubeUrl, youtubeVideoId, frameDifference, visualSignature, scoreboardGeometryScore, agentSelectGeometryScore, chooseGameBoundaries, inferPovPlayer, analyzeVodTimeline, releaseVodSource, discoverVodGames, readVodFrame, readOwnedVodFrame, normalizeTimelinePlayers } = analyzerModule;
+const { tabBoardRows, tabBoardFit, tabCellImage, readCoachTabBoards, TAB_BOX, TAB_FRAME, TAB_OUR_ROWS, TAB_CELLS, killFeedSummary, createChangeCollector, readScoreBox, KILL_FEED_BOX, killFeedCrop, scoreBoxCrop, fixSevens, SCORE_BOXES, rowText, stretchedBanner, splitDigitCrop, bannerDigitCrop, readBannerDigits, sweepOrphanedVodDirectories, normalizeYoutubeUrl, youtubeVideoId, frameDifference, visualSignature, scoreboardGeometryScore, agentSelectGeometryScore, chooseGameBoundaries, inferPovPlayer, analyzeVodTimeline, releaseVodSource, discoverVodGames, readVodFrame, readOwnedVodFrame, normalizeTimelinePlayers } = analyzerModule;
 const players = [
   { name: 'Alpha', team: 'ours' }, { name: 'Bravo', team: 'ours' }, { name: 'Charlie', team: 'ours' }, { name: 'Delta', team: 'ours' }, { name: 'Echo', team: 'ours' },
   { name: 'EnemyOne', team: 'theirs' }, { name: 'EnemyTwo', team: 'theirs' }, { name: 'EnemyThree', team: 'theirs' }, { name: 'EnemyFour', team: 'theirs' }, { name: 'EnemyFive', team: 'theirs' },
@@ -336,6 +336,17 @@ describe('VOD timeline evidence', () => {
   it('finds the TAB board higher or lower in the frame and on teal rows', () => {
     for (const shift of [-.2, .15]) { const frame = tabFrame(shift); const fit = tabBoardFit(frame.pixels, frame.width, frame.height); expect(fit.rows).toBe(5); expect(fit.dy).toBeCloseTo(shift, 2); }
     const teal = tabFrame(0, 95); expect(tabBoardRows(teal.pixels, teal.width, teal.height)).toBe(5);
+    // Gameplay: bright texture also between ULTIMATE and K, where a board row is empty.
+    const busy = tabFrame(); const x = (value: number) => Math.round((value - TAB_BOX.x0) / (TAB_BOX.x1 - TAB_BOX.x0) * busy.width);
+    for (let row = 0; row < busy.height; row += 3) for (let col = x(.474); col <= x(.486); col += 4) busy.pixels[row * busy.width + col] = 240;
+    expect(tabBoardRows(busy.pixels, busy.width, busy.height)).toBeLessThan(4);
+  });
+
+  it('knows where the result-word end screen puts its digits', () => {
+    const [left, right] = analyzerModule.RESULT_SCORE_BOXES;
+    expect(left.x0).toBeLessThanOrEqual(.331); expect(left.x1).toBeGreaterThanOrEqual(.345); expect(left.x1).toBeLessThan(.375);
+    expect(right.x0).toBeGreaterThan(.625); expect(right.x0).toBeLessThanOrEqual(.654); expect(right.x1).toBeGreaterThanOrEqual(.678);
+    for (const box of [left, right]) { expect(box.y0).toBeLessThanOrEqual(.431); expect(box.y1).toBeGreaterThanOrEqual(.475); }
   });
 
   it('keeps a TAB board that is up for one sampled frame instead of the frame that closes it', () => {
@@ -349,15 +360,29 @@ describe('VOD timeline evidence', () => {
     expect(kept[0].timestampMs).toBe(500);
   });
 
-  it('reads K, D and A of our five TAB rows digits-only, then the names, and restores the worker', async () => {
-    const frame = tabFrame(); const calls: any[] = []; let names = 0; let whitelist = '';
-    const worker = { setParameters: vi.fn(async (params: any) => { calls.push(params); whitelist = params.tessedit_char_whitelist; }), recognize: vi.fn(async () => ({ data: { text: whitelist ? '8' : ['Ana', 'Ben', 'Cy', 'Dee', 'Eli'][names++ % 5] } })) };
+  it('reads K, D and A of our five TAB rows with the digit reader, then the names, and restores the worker', async () => {
+    const frame = tabFrame(); const calls: any[] = []; let names = 0;
+    const worker = { setParameters: vi.fn(async (params: any) => { calls.push(params); }), recognize: vi.fn(async () => ({ data: { text: ['Ana', 'Ben', 'Cy', 'Dee', 'Eli'][names++ % 5] } })) };
+    const reader = { read: vi.fn(async () => ({ text: '8', confidence: 95 })) };
     const lines: string[] = [];
-    const boards = await readCoachTabBoards([{ ...frame, timestampMs: 2_782_000 }, { ...frame, timestampMs: 2_782_500 }, { pixels: Buffer.alloc(TAB_FRAME.width * TAB_FRAME.height, 120), width: TAB_FRAME.width, height: TAB_FRAME.height, timestampMs: 10 }], worker, (line: string) => lines.push(line));
+    const boards = await readCoachTabBoards([{ ...frame, timestampMs: 2_782_000 }, { ...frame, timestampMs: 2_782_500 }, { pixels: Buffer.alloc(TAB_FRAME.width * TAB_FRAME.height, 120), width: TAB_FRAME.width, height: TAB_FRAME.height, timestampMs: 10 }], worker, (line: string) => lines.push(line), 12, reader);
     expect(boards).toHaveLength(1);
     expect(boards[0].rows.map((row: any) => [row.name, row.kills, row.deaths, row.assists])).toEqual(['Ana', 'Ben', 'Cy', 'Dee', 'Eli'].map(name => [name, 8, 8, 8]));
-    expect(lines).toEqual(['tab-board: frames 3, looked like a board 2, tried 1, boards read 1, last at 2782s']);
+    expect(lines).toEqual(['tab-board: frames 3, looked like a board 2, tried 1, boards read 1, last at 2782s; cells 15, numbers read 15 (0 as 1s), reader paddle']);
     expect(calls.at(-1)).toEqual({ tessedit_char_whitelist: '', tessedit_pageseg_mode: '11' });
+  });
+
+  it('keeps an unsure digit read blank and reads a cell of narrow glyphs as 1s', async () => {
+    const frame = tabFrame();
+    const worker = { setParameters: vi.fn(async () => {}), recognize: vi.fn(async () => ({ data: { text: 'Ana' } })) };
+    const unsure = await readCoachTabBoards([{ ...frame, timestampMs: 1000 }], worker, () => {}, 12, { read: async () => ({ text: '7', confidence: 69 }) });
+    expect(unsure).toEqual([]);
+    const { width, height } = TAB_FRAME, pixels = Buffer.alloc(width * height, 40);
+    const x = (value: number) => Math.round((value - TAB_BOX.x0) / (TAB_BOX.x1 - TAB_BOX.x0) * width), y = (value: number) => Math.round((value - TAB_BOX.y0) / (TAB_BOX.y1 - TAB_BOX.y0) * height);
+    for (let row = y(.323); row <= y(.335); row += 1) for (let col = x(.496); col <= x(.4975); col += 1) pixels[row * width + col] = 230;
+    const cell = tabCellImage(pixels, width, height, { x0: .489, x1: .506, y0: .318, y1: .340 });
+    expect(cell.glyphs).toHaveLength(1);
+    expect(cell.glyphs[0].width / cell.glyphs[0].height).toBeLessThan(.42);
   });
 
   it('puts kill-feed words back into rows so killer and victim share a line', () => {

@@ -49,9 +49,10 @@ function parseRoundStateSnapshot(snapshot) { const text=String(snapshot.text||''
   // The HUD shows "left  m:ss  right"; a bare "m:ss" is the round timer, never a score.
   const hudScores=[...text.matchAll(/(?:^|\s)(\d{1,2})\s+[0-1]?\d:[0-5]\d\s+(\d{1,2})(?=\s|$)/g)], dashScores=[...text.matchAll(/(?:^|\s)(\d{1,2})\s*[-|]\s*(\d{1,2})(?=\s|$)/g)]; // Between rounds and after a disconnect the timer is gone and only the two scores stay: a text that is
   // just two small numbers is kept as 'hud-bare', used only for a partial score.
-  const bare=!hudScores.length&&!dashScores.length?text.trim().match(/^(\d{1,2})\s+(\d{1,2})$/):null;
+  // No timer (spike planted, round over, disconnect): exactly two small numbers and only a few stray marks around them (icons read as junk).
+  const numbers=text.match(/\d+/g)||[], bare=!hudScores.length&&!dashScores.length&&numbers.length===2&&numbers.every(value=>value.length<=2)&&text.replace(/[\d\s]/g,'').length<=6?numbers:null;
   const scores=[...hudScores,...dashScores].map(match=>[Number(match[1]),Number(match[2])]).filter(([a,b])=>a<=30&&b<=30), scoreSource=hudScores.length?'hud':dashScores.length?'dash':null;
-  const bareScore=bare&&Number(bare[1])<=30&&Number(bare[2])<=30?[Number(bare[1]),Number(bare[2])]:null;
+  const bareScore=bare&&Number(bare[0])<=30&&Number(bare[1])<=30?[Number(bare[0]),Number(bare[1])]:null;
    const roundMatch=text.match(/(?:round|rnd)\s*(\d{1,2})/i), timerMatch=text.match(/\b([0-1]?\d):([0-5]\d)\b/); const winner=/attackers?\s+(?:win|won)|attack\s+victory/i.test(text)?'attack':/defenders?\s+(?:win|won)|defen[cs]e\s+victory/i.test(text)?'defense':null; const phase=/buy\s*phase|buy\s+time/i.test(text)?'buy':/round\s+(?:win|won)|victory|defeat|flawless|thrifty|clutch/i.test(text)?'complete':timerMatch?'live':null; if (!scores.length&&!bareScore&&!roundMatch&&!timerMatch&&!winner&&!phase) return null; return {id:observationId('round-state',snapshot.timestampMs,text),kind:'round-state',timestampMs:snapshot.timestampMs,confidence:snapshot.confidence??.7,grade:'ocr',roundNumber:roundMatch?Number(roundMatch[1]):null,score:scores[0]||null,...(scores.length?{scoreSource}:{}),...(bareScore?{bareScore}:{}),timerSeconds:timerMatch?Number(timerMatch[1])*60+Number(timerMatch[2]):null,phase,winner,rawText:text}; }
 
 // The end screen of a custom game reads "ALLIES n - m ENEMIES": Allies is the recording side's team.
