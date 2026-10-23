@@ -208,7 +208,7 @@ export function integrateVodSubmission(db: any, input: SubmissionInput, actorNam
     const completeEliminations = fused.coverage.signals.eliminations === 'complete';
     for (const observedRound of fused.rounds || []) {
       const events = (observedRound.events || []).filter((event: any) => event.kind === 'elimination');
-      const advantageEvidence = deriveRoundAdvantage({ source: 'vod', complete: completeEliminations && events.length > 0, winner: 'unknown', events: events.map((event: any, index: number) => ({ sequence: index + 1, victimTeam: event.victimTeam })) });
+      const advantageEvidence = deriveRoundAdvantage({ source: 'vod', complete: completeEliminations && events.length > 0, winner: observedRound.winner || 'unknown', events: events.map((event: any, index: number) => ({ sequence: index + 1, victimTeam: event.victimTeam })) });
       const existing = db.rounds.find((row: any) => row.matchId === match!.id && row.roundNo === observedRound.roundNumber);
       const automaticResult = advantageEvidence.roundOutcome === 'converted' ? 'W' : advantageEvidence.roundOutcome === 'lost' ? 'L' : '';
       const vodEvidence = { sourceSubmissionIds: submissionIds, roundNumber: observedRound.roundNumber, observations: structuredClone(observedRound.events || []), updatedAt: now };

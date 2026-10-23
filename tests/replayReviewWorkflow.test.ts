@@ -25,7 +25,7 @@ const reviewDraft = {
   rounds: [{ roundNumber: 1, status: 'resolved', firstKillPlayerId: 'raw-a', firstDeathPlayerId: 'raw-x', sourceEventId: 'e1', reason: null, excludedEventCount: 0 }],
   coverage: { playedRounds: 1, resolvedRounds: 1, unknownRounds: 0, resolvedPercent: 100, unknownReasons: {} },
   playerTotals: players.map(item => ({ playerId: item.playerId, observedFirstKills: evidence(item.firstBloods), observedFirstDeaths: evidence(item.firstDeaths), firstKills: evidence(item.firstBloods), firstDeaths: evidence(item.firstDeaths) })),
-  evidence: { tradeWindowMs: 5000, capabilities: [], observations: [], observationIssues: [], coverageBySignal: [], playerMetrics: players.map(item => ({ playerId: item.playerId, kills: evidence(item.kills), deaths: evidence(item.deaths), assists: evidence(item.assists), damage: item.teamId === 'team-us' ? 250 : 100, utilityCasts: null, utilityEffects: null, ultimateUses: null, plants: evidence(item.plants), defuses: evidence(item.defuses) })), rounds: [{ roundNumber: 1, events: [], winnerTeamId: 'team-us', endReason: 'elimination', sideByTeam: { 'team-us': 'attack', 'team-them': 'defense' }, derived: { tradeOpportunities: 1, successfulTrades: 1, tradedDeathPlayerIds: ['raw-b'], multikills: [{ playerId: 'raw-a', kills: 2 }], clutches: [] } }] },
+  evidence: { tradeWindowMs: 5000, capabilities: [], observations: [], observationIssues: [], coverageBySignal: [{ signal: 'eliminations', support: 'complete', grade: 'event-log', coveredRounds: 1, playedRounds: 1 }], playerMetrics: players.map(item => ({ playerId: item.playerId, kills: evidence(item.kills), deaths: evidence(item.deaths), assists: evidence(item.assists), damage: item.teamId === 'team-us' ? 250 : 100, utilityCasts: null, utilityEffects: null, ultimateUses: null, plants: evidence(item.plants), defuses: evidence(item.defuses) })), rounds: [{ roundNumber: 1, events: [], winnerTeamId: 'team-us', endReason: 'elimination', sideByTeam: { 'team-us': 'attack', 'team-them': 'defense' }, derived: { tradeOpportunities: 1, successfulTrades: 1, tradedDeathPlayerIds: ['raw-b'], multikills: [{ playerId: 'raw-a', kills: 2 }], clutches: [] } }] },
 };
 function evidence(field: any) { return field.status === 'available' ? field.value : null; }
 const parserResult = { scoreboard: { reviewRequired: true, evidenceCoverage: { status: 'complete', reason: null }, map: value('Haven'), durationMs: value(120000), finalScore: { teamA: { teamId: 'team-us', score: value(1) }, teamB: { teamId: 'team-them', score: value(0) } }, players, unavailableFields: [] }, reviewDraft, diagnostics: { replaySha256: sha256, binarySha256: 'b'.repeat(64), binaryVersion: '0.2.5', binaryCommit: 'redacted', manifestSha256: 'c'.repeat(64), replayBuild: 'fixture', outputFileCount: 1, outputBytes: 1, identityMappingComplete: true, duplicateActorMappings: 0, duplicatePawnMappings: 0 } };
@@ -54,6 +54,38 @@ beforeEach(async () => {
 afterEach(async () => { if (server) { server.closeAllConnections(); await new Promise<void>((resolve, reject) => server!.close(error => error ? reject(error) : resolve())); server = undefined; } vi.unstubAllEnvs(); vi.resetModules(); if (tempDir) await fs.rm(tempDir, { recursive: true, force: true }); });
 
 describe('coach replay review workflow', () => {
+  it.each([
+    ['tied unresolved ordering', [{ kind: 'player-elimination', timestampMs: 1_000, killerPlayerId: 'raw-a', victimPlayerId: 'raw-x' }, { kind: 'player-elimination', timestampMs: 1_000, killerPlayerId: 'raw-b', victimPlayerId: 'raw-y' }]],
+    ['repeated impossible death', [{ kind: 'player-elimination', timestampMs: 1_000, killerPlayerId: 'raw-a', victimPlayerId: 'raw-x' }, { kind: 'player-elimination', timestampMs: 2_000, killerPlayerId: 'raw-b', victimPlayerId: 'raw-x' }]],
+    ['incomplete participant identity', [{ kind: 'player-elimination', timestampMs: 1_000, killerPlayerId: 'raw-a', victimPlayerId: 'missing-player' }]],
+  ])('does not accept complete advantage evidence from %s', async (_label, events) => {
+    const coach = await login(adminKey); const seeded = JSON.parse(await fs.readFile(dbPath, 'utf8'));
+    const round = seeded.replayIntake.parserJobs.job1.result.reviewDraft.evidence.rounds[0];
+    round.events = events; round.winnerTeamId = 'team-them';
+    round.derived = { tradeOpportunities: null, successfulTrades: null, tradedDeathPlayerIds: null, multikills: null, clutches: null };
+    await fs.writeFile(dbPath, JSON.stringify(seeded));
+    expect((await request(`/api/replay-intake/uploads/${sha256}/review`, coach, { expectedRevision: 0, requestId: `invalid-${_label}`, matchId: 'm1', teamId: 'team-us', mappings })).status).toBe(200);
+    expect((await request(`/api/replay-intake/uploads/${sha256}/accept`, coach, { expectedRevision: 1, requestId: `accept-${_label}`, confirmed: true })).status).toBe(200);
+    const stored = JSON.parse(await fs.readFile(dbPath, 'utf8')); const advantage = stored.rounds.find((item: any) => item.matchId === 'm1' && item.roundNo === 1).advantageEvidence;
+    expect(advantage).toMatchObject({ status: 'partial', states: [] });
+  });
+
+  it('accepts a replay-engine-validated lost 5v3 advantage', async () => {
+    const coach = await login(adminKey); const seeded = JSON.parse(await fs.readFile(dbPath, 'utf8'));
+    const round = seeded.replayIntake.parserJobs.job1.result.reviewDraft.evidence.rounds[0];
+    round.events = [
+      { kind: 'player-elimination', timestampMs: 1_000, killerPlayerId: 'raw-a', victimPlayerId: 'raw-x' },
+      { kind: 'player-elimination', timestampMs: 2_000, killerPlayerId: 'raw-b', victimPlayerId: 'raw-y' },
+    ];
+    round.winnerTeamId = 'team-them'; round.endReason = 'spike-detonated';
+    round.derived = { tradeOpportunities: 2, successfulTrades: 0, tradedDeathPlayerIds: [], multikills: [], clutches: [] };
+    await fs.writeFile(dbPath, JSON.stringify(seeded));
+    expect((await request(`/api/replay-intake/uploads/${sha256}/review`, coach, { expectedRevision: 0, requestId: 'valid-5v3', matchId: 'm1', teamId: 'team-us', mappings })).status).toBe(200);
+    expect((await request(`/api/replay-intake/uploads/${sha256}/accept`, coach, { expectedRevision: 1, requestId: 'accept-valid-5v3', confirmed: true })).status).toBe(200);
+    const stored = JSON.parse(await fs.readFile(dbPath, 'utf8')); const advantage = stored.rounds.find((item: any) => item.matchId === 'm1' && item.roundNo === 1).advantageEvidence;
+    expect(advantage).toMatchObject({ status: 'complete', roundOutcome: 'lost', states: expect.arrayContaining([expect.objectContaining({ label: '5v3', differential: 2, outcome: 'lost' })]) });
+  });
+
   it('keeps the existing score and uncertainty when accepted replay score is incomplete', async () => {
     const coach = await login(adminKey); const seeded = JSON.parse(await fs.readFile(dbPath, 'utf8'));
     seeded.matches[0].ourScore = 8; seeded.matches[0].theirScore = 16;
@@ -74,6 +106,14 @@ describe('coach replay review workflow', () => {
   it('creates new allied profiles on explicit replay acceptance beside a twenty-profile library', async () => {
     const coach = await login(adminKey); const seeded = JSON.parse(await fs.readFile(dbPath, 'utf8'));
     seeded.rosterPlayers.push(...Array.from({ length: 18 }, (_, index) => ({ id: `extra-${index}`, displayName: `Existing profile ${index}`, retiredAt: null })));
+    const result = seeded.replayIntake.parserJobs.job1.result;
+    const rawAlpha = result.scoreboard.players.find((player: any) => player.playerId === 'raw-a');
+    rawAlpha.firstBloods = { value: null, status: 'unavailable', source: 'synthetic-redacted-fixture', confidence: 0 };
+    rawAlpha.plants = { value: null, status: 'unavailable', source: 'synthetic-redacted-fixture', confidence: 0 };
+    result.reviewDraft.evidence.rounds[0].events = [
+      { kind: 'player-elimination', timestampMs: 1_000, killerPlayerId: 'raw-x', victimPlayerId: 'raw-b' },
+      { kind: 'player-elimination', timestampMs: 2_000, killerPlayerId: 'raw-a', victimPlayerId: 'raw-x' },
+    ];
     await fs.writeFile(dbPath, JSON.stringify(seeded));
     const unresolved = mappings.map(item => item.parserPlayerId === 'raw-a' || item.parserPlayerId === 'raw-b' ? { ...item, rosterPlayerId: null, displayName: item.parserPlayerId === 'raw-a' ? 'New Replay Alpha' : 'New Replay Bravo' } : item);
     const saved = await request(`/api/replay-intake/uploads/${sha256}/review`, coach, { expectedRevision: 0, requestId: 'new-profile-review', matchId: 'm1', teamId: 'team-us', mappings: unresolved });
@@ -86,6 +126,7 @@ describe('coach replay review workflow', () => {
     const created = stored.rosterPlayers.filter((player: any) => ['New Replay Alpha', 'New Replay Bravo'].includes(player.displayName));
     expect(created.every((player: any) => player.rosterStatus === 'standIn')).toBe(true);
     expect(stored.playerStats.filter((row: any) => created.some((player: any) => player.id === row.playerId)).map((row: any) => [row.player, row.kills, row.deaths, row.assists])).toEqual([['New Replay Alpha', 2, 0, 1], ['New Replay Bravo', 1, 1, 2]]);
+    expect(stored.playerStats.find((row: any) => row.player === 'New Replay Alpha')).toMatchObject({ fk: 1, plants: 1, trades: 1 });
   });
 
   it('enforces coach ownership, explicit complete mappings, collision checks and stale revisions', async () => {
@@ -106,7 +147,7 @@ describe('coach replay review workflow', () => {
     seeded.matches[0].scoreEvidence = { source: 'vod-hud', basis: 'end-banner', reads: 2 };
     seeded.matches[0].partialScore = { ours: 8, theirs: 15, source: 'vod-hud' };
     seeded.playerStats = [
-      { id: 'manual-p1', matchId: 'm1', playerId: 'p1', player: 'Alpha', agent: 'Sova', kills: 99, hs: 44, notes: 'coach player note', corrections: [{ correctedAt: '2026-10-02T00:00:00.000Z', correctedBy: 'Coach', fields: ['kills'] }] },
+      { id: 'manual-p1', matchId: 'm1', playerId: 'p1', player: 'Alpha', agent: 'Sova', kills: 99, fk: 7, trades: 9, hs: 44, notes: 'coach player note', corrections: [{ correctedAt: '2026-10-02T00:00:00.000Z', correctedBy: 'Coach', fields: ['kills', 'fk', 'trades'] }] },
       { id: 'manual-standin', matchId: 'm1', playerId: 'p3', player: 'Stand-in', notes: 'keep unmatched annotation', kills: 4, sourceMetadata: { method: 'manual', capturedAt: '2026-10-02T00:00:00.000Z' } },
     ];
     seeded.rounds = [
@@ -114,6 +155,8 @@ describe('coach replay review workflow', () => {
       { id: 'manual-r2', matchId: 'm1', roundNo: 2, side: 'Attack', result: 'L', notes: 'outside partial replay coverage', sourceMetadata: { method: 'manual', capturedAt: '2026-10-02T00:00:00.000Z' } },
     ];
     seeded.replayIntake.parserJobs.job1.result.reviewDraft.coverage = { playedRounds: 2, resolvedRounds: 1, unknownRounds: 1, resolvedPercent: 50, unknownReasons: { 'sequence-incomplete': 1 } };
+    seeded.replayIntake.parserJobs.job1.result.scoreboard.players.find((player: any) => player.playerId === 'raw-a').trades = value(4);
+    seeded.replayIntake.parserJobs.job1.result.scoreboard.players.find((player: any) => player.playerId === 'raw-b').trades = value(3);
     seeded.replayIntake.parserJobs.job1.result.reviewDraft.rounds.push({ roundNumber: 2, status: 'unknown', firstKillPlayerId: null, firstDeathPlayerId: null, sourceEventId: null, reason: 'sequence-incomplete', excludedEventCount: 0 });
     await fs.writeFile(dbPath, JSON.stringify(seeded)); const rawBefore = seeded.replayIntake.parserJobs.job1.result;
     await request(`/api/replay-intake/uploads/${sha256}/review`, coach, { expectedRevision: 0, requestId: 'save-1', matchId: 'm1', teamId: 'team-us', mappings });
@@ -131,8 +174,8 @@ describe('coach replay review workflow', () => {
     const { readDB } = await import('../lib/store'); const stored = await readDB(); expect(stored.replayIntake.parserJobs.job1.result).toEqual(rawBefore); expect(stored.replayIntake.reviews[sha256].mappings).toEqual(mappings);
     expect(stored.matches[0]).toMatchObject({ id: 'm1', map: 'Haven', ourScore: 1, theirScore: 0, sourceMetadata: { provider: 'vrfkit', externalId: sha256 } });
     expect(stored.matches[0].scoreEvidence).toBeUndefined(); expect(stored.matches[0].partialScore).toBeUndefined();
-    expect(stored.playerStats).toEqual(expect.arrayContaining([expect.objectContaining({ matchId: 'm1', playerId: 'p1', player: 'Reviewed Alpha', displayNameSnapshot: 'Reviewed Alpha', deaths: 0, fk: 1 }), expect.objectContaining({ matchId: 'm1', playerId: 'p2', player: 'Reviewed Bravo', displayNameSnapshot: 'Reviewed Bravo', kills: 1, defuses: 1 })]));
-    expect(stored.playerStats.find((row: any) => row.matchId === 'm1' && row.playerId === 'p1')).toMatchObject({ id: 'manual-p1', kills: 99, hs: 44, notes: 'coach player note', corrections: expect.arrayContaining([expect.objectContaining({ fields: ['kills'] })]) });
+    expect(stored.playerStats).toEqual(expect.arrayContaining([expect.objectContaining({ matchId: 'm1', playerId: 'p1', player: 'Reviewed Alpha', displayNameSnapshot: 'Reviewed Alpha', deaths: 0, fk: 7, trades: 9 }), expect.objectContaining({ matchId: 'm1', playerId: 'p2', player: 'Reviewed Bravo', displayNameSnapshot: 'Reviewed Bravo', kills: 1, defuses: 1, trades: 3 })]));
+    expect(stored.playerStats.find((row: any) => row.matchId === 'm1' && row.playerId === 'p1')).toMatchObject({ id: 'manual-p1', kills: 99, fk: 7, trades: 9, hs: 44, notes: 'coach player note', corrections: expect.arrayContaining([expect.objectContaining({ fields: ['kills', 'fk', 'trades'] })]) });
     expect(stored.playerStats.find((row: any) => row.id === 'manual-standin')).toMatchObject({ playerId: 'p3', notes: 'keep unmatched annotation', kills: 4, sourceMetadata: { method: 'manual' } });
     expect(stored.rounds.filter((round: any) => round.matchId === 'm1')).toEqual(expect.arrayContaining([expect.objectContaining({ id: 'manual-r1', roundNo: 1, side: 'Defense', result: 'W', winBy: 'elimination', firstKillBy: 'Reviewed Alpha', firstDeathBy: 'Opponent X', buy: 'Force', enemyBuy: 'Full', notes: 'review spacing', isThrow: 'TRUE', thrownBy: 'Alpha', throwReason: 'overpeek', replayEvidence: { tradeOpportunities: 1, successfulTrades: 1, tacticalAssessment: 'unreviewed' } })]));
     expect(stored.rounds.find((round: any) => round.id === 'manual-r2')).toMatchObject({ roundNo: 2, notes: 'outside partial replay coverage', sourceMetadata: { method: 'manual' } });
