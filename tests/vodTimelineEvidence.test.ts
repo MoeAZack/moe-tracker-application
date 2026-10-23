@@ -7,7 +7,7 @@ import analyzerModule from '../desktop/vod-timeline-analyzer.cjs';
 import { boundaryTimelinePlayers } from '../src/components/VodSubmission';
 
 const { aggregateVideoEvidence, NO_IDENTITIES_LIMITATION, parseKillFeedSnapshot, parseUltimateSnapshots, parseRoundStateSnapshot, buildRoundTimeline, buildObserverSegments, applyVisualTemplates, fuseVodEvidence } = evidenceModule;
-const { tabBoardRows, tabBoardFit, tabCellImage, readCoachTabBoards, TAB_BOX, TAB_FRAME, TAB_OUR_ROWS, TAB_CELLS, killFeedSummary, createChangeCollector, readScoreBox, KILL_FEED_BOX, killFeedCrop, scoreBoxCrop, fixSevens, SCORE_BOXES, rowText, stretchedBanner, splitDigitCrop, bannerDigitCrop, readBannerDigits, sweepOrphanedVodDirectories, normalizeYoutubeUrl, youtubeVideoId, frameDifference, visualSignature, scoreboardGeometryScore, agentSelectGeometryScore, chooseGameBoundaries, inferPovPlayer, analyzeVodTimeline, releaseVodSource, discoverVodGames, readVodFrame, readOwnedVodFrame, normalizeTimelinePlayers } = analyzerModule;
+const { tabBoardRows, tabBoardFit, isTabBoard, tabCellImage, readCoachTabBoards, TAB_BOX, TAB_FRAME, TAB_OUR_ROWS, TAB_CELLS, killFeedSummary, createChangeCollector, readScoreBox, KILL_FEED_BOX, killFeedCrop, scoreBoxCrop, fixSevens, SCORE_BOXES, rowText, stretchedBanner, splitDigitCrop, bannerDigitCrop, readBannerDigits, sweepOrphanedVodDirectories, normalizeYoutubeUrl, youtubeVideoId, frameDifference, visualSignature, scoreboardGeometryScore, agentSelectGeometryScore, chooseGameBoundaries, inferPovPlayer, analyzeVodTimeline, releaseVodSource, discoverVodGames, readVodFrame, readOwnedVodFrame, normalizeTimelinePlayers } = analyzerModule;
 const players = [
   { name: 'Alpha', team: 'ours' }, { name: 'Bravo', team: 'ours' }, { name: 'Charlie', team: 'ours' }, { name: 'Delta', team: 'ours' }, { name: 'Echo', team: 'ours' },
   { name: 'EnemyOne', team: 'theirs' }, { name: 'EnemyTwo', team: 'theirs' }, { name: 'EnemyThree', team: 'theirs' }, { name: 'EnemyFour', team: 'theirs' }, { name: 'EnemyFive', team: 'theirs' },
@@ -314,12 +314,12 @@ describe('VOD timeline evidence', () => {
   });
 
   // The coach-view TAB board crop (x 0.297-0.702 over most of the height): darker rows (teal or grey),
-  // and in each of our five rows lit digits in the K, D and A cells; shift moves the board up or down.
-  const tabFrame = (shift = 0, rowValue = 30) => {
+  // and in each of the ten rows lit digits in the K, D and A cells; shift moves the board up or down.
+  const tabFrame = (shift = 0, rowValue = 30, rows = [...TAB_OUR_ROWS, ...TAB_OUR_ROWS.map(centre => centre + .2165)]) => {
     const { width, height } = TAB_FRAME, pixels = Buffer.alloc(width * height, 120);
     const x = (value: number) => Math.round((value - TAB_BOX.x0) / (TAB_BOX.x1 - TAB_BOX.x0) * width), y = (value: number) => Math.round((value - TAB_BOX.y0) / (TAB_BOX.y1 - TAB_BOX.y0) * height);
     const block = (x0: number, x1: number, y0: number, y1: number, value: number) => { for (let row = y(y0); row <= y(y1); row += 1) for (let col = x(x0); col <= x(x1); col += 1) pixels[row * width + col] = value; };
-    for (const measured of TAB_OUR_ROWS) {
+    for (const measured of rows) {
       const centre = measured + shift;
       block(TAB_BOX.x0, TAB_BOX.x1, centre - .015, centre + .015, rowValue);
       for (const cell of [TAB_CELLS.kills, TAB_CELLS.deaths, TAB_CELLS.assists]) block(cell.x0 + .003, cell.x0 + .008, centre - .006, centre + .006, 230);
@@ -333,8 +333,16 @@ describe('VOD timeline evidence', () => {
     expect(tabBoardRows(Buffer.alloc(TAB_FRAME.width * TAB_FRAME.height, 120), TAB_FRAME.width, TAB_FRAME.height)).toBe(0);
   });
 
-  it('finds the TAB board higher or lower in the frame and on teal rows', () => {
-    for (const shift of [-.2, .15]) { const frame = tabFrame(shift); const fit = tabBoardFit(frame.pixels, frame.width, frame.height); expect(fit.rows).toBe(5); expect(fit.dy).toBeCloseTo(shift, 2); }
+  it('finds the TAB board a few pixels off, on teal rows, and nowhere else', () => {
+    for (const shift of [-.008, .008]) { const frame = tabFrame(shift); const fit = tabBoardFit(frame.pixels, frame.width, frame.height); expect(isTabBoard(fit)).toBe(true); }
+    // The coach view always puts the board at the same height: rows like it far above or below are gameplay.
+    for (const shift of [-.2, .15]) { const frame = tabFrame(shift); expect(isTabBoard(tabBoardFit(frame.pixels, frame.width, frame.height))).toBe(false); }
+    // Our five rows alone are not the board; both teams' rows show when TAB is held.
+    const half = tabFrame(0, 30, TAB_OUR_ROWS); expect(isTabBoard(tabBoardFit(half.pixels, half.width, half.height))).toBe(false);
+    // Bright texture in the ULTIMATE-K gap between rows (not inside them) is gameplay too.
+    const between = tabFrame(); const bx = (value: number) => Math.round((value - TAB_BOX.x0) / (TAB_BOX.x1 - TAB_BOX.x0) * between.width), by = (value: number) => Math.round((value - TAB_BOX.y0) / (TAB_BOX.y1 - TAB_BOX.y0) * between.height);
+    for (let row = by(.5); row <= by(.53); row += 1) for (let col = bx(.474); col <= bx(.486); col += 4) between.pixels[row * between.width + col] = 240;
+    expect(isTabBoard(tabBoardFit(between.pixels, between.width, between.height))).toBe(false);
     const teal = tabFrame(0, 95); expect(tabBoardRows(teal.pixels, teal.width, teal.height)).toBe(5);
     // Gameplay: bright texture also between ULTIMATE and K, where a board row is empty.
     const busy = tabFrame(); const x = (value: number) => Math.round((value - TAB_BOX.x0) / (TAB_BOX.x1 - TAB_BOX.x0) * busy.width);
@@ -382,7 +390,15 @@ describe('VOD timeline evidence', () => {
     for (let row = y(.323); row <= y(.335); row += 1) for (let col = x(.496); col <= x(.4975); col += 1) pixels[row * width + col] = 230;
     const cell = tabCellImage(pixels, width, height, { x0: .489, x1: .506, y0: .318, y1: .340 });
     expect(cell.glyphs).toHaveLength(1);
-    expect(cell.glyphs[0].width / cell.glyphs[0].height).toBeLessThan(.42);
+    expect(cell.glyphs[0].width / cell.glyphs[0].height).toBeLessThan(.35);
+  });
+
+  it('trusts a sure digit read over the narrow-glyph rule, which only fills a blank read', async () => {
+    const frame = tabFrame(); const worker = { setParameters: vi.fn(async () => {}), recognize: vi.fn(async () => ({ data: { text: '' } })) };
+    const lines: string[] = [];
+    const sure = await readCoachTabBoards([{ ...frame, timestampMs: 1000 }], worker, (line: string) => lines.push(line), Infinity, { read: async () => ({ text: '4', confidence: 95 }) });
+    expect(sure[0].rows.every((row: any) => row.kills === 4 && row.deaths === 4 && row.assists === 4)).toBe(true);
+    expect(lines[0]).toContain('(0 as 1s)');
   });
 
   it('puts kill-feed words back into rows so killer and victim share a line', () => {
