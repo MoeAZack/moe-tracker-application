@@ -15,6 +15,19 @@ const buildManifest = (): Plugin => ({
   },
 });
 
+// ONNX Runtime's bundle points at its WebAssembly with new URL(..., import.meta.url),
+// which makes Vite emit a second 14 MB copy. The app always loads the
+// hash-checked copy staged in /ocr-assets/onnx/ (lib/ocrEngines.ts sets
+// wasmPaths), so the bundle's reference is pointed there instead.
+const onnxRuntimeStagedWasm = (): Plugin => ({
+  name: 'moe-onnx-runtime-staged-wasm',
+  transform(code, id) {
+    if (!id.replace(/\\/g, '/').includes('/onnxruntime-web/dist/')) return null;
+    const replaced = code.replaceAll('new URL("ort-wasm-simd-threaded.wasm",import.meta.url)', 'new URL("/ocr-assets/onnx/ort-wasm-simd-threaded.wasm",self.location.href)');
+    return replaced === code ? null : { code: replaced, map: null };
+  },
+});
+
 const appVersion = JSON.parse(readFileSync(new URL('./package.json', import.meta.url), 'utf8')).version as string;
 const appRevision = buildRevision();
 
@@ -24,7 +37,7 @@ export default defineConfig(() => {
       __APP_VERSION__: JSON.stringify(appVersion),
       __APP_REVISION__: JSON.stringify(appRevision),
     },
-    plugins: [react(), tailwindcss(), buildManifest()],
+    plugins: [react(), tailwindcss(), buildManifest(), onnxRuntimeStagedWasm()],
     resolve: {
       alias: {
         '@': path.resolve(__dirname, '.'),

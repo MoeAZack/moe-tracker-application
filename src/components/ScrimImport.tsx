@@ -5,7 +5,7 @@ import { CLOUD_AI_OFF_MESSAGE, cloudAiActionBlocked, useCloudAiAvailable } from 
 import { Sparkles, Upload, X, Loader2, CheckCircle, Image as ImageIcon } from 'lucide-react';
 import { canCommitScreenshotReview, matchExtractedRosterName } from '../../lib/entryEngine';
 import { reportDesktopDiagnostic } from '../utils/desktopDiagnostics';
-import { createBrowserLocalTesseractAdapter, createValorantEndScreenProfile, createValorantHeadToHeadProfile, createValorantPerformanceProfile, createValorantRoundSummaryProfile, extractLocalScoreboardDraft } from '../../lib/localOcrEngine';
+import { createValorantEndScreenProfile, createValorantHeadToHeadProfile, createValorantPerformanceProfile, createValorantRoundSummaryProfile, extractLocalScoreboardDraft } from '../../lib/localOcrEngine';
 import { parseLocalRoundRecognitions } from '../../lib/localRoundOcrEngine';
 import { classifyValorantRoundEvents } from '../../lib/localRoundEventClassifier';
 import { canonicalScoreboardName, cleanCaptureDisplayName, cleanCaptureMap, inferAlliedScoreboardNames, normalizeCaptureName, reconcileCapturedRoundNumbers, scoreFromCompleteRounds } from '../../lib/scrimCaptureImport';
@@ -15,8 +15,10 @@ import { captureConsistencyReport, findDuplicateScoreboardMatch } from '../../li
 import { extractCaptureSession, INFORMATIONAL_ROUND_ISSUES } from '../../lib/captureSessionPipeline';
 import { buildOpponentHistory } from '../../lib/opponentHistory';
 import { getCachedRecognitions, putCachedRecognitions, sha256Base64 } from '../utils/ocrRecognitionCache';
+import { createConfiguredOcrAdapter, learnGlyphsFromReview } from '../utils/ocrEngineSetting';
+import type { ScoreboardGlyphs } from '../../lib/glyphTemplates';
 import { correctionSamplesFromAcceptedEdit, OCR_LEARNING_VERSION, rosterWithLearnedAliases } from '../../lib/ocrLearning';
-import { getOcrLearningState, recordOcrCorrections, recordOcrSessionOutcome } from '../utils/ocrLearningStore';
+import { getOcrLearningState, isOcrLearningEnabled, recordOcrCorrections, recordOcrSessionOutcome } from '../utils/ocrLearningStore';
 import { deriveRoundAdvantage } from '../../lib/roundAdvantage';
 import { captureRosterFromIdentity } from '../../lib/identityResolver';
 import { holdCapture, releaseCapture } from '../utils/captureLock';
@@ -75,6 +77,8 @@ export default function ScrimImport({ data, theme, onSaveMatch, onClose }: Props
   const autoLoadStarted = useRef(false);
   // The capture this modal is reviewing; the background loop leaves it alone until save or close.
   const heldCapture = useRef<string | null>(null);
+  // K/D/A glyphs of the scoreboard under review; the saved values label them for the digit templates.
+  const scoreboardGlyphs = useRef<ScoreboardGlyphs | null>(null);
   useEffect(() => () => { if (heldCapture.current) releaseCapture(heldCapture.current, 'review'); }, []);
   const roundsComplete = rounds.every(round => round.result === 'W' || round.result === 'L');
   const duplicateOf = findDuplicateScoreboardMatch(players, data.playerStats || []);
@@ -86,6 +90,8 @@ export default function ScrimImport({ data, theme, onSaveMatch, onClose }: Props
 
   const runImport = async () => {
     if (!scoreboard) return;
+    // A server-side import has no local glyphs; never label an earlier capture's glyphs with this one's values.
+    scoreboardGlyphs.current = null;
     setStep('processing');
     setError(null);
     try {
@@ -118,7 +124,8 @@ export default function ScrimImport({ data, theme, onSaveMatch, onClose }: Props
   const loadLatestCapture = async () => {
     if (!window.moeDesktop) return;
     setStep('processing'); setError(null); setCaptureProgress('Finding the latest complete capture…');
-    let adapter: Awaited<ReturnType<typeof createBrowserLocalTesseractAdapter>> | null = null;
+    let adapter: Awaited<ReturnType<typeof createConfiguredOcrAdapter>> | null = null;
+    scoreboardGlyphs.current = null;
     try {
       const { readable, incomplete } = splitPendingCaptures(await window.moeDesktop.listScoreboards());
       const record = readable.at(-1);
@@ -137,7 +144,7 @@ export default function ScrimImport({ data, theme, onSaveMatch, onClose }: Props
         : roster.map(displayName => ({ displayName }));
       const learning = await getOcrLearningState(data.rosterPlayers || []);
       const extractionRosterPlayers = rosterWithLearnedAliases(baseRoster, learning.aliases);
-      adapter = await createBrowserLocalTesseractAdapter();
+      adapter = await createConfiguredOcrAdapter();
       const hashes = new Map<string, Promise<string>>();
       let cacheHits = 0; let cacheMisses = 0;
       const extracted = await extractCaptureSession({
@@ -150,15 +157,16 @@ export default function ScrimImport({ data, theme, onSaveMatch, onClose }: Props
         recognize: async (capture, image, profile) => {
           const identity = `${capture.kind}:${capture.round || 0}:${capture.name || ''}`;
           const hash = await (hashes.get(identity) || (() => { const pending = sha256Base64(capture.base64); hashes.set(identity, pending); return pending; })());
-          const cached = await getCachedRecognitions(hash, profile);
+          const cached = await getCachedRecognitions(hash, profile, adapter!.engine);
           if (cached) { cacheHits += 1; return cached; }
           cacheMisses += 1;
           const recognitions = await adapter!.recognize(image, profile);
-          await putCachedRecognitions(hash, profile, recognitions);
+          await putCachedRecognitions(hash, profile, recognitions, adapter!.engine);
           return recognitions;
         },
         progress: setCaptureProgress,
       });
+      scoreboardGlyphs.current = adapter.takeScoreboardGlyphs();
       const diagnostics = extracted.captureDiagnostics;
       await recordOcrSessionOutcome({ id: `manual:${session.captureId || record.id}`, captureId: session.captureId, recordedAt: new Date().toISOString(), automatic: false,
         reasons: diagnostics.issues.length ? diagnostics.issues : ['manual-review-opened'], layout: diagnostics.layout, resolution: diagnostics.resolution,
@@ -278,7 +286,11 @@ export default function ScrimImport({ data, theme, onSaveMatch, onClose }: Props
       // Match, scoreboard and rounds are one server write: a rejected round set saves nothing.
       const result = await onSaveMatch(match, { operation: 'replace', stats }, roundRows);
       const saved = result?.match || result;
-      if (saved?.id && ocrBaseline) await recordOcrCorrections(correctionSamplesFromAcceptedEdit({ beforeMatch: { ...ocrBaseline.match, id: saved.id }, beforeStats: ocrBaseline.stats, nextMatch: { ...match, id: saved.id }, nextStats: stats, nextScoreboardRows: savedRows.map(({ row }) => row) }));
+      if (saved?.id && ocrBaseline) {
+        const samples = correctionSamplesFromAcceptedEdit({ beforeMatch: { ...ocrBaseline.match, id: saved.id }, beforeStats: ocrBaseline.stats, nextMatch: { ...match, id: saved.id }, nextStats: stats, nextScoreboardRows: savedRows.map(({ row }) => row) });
+        await recordOcrCorrections(samples);
+        learnGlyphsFromReview(scoreboardGlyphs.current, samples, isOcrLearningEnabled());
+      }
       if (pendingCaptureId && window.moeDesktop) await window.moeDesktop.completeScoreboard(pendingCaptureId);
       onClose();
     } catch (err: any) {

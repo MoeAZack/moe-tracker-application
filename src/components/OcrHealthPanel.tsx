@@ -3,6 +3,7 @@ import { Activity, Download, RefreshCw, Trash2 } from 'lucide-react';
 import type { RosterPlayer } from '../types';
 import { downloadOcrLearningDataset, getOcrLearningState, resetOcrLearning, setOcrLearningEnabled } from '../utils/ocrLearningStore';
 import { confirmDialog } from '../utils/appDialogs';
+import OcrEngineSetting from './OcrEngineSetting';
 
 type LearningState = Awaited<ReturnType<typeof getOcrLearningState>>;
 const percent = (value: number | null) => (value === null ? 'No evidence' : `${Math.round(value * 100)}%`);
@@ -70,6 +71,7 @@ export default function OcrHealthPanel({ rosterPlayers, isLight }: { rosterPlaye
           </button>
         </div>
       </div>
+      <OcrEngineSetting isLight={isLight} />
       <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
         {[
           ['Capture sessions', health.sessions],

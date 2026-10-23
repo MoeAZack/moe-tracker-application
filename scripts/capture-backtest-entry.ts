@@ -4,6 +4,8 @@
 import { createBrowserLocalTesseractAdapter } from '../lib/localOcrEngine';
 import { extractCaptureSession, type CaptureImage } from '../lib/captureSessionPipeline';
 import type { LocalCorrectionModel } from '../lib/ocrLearning';
+import type { OcrEngineId } from '../lib/ocrEngines';
+import { parseGlyphTemplates, serializeGlyphTemplates } from '../lib/glyphTemplates';
 
 const loadImage = async (capture: CaptureImage) => {
   const image = new Image();
@@ -29,10 +31,15 @@ export async function resampleCapture(capture: CaptureImage, width: number, heig
   return { ...capture, mediaType: 'image/png', base64: canvas.toDataURL('image/png').split(',')[1] };
 }
 
-(window as any).__runCaptureBacktest = async (payload: { captures: CaptureImage[]; rosterPlayers?: Array<{ id?: string; displayName: string }>; resample?: { width: number; height: number } | null; correctionModel?: LocalCorrectionModel }) => {
-  const adapter = await createBrowserLocalTesseractAdapter();
+(window as any).__runCaptureBacktest = async (payload: { captures: CaptureImage[]; rosterPlayers?: Array<{ id?: string; displayName: string }>; resample?: { width: number; height: number } | null; correctionModel?: LocalCorrectionModel; engine?: OcrEngineId; glyphTemplates?: string }) => {
+  // Ensemble's learned digit templates carry from one session to the next, as they do in the app.
+  const glyphTemplates = payload.engine === 'ensemble' ? parseGlyphTemplates(payload.glyphTemplates) : undefined;
+  const adapter = await createBrowserLocalTesseractAdapter({ engine: payload.engine, glyphTemplates });
+  // A backtest must measure the engine it was asked for, never a silent Tesseract fallback.
+  if ((payload.engine || 'tesseract') !== adapter.engine) { await adapter.terminate(); throw new Error(`The ${payload.engine} engine could not start in this build.`); }
   try {
     const captures = payload.resample ? await Promise.all(payload.captures.map(capture => resampleCapture(capture, payload.resample!.width, payload.resample!.height))) : payload.captures;
-    return await extractCaptureSession({ captures, rosterPlayers: payload.rosterPlayers || [], adapter, loadImage, correctionModel: payload.correctionModel });
+    const result = await extractCaptureSession({ captures, rosterPlayers: payload.rosterPlayers || [], adapter, loadImage, correctionModel: payload.correctionModel });
+    return { ...result, ...(glyphTemplates ? { glyphTemplates: serializeGlyphTemplates(glyphTemplates) } : {}) };
   } finally { await adapter.terminate(); }
 };

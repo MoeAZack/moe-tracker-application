@@ -122,6 +122,35 @@ export function fieldReport(corpus, outputs) {
   };
 }
 
+/**
+ * How each labelled cell's outcome moved from a reference run to a candidate
+ * run, as counts of "referenceOutcome->candidateOutcome" (unchanged outcomes
+ * left out), overall and per field. "abstained->correct" is what a new engine
+ * gains where the reference read nothing, "abstained->falseAccept" what it
+ * gets wrong there, and "correct->falseAccept" a right value it broke. Counts
+ * only: no read values.
+ */
+export function outcomeChanges(corpus, reference, candidate) {
+  const total = {}; const fields = {}; const unaligned = [];
+  for (const session of corpus.sessions || []) {
+    const before = reference[session.captureId]; const after = candidate[session.captureId];
+    if (!before || !after) continue;
+    // Pair rows per run: a misread name can move a player to another row in one run only.
+    const beforeCells = labelledCells(session, corpus.rowLabels, before); const afterCells = labelledCells(session, corpus.rowLabels, after);
+    if (beforeCells.length !== afterCells.length || beforeCells.some((cell, index) => cell.field !== afterCells[index].field)) { unaligned.push(session.captureId); continue; }
+    beforeCells.forEach((cell, index) => {
+      const other = afterCells[index];
+      const outcome = (output, item) => { const result = grade(item, readCell(output, item.field, item.row)); return result === 'abstainedWrong' ? 'abstained' : result; };
+      const from = outcome(before, cell); const to = outcome(after, other);
+      if (from === to) return;
+      const key = `${from}->${to}`;
+      total[key] = (total[key] || 0) + 1;
+      (fields[cell.field] ||= {})[key] = (fields[cell.field][key] || 0) + 1;
+    });
+  }
+  return { total, fields, unaligned };
+}
+
 /** Keys that change between two runs of the same code on the same images: the run's own bookkeeping and read timestamps. */
 export const VOLATILE_TOP_LEVEL_KEYS = new Set(['folder', 'seconds']);
 export const VOLATILE_KEYS = new Set(['capturedAt']);

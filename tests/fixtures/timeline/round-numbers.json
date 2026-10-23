@@ -1,0 +1,9 @@
+{
+  "notes": "Hand-checked round numbers printed above each timeline tile, left to right. Real VALORANT HUD digits (about 11 px tall at 1080p); no names or other private data in these crops.",
+  "fixtures": {
+    "regulation-24": { "first": 1, "count": 24 },
+    "overtime-scrolled": { "first": 4, "count": 24 },
+    "scrolled-customs": { "first": 2, "count": 24 },
+    "short-18": { "first": 1, "count": 18 }
+  }
+}

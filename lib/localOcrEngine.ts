@@ -1,4 +1,6 @@
 import { buildScreenshotReviewDraft } from './entryEngine';
+import { agreeingNumberRead, loadBrowserPaddleDigitRecognizer, normalizeOcrEngineId, numberReaderFor, ocrEngineModelSuffix, unanimousNumberRead, type OcrEngineId } from './ocrEngines';
+import { classifyGlyphs, glyphFeatures, glyphLearningLabel, learnGlyphs, type GlyphFeature, type GlyphTemplateSet } from './glyphTemplates';
 
 export const LOCAL_OCR_RUNTIME = Object.freeze({
   tesseractVersion: '7.0.0',
@@ -38,6 +40,8 @@ export interface LocalOcrProfile {
 }
 
 export interface LocalOcrAdapter {
+  /** Which engine reads numbers. Absent means Tesseract, as before engines existed. */
+  readonly engine?: OcrEngineId;
   recognize(image: CanvasImageSource, profile: LocalOcrProfile): Promise<LocalOcrRecognition[]>;
   terminate(): Promise<void>;
 }
@@ -457,7 +461,7 @@ export function browserRecognitionRegions(profile: LocalOcrProfile): BrowserReco
 
 export function parseLocalScoreboardRecognitions(
   recognitions: readonly LocalOcrRecognition[],
-  options: { capturedAt: string; rosterPlayers: Array<{ id?: string; displayName: string }> },
+  options: { capturedAt: string; rosterPlayers: Array<{ id?: string; displayName: string }>; engine?: OcrEngineId },
 ) {
   const byId = recognizedById(recognitions);
   const players = Array.from({ length: 10 }, (_, row) => {
@@ -497,7 +501,7 @@ export function parseLocalScoreboardRecognitions(
     confident: false,
     players,
   }, {
-    model: `${LOCAL_OCR_RUNTIME.tesseractVersion}/eng-1.0.0/parser-v1`,
+    model: `${LOCAL_OCR_RUNTIME.tesseractVersion}/eng-1.0.0/parser-v1${ocrEngineModelSuffix(options.engine)}`,
     provider: 'tesseract-local',
     capturedAt: options.capturedAt,
     rosterPlayers: options.rosterPlayers,
@@ -513,7 +517,7 @@ export async function extractLocalScoreboardDraft(
 ) {
   const immutableProfile = acceptedProfile(profile, dimensions);
   const recognitions = await adapter.recognize(image, immutableProfile);
-  return parseLocalScoreboardRecognitions(recognitions, options);
+  return parseLocalScoreboardRecognitions(recognitions, { ...options, engine: adapter.engine });
 }
 
 export function preprocessRegionPixels(
@@ -749,8 +753,24 @@ export async function readSegmentedKda(
   };
 }
 
-export async function createBrowserLocalTesseractAdapter(): Promise<LocalOcrAdapter> {
+/**
+ * The browser OCR adapter. `engine` picks who reads numbers (see
+ * lib/ocrEngines.ts); names, maps and labels are always read by Tesseract.
+ * The default, Tesseract, runs exactly the reads it always ran.
+ */
+export async function createBrowserLocalTesseractAdapter(options: {
+  engine?: OcrEngineId;
+  glyphTemplates?: GlyphTemplateSet;
+  /** Receives each full-scoreboard K/D/A line's glyphs (kills, deaths, assists), whatever the engine, so a saved review can label them. */
+  onKdaGlyphs?: (regionId: string, resolution: string, numbers: GlyphFeature[][]) => void;
+} = {}): Promise<LocalOcrAdapter> {
   if (typeof document === 'undefined') throw new Error('The local OCR adapter requires a browser canvas runtime.');
+  // A build or machine where the PaddleOCR runtime cannot start reads with
+  // Tesseract alone, and says so through `engine`, so the draft's source
+  // model and cache keys stay truthful.
+  const requested = normalizeOcrEngineId(options.engine);
+  const paddle = requested === 'tesseract' ? null : await loadBrowserPaddleDigitRecognizer().catch(error => { console.warn('PaddleOCR could not start; reading with Tesseract only.', error); return null; });
+  const engine: OcrEngineId = paddle ? requested : 'tesseract';
   const imported = await import('tesseract.js');
   const tesseract = (imported as any).default || imported;
   const worker = await tesseract.createWorker('eng', tesseract.OEM.LSTM_ONLY, {
@@ -760,6 +780,7 @@ export async function createBrowserLocalTesseractAdapter(): Promise<LocalOcrAdap
     workerBlobURL: false,
   });
   return {
+    engine,
     async recognize(image, profile) {
       const immutableProfile = acceptedProfile(profile, profile.dimensions);
       const results: LocalOcrRecognition[] = [];
@@ -790,10 +811,11 @@ export async function createBrowserLocalTesseractAdapter(): Promise<LocalOcrAdap
           const enlargedContext = enlarged.getContext('2d'); if (!enlargedContext) throw new Error('Canvas preprocessing is unavailable.');
           enlargedContext.fillStyle = '#fff'; enlargedContext.fillRect(0, 0, enlarged.width, enlarged.height); enlargedContext.imageSmoothingEnabled = false; enlargedContext.drawImage(rawCrop, padding, padding, processed.width * scale, processed.height * scale); recognitionImage = enlarged;
         }
+        const reader = paddle ? numberReaderFor(engine, immutableProfile.id, region.recognitionKind) : 'tesseract';
         if (region.recognitionKind === 'kda') {
           const segmented = segmentKdaNumberRectangles(processed);
           if (segmented) {
-            const readNumber = async (crop: { width: number; height: number; data: Uint8ClampedArray }, rectangle: KdaNumberRectangle, enlarge = 1): Promise<KdaNumberRead> => {
+            const readTesseractNumber = async (crop: { width: number; height: number; data: Uint8ClampedArray }, rectangle: KdaNumberRectangle, enlarge = 1): Promise<KdaNumberRead> => {
               const scale = Math.round(Math.max(4, Math.ceil(96 / rectangle.height)) * enlarge); const padding = 12;
               const cropCanvas = document.createElement('canvas'); cropCanvas.width = crop.width; cropCanvas.height = crop.height;
               const cropContext = cropCanvas.getContext('2d'); if (!cropContext) throw new Error('Canvas preprocessing is unavailable.');
@@ -806,6 +828,21 @@ export async function createBrowserLocalTesseractAdapter(): Promise<LocalOcrAdap
               const result = await worker.recognize(number);
               return { text: (result.data.text || '').trim(), confidence: result.data.confidence };
             };
+            // The second, low-resolution read gives PaddleOCR a wider white margin instead of a larger image.
+            const readNumber = async (crop: { width: number; height: number; data: Uint8ClampedArray }, rectangle: KdaNumberRectangle, enlarge = 1): Promise<KdaNumberRead> => {
+              if (!paddle || reader === 'tesseract') return readTesseractNumber(crop, rectangle, enlarge);
+              const paddleRead = await paddle.readDigits(crop, enlarge === 1 ? .25 : .5);
+              if (reader === 'paddle') return paddleRead;
+              const tesseractRead = await readTesseractNumber(crop, rectangle, enlarge);
+              const templates = options.glyphTemplates; if (!templates) return agreeingNumberRead([tesseractRead, paddleRead]);
+              // The learned font templates are a third voter; they abstain until they know the digits.
+              const resolution = `${immutableProfile.dimensions.height}p`; const glyphs = glyphFeatures(crop);
+              const read = unanimousNumberRead([tesseractRead, paddleRead, classifyGlyphs(templates, resolution, glyphs)]);
+              // A very sure PaddleOCR read that Tesseract does not contradict teaches the templates.
+              const label = enlarge === 1 ? glyphLearningLabel(tesseractRead, paddleRead) : null;
+              if (label) learnGlyphs(templates, resolution, glyphs, label);
+              return read;
+            };
             const grayscaleNumber = (rectangle: KdaNumberRectangle) => preprocessNumericGrayscale(sourcePixels, {
               left: region.rectangle.left + rectangle.left, top: region.rectangle.top + rectangle.top,
               width: rectangle.width, height: rectangle.height,
@@ -816,8 +853,12 @@ export async function createBrowserLocalTesseractAdapter(): Promise<LocalOcrAdap
               secondary: rectangle => readNumber(grayscaleNumber(rectangle), rectangle, 1.5),
             }, lowResolution);
             results.push({ regionId: region.id, ...read });
+            if (options.onKdaGlyphs && immutableProfile.id !== 'valorant-player-table-v1') options.onKdaGlyphs(region.id, `${immutableProfile.dimensions.height}p`, segmented.map(rectangle => glyphFeatures(grayscaleNumber(rectangle))));
             continue;
           }
+          // Ensemble keeps a number only when both engines read it. The whole-line
+          // fallback below is Tesseract alone, so an unsplit line stays unknown.
+          if (reader === 'ensemble') { results.push({ regionId: region.id, text: '', confidence: null }); continue; }
           const scale = Math.max(4, Math.ceil(96 / processed.height)); const padding = 12;
           const padded = document.createElement('canvas'); padded.width = processed.width * scale + padding * 2; padded.height = processed.height * scale + padding * 2;
           const paddedContext = padded.getContext('2d');
@@ -862,6 +903,7 @@ export async function createBrowserLocalTesseractAdapter(): Promise<LocalOcrAdap
     },
     async terminate() {
       await worker.terminate();
+      await paddle?.release();
     },
   };
 }

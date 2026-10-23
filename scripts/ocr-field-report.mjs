@@ -4,10 +4,12 @@
 // Output dirs come from scripts/backtest-capture-browser.mjs (one <captureId>.json per session).
 // With --baseline, compares every value the run reports (all scalar leaves and array lengths, except the
 // run folder, its duration and read timestamps) and exits 1 when any differs, so "zero cell diffs" is one command.
+// It also counts how labelled cells' grades moved (baseline.outcomeChanges), e.g. cells the candidate
+// read where the baseline abstained, and how many of those are right.
 // Prints counts and capture ids only; read values appear for wrong cells, which are OCR output, not labels.
 import { readFile, readdir } from 'node:fs/promises';
 import path from 'node:path';
-import { diffRuns, fieldReport } from './ocrFieldReport.mjs';
+import { diffRuns, fieldReport, outcomeChanges } from './ocrFieldReport.mjs';
 
 const args = process.argv.slice(2);
 const option = name => { const index = args.indexOf(name); return index >= 0 ? args.splice(index, 2)[1] : undefined; };
@@ -26,8 +28,10 @@ const candidate = await loadRun(outDir);
 const corpus = JSON.parse(await readFile(path.resolve(labels), 'utf8'));
 const report = { run: path.basename(path.resolve(outDir)), outputs: Object.keys(candidate).length, accuracy: fieldReport(corpus, candidate) };
 if (baselineDir) {
-  const diffs = diffRuns(await loadRun(baselineDir), candidate);
-  report.baseline = { run: path.basename(path.resolve(baselineDir)), cellDiffs: diffs.length, diffs };
+  const baseline = await loadRun(baselineDir);
+  const diffs = diffRuns(baseline, candidate);
+  // outcomeChanges: labelled cells whose grade moved, e.g. "abstained->correct" = read where the baseline left it empty.
+  report.baseline = { run: path.basename(path.resolve(baselineDir)), cellDiffs: diffs.length, outcomeChanges: outcomeChanges(corpus, baseline, candidate), diffs };
   if (diffs.length) process.exitCode = 1;
 }
 console.log(JSON.stringify(report, null, 2));
