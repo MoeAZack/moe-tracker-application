@@ -17,6 +17,11 @@ interface ComponentProps {
   theme: any;
 }
 
+export function canonicalLostAdvantageLabel(round: any) {
+  const canonical = (round.advantageEvidence?.states || []).filter((state: any) => state.outcome === 'lost' && state.differential >= 2).sort((a: any, b: any) => b.differential - a.differential || b.oursAlive - a.oursAlive)[0];
+  return canonical ? `Lost ${canonical.label} player advantage` : null;
+}
+
 export default function MapBestStats({ data, theme }: ComponentProps) {
   const isLight = data.settings.theme === 'daylight';
   const [activeSubTab, setActiveSubTab] = useState<'stats' | 'calculator' | 'throws'>('stats');
@@ -76,8 +81,8 @@ export default function MapBestStats({ data, theme }: ComponentProps) {
     };
 
     const lostAdvantageLabel = (round: any) => {
-      const canonical = (round.advantageEvidence?.states || []).filter((state: any) => state.outcome === 'lost').sort((a: any, b: any) => b.differential - a.differential || b.oursAlive - a.oursAlive)[0];
-      if (canonical) return `Lost ${canonical.label} player advantage`;
+      const canonical = canonicalLostAdvantageLabel(round);
+      if (canonical) return canonical;
       const evidence = round.screenshotEvidence;
       const events = [...(evidence?.events || [])].sort((a: any, b: any) => a.sequence - b.sequence);
       if (evidence?.reviewStatus !== 'confirmed' || evidence?.eventsComplete !== true || !events.length || events.some((event: any, index: number) => event.sequence !== index + 1)) return null;

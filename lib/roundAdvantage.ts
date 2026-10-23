@@ -41,7 +41,7 @@ export function deriveRoundAdvantage(input: {
   events: readonly Elimination[];
   source: AdvantageSource;
   complete: boolean;
-  winner?: 'ours' | 'theirs' | 'unknown' | 'W' | 'L' | null;
+  winner?: string | null;
   startingPlayers?: { ours: number; theirs: number };
 }): RoundAdvantageEvidence {
   const startingPlayers = input.startingPlayers || { ours: 5, theirs: 5 };
@@ -76,6 +76,7 @@ export interface AdvantageSummaryRow {
 export function summarizeRoundAdvantages(rounds: readonly { advantageEvidence?: RoundAdvantageEvidence }[]): AdvantageSummaryRow[] {
   const grouped = new Map<string, AdvantageSummaryRow>();
   for (const round of rounds) for (const state of round.advantageEvidence?.states || []) {
+    if (state.differential < 2) continue;
     const row = grouped.get(state.label) || { label: state.label, opportunities: 0, converted: 0, lost: 0, unknown: 0, conversionRate: null };
     row.opportunities += 1; row[state.outcome] += 1; grouped.set(state.label, row);
   }
@@ -88,7 +89,7 @@ export function summarizeRoundAdvantageTotals(rounds: readonly { advantageEviden
   const totals = { opportunities: 0, converted: 0, lost: 0, unknown: 0, conversionRate: null as number | null };
   for (const round of rounds) {
     const evidence = round.advantageEvidence;
-    if (evidence?.status !== 'complete' || !evidence.states.length) continue;
+    if (evidence?.status !== 'complete' || !evidence.states.some(state => state.differential >= 2)) continue;
     totals.opportunities += 1; totals[evidence.roundOutcome] += 1;
   }
   const decided = totals.converted + totals.lost;

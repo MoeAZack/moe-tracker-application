@@ -338,6 +338,22 @@ function acceptReviewIntoEngines(db: any, store: ReplayStore, job: ReplayParserJ
   const mapping = new Map<string, ReplayMapping>(review.mappings.filter(item => item.rosterPlayerId).map(item => [item.parserPlayerId, item]));
   const rawRows = new Map<string, any>((scoreboard.players || []).map((item: any) => [item.playerId, item]));
   const metricRows = new Map<string, any>((draft.evidence?.playerMetrics || []).map((item: any) => [item.playerId, item]));
+  const openingTotals = new Map<string, any>((draft.playerTotals || []).map((item: any) => [item.playerId, item]));
+  const tradeCounts = new Map<string, number>();
+  const tradeRounds = draft.evidence?.rounds || [];
+  const tradeCoverage = (draft.evidence?.coverageBySignal || []).find((item: any) => item.signal === 'eliminations');
+  const tradesComplete = tradeRounds.length > 0 && tradeRounds.length === draft.coverage?.playedRounds
+    && tradeCoverage?.support === 'complete' && tradeCoverage.coveredRounds === draft.coverage?.playedRounds
+    && tradeRounds.every((round: any) => Array.isArray(round.events) && Array.isArray(round.derived?.tradedDeathPlayerIds));
+  if (tradesComplete) for (const round of tradeRounds) for (const victimId of round.derived.tradedDeathPlayerIds) {
+    const events = round.events || []; const deathIndex = events.findIndex((event: any) => event.victimPlayerId === victimId);
+    if (deathIndex < 0) continue; const death = events[deathIndex];
+    const trade = events.slice(deathIndex + 1).find((event: any) => event.victimPlayerId === death.killerPlayerId
+      && rawRows.get(event.killerPlayerId)?.teamId === rawRows.get(victimId)?.teamId
+      && typeof event.timestampMs === 'number' && typeof death.timestampMs === 'number'
+      && event.timestampMs - death.timestampMs >= 0 && event.timestampMs - death.timestampMs <= (draft.evidence?.tradeWindowMs || 5_000));
+    if (trade?.killerPlayerId) tradeCounts.set(trade.killerPlayerId, (tradeCounts.get(trade.killerPlayerId) || 0) + 1);
+  }
   const existingMatchRows = (db.playerStats || []).filter((item: any) => item.matchId === review.matchId);
   const existingRows = new Map<string, any>(existingMatchRows.filter((item: any) => item.playerId).map((item: any) => [item.playerId, item]));
   const existingRowsByName = new Map<string, any[]>();
@@ -348,7 +364,7 @@ function acceptReviewIntoEngines(db: any, store: ReplayStore, job: ReplayParserJ
   const activeCoreIds = new Set((db.coreMemberships || []).filter((item: any) => !item.endedAt).map((item: any) => item.playerId));
   const claimedExistingRowIds = new Set<string>();
   const acceptedRows = [...mapping.entries()].map(([parserPlayerId, overlay]) => {
-    const raw: any = rawRows.get(parserPlayerId) || {}; const metrics: any = metricRows.get(parserPlayerId) || {};
+    const raw: any = rawRows.get(parserPlayerId) || {}; const metrics: any = metricRows.get(parserPlayerId) || {}; const openings: any = openingTotals.get(parserPlayerId) || {};
     const nameMatches = existingRowsByName.get(identityOcrKey(overlay.displayName)) || [];
     const storedNumber = (value: any) => typeof value === 'number' && Number.isFinite(value) ? value : null;
     const kdaMatches = existingMatchRows.filter((row: any) => !claimedExistingRowIds.has(row.id)
@@ -359,7 +375,7 @@ function acceptReviewIntoEngines(db: any, store: ReplayStore, job: ReplayParserJ
       || (nameMatches.length === 1 ? nameMatches[0] : undefined)
       || (kdaMatches.length === 1 ? kdaMatches[0] : undefined);
     if (existing?.id) claimedExistingRowIds.add(existing.id);
-    const corrected = correctedFields(existing); const replay: Record<string, any> = { kills: evidenceNumber(raw.kills) ?? metrics.kills ?? null, deaths: evidenceNumber(raw.deaths) ?? metrics.deaths ?? null, assists: evidenceNumber(raw.assists) ?? metrics.assists ?? null, acs: null, adr: metrics.damage === null || metrics.damage === undefined || !draft.coverage?.playedRounds ? null : metrics.damage / draft.coverage.playedRounds, hs: metrics.headshotPercentage ?? null, headshots: metrics.headshotKills ?? null, headshotEligibleKills: metrics.eligibleHeadshotKills ?? null, orbPoints: metrics.orbCaptures ?? null, ultimateUses: metrics.ultimateUses ?? null, kastSuccessful: metrics.kastSuccessful ?? null, kastCovered: metrics.kastCovered ?? null, fk: evidenceNumber(raw.firstBloods), fd: evidenceNumber(raw.firstDeaths), plants: evidenceNumber(raw.plants), defuses: evidenceNumber(raw.defuses) };
+    const corrected = correctedFields(existing); const replay: Record<string, any> = { kills: evidenceNumber(raw.kills) ?? metrics.kills ?? null, deaths: evidenceNumber(raw.deaths) ?? metrics.deaths ?? null, assists: evidenceNumber(raw.assists) ?? metrics.assists ?? null, acs: null, adr: metrics.damage === null || metrics.damage === undefined || !draft.coverage?.playedRounds ? null : metrics.damage / draft.coverage.playedRounds, hs: metrics.headshotPercentage ?? null, headshots: metrics.headshotKills ?? null, headshotEligibleKills: metrics.eligibleHeadshotKills ?? null, orbPoints: metrics.orbCaptures ?? null, ultimateUses: metrics.ultimateUses ?? null, kastSuccessful: metrics.kastSuccessful ?? null, kastCovered: metrics.kastCovered ?? null, fk: evidenceNumber(raw.firstBloods) ?? openings.firstKills ?? null, fd: evidenceNumber(raw.firstDeaths) ?? openings.firstDeaths ?? null, plants: evidenceNumber(raw.plants) ?? metrics.plants ?? null, defuses: evidenceNumber(raw.defuses) ?? metrics.defuses ?? null, trades: tradesComplete ? tradeCounts.get(parserPlayerId) || 0 : null };
     const facts = Object.fromEntries(Object.entries(replay).map(([field, value]) => [field, mergeVerifiedField(existing, field, value, corrected)]));
     const accepted = { ...existing, id: existing?.id || `replay:${review.matchId}:${overlay.rosterPlayerId}`, matchId: review.matchId, playerId: overlay.rosterPlayerId, player: overlay.displayName, displayNameSnapshot: overlay.displayName, appearanceType: existing?.appearanceType || (activeCoreIds.has(overlay.rosterPlayerId) ? 'core' : 'standIn'), agent: evidenceText(raw.agent) || existing?.agent || 'Unknown', ...facts, sourceMetadata: { method: 'provider-import', capturedAt: acceptedAt, provider: 'vrfkit', externalId: review.sha256 }, evidenceReconciliation: replayScreenshotReconciliation(existing, replay, acceptedAt), corrections: [...(existing?.corrections || []), { correctedAt: review.updatedAt, correctedBy: user.username, fields: ['player-name-mapping'] }] };
     // Accepting the coach-reviewed replay overlay is the explicit identity
@@ -375,13 +391,20 @@ function acceptReviewIntoEngines(db: any, store: ReplayStore, job: ReplayParserJ
   db.playerStats = [...(db.playerStats || []).filter((item: any) => item.matchId !== review.matchId || (!replacedRowIds.has(item.id) && !replacedPlayerIds.has(item.playerId))), ...acceptedRows];
   const displayNames = new Map(review.mappings.map(item => [item.parserPlayerId, item.displayName]));
   const openingByRound = new Map((draft.rounds || []).map((item: any) => [item.roundNumber, item]));
+  const eliminationCoverage = (draft.evidence?.coverageBySignal || []).find((item: any) => item.signal === 'eliminations');
+  const eliminationsComplete = eliminationCoverage?.support === 'complete'
+    && eliminationCoverage.coveredRounds === draft.coverage?.playedRounds
+    && eliminationCoverage.playedRounds === draft.coverage?.playedRounds;
   const acceptedRounds = (draft.evidence?.rounds || []).map((round: any) => {
     const opening: any = openingByRound.get(round.roundNumber) || {};
     const side = round.sideByTeam?.[review.teamId];
     const clutch = Array.isArray(round.derived?.clutches) ? round.derived.clutches.find((item: any) => displayNames.has(item.playerId)) : null;
     const existing = (db.rounds || []).find((item: any) => item.matchId === review.matchId && item.roundNo === round.roundNumber) || {};
     const corrected = correctedFields(existing); const replaySide = side === 'attack' ? 'Attack' : side === 'defense' ? 'Defense' : null;
-    const advantageEvidence = deriveRoundAdvantage({ source: 'replay', complete: Array.isArray(round.derived?.multikills), winner: round.winnerTeamId ? (round.winnerTeamId === review.teamId ? 'ours' : 'theirs') : 'unknown', events: (round.events || []).filter((event: any) => event.kind === 'player-elimination').map((event: any, index: number) => ({ sequence: index + 1, victimTeam: rawRows.get(event.victimPlayerId)?.teamId === review.teamId ? 'ours' : rawRows.get(event.victimPlayerId)?.teamId ? 'theirs' : null })) });
+    const eliminationEvents = (round.events || []).filter((event: any) => event.kind === 'player-elimination');
+    const identitiesComplete = eliminationEvents.every((event: any) => rawRows.get(event.victimPlayerId)?.teamId && rawRows.get(event.killerPlayerId)?.teamId);
+    const ordered = eliminationEvents.every((event: any, index: number) => index === 0 || (event.timestampMs ?? index) >= (eliminationEvents[index - 1].timestampMs ?? index - 1));
+    const advantageEvidence = deriveRoundAdvantage({ source: 'replay', complete: eliminationsComplete && identitiesComplete && ordered, winner: round.winnerTeamId ? (round.winnerTeamId === review.teamId ? 'ours' : 'theirs') : 'unknown', events: eliminationEvents.map((event: any, index: number) => ({ sequence: index + 1, victimTeam: rawRows.get(event.victimPlayerId)?.teamId === review.teamId ? 'ours' : rawRows.get(event.victimPlayerId)?.teamId ? 'theirs' : null })) });
     const replayRound = { side: replaySide, result: round.winnerTeamId ? (round.winnerTeamId === review.teamId ? 'W' : 'L') : null, winBy: round.endReason || null,
       firstKillBy: opening.status === 'resolved' ? displayNames.get(opening.firstKillPlayerId) || opening.firstKillPlayerId || null : null,
       firstDeathBy: opening.status === 'resolved' ? displayNames.get(opening.firstDeathPlayerId) || opening.firstDeathPlayerId || null : null };

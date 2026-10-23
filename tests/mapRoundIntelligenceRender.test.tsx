@@ -2,9 +2,13 @@ import React from 'react';
 import { renderToStaticMarkup } from 'react-dom/server';
 import { describe, expect, it } from 'vitest';
 import MapRoundIntelligencePanel from '../src/components/MapRoundIntelligencePanel';
-import MapBestStats from '../src/components/MapBestStats';
+import MapBestStats, { canonicalLostAdvantageLabel } from '../src/components/MapBestStats';
 
 describe('map round intelligence panel', () => {
+  it('does not label a lost 5v4 as a canonical throw', () => {
+    expect(canonicalLostAdvantageLabel({ advantageEvidence: { states: [{ label: '5v4', differential: 1, oursAlive: 5, outcome: 'lost' }] } })).toBeNull();
+    expect(canonicalLostAdvantageLabel({ advantageEvidence: { states: [{ label: '5v3', differential: 2, oursAlive: 5, outcome: 'lost' }] } })).toBe('Lost 5v3 player advantage');
+  });
   it('renders exact samples and Unknown rather than synthetic zero rates', () => {
     const data = {
       matches: [{ id: 'm1', map: 'Ascent', opponent: 'Team B', date: '2026-10-14' }],
