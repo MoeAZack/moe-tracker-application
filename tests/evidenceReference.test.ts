@@ -232,6 +232,18 @@ describe('S0.1 canonical evidence reference', () => {
     expect(resolveEvidenceReference(db, baseReference({ round: { roundId: 'round-shot-2', roundNumber: 2 }, screenshot: { artifactId: null, imageSha256: null, captureKind: 'round', cropRegionId: null } }), opts)).toEqual({ ok: false, reason: 'screenshot-not-found' });
   });
 
+  it('resolves a VOD-imported match by its match id and refuses that anchor on a match with no VOD evidence', () => {
+    const db = workspace();
+    db.matches.push({ id: 'match-vod-import', source: 'vod-submission', sourceMetadata: { method: 'vod-submission', capturedAt: '2026-10-22T23:22:48.000Z', provider: 'local-ocr', externalId: 'sub-1' } });
+    const reference = evidenceReferenceForMatch(db, 'match-vod-import', opts);
+    expect(reference.vod).toEqual({ vodReviewId: null, noteId: null, atSeconds: null });
+    expect(resolveEvidenceReference(db, reference, opts)).toMatchObject({ ok: true, match: { id: 'match-vod-import' }, vod: { vodReviewId: null, matchId: 'match-vod-import' } });
+    db.matches.push({ id: 'match-manual-only', source: 'manual', sourceMetadata: { method: 'manual', capturedAt: '2026-10-22T23:22:48.000Z' } });
+    expect(resolveEvidenceReference(db, { ...reference, matchId: 'match-manual-only' }, opts)).toEqual({ ok: false, reason: 'vod-not-found' });
+    db.playerStats.push({ id: 'stat-vod-row', matchId: 'match-manual-only', sourceMetadata: { method: 'vod-submission', capturedAt: '2026-10-22T23:22:48.000Z' } });
+    expect(resolveEvidenceReference(db, { ...reference, matchId: 'match-manual-only' }, opts)).toMatchObject({ ok: true, vod: { vodReviewId: null, matchId: 'match-manual-only' } });
+  });
+
   it('rechecks replay evidence hashes and stored source-device claims', () => {
     const db = workspace();
     const accepted = evidenceReferenceForReplay(db, REPLAY, opts);

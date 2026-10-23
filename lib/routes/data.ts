@@ -98,12 +98,23 @@ export function registerDataRoutes(app: Express, options: { websiteSummaryOnly?:
         : null,
     };
   };
+  // Expired tryouts are purged on load. A purge that fails is skipped (and
+  // logged) on a fresh copy, so it never blocks the workspace from loading.
+  const loadWithRetention = async () => {
+    const db = await readDB();
+    try {
+      const retention = purgeExpiredRosterPlayers(db);
+      if (retention.purged.length) await saveDB(db);
+      return db;
+    } catch (error: any) {
+      console.error(`[tracker-data] roster retention skipped: ${error?.message || error}`);
+      return readDB();
+    }
+  };
   // GET tracker full payload
   app.get('/api/data', async (req, res) => {
     try {
-      const db = await readDB();
-      const retention = purgeExpiredRosterPlayers(db);
-      if (retention.purged.length) await saveDB(db);
+      const db = await loadWithRetention();
       const role = (req as any).user?.role === 'coach' ? 'coach' : 'player';
       const authenticatedPlayerId = (req as any).user?.playerId ?? null;
       res.json(options.websiteSummaryOnly ? toWebsiteTrackerData(db, role, authenticatedPlayerId) : toPublicTrackerData(db, role, authenticatedPlayerId));
@@ -116,9 +127,7 @@ export function registerDataRoutes(app: Express, options: { websiteSummaryOnly?:
 
   app.get('/api/website-summary', async (req, res) => {
     try {
-      const db = await readDB();
-      const retention = purgeExpiredRosterPlayers(db);
-      if (retention.purged.length) await saveDB(db);
+      const db = await loadWithRetention();
       res.json(toWebsiteTrackerData(db, (req as any).user?.role === 'coach' ? 'coach' : 'player', (req as any).user?.playerId ?? null));
     } catch (err: any) {
       res.status(500).json({ error: err.message });

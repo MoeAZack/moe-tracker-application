@@ -6,6 +6,16 @@ import { isDuplicateQuarantined } from './matchIntegrity';
 const PRIVATE_TOP_LEVEL_KEYS = new Set(['authKeys', 'allowedUsers', 'secretValues', '_storage', 'authenticatedViewer', 'tryoutDecisionNotes', 'identityCorrectionBatches', 'removedMatches']);
 const PRIVATE_SETTING_KEYS = new Set(['discordWebhook', 'gridApiKey', 'henrikApiKey', 'praccCalendarUrl', 'praccCalendarLastAttemptAt', 'praccCalendarLastSyncedAt', 'praccCalendarLastError', 'deletedCoachingSignalFingerprints']);
 
+/**
+ * Derived sections are conveniences built from the stored records. One that
+ * cannot be built is left out and logged; it must never stop matches, stats
+ * and the roster from loading.
+ */
+function derivedSection<T>(section: string, build: () => T): T | undefined {
+  try { return build(); }
+  catch (error: any) { console.error(`[tracker-data] ${section} left out: ${error?.message || error}`); return undefined; }
+}
+
 /** Build the tracker payload that is safe to send to the authenticated role. */
 export function toPublicTrackerData(db: Record<string, any>, role: 'coach' | 'player' = 'coach', authenticatedPlayerId?: string | null) {
   const publicData: Record<string, any> = {};
@@ -23,16 +33,17 @@ export function toPublicTrackerData(db: Record<string, any>, role: 'coach' | 'pl
   // replay observations. Both have dedicated role-aware endpoints and must never
   // hitchhike in the broad tracker payload, including for coaches.
   if (Array.isArray(publicData.matches) && Array.isArray(publicData.rounds)) {
-    const plans = new Map<string, ReturnType<typeof buildAcceptedMatchAggregatePlan>>(publicData.matches.map((match: any) => [match.id, buildAcceptedMatchAggregatePlan(publicData, match.id)]));
+    // A match whose aggregates cannot be rebuilt is sent as its stored source rows.
+    const plans = new Map<string, ReturnType<typeof buildAcceptedMatchAggregatePlan> | undefined>(publicData.matches.map((match: any) => [match.id, derivedSection(`aggregates for match ${match.id}`, () => buildAcceptedMatchAggregatePlan(publicData, match.id))]));
     publicData.matches = publicData.matches.map((match: any) => {
-      const plan = plans.get(match.id)!;
-      if (plan.build.status === 'recomputed' && plan.match) return plan.match;
+      const plan = plans.get(match.id);
+      if (plan?.build.status === 'recomputed' && plan.match) return plan.match;
       const { roundAnalytics: _quarantinedAggregate, ...sourceOnly } = match;
       return sourceOnly;
     });
     if (Array.isArray(publicData.playerStats)) publicData.playerStats = publicData.playerStats.map((stat: any) => {
       const plan = plans.get(stat.matchId);
-      const planned = plan?.playerStats.find(item => item.id === stat.id);
+      const planned = plan?.playerStats?.find(item => item.id === stat.id);
       const metric = planned?.screenshotMetrics;
       if (plan?.build.status === 'recomputed' && metric?.calculationVersion === PLAYER_SCREENSHOT_BUILDER
         && metric.sourceHash === plan.build.sourceHash) return planned;
@@ -41,22 +52,20 @@ export function toPublicTrackerData(db: Record<string, any>, role: 'coach' | 'pl
     });
   }
   if (role === 'coach' && db.workspace && Array.isArray(db.matches)) {
-    publicData.canonicalAnalytics = db.matches.map((match: any) => {
+    const canonicalAnalytics = derivedSection('canonical analytics', () => db.matches.map((match: any) => {
       const { canonicalJson: _canonicalJson, ...exported } = buildCanonicalAnalyticsExport(db, match.id);
       return exported;
-    });
+    }));
+    if (canonicalAnalytics) publicData.canonicalAnalytics = canonicalAnalytics; else delete publicData.canonicalAnalytics;
   }
   if (role === 'coach' && moe02FeatureEnabled('canonicalDataSpine', db.settings?.featureFlags)) {
-    // The spine is left out when it cannot be built or has broken references;
-    // it must never stop the rest of the workspace from loading.
-    try {
-      const spine = buildCanonicalDataSpine(db); const validation = validateCanonicalDataSpine(spine);
+    // The spine is also left out when it has broken references.
+    const spine = derivedSection('canonical data spine', () => {
+      const built = buildCanonicalDataSpine(db); const validation = validateCanonicalDataSpine(built);
       if (!validation.ok) throw Object.assign(new Error('Canonical data spine contains broken references.'), { issues: validation.issues });
-      publicData.canonicalDataSpine = spine;
-    } catch (error: any) {
-      delete publicData.canonicalDataSpine;
-      console.error(`[canonical-data-spine] left out: ${error?.message || error}`);
-    }
+      return built;
+    });
+    if (spine) publicData.canonicalDataSpine = spine; else delete publicData.canonicalDataSpine;
   } else delete publicData.canonicalDataSpine;
   if (role === 'coach') publicData.tryoutDecisionNotes = structuredClone(db.tryoutDecisionNotes || []);
   if (role === 'coach') publicData.identityCorrectionBatches = structuredClone(db.identityCorrectionBatches || []);
