@@ -336,6 +336,17 @@ describe('VOD timeline evidence', () => {
   it('finds the TAB board higher or lower in the frame and on teal rows', () => {
     for (const shift of [-.2, .15]) { const frame = tabFrame(shift); const fit = tabBoardFit(frame.pixels, frame.width, frame.height); expect(fit.rows).toBe(5); expect(fit.dy).toBeCloseTo(shift, 2); }
     const teal = tabFrame(0, 95); expect(tabBoardRows(teal.pixels, teal.width, teal.height)).toBe(5);
+    // Gameplay: bright texture also between ULTIMATE and K, where a board row is empty.
+    const busy = tabFrame(); const x = (value: number) => Math.round((value - TAB_BOX.x0) / (TAB_BOX.x1 - TAB_BOX.x0) * busy.width);
+    for (let row = 0; row < busy.height; row += 3) for (let col = x(.474); col <= x(.486); col += 4) busy.pixels[row * busy.width + col] = 240;
+    expect(tabBoardRows(busy.pixels, busy.width, busy.height)).toBeLessThan(4);
+  });
+
+  it('knows where the result-word end screen puts its digits', () => {
+    const [left, right] = analyzerModule.RESULT_SCORE_BOXES;
+    expect(left.x0).toBeLessThanOrEqual(.331); expect(left.x1).toBeGreaterThanOrEqual(.345); expect(left.x1).toBeLessThan(.375);
+    expect(right.x0).toBeGreaterThan(.625); expect(right.x0).toBeLessThanOrEqual(.654); expect(right.x1).toBeGreaterThanOrEqual(.678);
+    for (const box of [left, right]) { expect(box.y0).toBeLessThanOrEqual(.431); expect(box.y1).toBeGreaterThanOrEqual(.475); }
   });
 
   it('keeps a TAB board that is up for one sampled frame instead of the frame that closes it', () => {
