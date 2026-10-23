@@ -54,6 +54,23 @@ beforeEach(async () => {
 afterEach(async () => { if (server) { server.closeAllConnections(); await new Promise<void>((resolve, reject) => server!.close(error => error ? reject(error) : resolve())); server = undefined; } vi.unstubAllEnvs(); vi.resetModules(); if (tempDir) await fs.rm(tempDir, { recursive: true, force: true }); });
 
 describe('coach replay review workflow', () => {
+  it('keeps the existing score and uncertainty when accepted replay score is incomplete', async () => {
+    const coach = await login(adminKey); const seeded = JSON.parse(await fs.readFile(dbPath, 'utf8'));
+    seeded.matches[0].ourScore = 8; seeded.matches[0].theirScore = 16;
+    seeded.matches[0].scoreEvidence = { source: 'vod-hud', basis: 'end-banner', reads: 2 };
+    seeded.matches[0].partialScore = { ours: 8, theirs: 15, source: 'vod-hud' };
+    seeded.replayIntake.parserJobs.job1.result.scoreboard.finalScore.teamB.score = { value: null, status: 'unavailable', source: 'synthetic-redacted-fixture', confidence: 0 };
+    await fs.writeFile(dbPath, JSON.stringify(seeded));
+    expect((await request(`/api/replay-intake/uploads/${sha256}/review`, coach, { expectedRevision: 0, requestId: 'partial-score-review', matchId: 'm1', teamId: 'team-us', mappings })).status).toBe(200);
+    expect((await request(`/api/replay-intake/uploads/${sha256}/accept`, coach, { expectedRevision: 1, requestId: 'partial-score-accept', confirmed: true })).status).toBe(200);
+    const stored = JSON.parse(await fs.readFile(dbPath, 'utf8')); const match = stored.matches[0];
+    expect(match).toMatchObject({ ourScore: 8, theirScore: 16, scoreEvidence: { source: 'vod-hud' }, partialScore: { ours: 8, theirs: 15 } });
+    expect(match.scoreVerification).toBeUndefined();
+    const { applyVerifiedMatchScore } = await import('../lib/vodScore');
+    applyVerifiedMatchScore(match, 9, 15, 'scoreboard');
+    expect(match).toMatchObject({ ourScore: 9, theirScore: 15, scoreVerification: { source: 'scoreboard' } });
+  });
+
   it('creates new allied profiles on explicit replay acceptance beside a twenty-profile library', async () => {
     const coach = await login(adminKey); const seeded = JSON.parse(await fs.readFile(dbPath, 'utf8'));
     seeded.rosterPlayers.push(...Array.from({ length: 18 }, (_, index) => ({ id: `extra-${index}`, displayName: `Existing profile ${index}`, retiredAt: null })));
