@@ -294,6 +294,9 @@ describe('VOD import runner survives leaving the VOD tab', () => {
     const row = (kills: number | null, deaths: number | null, assists: number | null, acs: number | null) => ({ kills, deaths, assists, acs });
     const real = Array.from({ length: 10 }, (_, index) => row(10 + (index % 3), 11, 4, 180 + index));
     expect(looksLikeScoreboard(real)).toBe(true);
+    // ACS often reads empty at 720p: K/D/A alone still make a board, but a nonsense ACS does not.
+    expect(looksLikeScoreboard(real.map(item => ({ ...item, acs: null })))).toBe(true);
+    expect(looksLikeScoreboard(real.map(item => ({ ...item, acs: 0 })))).toBe(false);
     // Agent select: names and agents, no numbers.
     expect(looksLikeScoreboard(Array.from({ length: 10 }, () => row(null, null, null, null)))).toBe(false);
     // A gameplay frame: a few stray digits, most cells empty.
