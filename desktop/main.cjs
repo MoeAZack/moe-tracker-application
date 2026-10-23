@@ -24,7 +24,7 @@ const { loginCredentials } = require('./session-credentials.cjs');
 const { publicSession, apiRequestFilter, createSessionHeaderInjector } = require('./renderer-session.cjs');
 const { normalizeVodPerformance, MAX_OCR_WORKERS } = require('./vod-performance.cjs');
 const { normalizeMapHints } = require('./vod-map-reads.cjs');
-const { analyzeVodTimeline, normalizeTimelinePlayers, discoverVodGames, releaseVodSource, createReviewClips, readOwnedVodFrame, sweepOrphanedVodDirectories } = require('./vod-timeline-analyzer.cjs');
+const { analyzeVodTimeline, normalizeTimelinePlayers, discoverVodGames, releaseVodSource, keepVodFrames, createReviewClips, readOwnedVodFrame, sweepOrphanedVodDirectories } = require('./vod-timeline-analyzer.cjs');
 const { launchScrimCapture } = require('./capture-launch.cjs');
 const { createIngestionJob, updateIngestionJob: evolveIngestionJob, recoverInterruptedJobs, publicIngestionJob, clearIngestionHistory, listedIngestionJobs } = require('./ingestion-jobs.cjs');
 const { chooseLocalPort, createStrandedLearningRecovery } = require('./local-origin.cjs');
@@ -764,7 +764,9 @@ handleTrusted('desktop:release-vod-analysis', async (event, input) => {
   const cacheId = typeof input === 'string' ? input : input?.cacheId; const completed = typeof input === 'string' ? true : input?.completed === true;
   const cached = discoveredVodSources.get(String(cacheId || '')); if (!cached || cached.owner !== event.sender.id) return { released: false };
   discoveredVodSources.delete(String(cacheId)); approvedVodPaths.delete(cached.file);
-  const retainedSource = await releaseVodSource(cached, completed); if (cached.jobId) await updateIngestionJob(cached.jobId, { status: completed ? 'completed' : 'paused', stage: completed ? 'integrated' : 'import-paused', percent: completed ? 100 : null, retainedSource, resumable: !completed && retainedSource, checkpoint: completed ? { stage: 'integrated' } : { stage: 'import-paused', cacheId }, ...(!completed ? { message: 'Import stopped before every detected game was integrated. Resume from the retained source.' } : {}) }); return { released: true, retainedSource };
+  // Frames the saved games came from outlive the work directory, as evidence for a later re-read.
+  const keptFrames = Array.isArray(input?.keepFrames) && input.keepFrames.length ? await keepVodFrames(cached.directory, path.join(runtime.paths.local, 'Vod Evidence'), { cacheId, vodUrl: input?.vodUrl, frames: input.keepFrames }).catch(error => { console.warn(`[vod-analysis] frames not kept: ${error?.message || error}`); return { kept: 0, folder: null }; }) : { kept: 0, folder: null };
+  const retainedSource = await releaseVodSource(cached, completed); if (cached.jobId) await updateIngestionJob(cached.jobId, { status: completed ? 'completed' : 'paused', stage: completed ? 'integrated' : 'import-paused', percent: completed ? 100 : null, retainedSource, keptFrames: keptFrames.kept, resumable: !completed && retainedSource, checkpoint: completed ? { stage: 'integrated' } : { stage: 'import-paused', cacheId }, ...(!completed ? { message: 'Import stopped before every detected game was integrated. Resume from the retained source.' } : {}) }); return { released: true, retainedSource, keptFrames: keptFrames.kept };
 });
 handleTrusted('desktop:cancel-vod-analysis', event => { const controller = activeVodAnalyses.get(event.sender.id); if (!controller) return { cancelled: false }; controller.abort(new Error('VOD analysis was cancelled.')); return { cancelled: true }; });
 handleTrusted('desktop:cancel-ingestion-job', async (_event, jobId) => {

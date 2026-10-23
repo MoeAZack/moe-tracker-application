@@ -486,10 +486,61 @@ async function createReviewClips(input, options = {}) {
 
 const VOD_FRAME_NAME = /^(?:scoreboard-\d{2}|game-start-00)\.png$/;
 
+const VOD_EVIDENCE_LIMITS = { maxVods: 20, maxBytes: 300 * 1024 * 1024, maxFrameBytes: 8 * 1024 * 1024, maxFrames: 24 };
+
+/**
+ * Copy the frames a finished import used (end-of-game scoreboards, game starts)
+ * out of the work directory before it is removed, so a later re-identification
+ * can read them again. Each VOD gets one folder with a manifest; the oldest
+ * folders go first once the count or size cap is reached. Nothing leaves the PC.
+ */
+async function keepVodFrames(directory, evidenceRoot, input = {}, limits = VOD_EVIDENCE_LIMITS) {
+  const source = path.resolve(String(directory || '')); const root = path.resolve(String(evidenceRoot || ''));
+  const wanted = []; const seen = new Set();
+  for (const item of Array.isArray(input.frames) ? input.frames : []) {
+    const name = String(item?.frame || ''); if (!VOD_FRAME_NAME.test(name) || seen.has(name)) continue;
+    seen.add(name); wanted.push({ frame: name, matchId: typeof item.matchId === 'string' && item.matchId ? item.matchId.slice(0, 120) : null, kind: item.kind === 'game-start' ? 'game-start' : 'scoreboard' });
+    if (wanted.length >= limits.maxFrames) break;
+  }
+  if (!wanted.length || !fs.existsSync(source)) return { kept: 0, folder: null };
+  const keptAt = new Date().toISOString(); const cacheId = String(input.cacheId || '').replace(/[^0-9a-z-]/gi, '').slice(0, 36) || crypto.randomUUID();
+  const folder = `${keptAt.replace(/[:.]/g, '-')}-${cacheId}`; const target = path.join(root, folder); await fsp.mkdir(target, { recursive: true });
+  const frames = [];
+  for (const item of wanted) {
+    const file = path.join(source, item.frame); const stat = await fsp.stat(file).catch(() => null);
+    if (!stat?.isFile() || stat.size > limits.maxFrameBytes) continue;
+    await fsp.copyFile(file, path.join(target, item.frame)); frames.push({ ...item, bytes: stat.size });
+  }
+  if (!frames.length) { await fsp.rm(target, { recursive: true, force: true }); return { kept: 0, folder: null }; }
+  const vodUrl = typeof input.vodUrl === 'string' ? input.vodUrl.slice(0, 500) : null;
+  await fsp.writeFile(path.join(target, 'manifest.json'), JSON.stringify({ version: 1, vodUrl, keptAt, frames }, null, 2));
+  await pruneVodEvidence(root, limits, folder);
+  return { kept: frames.length, folder };
+}
+
+/** Remove the oldest evidence folders beyond the count and size caps; `keep` is never removed. */
+async function pruneVodEvidence(root, limits = VOD_EVIDENCE_LIMITS, keep = null) {
+  const folders = [];
+  for (const entry of await fsp.readdir(root, { withFileTypes: true }).catch(() => [])) {
+    if (!entry.isDirectory()) continue; const folder = path.join(root, entry.name); let bytes = 0;
+    for (const file of await fsp.readdir(folder, { withFileTypes: true }).catch(() => [])) if (file.isFile()) bytes += (await fsp.stat(path.join(folder, file.name)).catch(() => ({ size: 0 }))).size;
+    folders.push({ name: entry.name, bytes });
+  }
+  // Folder names start with an ISO time, so name order is age order.
+  folders.sort((left, right) => left.name.localeCompare(right.name));
+  let total = folders.reduce((sum, item) => sum + item.bytes, 0); const removed = [];
+  for (const item of folders) {
+    if (folders.length - removed.length <= limits.maxVods && total <= limits.maxBytes) break;
+    if (item.name === keep) continue;
+    await fsp.rm(path.join(root, item.name), { recursive: true, force: true }); removed.push(item.name); total -= item.bytes;
+  }
+  return removed;
+}
+
 /** Reads one named candidate frame from a discovery directory. */
 async function readVodFrame(directory, frame) {
   const name = String(frame || ''); if (!VOD_FRAME_NAME.test(name)) throw new Error('Unknown VOD frame.');
   return { mediaType: 'image/png', base64: (await fsp.readFile(path.join(path.resolve(directory), name))).toString('base64') };
 }
 
-module.exports = { sweepOrphanedVodDirectories, readOwnedVodFrame, readVodFrame, normalizeYoutubeUrl, youtubeVideoId, probeVideo, analyzeVodTimeline, normalizeTimelinePlayers, discoverVodGames, releaseVodSource, createReviewClips, changedFrames, changedFramesTogether, sampleRegions, recognizeFrames, createOcrPool, frameDifference, visualSignature, ensureDiskSpace, scoreboardGeometryScore, agentSelectGeometryScore, chooseGameBoundaries, inferPovPlayer };
+module.exports = { keepVodFrames, pruneVodEvidence, VOD_EVIDENCE_LIMITS, sweepOrphanedVodDirectories, readOwnedVodFrame, readVodFrame, normalizeYoutubeUrl, youtubeVideoId, probeVideo, analyzeVodTimeline, normalizeTimelinePlayers, discoverVodGames, releaseVodSource, createReviewClips, changedFrames, changedFramesTogether, sampleRegions, recognizeFrames, createOcrPool, frameDifference, visualSignature, ensureDiskSpace, scoreboardGeometryScore, agentSelectGeometryScore, chooseGameBoundaries, inferPovPlayer };
