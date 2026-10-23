@@ -114,7 +114,7 @@ describe('correcting an imported game', () => {
     const apiFetch = fake();
     const result = await saveVodGameEdit(game, { map: 'Haven', opponent: '', ourScore: 13, theirScore: 9 }, apiFetch);
     const [, init] = apiFetch.mock.calls.find(([url]) => url === '/api/save-match')!;
-    expect(JSON.parse(String(init!.body))).toEqual({ match: { ...saved, map: 'Haven', opponent: 'Scrim', ourScore: 13, theirScore: 9 }, statsUpdate: { operation: 'preserve' } });
+    expect(JSON.parse(String(init!.body))).toEqual({ match: { ...saved, map: 'Haven', opponent: 'Scrim', ourScore: 13, theirScore: 9, scoreConfirmed: true }, statsUpdate: { operation: 'preserve' } });
     expect(result.patch).toEqual({ map: 'Haven', score: '13–9', status: `${game.status} · corrected by you`, edited: true });
     expect(result.learned).toEqual(['havfn']);
     expect(mapHints(loadMapReadSamples())).toEqual([{ token: 'havfn', map: 'Haven' }]);

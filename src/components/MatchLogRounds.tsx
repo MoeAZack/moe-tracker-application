@@ -254,7 +254,8 @@ export default function MatchLogRounds({ data, theme, onSaveMatch, onRemove, onS
     // coach has not yet supplied both sides.
     const finalizedStats = editingStats.map(st => reconcileStatTotals(st));
 
-    const res = await onSaveMatch(editingMatch, { operation: 'replace', stats: finalizedStats });
+    // The form shows the final score, so saving it confirms a score read from the HUD.
+    const res = await onSaveMatch({ ...editingMatch, scoreConfirmed: true }, { operation: 'replace', stats: finalizedStats });
     const savedMatch = res?.match || res;
     setMatchModalOpen(false);
     setEditingMatch(null);
@@ -399,8 +400,8 @@ export default function MatchLogRounds({ data, theme, onSaveMatch, onRemove, onS
 
                   <div className="flex justify-between items-center text-xs font-mono text-gray-400">
                     <span>{m.map}</span>
-                    {result && <span className={`px-1.5 py-0.5 rounded-sm ${resultClass} font-black text-xs`}>
-                      {result}
+                    {result && <span className={`px-1.5 py-0.5 rounded-sm ${resultClass} font-black text-xs`} title={m.scoreEvidence ? 'Score read from the in-game HUD with the left side counted as yours. Edit the match if the sides are reversed.' : undefined}>
+                      {result}{m.scoreEvidence && <span className="ml-1 font-normal text-gray-500">· HUD, sides unconfirmed</span>}
                     </span>}
                   </div>
                 </button>

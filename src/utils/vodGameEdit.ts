@@ -19,7 +19,7 @@ export async function saveVodGameEdit(game: VodBatchGame, edit: VodGameEdit, api
   const data = await dataResponse.json();
   const existing = (data.matches || []).find((match: any) => match.id === game.matchId);
   if (!existing) throw new Error('The saved game was not found; it may have been removed.');
-  const match = { ...existing, map: edit.map.trim(), opponent: edit.opponent.trim() || existing.opponent || '', ourScore: edit.ourScore, theirScore: edit.theirScore };
+  const match = { ...existing, map: edit.map.trim(), opponent: edit.opponent.trim() || existing.opponent || '', ourScore: edit.ourScore, theirScore: edit.theirScore, scoreConfirmed: true };
   const response = await apiFetch('/api/save-match', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ match, statsUpdate: { operation: 'preserve' } }) });
   if (!response.ok) { const body = await response.json().catch(() => ({})); throw new Error(body.error || 'The correction could not be saved.'); }
   const mapChanged = match.map !== game.map;
