@@ -534,7 +534,7 @@ export default function MatchLogRounds({ data, theme, onSaveMatch, onRemove, onS
                           <tr key={ps.id} className="hover:bg-cyan-300/[0.055] transition-colors">
                             <td className="py-3 px-2.5 font-bold text-white text-xs"><span className="mr-2 inline-block h-5 w-0.5 rounded-full bg-cyan-300 align-middle shadow-[0_0_10px_rgba(103,232,249,0.8)]" />{ps.displayNameSnapshot || ps.player} <SourceChip kind={entrySource(ps)} /></td>
                             <td className="py-3 px-2.5 text-gray-400">{ps.agent}</td>
-                            <td className="py-3 px-2.5 text-center font-black text-slate-100">{ps.kills ?? '-'} <span className="text-gray-600">/</span> {ps.deaths ?? '-'} <span className="text-gray-600">/</span> {ps.assists ?? '-'}</td>
+                            <td className="py-3 px-2.5 text-center font-black text-slate-100">{ps.kills ?? '-'} <span className="text-gray-600">/</span> {ps.deaths ?? '-'} <span className="text-gray-600">/</span> {ps.assists ?? '-'}{ps.vodEvidence?.killFeed && <span className="block text-xs font-normal text-amber-400" title="Counted from the VOD kill feed; some kills may be missed. A scoreboard or your edit replaces it.">kill feed, partial</span>}</td>
                             <td className="py-3 px-2.5 text-center text-rose-300">{ps.fk ?? '-'}</td>
                             <td className="py-3 px-2.5 text-center text-amber-300">{ps.fd ?? ps.screenshotMetrics?.firstDeaths ?? '-'}</td>
                             <td className="py-3 px-2.5 text-center text-violet-300">{ps.plants ?? '-'}</td>

@@ -109,6 +109,22 @@ describe('a VOD match takes its missing score from the HUD', () => {
     expect(state.playerStats.every((stat: any) => stat.kills === null || stat.kills === undefined)).toBe(true);
   });
 
+  it('counts kills and deaths from the kill feed only as partial, and a scoreboard replaces them', () => {
+    const blank = { agent: null, kills: null, deaths: null, assists: null, acs: null, adr: null, hs: null, fk: null, fd: null, plants: null, defuses: null, trades: null };
+    const five = ['Ana', 'Ben', 'Cy', 'Dee', 'Eli'];
+    const feed = (kills: number) => ({ ...timeline([[0, 0], [6, 4], [12, 7]]), playerMetrics: five.map((playerName, index) => ({ playerName, team: 'ours', kills: index ? kills : 0, deaths: 2, trades: 0 })) });
+    const state = db(); const saved = integrateVodSubmission(state, submission({ imageSha256: 'f'.repeat(64), coachTeamEvidence: true, addObservedPlayers: true, players: five.map(observedName => ({ observedName, ...blank })), timelineEvidence: feed(4) }), 'Coach', ids(), '2026-10-23T00:00:00Z');
+    const rows = () => state.playerStats.filter((stat: any) => stat.matchId === saved.linkedMatchId);
+    expect(rows().map((stat: any) => [stat.kills, stat.deaths, stat.assists])).toEqual(five.map((_, index) => [index ? 4 : 0, 2, null]));
+    expect(rows().every((stat: any) => stat.vodEvidence.killFeed?.coverage === 'partial' && stat.vodEvidence.killFeed.fields.join() === 'kills,deaths')).toBe(true);
+    // A board for the same match replaces the partial counts and clears the mark.
+    integrateVodSubmission(state, submission({ imageSha256: '9'.repeat(64), vodUrl: 'https://example.test/board', matchId: saved.linkedMatchId, coachTeamEvidence: true, players: five.map(observedName => ({ observedName, ...blank, kills: 20, deaths: 15, assists: 3 })), timelineEvidence: null }), 'Coach', ids(), '2026-10-23T00:00:00Z');
+    expect(rows().map((stat: any) => [stat.kills, stat.deaths, stat.assists, stat.vodEvidence.killFeed])).toEqual(five.map(() => [20, 15, 3, undefined]));
+    // A feed that resolved no kill at all leaves K/D blank, never 0.
+    const empty = db(); const none = integrateVodSubmission(empty, submission({ imageSha256: '8'.repeat(64), coachTeamEvidence: true, addObservedPlayers: true, players: five.map(observedName => ({ observedName, ...blank })), timelineEvidence: { ...feed(0), playerMetrics: five.map(playerName => ({ playerName, team: 'ours', kills: 0, deaths: 0, trades: 0 })) } }), 'Coach', ids(), '2026-10-23T00:00:00Z');
+    expect(empty.playerStats.filter((stat: any) => stat.matchId === none.linkedMatchId).map((stat: any) => [stat.kills, stat.vodEvidence.killFeed])).toEqual(five.map(() => [null, undefined]));
+  });
+
   it('gives each game of one VOD its own match when the same five names are typed for every game', () => {
     const blank = { agent: null, kills: null, deaths: null, assists: null, acs: null, adr: null, hs: null, fk: null, fd: null, plants: null, defuses: null, trades: null };
     const state = db(); const five = ['Ana', 'Ben', 'Cy', 'Dee', 'Eli'];

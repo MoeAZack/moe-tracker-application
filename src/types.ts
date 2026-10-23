@@ -479,6 +479,8 @@ export interface PlayerStats {
   vodEvidence?: {
     submissionIds: string[]; fields: string[]; updatedAt: string;
     timeline?: { submissionId: string; grade: 'video-observation'; coverage: Record<string, 'complete' | 'partial' | 'unsupported'>; metrics: Record<string, number | null> };
+    /** Fields counted from the kill feed when no board gave them: partial, replaced by a board or a coach edit. */
+    killFeed?: { submissionId: string; fields: Array<'kills' | 'deaths'>; coverage: 'partial' };
   };
 }
 
