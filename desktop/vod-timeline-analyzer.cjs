@@ -4,7 +4,7 @@ const fs = require('node:fs');
 const fsp = require('node:fs/promises');
 const path = require('node:path');
 const os = require('node:os');
-const { aggregateVideoEvidence, applyVisualTemplates } = require('./vod-timeline-evidence.cjs');
+const { aggregateVideoEvidence, applyVisualTemplates, nameAppears } = require('./vod-timeline-evidence.cjs');
 const { gameProgressReporter, regionProgress } = require('./vod-progress.cjs');
 const { resolveBoundaryMap } = require('./vod-map-reads.cjs');
 const { normalizeVodPerformance, resolveOcrWorkers, sampledRange, regionDecodeArgs, combinedDecodeArgs } = require('./vod-performance.cjs');
@@ -275,7 +275,7 @@ function visualSignature(frame) {
 // Keeps the most-changed frame per time bucket for one HUD region. Fed raw gray
 // frames in decode order, from either decode path.
 function createChangeCollector(spec, durationSeconds, range, progress, signal, label = spec.label) {
-  const frameBytes = spec.width * spec.height; const fps = spec.fps; const buckets = new Map(); let previous = null; let pending = Buffer.alloc(0); let index = 0; let burstRemaining = 0;
+  const frameBytes = spec.width * spec.height; const fps = spec.fps; const buckets = new Map(); let previous = null; let pending = Buffer.alloc(0); let index = 0; let burstRemaining = 0; let lastKeptMs = -Infinity;
   const { startSeconds, sampledDuration } = range;
   return {
     push(chunk) {
@@ -285,7 +285,10 @@ function createChangeCollector(spec, durationSeconds, range, progress, signal, l
         const frame = Buffer.from(pending.subarray(0, frameBytes)); pending = pending.subarray(frameBytes); const timestampMs = Math.round(startSeconds * 1000 + index / fps * 1000); index += 1;
         const difference = frameDifference(previous, frame); const changed = difference >= spec.threshold;
         if (changed) burstRemaining = Math.max(burstRemaining, spec.burstFrames || 0);
-        if (changed || burstRemaining > 0) {
+        // A static HUD (the score between rounds, the last score before a disconnect) still gets a frame every few seconds.
+        const heartbeat = spec.everySeconds > 0 && timestampMs - lastKeptMs >= spec.everySeconds * 1000;
+        if (changed || burstRemaining > 0 || heartbeat) {
+          lastKeptMs = timestampMs;
           const bucket = Math.min(spec.maxCandidates - 1, Math.floor(timestampMs / Math.max(1, durationSeconds * 1000) * spec.maxCandidates)); const existing = buckets.get(bucket);
           if (!existing || difference > existing.difference) buckets.set(bucket, { timestampMs, pixels: frame, difference });
           if (!changed) burstRemaining -= 1;
@@ -403,33 +406,61 @@ const killFeedCrop = (box = KILL_FEED_BOX) => `crop=iw*${+(box.x1 - box.x0).toFi
 const BANNER_CROP = { x0: .15, x1: .85, y0: .42, y1: .55 };
 const SCORE_BOXES = [{ x0: .255, x1: .295, y0: .445, y1: .525 }, { x0: .690, x1: .735, y0: .445, y1: .525 }];
 
-// One score cut from its fixed box: lit pixels (gray > 110; the overlay is ~25) as ink, dark on
+// One score cut from its fixed box: lit pixels (over half the box's brightest; the overlay is ~25) as ink, dark on
 // white, trimmed, padded and scaled up 3x (its height). Each glyph's width/height goes with it for the 7/1 check.
-function scoreBoxCrop(pixels, width, height, box, scale = 3, light = 110) {
+function scoreBoxCrop(pixels, width, height, box, scale = 3, light = null) {
   if (!pixels || pixels.length < width * height) return null;
   const px = value => Math.round((value - BANNER_CROP.x0) / (BANNER_CROP.x1 - BANNER_CROP.x0) * width), py = value => Math.round((value - BANNER_CROP.y0) / (BANNER_CROP.y1 - BANNER_CROP.y0) * height);
   const left = Math.max(0, px(box.x0)), right = Math.min(width - 1, px(box.x1)), top = Math.max(0, py(box.y0)), bottom = Math.min(height - 1, py(box.y1));
-  const lit = (x, y) => pixels[y * width + x] > light; const glyphs = [];
+  // The red score is dim in grey (~110, near a fixed cut), so each box is cut at half its own brightest pixel.
+  if (light === null) { let brightest = 0; for (let y = top; y <= bottom; y += 1) for (let x = left; x <= right; x += 1) brightest = Math.max(brightest, pixels[y * width + x]); light = Math.max(60, Math.round(brightest * .55)); }
+  const lit = (x, y) => pixels[y * width + x] > light; const glyphs = []; const ink = new Map();
+  // Glyphs split at any empty column: the 1 and 7 of "17" stand ~1 px apart.
   for (let x = left; x <= right; x += 1) {
     let first = -1, last = -1, count = 0; for (let y = top; y <= bottom; y += 1) if (lit(x, y)) { count += 1; if (first < 0) first = y; last = y; }
-    if (count < 2) continue; const run = glyphs.at(-1);
-    if (run && x - run.end <= 2) { run.end = x; run.top = Math.min(run.top, first); run.bottom = Math.max(run.bottom, last); } else glyphs.push({ start: x, end: x, top: first, bottom: last });
+    ink.set(x, count); if (count < 2) continue; const run = glyphs.at(-1);
+    if (run && x - run.end <= 1) { run.end = x; run.top = Math.min(run.top, first); run.bottom = Math.max(run.bottom, last); } else glyphs.push({ start: x, end: x, top: first, bottom: last });
   }
-  // Digits fill ~70% of the box height; the words (~25%) and specks do not count.
-  const kept = glyphs.filter(run => run.bottom - run.top + 1 >= (bottom - top + 1) * .5); if (!kept.length) return null;
   // The crop is squeezed (980x182 from a 16:9 band 0.70 wide, 0.13 tall): widths are stretched back
   // so glyph shapes, and the 7/1 width check, are as on screen.
   const aspect = ((BANNER_CROP.x1 - BANNER_CROP.x0) * 16) / ((BANNER_CROP.y1 - BANNER_CROP.y0) * 9) / (width / height); const sx = Math.max(1, Math.round(scale * aspect)), sy = scale;
-  const x0 = kept[0].start, x1 = kept.at(-1).end, y0 = Math.min(...kept.map(run => run.top)), y1 = Math.max(...kept.map(run => run.bottom));
-  const pad = 10, cropWidth = (x1 - x0 + 1 + pad * 2) * sx, cropHeight = (y1 - y0 + 1 + pad * 2) * sy; const out = Buffer.alloc(cropWidth * cropHeight, 255);
-  for (let y = y0; y <= y1; y += 1) for (let x = x0; x <= x1; x += 1) if (lit(x, y)) for (let dy = 0; dy < sy; dy += 1) { const row = ((y - y0 + pad) * sy + dy) * cropWidth; out.fill(0, row + (x - x0 + pad) * sx, row + (x - x0 + pad + 1) * sx); }
-  return { pixels: out, width: cropWidth, height: cropHeight, glyphs: kept.map(run => ({ width: Math.round((run.end - run.start + 1) * aspect), height: run.bottom - run.top + 1 })) };
+  // Digits fill ~70% of the box height; the words (~25%) and specks do not count.
+  let kept = glyphs.filter(run => run.bottom - run.top + 1 >= (bottom - top + 1) * .5); if (!kept.length) return null;
+  // One glyph wider than any digit (~0.45) is two touching digits: split it at its thinnest column.
+  kept = kept.flatMap(run => {
+    if ((run.end - run.start + 1) * aspect / (run.bottom - run.top + 1) <= .62) return [run];
+    const from = run.start + Math.floor((run.end - run.start) * .2), to = run.end - Math.floor((run.end - run.start) * .2); let cut = from; for (let x = from; x <= to; x += 1) if (ink.get(x) < ink.get(cut)) cut = x;
+    return [{ ...run, end: cut - 1 }, { ...run, start: cut + 1 }];
+  });
+  const render = (x0, x1, y0, y1) => {
+    const pad = 10, cropWidth = (x1 - x0 + 1 + pad * 2) * sx, cropHeight = (y1 - y0 + 1 + pad * 2) * sy; const out = Buffer.alloc(cropWidth * cropHeight, 255);
+    for (let y = y0; y <= y1; y += 1) for (let x = x0; x <= x1; x += 1) if (lit(x, y)) for (let dy = 0; dy < sy; dy += 1) { const row = ((y - y0 + pad) * sy + dy) * cropWidth; out.fill(0, row + (x - x0 + pad) * sx, row + (x - x0 + pad + 1) * sx); }
+    return { pixels: out, width: cropWidth, height: cropHeight };
+  };
+  const y0 = Math.min(...kept.map(run => run.top)), y1 = Math.max(...kept.map(run => run.bottom));
+  return { ...render(kept[0].start, kept.at(-1).end, y0, y1), glyphs: kept.map(run => ({ width: Math.round((run.end - run.start + 1) * aspect), height: run.bottom - run.top + 1, crop: render(run.start, run.end, y0, y1) })) };
 }
 
 // This font's lone 7 reads as "1" to Tesseract. A 1 is narrow (width/height ~0.28), a 7 is not (~0.44).
+const narrowGlyph = glyph => glyph.width / glyph.height < .35;
 function fixSevens(read, glyphs) {
   const digits = String(read || '').replace(/\D/g, ''); if (!digits || !glyphs || digits.length !== glyphs.length) return digits || null;
-  return [...digits].map((digit, index) => digit === '1' && glyphs[index].width / glyphs[index].height > .35 ? '7' : digit).join('');
+  return [...digits].map((digit, index) => digit === '1' && !narrowGlyph(glyphs[index]) ? '7' : digit).join('');
+}
+
+// A score read glyph by glyph, so a narrow leading 1 is never dropped ("17" read as "7"): a narrow glyph
+// is a 1 (no other digit is that narrow), each other one is read on its own. The whole box is the fallback.
+async function readScoreBox(box, text) {
+  const raw = {};
+  if (box.glyphs.length === 2) {
+    const digits = [];
+    for (const glyph of box.glyphs) {
+      if (narrowGlyph(glyph)) { digits.push('1'); continue; }
+      const read = await text(glyph.crop); (raw.glyphs ||= []).push(read.trim()); const digit = fixSevens(read.match(/\d/)?.[0], [glyph]); if (!digit) { digits.length = 0; break; } digits.push(digit);
+    }
+    if (digits.length === box.glyphs.length) return { value: digits.join(''), raw };
+  }
+  raw.box = await text(box); return { value: fixSevens(raw.box, box.glyphs)?.slice(0, 2) || null, raw };
 }
 
 const BANNER_LINE = /\ballies\b[^\d]{0,24}?(\d{1,2})[^\d]{1,24}?(\d{1,2})[^\d]{0,24}?\benemies\b/i;
@@ -470,7 +501,7 @@ async function readBannerDigits(frames, snapshots, worker, log = line => void li
       for (const item of tried) {
         let left = null, right = null; const halves = item.crop ? splitDigitCrop(item.crop) : null; const raw = item.raw || {};
         const boxes = SCORE_BOXES.map(box => scoreBoxCrop(item.frame.pixels, item.frame.width, item.frame.height, box));
-        if (boxes.every(Boolean)) { raw.boxLeft = await text(boxes[0]); raw.boxRight = await text(boxes[1]); left = fixSevens(raw.boxLeft, boxes[0].glyphs)?.slice(0, 2); right = fixSevens(raw.boxRight, boxes[1].glyphs)?.slice(0, 2); }
+        if (boxes.every(Boolean)) { const reads = [await readScoreBox(boxes[0], text), await readScoreBox(boxes[1], text)]; raw.boxLeft = JSON.stringify(reads[0].raw); raw.boxRight = JSON.stringify(reads[1].raw); left = reads[0].value; right = reads[1].value; }
         if ((!left || !right) && halves) { raw.left = await text(halves[0]); raw.right = await text(halves[1]); left = raw.left.match(/\d{1,2}/)?.[0]; right = raw.right.match(/\d{1,2}/)?.[0]; }
         if ((!left || !right) && item.crop) { raw.middle = await text(item.crop); const match = raw.middle.match(/(\d{1,2})\D+(\d{1,2})/); if (match) [left, right] = [match[1], match[2]]; }
         // Every attempt's raw OCR text, so a miss shows which crop read what.
@@ -493,6 +524,16 @@ async function readBannerDigits(frames, snapshots, worker, log = line => void li
     log(`end-banner: frames ${counts.frames}, with text ${counts.withText}, anchor word ${counts.anchorWord}, dark split ${counts.darkSplit}, tried ${counts.tried}, anchor read ${counts.anchorRead}, digits read ${counts.read}`);
   }
   return out.sort((a, b) => a.timestampMs - b.timestampMs);
+}
+
+// Why a kill feed gave few kills: rows read, rows with two name-like words (a killer and a victim),
+// rows naming one of our players, and what was credited. Counts only, never the names.
+function killFeedSummary(snapshots, players, evidence) {
+  const rows = (snapshots || []).flatMap(snapshot => String(snapshot.text || '').split(/[\r\n]+/).map(line => line.trim()).filter(Boolean));
+  const twoNames = rows.filter(line => line.split(/\s+/).filter(word => /[a-z]{3,}/i.test(word)).length >= 2).length;
+  const ours = players.filter(player => player.team === 'ours'); const naming = rows.filter(line => ours.some(player => nameAppears(line, player.name))).length;
+  const eliminations = (evidence?.observations || []).filter(item => item.kind === 'elimination').length; const metrics = (evidence?.playerMetrics || []).filter(metric => metric.team === 'ours');
+  return `kill-feed: frames ${(snapshots || []).length}, rows ${rows.length}, rows with two names ${twoNames}, rows naming ours ${naming}, eliminations ${eliminations}, our kills ${metrics.reduce((sum, metric) => sum + (metric.kills || 0), 0)}, our deaths ${metrics.reduce((sum, metric) => sum + (metric.deaths || 0), 0)}`;
 }
 
 // Sparse-text OCR puts each word of a kill-feed row on its own line, so "killer [gun] victim" never
@@ -596,7 +637,7 @@ async function analyzeVodTimeline(input, options = {}) {
       // 720p: in the old wide crop a 720p row's names were ~13 px tall, too small for Tesseract to read.
       { key: 'killFeedSnapshots', label: 'kill feed', fps: 2, crop: killFeedCrop(), width: 960, height: 464, threshold: .15, burstFrames: 3, maxCandidates: 3600, rows: true },
       { key: 'objectiveSnapshots', label: 'round and objective notices', fps: 1, crop: 'crop=iw*0.62:ih*0.34:iw*0.19:ih*0.02', width: 720, height: 222, threshold: .15, burstFrames: 2, maxCandidates: 1800 },
-      { key: 'roundStateSnapshots', label: 'round state and score', fps: 1, crop: 'crop=iw*0.46:ih*0.20:iw*0.27:0', width: 700, height: 240, threshold: .10, burstFrames: 2, maxCandidates: 1800 },
+      { key: 'roundStateSnapshots', label: 'round state and score', fps: 1, crop: 'crop=iw*0.46:ih*0.20:iw*0.27:0', width: 700, height: 240, threshold: .10, burstFrames: 2, maxCandidates: 1800, everySeconds: 10 },
       { key: 'ultimateSnapshots', label: 'ultimate state', fps: 1, crop: 'crop=iw*0.28:ih*0.25:iw*0.36:ih*0.72', width: 520, height: 260, threshold: .12, burstFrames: 2, maxCandidates: 1800 },
       { key: 'povSnapshots', label: 'POV identity', fps: .25, crop: 'crop=iw*0.34:ih*0.28:0:ih*0.67', width: 560, height: 280, threshold: .08, burstFrames: 1, maxCandidates: 600 },
       { key: 'scoreboardSnapshots', label: 'scoreboard totals', fps: .2, crop: 'crop=iw*0.78:ih*0.72:iw*0.11:ih*0.14', width: 1100, height: 680, threshold: .12, burstFrames: 1, maxCandidates: 480 },
@@ -626,6 +667,7 @@ async function analyzeVodTimeline(input, options = {}) {
     const rangeDurationMs = Number(input.endMs) > Number(input.startMs || 0) ? Number(input.endMs) - Number(input.startMs || 0) : probe.durationMs;
     const inferredPov = input.observerMode ? null : (input.povPlayerName || inferPovPlayer(snapshots.povSnapshots || [], input.players || []));
     const evidence = aggregateVideoEvidence({ players: input.players || [], povPlayerName: inferredPov || null, observerMode: !!input.observerMode, durationMs: rangeDurationMs, killFeedSnapshots: snapshots.killFeedSnapshots, objectiveSnapshots: snapshots.objectiveSnapshots, roundStateSnapshots: snapshots.roundStateSnapshots, ultimateSnapshots: snapshots.ultimateSnapshots, povSnapshots: snapshots.povSnapshots, scoreboardSnapshots: snapshots.scoreboardSnapshots, endBannerSnapshots: snapshots.endBannerSnapshots });
+    log(killFeedSummary(snapshots.killFeedSnapshots, input.players || [], evidence));
     evidence.limitations.push(inferredPov ? `POV identity used for personal orb and ultimate evidence: ${inferredPov}.` : 'No single player POV identity was proven; personal orb and ultimate totals remain unknown.');
     evidence.source = { kind: input.sourceKind || (downloaded ? 'youtube' : 'local-file'), videoId: input.videoId || youtubeVideoId(input.vodUrl), sha256: input.sourceSha256 || await sha256File(file), width: probe.width, height: probe.height, durationMs: probe.durationMs, analyzedAt: new Date().toISOString() };
     checkpoint.completedAt = new Date().toISOString(); await writeCheckpoint(options.checkpointFile, checkpoint); progress?.({ stage: 'complete', percent: 100, message: `Timeline scan complete · ${evidence.observations.length} supported observations.` }); return evidence;
@@ -669,4 +711,4 @@ async function readVodFrame(directory, frame) {
   return { mediaType: 'image/png', base64: (await fsp.readFile(path.join(path.resolve(directory), name))).toString('base64') };
 }
 
-module.exports = { KILL_FEED_BOX, killFeedCrop, scoreBoxCrop, fixSevens, SCORE_BOXES, rowText, stretchedBanner, splitDigitCrop, bannerDigitCrop, readBannerDigits, sweepOrphanedVodDirectories, readOwnedVodFrame, readVodFrame, normalizeYoutubeUrl, youtubeVideoId, probeVideo, analyzeVodTimeline, normalizeTimelinePlayers, discoverVodGames, releaseVodSource, createReviewClips, changedFrames, changedFramesTogether, sampleRegions, recognizeFrames, createOcrPool, frameDifference, visualSignature, ensureDiskSpace, scoreboardGeometryScore, agentSelectGeometryScore, chooseGameBoundaries, inferPovPlayer };
+module.exports = { killFeedSummary, createChangeCollector, readScoreBox, KILL_FEED_BOX, killFeedCrop, scoreBoxCrop, fixSevens, SCORE_BOXES, rowText, stretchedBanner, splitDigitCrop, bannerDigitCrop, readBannerDigits, sweepOrphanedVodDirectories, readOwnedVodFrame, readVodFrame, normalizeYoutubeUrl, youtubeVideoId, probeVideo, analyzeVodTimeline, normalizeTimelinePlayers, discoverVodGames, releaseVodSource, createReviewClips, changedFrames, changedFramesTogether, sampleRegions, recognizeFrames, createOcrPool, frameDifference, visualSignature, ensureDiskSpace, scoreboardGeometryScore, agentSelectGeometryScore, chooseGameBoundaries, inferPovPlayer };

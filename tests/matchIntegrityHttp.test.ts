@@ -93,6 +93,21 @@ describe('H0 integrity over HTTP', () => {
     expect(response.status).toBe(200); expect((await response.json()).duplicateReview).toBeNull();
   });
 
+  it('drops the kill-feed mark from a count the coach edited, keeps it on untouched ones, and never takes it from the client', async () => {
+    const mark = { submissionId: 's1', fields: ['kills', 'deaths'], coverage: 'partial' };
+    await reset(db => { for (const stat of db.playerStats.slice(0, 2)) stat.vodEvidence = { submissionIds: ['s1'], fields: ['kills', 'deaths'], updatedAt: 'x', killFeed: mark }; });
+    const token = await login(adminKey); const data = await stored(token);
+    const match = data.matches.find((row: any) => row.id === 'a'); const stats = data.playerStats.filter((row: any) => row.matchId === 'a');
+    stats[0].kills = (stats[0].kills ?? 0) + 1; stats[2].vodEvidence = { submissionIds: [], fields: [], updatedAt: 'x', killFeed: mark };
+    const response = await post(token, '/api/save-match', { match, statsUpdate: { operation: 'replace', stats } });
+    const result = await response.json(); expect(response.status, JSON.stringify(result)).toBe(200);
+    const saved = (await stored(token)).playerStats.filter((row: any) => row.matchId === 'a');
+    const byId = (id: string) => saved.find((row: any) => row.id === id);
+    expect(byId(stats[0].id).vodEvidence.killFeed).toEqual({ ...mark, fields: ['deaths'] });
+    expect(byId(stats[1].id).vodEvidence.killFeed).toEqual(mark);
+    expect(byId(stats[2].id).vodEvidence?.killFeed).toBeUndefined();
+  });
+
   it('rejects a stale round id with 409 and keeps the stored rounds', async () => {
     await reset(); const token = await login(adminKey);
     const response = await post(token, '/api/save-rounds', { matchId: 'a', rows: [{ id: 'not-a-round-of-this-match', roundNo: 1, result: 'W' }] });

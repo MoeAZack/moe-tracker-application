@@ -143,9 +143,11 @@ export function integrateVodSubmission(db: any, input: SubmissionInput, actorNam
     stat.appearanceType = appearanceType(db, observed.rosterPlayerId);
     const fields: string[] = [];
     if ((!stat.agent || stat.agent === 'Unknown') && observed.agent) { stat.agent = observed.agent; fields.push('agent'); } else if (observed.agent) preservedFields += 1;
+    // A field counted from a kill feed is partial: a board's value replaces it.
+    const feedFields = new Set<string>(stat.vodEvidence?.killFeed?.fields || []);
     for (const field of METRIC_FIELDS) {
       const candidate = observed[field];
-      if ((stat as any)[field] === null || (stat as any)[field] === undefined) { if (candidate !== null) { (stat as any)[field] = candidate; fields.push(field); } }
+      if ((stat as any)[field] === null || (stat as any)[field] === undefined || (feedFields.has(field) && candidate !== null)) { if (candidate !== null) { (stat as any)[field] = candidate; fields.push(field); feedFields.delete(field); } }
       else if (candidate !== null) preservedFields += 1;
     }
     filledFields += fields.length;
@@ -164,7 +166,15 @@ export function integrateVodSubmission(db: any, input: SubmissionInput, actorNam
       setTimelineMetric('kastSuccessful', timelineMetric.kastSuccessful ?? null, 'kast');
       setTimelineMetric('kastCovered', timelineMetric.kastCovered ?? null, 'kast');
     }
+    // No board gave kills or deaths: count them from this VOD's kill feed when it resolved any kill at
+    // all (zero events means the feed was unread, not that nobody died). Marked partial, never complete.
+    const feedResolved = (input.timelineEvidence?.playerMetrics || []).some(metric => (metric.kills || 0) + (metric.deaths || 0) > 0);
+    if (timelineMetric && feedResolved) for (const field of ['kills', 'deaths'] as const) {
+      if ((stat as any)[field] === null || (stat as any)[field] === undefined || feedFields.has(field)) { stat[field] = timelineMetric[field]; feedFields.add(field); fields.push(field); }
+    }
+    const killFeed = feedFields.size ? { submissionId: ids.submissionId, fields: [...feedFields] as Array<'kills' | 'deaths'>, coverage: 'partial' as const } : null;
     stat.vodEvidence = {
+      ...(killFeed ? { killFeed } : {}),
       submissionIds: [...new Set([...(stat.vodEvidence?.submissionIds || []), ids.submissionId])], fields: [...new Set([...(stat.vodEvidence?.fields || []), ...fields])], updatedAt: now,
       ...(timelineMetric && input.timelineEvidence ? { timeline: { submissionId: ids.submissionId, grade: 'video-observation' as const, coverage: input.timelineEvidence.coverage.signals, metrics: { observedKills: timelineMetric.kills, observedDeaths: timelineMetric.deaths, trades: timelineMetric.trades, ultimateUses: timelineMetric.ultimateUses ?? null, orbCaptures: timelineMetric.orbCaptures ?? null, kastSuccessful: timelineMetric.kastSuccessful ?? null, kastCovered: timelineMetric.kastCovered ?? null } } } : {}),
     };

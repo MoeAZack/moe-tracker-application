@@ -4,6 +4,23 @@ Last reconciled: 22 October 2026, Africa/Cairo. Version 0.2.0 is published
 (unsigned). The owner picked stages R1 to R4 from the second audit; R5 was not
 picked. Older sections below are kept as the record of what shipped.
 
+## Direction — the VOD is the primary source
+
+Set by the owner on 23 October 2026. A full coach VOD shows the whole game, so a
+VOD alone should produce a complete match: the final score, every round and its
+winner, and every kill, death and assist from the kill feed. Later it should also
+give player positions and moves, drawn on a 2D map. A scoreboard screenshot, a
+mid-game TAB board, the end screen and a replay file are layers that confirm or
+correct the VOD numbers. They are not required before a match can be saved.
+Several POVs of the same game merge, each filling what another missed.
+
+- [x] Kills and deaths from the kill feed when no board is read (a board still wins)
+- [x] End screen and last HUD score (partial when the game is cut off)
+- [ ] TAB boards found on the 720p coach view, used to correct the kill-feed tally
+- [ ] Assists, round winners and round count from the VOD
+- [ ] Multi-POV merge: one match per game, each submission's timeline fused (`fuseVodEvidence` is the seam)
+- [ ] 2D replay of positions and moves (not started)
+
 ## Current — after 0.2.0
 
 - [ ] **R1 Clean house**
