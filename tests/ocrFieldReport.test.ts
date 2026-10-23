@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { diffRuns, fieldReport, pairRows } from '../scripts/ocrFieldReport.mjs';
+import { diffRuns, fieldReport, outcomeChanges, pairRows } from '../scripts/ocrFieldReport.mjs';
 import { replayJoinedLabels } from '../scripts/replayJoinedLabels.mjs';
 
 const session = (captureId: string, extra: Record<string, unknown> = {}) => ({
@@ -207,5 +207,25 @@ describe('ocr-field-report command', () => {
       expect(changed.status).toBe(1);
       expect(JSON.parse(changed.stdout).baseline.diffs).toEqual([{ captureId: 'Scrim-1', cell: 'players.0.assists', baseline: 5, candidate: 6 }]);
     } finally { await fs.rm(dir, { recursive: true, force: true }); }
+  });
+});
+
+describe('outcome changes between two runs', () => {
+  it('counts cells a candidate read where the baseline abstained, split by right and wrong, and right values it broke', () => {
+    const corpus = { sessions: [session('s1'), session('s2')] };
+    const baseline = {
+      s1: output([{ extractedName: 'Player1', agent: 'Jett', kills: null, deaths: 10, assists: null }, { extractedName: 'Player2', agent: 'Sova', kills: 15, deaths: 12, assists: 8 }]),
+      s2: output([{ extractedName: 'Player1', agent: 'Jett', kills: 20, deaths: 10, assists: 5 }]),
+    };
+    const candidate = {
+      s1: output([{ extractedName: 'Player1', agent: 'Jett', kills: 20, deaths: 10, assists: 6 }, { extractedName: 'Player2', agent: 'Sova', kills: 16, deaths: 12, assists: 8 }]),
+      s2: output([{ extractedName: 'Player1', agent: 'Jett', kills: 20, deaths: 10, assists: 5 }]),
+    };
+    expect(outcomeChanges(corpus, baseline, candidate)).toEqual({
+      total: { 'abstained->correct': 1, 'abstained->falseAccept': 1, 'correct->falseAccept': 1 },
+      fields: { kills: { 'abstained->correct': 1, 'correct->falseAccept': 1 }, assists: { 'abstained->falseAccept': 1 } },
+      unaligned: [],
+    });
+    expect(outcomeChanges(corpus, baseline, structuredClone(baseline)).total).toEqual({});
   });
 });

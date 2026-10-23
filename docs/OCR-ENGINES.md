@@ -58,7 +58,7 @@ Only after the PC runs below. Proposed bar: on corpus14 at 1080p and resampled 1
 Run on the PC with corpus14 (`C:\Dev\tmp\ocr-regress\corpus14`) after `npm run build`; relay counts only.
 
 1. Default unchanged: `node scripts/backtest-capture-browser.mjs <out>\tesseract <corpus folders>` then `npm run ocr:report -- <out>\tesseract --baseline <baseline-b1e8e12>` → expect 0 cell diffs.
-2. Per engine: the same with `--engine paddle` and `--engine ensemble` into separate folders (ensemble's templates carry across the sessions in folder order), each `npm run ocr:report -- <out>\<engine> --baseline <baseline-b1e8e12>`: K/D/A ground-truth accuracy, false accepts (must be 0), cell diffs vs baseline.
+2. Per engine: the same with `--engine paddle` and `--engine ensemble` into separate folders (ensemble's templates carry across the sessions in folder order), each `npm run ocr:report -- <out>\<engine> --baseline <baseline-b1e8e12>`: K/D/A ground-truth accuracy, false accepts (must be 0), cell diffs vs baseline, and `baseline.outcomeChanges`: `abstained->correct` / `abstained->falseAccept` are the cells the engine read where Tesseract left them empty, right and wrong (PaddleOCR and the templates learned from it are correlated voters, so this is where Ensemble could agree on a wrong number), and `correct->falseAccept` must be 0.
 3. With the learned model: repeat 2 with `CORRECTION_MODEL_JSON` set. Expect the Tesseract-scoped rules not to fire for paddle/ensemble (their source model differs).
 4. 1600x900: repeat 2 with `--resample 1600x900`.
 5. Timing: the `seconds` field per session in each output, Tesseract vs paddle vs ensemble.
