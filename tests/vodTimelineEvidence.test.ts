@@ -24,8 +24,10 @@ describe('VOD timeline evidence', () => {
     const vod2g2 = collect(3_888, 7_504, 1, 3_617);
     expect(vod2g2.every(timestamp => timestamp >= 3_888_000 && timestamp <= 7_504_000)).toBe(true);
     expect(vod2g2.filter(timestamp => timestamp >= 6_822_000 && timestamp <= 6_852_000).length).toBeGreaterThanOrEqual(2);
-    const vod3g3 = collect(8_928, 10_079, 1, 1_152);
-    expect(vod3g3.every(timestamp => timestamp >= 8_928_000 && timestamp <= 10_079_000)).toBe(true);
+    const vod2g3 = collect(7_504, 10_180, 1, 2_677);
+    expect(vod2g3.every(timestamp => timestamp >= 7_504_000 && timestamp <= 10_180_000)).toBe(true);
+    const vod3g3 = collect(7_408, 10_079, 1, 2_672);
+    expect(vod3g3.every(timestamp => timestamp >= 7_408_000 && timestamp <= 10_079_000)).toBe(true);
     expect(vod3g3.filter(timestamp => timestamp >= 10_076_000 && timestamp <= 10_079_000)).toEqual([10_076_000, 10_077_000, 10_078_000, 10_079_000]);
   });
 
