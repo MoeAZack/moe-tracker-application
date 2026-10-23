@@ -7,7 +7,7 @@ import analyzerModule from '../desktop/vod-timeline-analyzer.cjs';
 import { boundaryTimelinePlayers } from '../src/components/VodSubmission';
 
 const { aggregateVideoEvidence, NO_IDENTITIES_LIMITATION, parseKillFeedSnapshot, parseUltimateSnapshots, parseRoundStateSnapshot, buildRoundTimeline, buildObserverSegments, applyVisualTemplates, fuseVodEvidence } = evidenceModule;
-const { sweepOrphanedVodDirectories, normalizeYoutubeUrl, youtubeVideoId, frameDifference, visualSignature, scoreboardGeometryScore, agentSelectGeometryScore, chooseGameBoundaries, inferPovPlayer, analyzeVodTimeline, releaseVodSource, discoverVodGames, readVodFrame, readOwnedVodFrame, normalizeTimelinePlayers } = analyzerModule;
+const { keepVodFrames, pruneVodEvidence, sweepOrphanedVodDirectories, normalizeYoutubeUrl, youtubeVideoId, frameDifference, visualSignature, scoreboardGeometryScore, agentSelectGeometryScore, chooseGameBoundaries, inferPovPlayer, analyzeVodTimeline, releaseVodSource, discoverVodGames, readVodFrame, readOwnedVodFrame, normalizeTimelinePlayers } = analyzerModule;
 const players = [
   { name: 'Alpha', team: 'ours' }, { name: 'Bravo', team: 'ours' }, { name: 'Charlie', team: 'ours' }, { name: 'Delta', team: 'ours' }, { name: 'Echo', team: 'ours' },
   { name: 'EnemyOne', team: 'theirs' }, { name: 'EnemyTwo', team: 'theirs' }, { name: 'EnemyThree', team: 'theirs' }, { name: 'EnemyFour', team: 'theirs' }, { name: 'EnemyFive', team: 'theirs' },
@@ -188,6 +188,35 @@ describe('VOD timeline evidence', () => {
     const root = await fs.mkdtemp(path.join(os.tmpdir(), 'moe-vod-release-')); const downloaded = path.join(root, 'downloaded'); await fs.mkdir(downloaded); const downloadedFile = path.join(downloaded, 'vod.mp4'); await fs.writeFile(downloadedFile, 'video');
     await expect(releaseVodSource({ downloaded: true, directory: downloaded, file: downloadedFile }, true)).resolves.toBe(false); await expect(fs.stat(downloaded)).rejects.toThrow();
     const localFile = path.join(root, 'coach.mp4'); await fs.writeFile(localFile, 'video'); await expect(releaseVodSource({ downloaded: false, directory: root, file: localFile }, true)).resolves.toBe(true); expect(await fs.readFile(localFile, 'utf8')).toBe('video'); await fs.rm(root, { recursive: true, force: true });
+  });
+
+  it('keeps the frames saved games came from, with a manifest, before the work folder goes', async () => {
+    const root = await fs.mkdtemp(path.join(os.tmpdir(), 'moe-vod-keep-')); const work = path.join(root, 'source-x'); const evidence = path.join(root, 'Vod Evidence'); await fs.mkdir(work);
+    await fs.writeFile(path.join(work, 'scoreboard-01.png'), 'board'); await fs.writeFile(path.join(work, 'scoreboard-02.png'), 'start'); await fs.writeFile(path.join(work, 'vod.mp4'), 'video');
+    const result = await keepVodFrames(work, evidence, { cacheId: '1234abcd-0000-0000-0000-000000000000', vodUrl: 'https://youtu.be/abc', frames: [{ frame: 'scoreboard-01.png', matchId: 'm-1', kind: 'scoreboard' }, { frame: 'scoreboard-02.png', matchId: 'm-2', kind: 'game-start' }, { frame: 'scoreboard-01.png', matchId: 'm-9' }, { frame: '../vod.mp4', matchId: 'm-3' }, { frame: 'vod.mp4', matchId: 'm-4' }, { frame: 'scoreboard-09.png', matchId: 'm-5' }] });
+    expect(result.kept).toBe(2);
+    const kept = path.join(evidence, result.folder); expect((await fs.readdir(kept)).sort()).toEqual(['manifest.json', 'scoreboard-01.png', 'scoreboard-02.png']);
+    expect(await fs.readFile(path.join(kept, 'scoreboard-01.png'), 'utf8')).toBe('board');
+    const manifest = JSON.parse(await fs.readFile(path.join(kept, 'manifest.json'), 'utf8'));
+    expect(manifest).toMatchObject({ version: 1, vodUrl: 'https://youtu.be/abc', frames: [{ frame: 'scoreboard-01.png', matchId: 'm-1', kind: 'scoreboard', bytes: 5 }, { frame: 'scoreboard-02.png', matchId: 'm-2', kind: 'game-start', bytes: 5 }] });
+    await expect(keepVodFrames(work, evidence, { frames: [{ frame: 'vod.mp4' }] })).resolves.toEqual({ kept: 0, folder: null });
+    await expect(keepVodFrames(path.join(root, 'gone'), evidence, { frames: [{ frame: 'scoreboard-01.png' }] })).resolves.toEqual({ kept: 0, folder: null });
+    expect(await fs.readdir(evidence)).toEqual([result.folder]);
+    await fs.rm(root, { recursive: true, force: true });
+  });
+
+  it('caps kept VOD evidence by count, total size and frame size, dropping the oldest first', async () => {
+    const root = await fs.mkdtemp(path.join(os.tmpdir(), 'moe-vod-cap-')); const work = path.join(root, 'work'); const evidence = path.join(root, 'evidence'); await fs.mkdir(work);
+    await fs.writeFile(path.join(work, 'scoreboard-01.png'), 'x'.repeat(10)); await fs.writeFile(path.join(work, 'scoreboard-02.png'), 'x'.repeat(50));
+    for (const name of ['2026-01-01T00-00-00-000Z-a', '2026-02-01T00-00-00-000Z-b', '2026-03-01T00-00-00-000Z-c']) { await fs.mkdir(path.join(evidence, name), { recursive: true }); await fs.writeFile(path.join(evidence, name, 'scoreboard-01.png'), 'x'.repeat(10)); }
+    const limits = { maxVods: 3, maxBytes: 1000, maxFrameBytes: 20, maxFrames: 24 };
+    const result = await keepVodFrames(work, evidence, { cacheId: 'd', frames: [{ frame: 'scoreboard-01.png', matchId: 'm-1' }, { frame: 'scoreboard-02.png', matchId: 'm-2' }] }, limits);
+    expect(result.kept).toBe(1); // The 50-byte frame is over the per-frame cap.
+    expect((await fs.readdir(evidence)).sort()).toEqual(['2026-02-01T00-00-00-000Z-b', '2026-03-01T00-00-00-000Z-c', result.folder].sort());
+    // Over the size cap the oldest go, but never the folder just written.
+    expect(await pruneVodEvidence(evidence, { ...limits, maxBytes: 1 }, result.folder)).toEqual(['2026-02-01T00-00-00-000Z-b', '2026-03-01T00-00-00-000Z-c']);
+    expect(await fs.readdir(evidence)).toEqual([result.folder]);
+    await fs.rm(root, { recursive: true, force: true });
   });
 
   it('removes a completed local VOD job frame folder but keeps the coach file', async () => {

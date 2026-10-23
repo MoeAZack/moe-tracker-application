@@ -353,6 +353,8 @@ describe('VOD import runner survives leaving the VOD tab', () => {
       const games = vodImportStore.getSnapshot().batchResult;
       expect(games[1]).toMatchObject({ score: '7–13' });
       expect(games[1].status).toContain("sides taken from this video's scoreboard");
+      // The frames each saved game came from are kept as evidence: game 1's scoreboard, game 2's start.
+      expect(h.desktop.releaseVodAnalysis).toHaveBeenCalledWith({ cacheId: 'cache-1', completed: true, vodUrl: 'https://youtu.be/abc', keepFrames: [{ frame: 'g1', matchId: 'm-1', kind: 'scoreboard' }, { frame: 'f-300000', matchId: 'm-2', kind: 'game-start' }] });
     } finally { discovery.games = []; }
   });
 

@@ -52,7 +52,7 @@ declare global {
       cancelIngestionJob(jobId: string): Promise<{ cancelled: boolean }>;
       resumeVodJob(jobId: string): Promise<{ path: string; name: string; expectedGames: number; vodUrl: string }>;
       analyzeVod(input: { vodUrl?: string; localPath?: string; cacheId?: string; startMs?: number; endMs?: number | null; povPlayerName?: string | null; observerMode?: boolean; players: Array<{ name: string; team: 'ours' | 'theirs'; expectedKills?: number | null; expectedDeaths?: number | null }> }): Promise<any>;
-      releaseVodAnalysis(input: string | { cacheId: string; completed: boolean }): Promise<{ released: boolean; retainedSource?: boolean }>;
+      releaseVodAnalysis(input: string | { cacheId: string; completed: boolean; keepFrames?: Array<{ frame: string; matchId: string; kind: 'scoreboard' | 'game-start' }>; vodUrl?: string }): Promise<{ released: boolean; retainedSource?: boolean; keptFrames?: number }>;
       cancelVodAnalysis(): Promise<{ cancelled: boolean }>;
       createReviewClips(input: { vodUrl?: string; localPath?: string; moments: Array<{ timestampMs: number; startMs?: number; endMs?: number; label: string }> }): Promise<Array<{ id: string; fileName: string; path: string; label: string; startMs: number; endMs: number }>>;
       openReviewClip(fileName: string): Promise<{ opened: boolean }>;

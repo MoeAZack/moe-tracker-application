@@ -295,12 +295,14 @@ async function runOneImport(input: VodBatchImportInput, deps: VodImportDeps): Pr
     progress: { owner: 'batch', step: 0, stepPercent: chosenLocal ? 100 : 0, message: chosenLocal ? 'Local video ready · download skipped.' : 'Preparing the VOD…', status: 'working' },
   });
   let cacheId = ''; let completed = false;
+  // Frames the saved games came from, kept on this PC after the work folder is removed.
+  const keepFrames: Array<{ frame: string; matchId: string; kind: 'scoreboard' | 'game-start' }> = []; let keptVodUrl = '';
   const { roster: activeRoster, matches, playerStats, perspective, povPlayerName: selectedPovName } = input;
   try {
     const requestedGames = Math.max(1, Math.min(12, input.expectedGames || 1));
-    const discovery = await desktop.discoverVodGames({ ...(chosenUrl ? { vodUrl: chosenUrl } : {}), expectedGames: requestedGames, mapNames: input.mapNames, mapHints: mapHints(loadMapReadSamples()), ...(chosenLocal ? { localPath: chosenLocal.path } : {}) }); cacheId = discovery.cacheId; const normalizedVodUrl = discovery.vodUrl || chosenUrl;
+    const discovery = await desktop.discoverVodGames({ ...(chosenUrl ? { vodUrl: chosenUrl } : {}), expectedGames: requestedGames, mapNames: input.mapNames, mapHints: mapHints(loadMapReadSamples()), ...(chosenLocal ? { localPath: chosenLocal.path } : {}) }); cacheId = discovery.cacheId; const normalizedVodUrl = discovery.vodUrl || chosenUrl; keptVodUrl = normalizedVodUrl || '';
     setProgress({ owner: 'batch', step: 2, stepPercent: 0, message: 'Reading detected scoreboard candidates…', status: 'working' });
-    const detected: Array<{ timestampMs: number; draft: ScreenshotReviewDraft; imageSha256: string }> = [];
+    const detected: Array<{ timestampMs: number; frame: string; draft: ScreenshotReviewDraft; imageSha256: string }> = [];
     const signatures = new Set<string>();
     // Why candidates were not used, so a VOD that yields no scoreboard can be explained from the log.
     const dropped = { notScoreboard: 0, notTenRows: 0, duplicate: 0 };
@@ -316,7 +318,7 @@ async function runOneImport(input: VodBatchImportInput, deps: VodImportDeps): Pr
       if (extracted.draft.stats.length !== 10) { dropped.notTenRows += 1; continue; }
       const signature = `${String(extracted.draft.match.map || '').toLocaleLowerCase()}:${extracted.draft.match.ourScore}:${extracted.draft.match.theirScore}:${extracted.draft.stats.map(row => `${row.matchedPlayerId || String(row.extractedName || '').toLocaleLowerCase('en')}:${row.kills}:${row.deaths}`).sort().join('|')}`;
       if (signatures.has(signature)) { dropped.duplicate += 1; continue; }
-      signatures.add(signature); detected.push({ timestampMs: discovery.games[index].timestampMs, draft: extracted.draft, imageSha256: extracted.imageSha256 });
+      signatures.add(signature); detected.push({ timestampMs: discovery.games[index].timestampMs, frame: discovery.games[index].frame, draft: extracted.draft, imageSha256: extracted.imageSha256 });
     }
     void deps.desktop.reportDiagnostic?.({ action: 'vod-scoreboard-candidates', message: `read ${discovery.games.length}, used ${detected.length}, not a scoreboard ${dropped.notScoreboard}, not ten rows ${dropped.notTenRows}, duplicate ${dropped.duplicate}` }).catch(() => null);
     detected.sort((left, right) => left.timestampMs - right.timestampMs);
@@ -353,6 +355,7 @@ async function runOneImport(input: VodBatchImportInput, deps: VodImportDeps): Pr
       const payload = await response.json(); if (!response.ok) throw new Error(payload.error || `Game ${index + 1} could not be integrated.`);
       const added: string[] = payload.submission.integration?.addedPlayers || []; added.forEach(name => addedPlayers.add(name));
       if (!selected.length) unnamedGames += 1;
+      if (payload.submission.linkedMatchId) keepFrames.push({ frame: game.frame, matchId: payload.submission.linkedMatchId, kind: 'scoreboard' });
       if (hudScore(payload)) hudScoredIds.push(payload.submission.linkedMatchId); else if (game.draft.match.ourScore !== null && game.draft.match.theirScore !== null) boardScoredIds.push(payload.submission.linkedMatchId);
       imported.push({ map: map || 'Unknown map', matchId: payload.submission.linkedMatchId, score: hudScore(payload) || scoreLabel, status: `${payload.submission.linkMode === 'new-match' ? 'New match created' : 'Linked to existing match'}${added.length ? ` · ${added.length} new player${added.length === 1 ? '' : 's'} added` : ''}${selected.length ? '' : ' · players not named'}${hudScore(payload) ? ' · score read from the in-game HUD (left side counted as yours; Edit if reversed)' : ''}` });
       setState({ batchResult: [...imported] });
@@ -373,6 +376,7 @@ async function runOneImport(input: VodBatchImportInput, deps: VodImportDeps): Pr
       const publicTimeline = stripRawText(evidence); const boundaryFrame = await desktop.readVodFrame({ cacheId, frame: boundary.frame }); const frame = fileFromBase64(boundaryFrame.base64, `vod-game-start-${index + 1}.png`, boundaryFrame.mediaType);
       setProgress(savingProgress(index, total)); const response = await deps.apiFetch('/api/vod-submissions', { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ vodUrl: normalizedVodUrl, imageSha256: await sha256File(frame), ...(linked ? { matchId: linked.id } : {}), coachTeamEvidence: true, date: dateKey, map: boundary.map, opponent: linked?.opponent || null, ourScore: linked?.ourScore ?? null, theirScore: linked?.theirScore ?? null, players: [], timelineEvidence: publicTimeline }) });
       const payload = await response.json(); if (!response.ok) throw new Error(payload.error || `Game ${index + 1} could not be integrated.`);
+      if (payload.submission.linkedMatchId) keepFrames.push({ frame: boundary.frame, matchId: payload.submission.linkedMatchId, kind: 'game-start' });
       const unnamed = players.length === 0; if (unnamed) unnamedGames += 1;
       const score = linked && typeof linked.ourScore === 'number' ? `${linked.ourScore}–${linked.theirScore}` : hudScore(payload);
       if (!linked && hudScore(payload)) hudScoredIds.push(payload.submission.linkedMatchId);
@@ -416,7 +420,7 @@ async function runOneImport(input: VodBatchImportInput, deps: VodImportDeps): Pr
     setState({ message: reason, progress: { owner: 'batch', step: state.progress?.step ?? 0, stepPercent: state.progress?.stepPercent ?? null, message: reason, status: 'error' } });
     if (saved) await Promise.resolve(input.onSaved?.()).catch(() => null);
   } finally {
-    if (cacheId) await desktop.releaseVodAnalysis({ cacheId, completed }).catch(() => null);
+    if (cacheId) await desktop.releaseVodAnalysis({ cacheId, completed, ...(keepFrames.length ? { keepFrames, vodUrl: keptVodUrl } : {}) }).catch(() => null);
     setState({ finishedAt: new Date().toISOString(), runCount: state.runCount + 1 });
   }
   return completed;
