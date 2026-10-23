@@ -254,7 +254,8 @@ export default function MatchLogRounds({ data, theme, onSaveMatch, onRemove, onS
     // coach has not yet supplied both sides.
     const finalizedStats = editingStats.map(st => reconcileStatTotals(st));
 
-    const res = await onSaveMatch(editingMatch, { operation: 'replace', stats: finalizedStats });
+    // The form shows the final score, so saving it confirms a score read from the HUD.
+    const res = await onSaveMatch({ ...editingMatch, scoreConfirmed: true }, { operation: 'replace', stats: finalizedStats });
     const savedMatch = res?.match || res;
     setMatchModalOpen(false);
     setEditingMatch(null);

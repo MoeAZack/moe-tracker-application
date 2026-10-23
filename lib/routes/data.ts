@@ -518,6 +518,10 @@ export function registerDataRoutes(app: Express, options: { websiteSummaryOnly?:
       // Duplicate review state is server-owned; a client copy can never clear a quarantine.
       delete match.duplicateReview;
       if (existingMatch?.duplicateReview) match.duplicateReview = existingMatch.duplicateReview;
+      // A HUD-read score stays marked unconfirmed until a coach saves the score
+      // from a form that shows it (scoreConfirmed) or changes it. Server-owned too.
+      const confirmsScore = match.scoreConfirmed === true; delete match.scoreConfirmed; delete match.scoreEvidence;
+      if (existingMatch?.scoreEvidence && !confirmsScore && match.ourScore === existingMatch.ourScore && match.theirScore === existingMatch.theirScore) match.scoreEvidence = existingMatch.scoreEvidence;
       if (!match.id) match.id = uid();
 
       let savedStats: any[] | undefined;
