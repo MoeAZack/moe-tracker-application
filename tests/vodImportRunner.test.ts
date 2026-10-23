@@ -313,27 +313,28 @@ describe('VOD import runner survives leaving the VOD tab', () => {
     expect(endOfGameBoard([at(1, 5, 12), at(2, 7, 17), at(3, 6, 14)])).toMatchObject({ timestampMs: 2 });
   });
 
-  it('drops a candidate picked for looking like agent select, and one with ten empty rows', async () => {
+  it('drops candidates whose ten rows hold no board, and logs why per candidate', async () => {
     const names = ['Ana', 'Ben', 'Cy', 'Dee', 'Eli', 'Foe1', 'Foe2', 'Foe3', 'Foe4', 'Foe5'];
     const board = { imageSha256: 'f'.repeat(64), draft: { match: { map: null, ourScore: null, theirScore: null }, stats: names.map(extractedName => ({ extractedName, rosterMatch: { status: 'unmatched' }, matchedPlayerId: null, agent: 'Sova', kills: 15, deaths: 12, assists: 4, acs: 200 })) } };
     const empty = { ...board, draft: { ...board.draft, stats: board.draft.stats.map(item => ({ ...item, kills: null, deaths: null, assists: null, acs: null })) } };
     discovery.games = [{ timestampMs: 100_000, frame: 'g-agent-select', score: 20, agentSelectScore: 40 }, { timestampMs: 200_000, frame: 'g-hud', score: 60, agentSelectScore: 5 }] as any;
     try {
       const h = harness(); const reportDiagnostic = vi.fn(async () => ({ code: 'x' })); (h.deps.desktop as any).reportDiagnostic = reportDiagnostic;
-      (h.deps as any).extractScoreboard = vi.fn(async (image: File) => image.name === 'vod-scoreboard-1.png' ? board : empty);
+      (h.deps as any).extractScoreboard = vi.fn(async () => empty);
       const run = startVodBatchImport(input({ roster: [] }), h.deps);
       await h.finishAnalysis(); await h.finishAnalysis();
       await expect(run).resolves.toBe(true);
       expect(vodImportStore.getSnapshot().teamPick).toBeNull();
       expect(reportDiagnostic).toHaveBeenCalledWith({ action: 'vod-scoreboard-candidates', message: 'read 2, used 0, not a scoreboard 2, not ten rows 0, duplicate 0' });
-      expect(reportDiagnostic).toHaveBeenCalledWith({ action: 'vod-scoreboard-check', message: 'unreadable 0, agent select 1, few K/D/A rows 1, kills and deaths do not balance 0; per candidate: g20/a40 kda10 k150 d120, g60/a5 kda0 k0 d0' });
+      expect(reportDiagnostic).toHaveBeenCalledWith({ action: 'vod-scoreboard-check', message: 'unreadable 0, few K/D/A rows 2, kills and deaths do not balance 0; per candidate: g20/a40 kda0 k0 d0, g60/a5 kda0 k0 d0' });
     } finally { discovery.games = []; }
   });
 
   it('on a player POV with an empty roster, the typed POV name is known in the five-picker and goes to the analyzer', async () => {
     const names = ['Ana', 'Ben', 'Cy', 'Dee', 'Eli', 'Foe1', 'Foe2', 'Foe3', 'Foe4', 'Foe5'];
     const board = { imageSha256: 'f'.repeat(64), draft: { match: { map: 'Ascent', ourScore: 13, theirScore: 9 }, stats: names.map(extractedName => ({ extractedName, rosterMatch: { status: 'unmatched' }, matchedPlayerId: null, agent: 'Sova', kills: 15, deaths: 12, assists: 4, acs: 200 })) } };
-    discovery.games = [{ timestampMs: 290_000, frame: 'g1' }] as any;
+    // Scored like agent select, as coach TAB boards are: its rows decide, so it is used.
+    discovery.games = [{ timestampMs: 290_000, frame: 'g1', score: 36, agentSelectScore: 72 }] as any;
     try {
       const h = harness(); (h.deps as any).extractScoreboard = vi.fn(async () => board);
       const run = startVodBatchImport(input({ roster: [], perspective: 'player', povPlayerName: 'Cy' }), h.deps);

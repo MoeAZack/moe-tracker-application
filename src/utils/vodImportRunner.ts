@@ -326,7 +326,7 @@ async function runOneImport(input: VodBatchImportInput, deps: VodImportDeps): Pr
     // Why candidates were not used, so a VOD that yields no scoreboard can be explained from the log.
     const dropped = { notScoreboard: 0, notTenRows: 0, duplicate: 0 };
     // Why each candidate was or was not a board, as counts only (no names), for the log.
-    const why = { unreadable: 0, agentSelect: 0, fewKdaRows: 0, unbalanced: 0 }; const perCandidate: string[] = [];
+    const why = { unreadable: 0, fewKdaRows: 0, unbalanced: 0 }; const perCandidate: string[] = [];
     for (let index = 0; index < discovery.games.length; index += 1) {
       setProgress({ owner: 'batch', step: 2, stepPercent: Math.round(index / Math.max(1, discovery.games.length) * 100), message: `Reading scoreboard candidate ${index + 1}/${discovery.games.length}…`, status: 'working' });
       let extracted: Awaited<ReturnType<VodImportDeps['extractScoreboard']>>;
@@ -338,15 +338,16 @@ async function runOneImport(input: VodBatchImportInput, deps: VodImportDeps): Pr
       // the coach names our five in the picker, and the score and map have other sources.
       if (extracted.draft.stats.length !== 10) { dropped.notTenRows += 1; continue; }
       // A frame picked for looking like agent select, or ten rows that hold no board, is not a scoreboard.
-      const candidate = discovery.games[index]; const agentSelect = (Number(candidate.agentSelectScore) || 0) * 1.25 > (Number(candidate.score) || 0); const check = scoreboardCheck(extracted.draft.stats);
+      // Coach TAB boards score high on agent-select geometry too, so geometry decides nothing here: the rows do.
+      const candidate = discovery.games[index]; const check = scoreboardCheck(extracted.draft.stats);
       perCandidate.push(`g${Math.round(Number(candidate.score) || 0)}/a${Math.round(Number(candidate.agentSelectScore) || 0)} kda${check.kdaRows} k${check.kills} d${check.deaths}`);
-      if (agentSelect || !check.ok) { dropped.notScoreboard += 1; if (agentSelect) why.agentSelect += 1; else if (check.reason === 'few K/D/A rows') why.fewKdaRows += 1; else why.unbalanced += 1; continue; }
+      if (!check.ok) { dropped.notScoreboard += 1; if (check.reason === 'few K/D/A rows') why.fewKdaRows += 1; else why.unbalanced += 1; continue; }
       const signature = `${String(extracted.draft.match.map || '').toLocaleLowerCase()}:${extracted.draft.match.ourScore}:${extracted.draft.match.theirScore}:${extracted.draft.stats.map(row => `${row.matchedPlayerId || String(row.extractedName || '').toLocaleLowerCase('en')}:${row.kills}:${row.deaths}`).sort().join('|')}`;
       if (signatures.has(signature)) { dropped.duplicate += 1; continue; }
       signatures.add(signature); detected.push({ timestampMs: discovery.games[index].timestampMs, draft: extracted.draft, imageSha256: extracted.imageSha256 });
     }
     void deps.desktop.reportDiagnostic?.({ action: 'vod-scoreboard-candidates', message: `read ${discovery.games.length}, used ${detected.length}, not a scoreboard ${dropped.notScoreboard}, not ten rows ${dropped.notTenRows}, duplicate ${dropped.duplicate}` }).catch(() => null);
-    void deps.desktop.reportDiagnostic?.({ action: 'vod-scoreboard-check', message: `unreadable ${why.unreadable}, agent select ${why.agentSelect}, few K/D/A rows ${why.fewKdaRows}, kills and deaths do not balance ${why.unbalanced}; per candidate: ${perCandidate.join(', ')}`.slice(0, 1800) }).catch(() => null);
+    void deps.desktop.reportDiagnostic?.({ action: 'vod-scoreboard-check', message: `unreadable ${why.unreadable}, few K/D/A rows ${why.fewKdaRows}, kills and deaths do not balance ${why.unbalanced}; per candidate: ${perCandidate.join(', ')}`.slice(0, 1800) }).catch(() => null);
     detected.sort((left, right) => left.timestampMs - right.timestampMs);
     const dateKey = discovery.uploadDate || input.date;
     const imported: VodBatchGame[] = [];

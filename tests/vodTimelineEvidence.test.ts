@@ -206,10 +206,13 @@ describe('VOD timeline evidence', () => {
   it('re-reads anchored end-screen frames digits-only and rewrites the banner text, then restores the worker', async () => {
     const frame = bannerFrame(); const calls: any[] = [];
     const worker = { setParameters: vi.fn(async (params: any) => { calls.push(params); }), recognize: vi.fn(async () => ({ data: { text: '7 17\n' } })) };
-    const snapshots = [{ timestampMs: 5, text: 'ALLIES | 1 ENEMIES' }, { timestampMs: 9, text: 'spike planted' }];
-    const out = await readBannerDigits([{ ...frame, timestampMs: 5 }, { ...frame, timestampMs: 9 }], snapshots, worker);
-    expect(out.map((item: any) => item.text)).toEqual(['ALLIES 7 - 17 ENEMIES', 'spike planted']);
-    expect(worker.recognize).toHaveBeenCalledTimes(1);
+    // Frame 5 names a side; frame 9 has other text and frame 1 none, but frame 9 is a dark split near the end.
+    // Frame 1 is a dark split too, but more than ten minutes before the end: not trusted without a word.
+    const snapshots = [{ timestampMs: 700_000, text: 'ALLIES | 1' }, { timestampMs: 900_000, text: 'spike planted' }]; const lines: string[] = [];
+    const out = await readBannerDigits([{ ...frame, timestampMs: 1 }, { ...frame, timestampMs: 700_000 }, { ...frame, timestampMs: 900_000 }], snapshots, worker, (line: string) => lines.push(line));
+    expect(out.map((item: any) => item.text)).toEqual(['ALLIES 7 - 17 ENEMIES', 'ALLIES 7 - 17 ENEMIES']);
+    expect(worker.recognize).toHaveBeenCalledTimes(2);
+    expect(lines).toEqual(['end-banner: frames 3, with text 2, anchor word 1, dark split 2, tried 2, digits read 2']);
     expect(calls).toEqual([{ tessedit_char_whitelist: '0123456789', tessedit_pageseg_mode: '7' }, { tessedit_char_whitelist: '', tessedit_pageseg_mode: '11' }]);
   });
 
