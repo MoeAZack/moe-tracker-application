@@ -109,7 +109,8 @@ function deriveFinalScore(evidence, options={}) {
   const length=reads.map(()=>1), previous=reads.map(()=>-1);
   for (let index=0; index<reads.length; index+=1) for (let before=0; before<index; before+=1) if (reads[before][0]<=reads[index][0]&&reads[before][1]<=reads[index][1]&&length[before]+1>length[index]) { length[index]=length[before]+1; previous[index]=before; }
   let end=0; for (let index=1; index<reads.length; index+=1) if (length[index]>=length[end]) end=index;
-  const chain=length[end]; if (chain<3) return null;
+  // A partial score (game cut off) is kept from two agreeing-in-order reads; a final needs three.
+  const chain=length[end]; if (chain<(options.partial?2:3)) return null;
   const [left,right]=reads[end];
   if (options.partial) return { left, right, basis:'last-hud', reads:chain };
   if (finalScore([left,right])) return { left, right, basis:'final-read', reads:chain };

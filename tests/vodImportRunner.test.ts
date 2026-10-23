@@ -316,17 +316,22 @@ describe('VOD import runner survives leaving the VOD tab', () => {
     expect(endOfGameBoard([at(1, 5, 12), at(2, 7, 17), at(3, 6, 14)])).toMatchObject({ timestampMs: 2 });
   });
 
-  it('on an empty roster with no scoreboard, asks for our five typed names, credits the kill feed to them and saves K/D/A blank', async () => {
+  it('on an empty roster with no scoreboard, asks for our five typed names, credits the kill feed to them and saves its kills and deaths', async () => {
     const names = ['Ana', 'Ben', 'Cy', 'Dee', 'Eli']; const h = harness({ typedNames: names }); const picks: any[] = [];
     cleanups.push(vodImportStore.subscribe(() => { const pick = vodImportStore.getSnapshot().teamPick; if (pick && !picks.includes(pick)) picks.push(pick); }));
     const run = startVodBatchImport(input({ roster: [] }), h.deps);
-    await h.finishAnalysis(); await h.finishAnalysis();
+    await h.finishAnalysis();
+    // Game 2's kill feed resolved kills: they become our five's kills and deaths.
+    h.desktop.analyzeVod.mockImplementation(() => Promise.resolve({ observations: [], playerMetrics: names.map((playerName, index) => ({ playerName, team: 'ours', kills: index, deaths: 2, trades: 0 })) }) as any);
+    await h.finishAnalysis();
     await expect(run).resolves.toBe(true);
     expect(picks.map(pick => [pick.noBoard, pick.rows.map((row: any) => row.name)])).toEqual([[true, ['', '', '', '', '']], [true, names]]);
     expect((h.desktop.analyzeVod.mock.calls as any[]).map(([request]) => request.players)).toEqual([names.map(name => ({ name, team: 'ours' })), names.map(name => ({ name, team: 'ours' }))]);
     const bodies = (h.apiFetch.mock.calls as any[]).filter(([url]) => url === '/api/vod-submissions').map(([, init]) => JSON.parse(String(init.body)));
     expect(bodies[0]).toMatchObject({ addObservedPlayers: true }); expect(bodies[0].players.map((player: any) => [player.observedName, player.kills, player.deaths, player.assists])).toEqual(names.map(name => [name, null, null, null]));
-    expect(vodImportStore.getSnapshot().batchResult[0].status).toContain('names typed, K/D/A blank');
+    expect(vodImportStore.getSnapshot().batchResult[0].status).toContain('names typed, K/D/A blank (no scoreboard, kill feed unread)');
+    expect(bodies[1].players.map((player: any) => [player.observedName, player.kills, player.deaths, player.assists])).toEqual(names.map((name, index) => [name, index, 2, null]));
+    expect(vodImportStore.getSnapshot().batchResult[1].status).toContain('kills and deaths from the kill feed');
   });
 
   it('drops candidates whose ten rows hold no board, and logs why per candidate', async () => {

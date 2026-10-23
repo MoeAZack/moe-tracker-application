@@ -7,7 +7,7 @@ import analyzerModule from '../desktop/vod-timeline-analyzer.cjs';
 import { boundaryTimelinePlayers } from '../src/components/VodSubmission';
 
 const { aggregateVideoEvidence, NO_IDENTITIES_LIMITATION, parseKillFeedSnapshot, parseUltimateSnapshots, parseRoundStateSnapshot, buildRoundTimeline, buildObserverSegments, applyVisualTemplates, fuseVodEvidence } = evidenceModule;
-const { KILL_FEED_BOX, killFeedCrop, scoreBoxCrop, fixSevens, SCORE_BOXES, rowText, stretchedBanner, splitDigitCrop, bannerDigitCrop, readBannerDigits, sweepOrphanedVodDirectories, normalizeYoutubeUrl, youtubeVideoId, frameDifference, visualSignature, scoreboardGeometryScore, agentSelectGeometryScore, chooseGameBoundaries, inferPovPlayer, analyzeVodTimeline, releaseVodSource, discoverVodGames, readVodFrame, readOwnedVodFrame, normalizeTimelinePlayers } = analyzerModule;
+const { killFeedSummary, createChangeCollector, readScoreBox, KILL_FEED_BOX, killFeedCrop, scoreBoxCrop, fixSevens, SCORE_BOXES, rowText, stretchedBanner, splitDigitCrop, bannerDigitCrop, readBannerDigits, sweepOrphanedVodDirectories, normalizeYoutubeUrl, youtubeVideoId, frameDifference, visualSignature, scoreboardGeometryScore, agentSelectGeometryScore, chooseGameBoundaries, inferPovPlayer, analyzeVodTimeline, releaseVodSource, discoverVodGames, readVodFrame, readOwnedVodFrame, normalizeTimelinePlayers } = analyzerModule;
 const players = [
   { name: 'Alpha', team: 'ours' }, { name: 'Bravo', team: 'ours' }, { name: 'Charlie', team: 'ours' }, { name: 'Delta', team: 'ours' }, { name: 'Echo', team: 'ours' },
   { name: 'EnemyOne', team: 'theirs' }, { name: 'EnemyTwo', team: 'theirs' }, { name: 'EnemyThree', team: 'theirs' }, { name: 'EnemyFour', team: 'theirs' }, { name: 'EnemyFive', team: 'theirs' },
@@ -263,8 +263,23 @@ describe('VOD timeline evidence', () => {
     expect(out.map((item: any) => [item.timestampMs, item.text])).toEqual([[2_800_000, 'ALLIES 7 - 17 ENEMIES'], [2_850_000, 'ALLIES 7 - 17 ENEMIES'], [2_900_000, 'ALLIES 7 - 17 ENEMIES']]);
     expect(lines.at(-1)).toBe('end-banner: frames 3, with text 2, anchor word 1, dark split 3, tried 3, anchor read 3, digits read 3');
     // One line per attempt with each crop's raw OCR text.
-    expect(lines[0]).toMatch(/^end-banner attempt 2800s: crop (\d+x\d+|none), split .*, boxes \d+x\d+ \+ \d+x\d+\/\d+x\d+, line7 "ALLIES \| ENEMIES", line6 "ALLIES \| ENEMIES", boxLeft "1", boxRight "17"$/);
+    expect(lines[0]).toMatch(/^end-banner attempt 2800s: crop (\d+x\d+|none), split .*, boxes \d+x\d+ \+ \d+x\d+\/\d+x\d+, line7 "ALLIES \| ENEMIES", line6 "ALLIES \| ENEMIES", boxLeft ".*box.*1.*", boxRight ".*"$/);
     expect(worker.calls).toEqual([{ tessedit_char_whitelist: '', tessedit_pageseg_mode: '7' }, { tessedit_char_whitelist: '', tessedit_pageseg_mode: '6' }, { tessedit_char_whitelist: '0123456789', tessedit_pageseg_mode: '7' }, { tessedit_char_whitelist: '', tessedit_pageseg_mode: '11' }]);
+  });
+
+  it('reads a two-digit score glyph by glyph, so the narrow leading 1 of "17" is never dropped', async () => {
+    const frame = endScreenFrame(); const right = scoreBoxCrop(frame.pixels, frame.width, frame.height, SCORE_BOXES[1]);
+    // Tesseract read the whole box as "7"; the narrow glyph is a 1 without OCR, the wide one reads "7".
+    const seen: number[] = []; const text = async (image: any) => { seen.push(image.width); return '7'; };
+    await expect(readScoreBox(right, text)).resolves.toMatchObject({ value: '17' });
+    expect(seen).toEqual([right.glyphs[1].crop.width]);
+    // Touching digits (no empty column between them) are split at the thinnest column.
+    const touching = endScreenFrame(); const x = (value: number) => Math.round((value - .15) / .70 * 980), y = (value: number) => Math.round((value - .42) / .13 * 182);
+    for (let row = y(.458); row <= y(.514); row += 1) for (let col = x(.711); col <= x(.714); col += 1) if (col !== x(.7125) || row % 3 === 0) touching.pixels[row * 980 + col] = 190;
+    expect(scoreBoxCrop(touching.pixels, 980, 182, SCORE_BOXES[1]).glyphs).toHaveLength(2);
+    // A lone wide glyph read as "1" is a 7.
+    const left = scoreBoxCrop(frame.pixels, frame.width, frame.height, SCORE_BOXES[0]);
+    await expect(readScoreBox(left, async () => '1')).resolves.toMatchObject({ value: '7' });
   });
 
   it('takes the scores from the stretched line when no score crop reads', async () => {
@@ -282,6 +297,20 @@ describe('VOD timeline evidence', () => {
     for (const row of [{ x0: .746, x1: .988, y0: .090, y1: .121 }, { x0: .762, x1: .990, y0: .088, y1: .121 }]) expect(row.x0 >= KILL_FEED_BOX.x0 && row.x1 <= KILL_FEED_BOX.x1 && row.y0 >= KILL_FEED_BOX.y0 && row.y1 <= KILL_FEED_BOX.y1).toBe(true);
     // Six rows at the measured pitch fit.
     expect(KILL_FEED_BOX.y0 + 6 * .033).toBeLessThanOrEqual(KILL_FEED_BOX.y1);
+  });
+
+  it('keeps a frame every few seconds of a static HUD, so the last score before a disconnect is read', () => {
+    const spec = { key: 'roundStateSnapshots', label: 'hud', fps: 1, width: 2, height: 1, threshold: .5, burstFrames: 0, maxCandidates: 1000, everySeconds: 10 };
+    const collector = createChangeCollector(spec, 100, { startSeconds: 0, sampledDuration: 100 }, null, undefined);
+    collector.push(Buffer.alloc(2 * 60, 7)); // 60 identical frames
+    expect(collector.frames().map((frame: any) => frame.timestampMs)).toEqual([0, 10_000, 20_000, 30_000, 40_000, 50_000]);
+    const gated = createChangeCollector({ ...spec, everySeconds: 0 }, 100, { startSeconds: 0, sampledDuration: 100 }, null, undefined);
+    gated.push(Buffer.alloc(2 * 60, 7)); expect(gated.frames()).toHaveLength(1);
+  });
+
+  it('logs kill-feed counts that show whether rows were read but named nobody of ours', () => {
+    const line = killFeedSummary([{ text: 'Ana vandal Zed\nQuux phantom Bar' }, { text: '' }], [{ name: 'Ana', team: 'ours' }], { observations: [{ kind: 'elimination' }], playerMetrics: [{ team: 'ours', kills: 1, deaths: 0 }] });
+    expect(line).toBe('kill-feed: frames 2, rows 2, rows with two names 2, rows naming ours 1, eliminations 1, our kills 1, our deaths 0');
   });
 
   it('puts kill-feed words back into rows so killer and victim share a line', () => {

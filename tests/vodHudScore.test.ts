@@ -131,6 +131,12 @@ describe('a VOD match takes its missing score from the HUD', () => {
     expect(final).toMatchObject({ ourScore: 13, theirScore: 12 }); expect(final.partialScore).toBeUndefined();
   });
 
+  it('keeps a partial score from just two HUD reads (the VOD ends mid-game), but never a final one', () => {
+    const two = { observations: hud([[11, 10], [12, 11]]) } as any;
+    expect(evidenceModule.deriveLastHudScore(two)).toMatchObject({ left: 12, right: 11, basis: 'last-hud', reads: 2 });
+    expect(deriveFinalScore(two)).toBeNull();
+  });
+
   it('does not derive the score again once the coach cleared it', () => {
     const state = db(); integrateVodSubmission(state, submission(), 'Coach', ids(), '2026-10-23T00:00:00Z');
     const match = state.matches[0]; match.ourScore = null; match.theirScore = null;
