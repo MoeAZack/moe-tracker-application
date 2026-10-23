@@ -280,6 +280,8 @@ export interface Match {
   vodSubmissionIds?: string[];
   /** Set when the final score was read from a VOD's in-game HUD (left side counted as ours) instead of a scoreboard or the coach. */
   scoreEvidence?: { source: 'vod-hud'; basis: 'final-read' | 'last-round' | 'end-banner'; reads: number; orientation: 'left-is-ours'; derivedAt: string };
+  /** Strongest accepted final-score source. Replay outranks a confirmed scoreboard; coach corrections outrank both. */
+  scoreVerification?: { source: 'scoreboard' | 'replay' };
   /** The last HUD score of a VOD game that never showed a final score. Not a result. */
   partialScore?: { ours: number; theirs: number; source: 'vod-hud'; basis: 'last-hud'; reads: number; orientation: 'left-is-ours'; derivedAt: string };
   /** Server-owned same-game duplicate state. Quarantined matches are excluded from analytics until a coach decides. */

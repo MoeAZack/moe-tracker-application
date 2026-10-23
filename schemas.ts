@@ -246,6 +246,7 @@ export const vodSubmissionSchema = z.object({
   playerId: rosterId.optional(),
   coachTeamEvidence: z.boolean().optional(),
   addObservedPlayers: z.boolean().optional(),
+  scoreProvenance: z.literal('confirmed-scoreboard').optional(),
   date: z.string().regex(/^\d{4}-\d{2}-\d{2}$/),
   map: z.string().trim().max(100).nullable(),
   opponent: z.string().trim().max(160).nullable(),

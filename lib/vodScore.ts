@@ -11,11 +11,12 @@ export function manuallyCorrectedScoreFields(match: any) {
 }
 
 /** Verified board/replay facts replace automatic VOD score evidence, never explicit coach corrections. */
-export function applyVerifiedMatchScore(match: any, ourScore: number | null, theirScore: number | null) {
+export function applyVerifiedMatchScore(match: any, ourScore: number | null, theirScore: number | null, source: 'scoreboard' | 'replay') {
   const corrected = manuallyCorrectedScoreFields(match);
+  if (source === 'scoreboard' && (match.scoreVerification?.source === 'replay' || match.sourceMetadata?.provider === 'vrfkit')) return match;
   if (!corrected.has('ourScore') && Number.isSafeInteger(ourScore)) match.ourScore = ourScore;
   if (!corrected.has('theirScore') && Number.isSafeInteger(theirScore)) match.theirScore = theirScore;
-  if (Number.isSafeInteger(match.ourScore) && Number.isSafeInteger(match.theirScore)) { delete match.scoreEvidence; delete match.partialScore; }
+  if (Number.isSafeInteger(match.ourScore) && Number.isSafeInteger(match.theirScore)) { delete match.scoreEvidence; delete match.partialScore; match.scoreVerification = { source }; }
   return match;
 }
 

@@ -33,6 +33,7 @@ export function registerVodSubmissionRoutes(app: Express) {
         players: body.players.map(row => ({ observedName: row.observedName, agent: row.agent || null, kills: metric(row.kills), deaths: metric(row.deaths), assists: metric(row.assists), acs: metric(row.acs), adr: metric(row.adr), hs: metric(row.hs), fk: metric(row.fk), fd: metric(row.fd), plants: metric(row.plants), defuses: metric(row.defuses), trades: metric(row.trades) })),
         timelineEvidence: body.timelineEvidence || null,
         addObservedPlayers: coachTeamEvidence && body.addObservedPlayers === true,
+        ...(coachTeamEvidence && body.scoreProvenance === 'confirmed-scoreboard' ? { scoreProvenance: 'confirmed-scoreboard' as const } : {}),
       }, rosterPlayer?.displayName || 'Coach team VOD', { submissionId: uid(), matchId: uid(), statId: uid, reviewId: uid() });
       db.analyticsBuilds ||= {};
       db.analyticsBuilds[submission.linkedMatchId] = recomputeAcceptedMatchAggregates(db, submission.linkedMatchId);

@@ -2,7 +2,7 @@ import { describe, expect, it } from 'vitest';
 import evidenceModule from '../desktop/vod-timeline-evidence.cjs';
 import { createSeed } from '../lib/seed';
 import { integrateVodSubmission } from '../lib/vodSubmissions';
-import { applyVodHudScore } from '../lib/vodScore';
+import { applyVerifiedMatchScore, applyVodHudScore } from '../lib/vodScore';
 import { matchResult, matchScore, sideSplit } from '../src/utils/matchScore';
 
 const { parseRoundStateSnapshot, parseEndBannerSnapshot, deriveFinalScore, aggregateVideoEvidence, learnTabAliases, wordMatchesName } = evidenceModule;
@@ -49,6 +49,7 @@ describe('reading the score on the in-game HUD', () => {
     ];
     expect(deriveFinalScore(evidence(observations))).toEqual({ left: 9, right: 15, basis: 'end-banner', reads: 2 });
     expect(deriveFinalScore(evidence([observations[0]]))).toBeNull();
+    expect(deriveFinalScore(evidence([observations[1], { ...observations[1] }]))).toBeNull();
   });
 
   it('reads a played-out custom game past 13 and ends it after round 24', () => {
@@ -224,12 +225,30 @@ describe('a VOD match takes its missing score from the HUD', () => {
     const names = ['Alpha', 'Bravo', 'Charlie', 'Delta', 'Echo']; const state = db();
     const first = integrateVodSubmission(state, submission({ imageSha256: '1'.repeat(64), addObservedPlayers: true, players: names.map(observedName => ({ observedName, ...blank })), timelineEvidence: timeline([[0, 0], [6, 5], [12, 11]]) }), 'Coach', ids(), '2026-10-23T00:00:00Z');
     const match = state.matches[0]; expect(match).toMatchObject({ ourScore: null, theirScore: null, partialScore: { ours: 12, theirs: 11 } });
-    integrateVodSubmission(state, submission({ vodUrl: 'https://example.test/verified-board', imageSha256: '2'.repeat(64), matchId: first.linkedMatchId, ourScore: 9, theirScore: 15, players: names.map(observedName => ({ observedName, ...blank, kills: 20, deaths: 15, assists: 4 })), timelineEvidence: null }), 'Coach', ids(), '2026-10-23T00:05:00Z');
+    integrateVodSubmission(state, submission({ vodUrl: 'https://example.test/verified-board', imageSha256: '2'.repeat(64), matchId: first.linkedMatchId, scoreProvenance: 'confirmed-scoreboard', ourScore: 9, theirScore: 15, players: names.map(observedName => ({ observedName, ...blank, kills: 20, deaths: 15, assists: 4 })), timelineEvidence: null }), 'Coach', ids(), '2026-10-23T00:05:00Z');
     expect(state.matches).toHaveLength(1); expect(state.matches[0]).toMatchObject({ ourScore: 9, theirScore: 15 }); expect(state.matches[0].partialScore).toBeUndefined();
     expect(state.playerStats).toHaveLength(5); expect(state.playerStats.every((row: any) => row.kills === 20 && row.assists === 4)).toBe(true);
     state.matches[0].ourScore = 10; state.matches[0].theirScore = 14; state.matches[0].corrections = [{ fields: ['ourScore', 'theirScore'], correctedBy: 'Coach' }];
-    integrateVodSubmission(state, submission({ vodUrl: 'https://example.test/later-board', imageSha256: '3'.repeat(64), matchId: first.linkedMatchId, ourScore: 8, theirScore: 16, players: names.map(observedName => ({ observedName, ...blank, kills: 21, deaths: 16, assists: 5 })), timelineEvidence: null }), 'Coach', ids(), '2026-10-23T00:10:00Z');
+    integrateVodSubmission(state, submission({ vodUrl: 'https://example.test/later-board', imageSha256: '3'.repeat(64), matchId: first.linkedMatchId, scoreProvenance: 'confirmed-scoreboard', ourScore: 8, theirScore: 16, players: names.map(observedName => ({ observedName, ...blank, kills: 21, deaths: 16, assists: 5 })), timelineEvidence: null }), 'Coach', ids(), '2026-10-23T00:10:00Z');
     expect(state.matches).toHaveLength(1); expect(state.matches[0]).toMatchObject({ ourScore: 10, theirScore: 14 });
+  });
+
+  it('preserves automatic evidence on timeline reimport and refuses to downgrade replay score trust', () => {
+    const blank = { agent: null, kills: null, deaths: null, assists: null, acs: null, adr: null, hs: null, fk: null, fd: null, plants: null, defuses: null, trades: null };
+    const names = ['Foxtrot', 'Golf', 'Hotel', 'India', 'Juliet']; const state = db();
+    const finalEvidence = { ...timeline([[0, 0], [8, 7], [9, 14]]), observations: [...hud([[0, 0], [8, 7], [9, 14]]), { kind: 'end-banner', timestampMs: 400_000, score: [9, 15] }, { kind: 'end-banner', timestampMs: 401_000, score: [9, 15] }] };
+    const first = integrateVodSubmission(state, submission({ imageSha256: '4'.repeat(64), addObservedPlayers: true, players: names.map(observedName => ({ observedName, ...blank })), timelineEvidence: finalEvidence }), 'Coach', ids(), '2026-10-23T00:00:00Z');
+    expect(state.matches[0].scoreEvidence).toBeTruthy();
+    integrateVodSubmission(state, submission({ imageSha256: '5'.repeat(64), matchId: first.linkedMatchId, ourScore: 9, theirScore: 15, players: names.map(observedName => ({ observedName, ...blank })), timelineEvidence: timeline([[0, 0], [9, 14]]) }), 'Coach', ids(), '2026-10-23T00:05:00Z');
+    expect(state.matches[0].scoreEvidence).toBeTruthy();
+
+    const partialState = db(); const partial = integrateVodSubmission(partialState, submission({ imageSha256: '6'.repeat(64), addObservedPlayers: true, players: names.map(observedName => ({ observedName, ...blank })), timelineEvidence: timeline([[0, 0], [8, 7], [12, 11]]) }), 'Coach', ids(), '2026-10-23T00:00:00Z');
+    integrateVodSubmission(partialState, submission({ imageSha256: '7'.repeat(64), matchId: partial.linkedMatchId, players: names.map(observedName => ({ observedName, ...blank })), timelineEvidence: timeline([[0, 0], [12, 11]]) }), 'Coach', ids(), '2026-10-23T00:05:00Z');
+    expect(partialState.matches[0].partialScore).toMatchObject({ ours: 12, theirs: 11 });
+
+    const replay: any = { ourScore: 10, theirScore: 14, scoreVerification: { source: 'replay' }, sourceMetadata: { provider: 'vrfkit' } };
+    applyVerifiedMatchScore(replay, 8, 16, 'scoreboard');
+    expect(replay).toMatchObject({ ourScore: 10, theirScore: 14, scoreVerification: { source: 'replay' } });
   });
 
   it('does not derive the score again once the coach cleared it', () => {
