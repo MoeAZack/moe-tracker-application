@@ -82,9 +82,10 @@ function fuseVodEvidence(items) {
 }
 
 // A score pair the HUD can show: regulation (first to 13), overtime (win by
-// two), or the final score itself.
-function plausibleScore([left,right]) { const high=Math.max(left,right), low=Math.min(left,right); return high<=12||(low>=12&&high-low<=1)||(high===13&&low<=11)||(low>=12&&high-low===2); }
-const finalScore=([left,right])=>{ const high=Math.max(left,right), low=Math.min(left,right); return (high===13&&low<=11)||(low>=12&&high-low===2); };
+// two), the final score itself, or a custom game that plays out all 24 rounds.
+function plausibleScore([left,right]) { const high=Math.max(left,right), low=Math.min(left,right); return high<=12||(low>=12&&high-low<=1)||(high===13&&low<=11)||(low>=12&&high-low===2)||(low<=11&&left+right<=24); }
+// A played-out custom game ends after its 24th round, whatever the split.
+const finalScore=([left,right])=>{ const high=Math.max(left,right), low=Math.min(left,right); return (high===13&&low<=11)||(low>=12&&high-low===2)||(low<=11&&left+right===24); };
 
 /**
  * The final score of one game from the HUD score reads (left, right), or null.
@@ -107,6 +108,8 @@ function deriveFinalScore(evidence) {
   // The rule needs the final round itself: the last read must sit within one round of the end of what was seen.
   const lastSeen=Math.max(...(evidence.observations||[]).map(item=>Number(item?.timestampMs)||0));
   if (lastSeen-observed[end].timestampMs>150000) return null;
+  // A played-out game (past 13 with no overtime) can end either way after round 24: unknown.
+  if (Math.max(left,right)>13&&Math.min(left,right)<=11) return null;
   const next=left===12&&right<12?[13,right]:right===12&&left<12?[left,13]:left>=12&&left-right===1?[left+1,right]:right>=12&&right-left===1?[left,right+1]:null;
   return next ? { left:next[0], right:next[1], basis:'last-round', reads:chain } : null;
 }

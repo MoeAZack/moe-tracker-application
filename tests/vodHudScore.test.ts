@@ -26,6 +26,13 @@ describe('reading the score on the in-game HUD', () => {
     expect(result.rounds.map((round: any) => [round.roundNumber, round.scoreBefore])).toEqual([[1, null], [2, null], [3, null]]);
   });
 
+  it('reads a played-out custom game past 13 and ends it after round 24', () => {
+    // Custom games can play all 24 rounds: 5-17 is a real HUD score there.
+    expect(deriveFinalScore(evidence(hud([[0, 0], [3, 9], [5, 14], [5, 17], [7, 17]])))).toEqual({ left: 7, right: 17, basis: 'final-read', reads: 5 });
+    // Seen only up to 5-17: the game had rounds left, so no score is guessed.
+    expect(deriveFinalScore(evidence(hud([[0, 0], [3, 9], [5, 14], [5, 17]])))).toBeNull();
+  });
+
   it('takes the final score when the HUD showed it', () => {
     expect(deriveFinalScore(evidence(hud([[0, 0], [1, 0], [5, 3], [9, 7], [13, 9]])))).toEqual({ left: 13, right: 9, basis: 'final-read', reads: 5 });
     expect(deriveFinalScore(evidence(hud([[10, 12], [12, 12], [13, 13], [13, 15]])))).toEqual({ left: 13, right: 15, basis: 'final-read', reads: 4 });
