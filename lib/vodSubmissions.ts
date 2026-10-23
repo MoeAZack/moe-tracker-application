@@ -61,7 +61,7 @@ function resolveFive(db: any, rows: SubmissionInput['players'], addObservedPlaye
 }
 
 function matchRosterIds(db: any, matchId: string) {
-  return new Set((db.playerStats || []).filter((row: any) => row.matchId === matchId).map((row: any) => row.playerId || (db.rosterPlayers || []).find((player: any) => similarVodName(row.displayNameSnapshot || row.player, player.displayName))?.id).filter(Boolean));
+  return new Set<string>((db.playerStats || []).filter((row: any) => row.matchId === matchId).map((row: any) => row.playerId || (db.rosterPlayers || []).find((player: any) => similarVodName(row.displayNameSnapshot || row.player, player.displayName))?.id).filter(Boolean));
 }
 
 function hasUniqueKdaCoverage(db: any, matchId: string, players: VodSubmissionPlayer[]) {
@@ -102,7 +102,9 @@ export function integrateVodSubmission(db: any, input: SubmissionInput, actorNam
   if (input.matchId && !requested) throw Object.assign(new Error('The selected match no longer exists.'), { status: 404 });
   const rosterIds = new Set(players.map(row => row.rosterPlayerId));
   const requestedRosterIds = requested ? matchRosterIds(db, requested.id) : new Set<string>();
-  const repairsOwnDuplicate = Boolean(duplicate && duplicate.linkedMatchId === requested?.id && requestedRosterIds.size < 5);
+  const duplicateOwnMatch = Boolean(duplicate && duplicate.linkedMatchId === requested?.id);
+  if (duplicateOwnMatch && requestedRosterIds.size < 5 && [...requestedRosterIds].some(id => !rosterIds.has(id))) throw Object.assign(new Error('Duplicate repair conflicts with identities already linked to this match.'), { status: 409 });
+  const repairsOwnDuplicate = Boolean(duplicateOwnMatch && requestedRosterIds.size < 5);
   if (duplicate && duplicate.linkedMatchId === requested?.id && requestedRosterIds.size >= 5 && [...rosterIds].some(id => !requestedRosterIds.has(id))) throw Object.assign(new Error('A duplicate enrichment must keep the same five-player roster as its linked match.'), { status: 409 });
   if (requested && !repairsOwnDuplicate && [...rosterIds].filter(id => matchRosterIds(db, requested.id).has(id)).length < 5 && !hasUniqueKdaCoverage(db, requested.id, players)) throw Object.assign(new Error('The selected match does not contain the same five-player roster or five unique K/D/A rows. Choose the correct match or create a new VOD entry.'), { status: 409 });
   const incomingIdentityRows = players.map(player => ({ playerId: player.rosterPlayerId, player: player.rosterDisplayName }));

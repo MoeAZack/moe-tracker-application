@@ -118,6 +118,14 @@ describe('player VOD submission integration', () => {
     expect(() => integrateVodSubmission(db, { ...input, matchId: 'm1', players: changed }, 'Coach', ids, '2026-10-18T15:00:00Z')).toThrow(/same five-player roster/i);
   });
 
+  it('rejects duplicate repair when an incomplete linked lineup conflicts with incoming identities', () => {
+    const db = fixture(); db.playerStats = db.playerStats.slice(0, 4);
+    db.vodSubmissions = [{ schema: 'moetracker.vod-submission/v1', id: ids.submissionId, submittedByPlayerId: null, submittedByName: 'Existing', vodUrl: input.vodUrl, imageSha256: input.imageSha256, date: input.date, map: input.map, opponent: input.opponent, ourScore: input.ourScore, theirScore: input.theirScore, requestedMatchId: 'm1', linkedMatchId: 'm1', linkMode: 'existing-match', status: 'integrated', rosterMatchCount: 0, players: [], timelineEvidence: null, integration: { createdMatch: false, createdStats: 0, filledFields: 0, preservedFields: 0 }, createdAt: '2026-10-18T13:00:00Z', integratedAt: '2026-10-18T13:00:00Z' }];
+    const replacements = ['Quebec', 'Romeo', 'Sierra', 'Tango', 'Uniform'].map((observedName, index) => ({ ...players[index], observedName }));
+    db.rosterPlayers.push(...replacements.map((row, index) => ({ id: `replacement-${index}`, displayName: row.observedName, createdAt: '2026-10-18T14:30:00Z' })));
+    expect(() => integrateVodSubmission(db, { ...input, playerId: null, matchId: 'm1', players: replacements }, 'Coach', ids, '2026-10-18T15:00:00Z')).toThrow(/conflicts with identities already linked/i);
+  });
+
   it('creates five newly observed profiles without treating twenty existing profiles as the lineup', () => {
     const db: any = createSeed(); db.rosterPlayers = Array.from({ length: 20 }, (_, index) => ({ id: `existing-${index}`, displayName: `Existing ${index}`, createdAt: '2026-10-18T10:00:00Z' })); db.matches = []; db.playerStats = [];
     const newNames = ['Kilo', 'Lima', 'Mike', 'November', 'Oscar'];
