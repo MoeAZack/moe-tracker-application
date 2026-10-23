@@ -16,10 +16,63 @@ Several POVs of the same game merge, each filling what another missed.
 
 - [x] Kills and deaths from the kill feed when no board is read (a board still wins)
 - [x] End screen and last HUD score (partial when the game is cut off)
-- [ ] TAB boards found on the 720p coach view, used to correct the kill-feed tally
+- [ ] TAB boards found on the 720p coach view, used to correct the kill-feed tally (detector tightened in #175, untested on the PC)
 - [ ] Assists, round winners and round count from the VOD
 - [ ] Multi-POV merge: one match per game, each submission's timeline fused (`fuseVodEvidence` is the seam)
 - [ ] 2D replay of positions and moves (not started)
+
+## Handoff — state and next steps (23 October 2026)
+
+Written for whoever continues the project. Main is the source of truth; the
+owner's PC builds installers locally (no public release since 0.2.0; 0.2.1 at
+fa964bd was never published). Rules that still hold: never delete matches from
+the owner's database (quarantine or copy first), nothing from the owner's PC
+(screenshots, database, real player names) goes into the repo, no code signing,
+no public installer or tag without the owner's explicit permission, OCR runtime
+changes under `lib/` and `src/` need the PC corpus gate (corpus14 vs
+baseline-b1e8e12: 0 cell diffs, 0 false accepts).
+
+**Works (checked on the owner's PC):** scoreboard screenshot import with
+Tesseract (28/31 K/D/A at 1080p) or the built-in PaddleOCR number reader
+(31/31); VOD import of a coach VOD splits one match per game (VOD 1 gave 3
+games, starts 48, 3752, 7408 s); the end screen reads both layouts ("ALLIES 7 –
+17 ENEMIES" and "9 DEFEAT 15"), G1 read 7–17; kill-feed K/D tally; the
+five-picker when no board names our players; editable game cards; local
+evidence frames.
+
+**Fails or is weak (numbers from the PC runs on 7d75719):**
+- TAB boards: on 7d75719 the detector passed 66 of 74 sampled frames and only
+  the first 12 were tried, so real boards were missed; 27 of 42 numbers read as
+  "1"; 4 of 94 rows named our players. The fix in PR #175 (fixed board height,
+  all ten rows, empty ULTIMATE–K gap over the block 0.317–0.683, no try cap,
+  the 1s rule only for blank reads) is untested on the PC. Ground truth for the
+  next PC check, TAB openings as start second (all the same layout, HUD on top,
+  0.25–4.5 s each): VOD 1 717, 1713, 2782, 4714, 5021, 5194, 8277–8293, 8441,
+  8539, 8598, 8772, 8883, 9017, 9505; VOD 2 986, 1316, 1335, 1440, 1470, 1571,
+  2140, 4184, 4196, 4272, 4287, 4297, 4373, 4499, 4520, 4779, 5096, 5116, 5124,
+  5381, 5400, 5479, 5757, 5869, 5896, 6110, 6116, 6205, 6457, 6582, 6608, 7672,
+  7957, 8319, 8373, 8454; VOD 3 637, 1117, 1222, 1368, 1531, 1579, 1597, 1787,
+  2541, 3007, 6407, 7978. The detector should fire at those and nowhere else.
+- HUD score: bare-score reads often miss the left number (hud-tail "4 *",
+  "* 1" at 3663–3713 s on VOD 1). Next fix: measure the two HUD score digit
+  boxes on a 720p coach frame and read each box glyph by glyph like the end
+  banner (`readBannerDigits`, `narrowGlyph`). G2 and G3 have no end screen (G2
+  ended on a network problem at 12–12, G3 is cut off at 12–11), so their score
+  depends on this.
+- Rounds: 3, 6 and 5 rounds detected per game; should be about 24. Round
+  winners and count from the HUD score changes are the next step after the HUD fix.
+- Names on TAB rows: matching is fuzzy (`orderedNames`, closest wins); recheck
+  once boards read.
+- The trial VODs are not imported into the live app yet; that waits on a PC run
+  that reads G1 7–17 and real TAB numbers.
+- Open PRs #161 (HUD orientation per video) and #162 (evidence frames) are green
+  but need a rebase onto main before review.
+
+**Order of next work:** 1) PC rerun of VOD 1 and 2 on #175's merge, compare
+against the timestamps above; 2) per-digit HUD score read; 3) rounds and round
+winners from HUD changes; 4) import the three trial VODs live on a copied
+profile first; 5) multi-POV merge; 6) the "Moe OCR" ensemble default only if it
+beats Tesseract on the corpus (it did not: 28/31 and 25/31).
 
 ## Current — after 0.2.0
 
