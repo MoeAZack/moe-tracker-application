@@ -468,29 +468,39 @@ async function readScoreBox(box, text) {
   raw.box = await text(box); return { value: fixSevens(raw.box, box.glyphs)?.slice(0, 2) || null, raw };
 }
 
-// The coach-view TAB board (measured on a 1280x720 coach VOD): the table box, our five rows on top
-// (teal) at a 0.0316 pitch, and the K, D and A cells under one "KDA" header. The coach only taps TAB,
-// so the board is up ~1 s; the region is sampled at 2 fps and read here, never by the page OCR.
-const TAB_BOX = { x0: .297, x1: .702, y0: .289, y1: .703 };
+// The coach-view TAB board (measured on a 1280x720 coach VOD): our five rows on top (teal) at a 0.0316
+// pitch, and the K, D and A cells under one "KDA" header. The board sits higher or lower in the frame
+// (it moves up when the HUD is hidden), so the region spans most of the height and the rows are found
+// at any vertical offset from where they were measured. The coach only taps TAB, so the board is up
+// ~1 s; the region is sampled at 4 fps and read here, never by the page OCR.
+const TAB_BOX = { x0: .297, x1: .702, y0: .03, y1: .97 };
+const TAB_FRAME = { width: 518, height: 676 };
 const TAB_OUR_ROWS = [.329, .361, .393, .424, .456];
 const TAB_ROW_HALF = .015;
 // Measured on the 2782 s frame: name 0.333-0.43 (the agent icon ends at 0.316, ULTIMATE starts at 0.439);
 // K 0.492-0.502, D 0.513-0.523, A 0.535-0.540, each padded so a two-digit value still fits.
 const TAB_CELLS = { name: { x0: .333, x1: .43 }, kills: { x0: .489, x1: .506 }, deaths: { x0: .510, x1: .527 }, assists: { x0: .531, x1: .548 } };
 
-// Cheap test before any OCR: on the board each of our rows has a few lit K/D/A glyph pixels and dark
-// row background around them; gameplay rarely gives that in all five rows at once.
-function tabBoardRows(pixels, width, height) {
-  if (!pixels || pixels.length < width * height) return 0;
+// Cheap test before any OCR: on the board each of our rows has a few lit K/D/A glyph pixels over a
+// darker row (teal or dark grey); gameplay rarely gives that in five rows at the board's pitch. Per-line
+// counts are taken once, then every vertical offset is scored; returns the best { rows, dy }.
+function tabBoardFit(pixels, width, height) {
+  if (!pixels || pixels.length < width * height) return { rows: 0, dy: 0 };
   const px = value => Math.round((value - TAB_BOX.x0) / (TAB_BOX.x1 - TAB_BOX.x0) * width), py = value => Math.round((value - TAB_BOX.y0) / (TAB_BOX.y1 - TAB_BOX.y0) * height);
-  let rows = 0;
-  for (const centre of TAB_OUR_ROWS) {
-    let lit = 0, dark = 0, count = 0;
-    for (let y = py(centre - TAB_ROW_HALF); y <= py(centre + TAB_ROW_HALF); y += 1) for (let x = px(TAB_CELLS.kills.x0); x <= px(TAB_CELLS.assists.x1); x += 1) { const value = pixels[y * width + x]; if (value > 170) lit += 1; else if (value < 90) dark += 1; count += 1; }
-    if (count && lit / count >= .02 && lit / count <= .4 && dark / count >= .4) rows += 1;
-  }
-  return rows;
+  const x0 = Math.max(0, px(TAB_CELLS.kills.x0)), x1 = Math.min(width - 1, px(TAB_CELLS.assists.x1));
+  const lit = new Float64Array(height), dim = new Float64Array(height), dimSum = new Float64Array(height);
+  for (let y = 0; y < height; y += 1) for (let x = x0; x <= x1; x += 1) { const value = pixels[y * width + x]; if (value > 170) lit[y] += 1; else { dim[y] += 1; dimSum[y] += value; } }
+  const rowOk = (top, bottom) => { let l = 0, d = 0, sum = 0; for (let y = Math.max(0, top); y <= Math.min(height - 1, bottom); y += 1) { l += lit[y]; d += dim[y]; sum += dimSum[y]; } const count = l + d; return count > 0 && l / count >= .02 && l / count <= .4 && d > 0 && sum / d < 140; };
+  const lineHeight = (TAB_BOX.y1 - TAB_BOX.y0) / height, scored = [];
+  const low = TAB_BOX.y0 + TAB_ROW_HALF - TAB_OUR_ROWS[0], high = TAB_BOX.y1 - TAB_ROW_HALF - TAB_OUR_ROWS.at(-1);
+  for (let dy = low; dy <= high; dy += lineHeight) { let rows = 0; for (const centre of TAB_OUR_ROWS) if (rowOk(py(centre + dy - TAB_ROW_HALF), py(centre + dy + TAB_ROW_HALF))) rows += 1; scored.push({ rows, dy }); }
+  // A window still passes when it only half covers the digits, so the best offset is the middle of the longest run at the top count.
+  const top = Math.max(0, ...scored.map(item => item.rows)); if (!top) return { rows: 0, dy: 0 };
+  let run = [], longest = [];
+  for (const item of scored) { if (item.rows === top) run.push(item); else run = []; if (run.length > longest.length) longest = [...run]; }
+  return { rows: top, dy: longest[Math.floor(longest.length / 2)].dy };
 }
+function tabBoardRows(pixels, width, height) { return tabBoardFit(pixels, width, height).rows; }
 
 /**
  * Read our five rows of each TAB board the coach opened: the name cell as text, then K, D and A each
@@ -500,7 +510,7 @@ function tabBoardRows(pixels, width, height) {
 async function readCoachTabBoards(frames, worker, log = line => void line, limit = 12) {
   const counts = { frames: (frames || []).length, looked: 0, tried: 0, boards: 0 }; const boards = [];
   const chosen = [];
-  for (const frame of frames || []) { const rows = tabBoardRows(frame.pixels, frame.width, frame.height); if (rows >= 4) { counts.looked += 1; chosen.push({ frame, rows }); } }
+  for (const frame of frames || []) { const { rows, dy } = tabBoardFit(frame.pixels, frame.width, frame.height); if (rows >= 4) { counts.looked += 1; chosen.push({ frame, rows, dy }); } }
   // Best-looking frames first, at least 5 s apart (one tap gives several frames at 4 fps).
   const picked = []; for (const item of chosen.sort((a, b) => b.rows - a.rows)) { if (picked.length >= limit) break; if (picked.every(other => Math.abs(other.frame.timestampMs - item.frame.timestampMs) >= 5000)) picked.push(item); }
   const cell = (frame, centre, column, minGlyphHeight) => scoreBoxCrop(frame.pixels, frame.width, frame.height, { x0: column.x0, x1: column.x1, y0: centre - TAB_ROW_HALF, y1: centre + TAB_ROW_HALF }, 3, null, { frameBox: TAB_BOX, minGlyphHeight });
@@ -513,14 +523,14 @@ async function readCoachTabBoards(frames, worker, log = line => void line, limit
         item.read = [];
         for (const [row, centre] of TAB_OUR_ROWS.entries()) {
           const values = {};
-          for (const field of ['kills', 'deaths', 'assists']) { const crop = cell(item.frame, centre, TAB_CELLS[field], .3); const read = crop ? await readScoreBox(crop, text) : null; values[field] = read?.value && Number(read.value) <= 80 ? Number(read.value) : null; }
+          for (const field of ['kills', 'deaths', 'assists']) { const crop = cell(item.frame, centre + item.dy, TAB_CELLS[field], .3); const read = crop ? await readScoreBox(crop, text) : null; values[field] = read?.value && Number(read.value) <= 80 ? Number(read.value) : null; }
           item.read.push({ row, name: null, ...values });
         }
       }
       await worker.setParameters({ tessedit_char_whitelist: '', tessedit_pageseg_mode: '7' });
       for (const item of picked) {
         if (item.read.filter(row => [row.kills, row.deaths, row.assists].every(Number.isInteger)).length < 3) continue;
-        for (const row of item.read) { const crop = cell(item.frame, TAB_OUR_ROWS[row.row], TAB_CELLS.name, .3); row.name = crop ? (await text(crop)).trim().replace(/\s+/g, ' ') || null : null; }
+        for (const row of item.read) { const crop = cell(item.frame, TAB_OUR_ROWS[row.row] + item.dy, TAB_CELLS.name, .3); row.name = crop ? (await text(crop)).trim().replace(/\s+/g, ' ') || null : null; }
         counts.boards += 1; boards.push({ timestampMs: item.frame.timestampMs, rows: item.read });
       }
     }
@@ -545,7 +555,7 @@ async function readBannerDigits(frames, snapshots, worker, log = line => void li
   const chosen = [];
   for (const frame of frames || []) {
     const snapshot = textAt.get(frame.timestampMs); if (snapshot) counts.withText += 1;
-    const word = /allies|enemies/i.test(snapshot?.text || ''); if (word) counts.anchorWord += 1;
+    const word = /allies|enemies|victory|defeat/i.test(snapshot?.text || ''); if (word) counts.anchorWord += 1;
     const crop = bannerDigitCrop(frame.pixels, frame.width, frame.height);
     // The end screen is a dark full-screen overlay; the words may have run into the scores, so the split is not required.
     const dark = (crop ? crop.background : medianGray(frame.pixels, frame.width, frame.height)) < 70; if (dark) counts.darkSplit += 1;
@@ -560,13 +570,15 @@ async function readBannerDigits(frames, snapshots, worker, log = line => void li
         await worker.setParameters({ tessedit_char_whitelist: '', tessedit_pageseg_mode: mode });
         for (const item of tried) {
           if (item.line) continue; const stretched = stretchedBanner(item.frame.pixels, item.frame.width, item.frame.height); if (!stretched) continue;
-          const read = await text(stretched); item.raw = { ...item.raw, [`line${mode}`]: read }; if (/allies|enemies/i.test(read)) { item.word = true; item.line = BANNER_LINE.test(read) ? read : item.line; if (!item.anchored) { item.anchored = true; counts.anchorRead += 1; } }
+          const read = await text(stretched); item.raw = { ...item.raw, [`line${mode}`]: read }; if (/allies|enemies|victory|defeat/i.test(read)) { item.word = true; item.line = BANNER_LINE.test(read) ? read : item.line; if (!item.anchored) { item.anchored = true; counts.anchorRead += 1; } }
         }
       }
       // The scores: each from its own crop, digits only; the whole middle only when it will not split.
       await worker.setParameters({ tessedit_char_whitelist: '0123456789', tessedit_pageseg_mode: '7' });
       const reads = [];
       for (const item of tried) {
+        // The page read already gave "n DEFEAT m" with the word agreeing: keep it, the score boxes belong to the other layout.
+        if (/\d{1,2}\D{0,24}?\b(?:victory|defeat|draw)\b\D{0,24}?\d{1,2}/i.test(item.snapshot?.text || '')) continue;
         let left = null, right = null; const halves = item.crop ? splitDigitCrop(item.crop) : null; const raw = item.raw || {};
         const boxes = SCORE_BOXES.map(box => scoreBoxCrop(item.frame.pixels, item.frame.width, item.frame.height, box));
         if (boxes.every(Boolean)) { const reads = [await readScoreBox(boxes[0], text), await readScoreBox(boxes[1], text)]; raw.boxLeft = JSON.stringify(reads[0].raw); raw.boxRight = JSON.stringify(reads[1].raw); left = reads[0].value; right = reads[1].value; }
@@ -575,6 +587,9 @@ async function readBannerDigits(frames, snapshots, worker, log = line => void li
         // Every attempt's raw OCR text, so a miss shows which crop read what.
         log(`end-banner attempt ${Math.round(item.frame.timestampMs / 1000)}s: crop ${item.crop ? `${item.crop.width}x${item.crop.height}` : 'none'}, split ${halves ? halves.map(half => half.width).join('+') : 'none'}, boxes ${boxes.map(box => box ? box.glyphs.map(glyph => `${glyph.width}x${glyph.height}`).join('/') : 'empty').join(' + ')}, ${['line7', 'line6', 'boxLeft', 'boxRight', 'left', 'right', 'middle'].filter(key => key in raw).map(key => `${key} ${JSON.stringify(String(raw[key]).trim().slice(0, 60))}`).join(', ')}`);
         if ((!left || !right) && item.line) { const match = item.line.match(BANNER_LINE); [left, right] = [match[1], match[2]]; }
+        // The result word, when one was read, must agree with the digits (a lone 7 read as 1 can still pass; a swapped side cannot).
+        const outcome = /victory/i.test(`${item.snapshot?.text || ''} ${raw.line7 || ''} ${raw.line6 || ''}`) ? 1 : /defeat/i.test(`${item.snapshot?.text || ''} ${raw.line7 || ''} ${raw.line6 || ''}`) ? -1 : 0;
+        if (left && right && outcome && Math.sign(Number(left) - Number(right)) !== outcome) continue;
         if (left && right) reads.push({ ...item, banner: `ALLIES ${Number(left)} - ${Number(right)} ENEMIES` });
       }
       // A frame that names a side stands alone. A dark split without a word could be any dark
@@ -711,7 +726,7 @@ async function analyzeVodTimeline(input, options = {}) {
       { key: 'scoreboardSnapshots', label: 'scoreboard totals', fps: .2, crop: 'crop=iw*0.78:ih*0.72:iw*0.11:ih*0.14', width: 1100, height: 680, threshold: .12, burstFrames: 1, maxCandidates: 480 },
       // The custom-game end screen: one centred line "ALLIES n - m ENEMIES" that stays up for minutes.
       // It is static, so a change gate skips it: every 5 s is a candidate, one kept per time bucket.
-      { key: 'tabBoardSnapshots', label: 'TAB board', fps: 4, rank: tabBoardRows, rankKeep: 4, crop: `crop=iw*${+(TAB_BOX.x1 - TAB_BOX.x0).toFixed(3)}:ih*${+(TAB_BOX.y1 - TAB_BOX.y0).toFixed(3)}:iw*${TAB_BOX.x0}:ih*${TAB_BOX.y0}`, width: 1036, height: 596, threshold: .2, burstFrames: 1, maxCandidates: 360, ocr: false },
+      { key: 'tabBoardSnapshots', label: 'TAB board', fps: 4, rank: tabBoardRows, rankKeep: 4, crop: `crop=iw*${+(TAB_BOX.x1 - TAB_BOX.x0).toFixed(3)}:ih*${+(TAB_BOX.y1 - TAB_BOX.y0).toFixed(3)}:iw*${TAB_BOX.x0}:ih*${TAB_BOX.y0}`, width: TAB_FRAME.width, height: TAB_FRAME.height, threshold: .2, burstFrames: 1, maxCandidates: 240, ocr: false },
       { key: 'endBannerSnapshots', label: 'end screen', fps: .2, crop: 'crop=iw*0.70:ih*0.13:iw*0.15:ih*0.42', width: 980, height: 182, threshold: 0, burstFrames: 0, maxCandidates: 240 },
     ];
     const checkpointKey = crypto.createHash('sha256').update(JSON.stringify({ source: input.sourceSha256 || path.resolve(file), startMs: Number(input.startMs) || 0, endMs: Number(input.endMs) || null, players: input.players || [], observerMode: !!input.observerMode, povPlayerName: input.povPlayerName || null })).digest('hex');
@@ -782,4 +797,4 @@ async function readVodFrame(directory, frame) {
   return { mediaType: 'image/png', base64: (await fsp.readFile(path.join(path.resolve(directory), name))).toString('base64') };
 }
 
-module.exports = { tabBoardRows, readCoachTabBoards, TAB_BOX, TAB_OUR_ROWS, TAB_CELLS, killFeedSummary, createChangeCollector, readScoreBox, KILL_FEED_BOX, killFeedCrop, scoreBoxCrop, fixSevens, SCORE_BOXES, rowText, stretchedBanner, splitDigitCrop, bannerDigitCrop, readBannerDigits, sweepOrphanedVodDirectories, readOwnedVodFrame, readVodFrame, normalizeYoutubeUrl, youtubeVideoId, probeVideo, analyzeVodTimeline, normalizeTimelinePlayers, discoverVodGames, releaseVodSource, createReviewClips, changedFrames, changedFramesTogether, sampleRegions, recognizeFrames, createOcrPool, frameDifference, visualSignature, ensureDiskSpace, scoreboardGeometryScore, agentSelectGeometryScore, chooseGameBoundaries, inferPovPlayer };
+module.exports = { tabBoardRows, tabBoardFit, readCoachTabBoards, TAB_BOX, TAB_FRAME, TAB_OUR_ROWS, TAB_CELLS, killFeedSummary, createChangeCollector, readScoreBox, KILL_FEED_BOX, killFeedCrop, scoreBoxCrop, fixSevens, SCORE_BOXES, rowText, stretchedBanner, splitDigitCrop, bannerDigitCrop, readBannerDigits, sweepOrphanedVodDirectories, readOwnedVodFrame, readVodFrame, normalizeYoutubeUrl, youtubeVideoId, probeVideo, analyzeVodTimeline, normalizeTimelinePlayers, discoverVodGames, releaseVodSource, createReviewClips, changedFrames, changedFramesTogether, sampleRegions, recognizeFrames, createOcrPool, frameDifference, visualSignature, ensureDiskSpace, scoreboardGeometryScore, agentSelectGeometryScore, chooseGameBoundaries, inferPovPlayer };

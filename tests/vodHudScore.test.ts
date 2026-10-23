@@ -96,6 +96,13 @@ describe('the last HUD read and kill-feed names', () => {
     expect(deriveFinalScore(result, { partial: true })).toMatchObject({ left: 12, right: 12 });
   });
 
+  it('reads the result-word end screen and checks the word against the digits', () => {
+    expect(parseEndBannerSnapshot({ timestampMs: 1, text: '8\nDEFEAT\n16' })).toMatchObject({ kind: 'end-banner', score: [8, 16] });
+    expect(parseEndBannerSnapshot({ timestampMs: 1, text: '13  VICTORY  9' })).toMatchObject({ score: [13, 9] });
+    expect(parseEndBannerSnapshot({ timestampMs: 1, text: '16 DEFEAT 8' })).toBeNull();
+    expect(deriveFinalScore(aggregateVideoEvidence({ players: [], endBannerSnapshots: [{ timestampMs: 900_000, text: '7  DEFEAT  17' }] }))).toMatchObject({ left: 7, right: 17, basis: 'end-banner' });
+  });
+
   it('matches feed names loosely: case, prefix and a few OCR edits', () => {
     expect(wordMatchesName('anaval', 'anava1')).toBe(true);
     expect(wordMatchesName('benj', 'benjamin')).toBe(true);
