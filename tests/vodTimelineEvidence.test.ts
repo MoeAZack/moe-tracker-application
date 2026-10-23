@@ -332,6 +332,17 @@ describe('VOD timeline evidence', () => {
     expect(tabBoardRows(Buffer.alloc(1036 * 596, 120), 1036, 596)).toBe(0);
   });
 
+  it('keeps a TAB board that is up for one sampled frame instead of the frame that closes it', () => {
+    const board = tabFrame().pixels, gameplay = Buffer.alloc(1036 * 596, 120), dark = Buffer.alloc(1036 * 596, 10);
+    const spec = { key: 'tabBoardSnapshots', label: 'TAB board', fps: 4, width: 1036, height: 596, threshold: .2, burstFrames: 1, maxCandidates: 1, rank: tabBoardRows, rankKeep: 4 };
+    const collector = createChangeCollector(spec, 10, { startSeconds: 0, sampledDuration: 10 }, null, undefined);
+    collector.push(Buffer.concat([gameplay, gameplay, board, dark, gameplay]));
+    const kept = collector.frames();
+    expect(kept).toHaveLength(1);
+    expect(tabBoardRows(kept[0].pixels, 1036, 596)).toBe(5);
+    expect(kept[0].timestampMs).toBe(500);
+  });
+
   it('reads K, D and A of our five TAB rows digits-only, then the names, and restores the worker', async () => {
     const frame = tabFrame(); const calls: any[] = []; let names = 0; let whitelist = '';
     const worker = { setParameters: vi.fn(async (params: any) => { calls.push(params); whitelist = params.tessedit_char_whitelist; }), recognize: vi.fn(async () => ({ data: { text: whitelist ? '8' : ['Ana', 'Ben', 'Cy', 'Dee', 'Eli'][names++ % 5] } })) };

@@ -287,17 +287,20 @@ function createChangeCollector(spec, durationSeconds, range, progress, signal, l
         if (changed) burstRemaining = Math.max(burstRemaining, spec.burstFrames || 0);
         // A static HUD (the score between rounds, the last score before a disconnect) still gets a frame every few seconds.
         const heartbeat = spec.everySeconds > 0 && timestampMs - lastKeptMs >= spec.everySeconds * 1000;
-        if (changed || burstRemaining > 0 || heartbeat) {
+        // A spec with rank (the TAB board) keeps the frame that looks most like its target in each bucket,
+        // whatever the change gate says: a board up for one second is otherwise lost to the frame that closes it.
+        const rank = spec.rank ? spec.rank(frame, spec.width, spec.height) : 0, ranked = spec.rank && rank >= (spec.rankKeep ?? 1);
+        if (changed || burstRemaining > 0 || heartbeat || ranked) {
           lastKeptMs = timestampMs;
           const bucket = Math.min(spec.maxCandidates - 1, Math.floor(timestampMs / Math.max(1, durationSeconds * 1000) * spec.maxCandidates)); const existing = buckets.get(bucket);
-          if (!existing || difference > existing.difference) buckets.set(bucket, { timestampMs, pixels: frame, difference });
+          if (!existing || rank > existing.rank || (rank === existing.rank && difference > existing.difference)) buckets.set(bucket, { timestampMs, pixels: frame, difference, rank });
           if (!changed) burstRemaining -= 1;
         }
         previous = frame;
         if (progress && index % 100 === 0) progress({ stage: 'sampling', percent: Math.min(99, Math.round((timestampMs / 1000 - startSeconds) / Math.max(1, sampledDuration) * 100)), message: `Sampling ${label} across the selected game…` });
       }
     },
-    frames() { return [...buckets.values()].sort((a, b) => a.timestampMs - b.timestampMs).map(({ difference: _difference, ...frame }) => frame); },
+    frames() { return [...buckets.values()].sort((a, b) => a.timestampMs - b.timestampMs).map(({ difference: _difference, rank: _rank, ...frame }) => frame); },
   };
 }
 
@@ -491,14 +494,14 @@ function tabBoardRows(pixels, width, height) {
 
 /**
  * Read our five rows of each TAB board the coach opened: the name cell as text, then K, D and A each
- * digits-only from its own cell. A board counts when four of the five rows read all three numbers.
+ * digits-only from its own cell. A board counts when three of the five rows read all three numbers.
  * Returns [{ timestampMs, rows: [{ row, name, kills, deaths, assists }] }], oldest first.
  */
 async function readCoachTabBoards(frames, worker, log = line => void line, limit = 12) {
   const counts = { frames: (frames || []).length, looked: 0, tried: 0, boards: 0 }; const boards = [];
   const chosen = [];
   for (const frame of frames || []) { const rows = tabBoardRows(frame.pixels, frame.width, frame.height); if (rows >= 4) { counts.looked += 1; chosen.push({ frame, rows }); } }
-  // Best-looking frames first, at least 5 s apart (one tap gives two frames at 2 fps).
+  // Best-looking frames first, at least 5 s apart (one tap gives several frames at 4 fps).
   const picked = []; for (const item of chosen.sort((a, b) => b.rows - a.rows)) { if (picked.length >= limit) break; if (picked.every(other => Math.abs(other.frame.timestampMs - item.frame.timestampMs) >= 5000)) picked.push(item); }
   const cell = (frame, centre, column, minGlyphHeight) => scoreBoxCrop(frame.pixels, frame.width, frame.height, { x0: column.x0, x1: column.x1, y0: centre - TAB_ROW_HALF, y1: centre + TAB_ROW_HALF }, 3, null, { frameBox: TAB_BOX, minGlyphHeight });
   const text = async image => String((await worker.recognize(pgm(image.pixels, image.width, image.height)))?.data?.text || '');
@@ -516,7 +519,7 @@ async function readCoachTabBoards(frames, worker, log = line => void line, limit
       }
       await worker.setParameters({ tessedit_char_whitelist: '', tessedit_pageseg_mode: '7' });
       for (const item of picked) {
-        if (item.read.filter(row => [row.kills, row.deaths, row.assists].every(Number.isInteger)).length < 4) continue;
+        if (item.read.filter(row => [row.kills, row.deaths, row.assists].every(Number.isInteger)).length < 3) continue;
         for (const row of item.read) { const crop = cell(item.frame, TAB_OUR_ROWS[row.row], TAB_CELLS.name, .3); row.name = crop ? (await text(crop)).trim().replace(/\s+/g, ' ') || null : null; }
         counts.boards += 1; boards.push({ timestampMs: item.frame.timestampMs, rows: item.read });
       }
@@ -708,7 +711,7 @@ async function analyzeVodTimeline(input, options = {}) {
       { key: 'scoreboardSnapshots', label: 'scoreboard totals', fps: .2, crop: 'crop=iw*0.78:ih*0.72:iw*0.11:ih*0.14', width: 1100, height: 680, threshold: .12, burstFrames: 1, maxCandidates: 480 },
       // The custom-game end screen: one centred line "ALLIES n - m ENEMIES" that stays up for minutes.
       // It is static, so a change gate skips it: every 5 s is a candidate, one kept per time bucket.
-      { key: 'tabBoardSnapshots', label: 'TAB board', fps: 2, crop: `crop=iw*${+(TAB_BOX.x1 - TAB_BOX.x0).toFixed(3)}:ih*${+(TAB_BOX.y1 - TAB_BOX.y0).toFixed(3)}:iw*${TAB_BOX.x0}:ih*${TAB_BOX.y0}`, width: 1036, height: 596, threshold: .2, burstFrames: 1, maxCandidates: 360, ocr: false },
+      { key: 'tabBoardSnapshots', label: 'TAB board', fps: 4, rank: tabBoardRows, rankKeep: 4, crop: `crop=iw*${+(TAB_BOX.x1 - TAB_BOX.x0).toFixed(3)}:ih*${+(TAB_BOX.y1 - TAB_BOX.y0).toFixed(3)}:iw*${TAB_BOX.x0}:ih*${TAB_BOX.y0}`, width: 1036, height: 596, threshold: .2, burstFrames: 1, maxCandidates: 360, ocr: false },
       { key: 'endBannerSnapshots', label: 'end screen', fps: .2, crop: 'crop=iw*0.70:ih*0.13:iw*0.15:ih*0.42', width: 980, height: 182, threshold: 0, burstFrames: 0, maxCandidates: 240 },
     ];
     const checkpointKey = crypto.createHash('sha256').update(JSON.stringify({ source: input.sourceSha256 || path.resolve(file), startMs: Number(input.startMs) || 0, endMs: Number(input.endMs) || null, players: input.players || [], observerMode: !!input.observerMode, povPlayerName: input.povPlayerName || null })).digest('hex');
