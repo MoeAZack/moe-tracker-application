@@ -21,7 +21,7 @@ export default function VodTeamPick() {
       <Users className="mt-0.5 h-4 w-4 shrink-0 text-amber-200" />
       <div>
         <h2 id="vod-team-pick-title" className="font-bold">Which five are your team? Game {teamPick.game} of {teamPick.totalGames} · {teamPick.map} · {teamPick.score}</h2>
-        <p className="mt-1 text-xs text-slate-300">The scoreboard does not show teams, so tick your five players and fix any name it misread. Names not on your roster are added as tryouts with their stats. Players you tick once are recognised in the next games of this video.</p>
+        {teamPick.noBoard ? <p className="mt-1 text-xs text-slate-300">This game showed no scoreboard. Type your five players' in-game names and tick them, so kills in the kill feed are credited to them. K/D/A stays blank: it only comes from a scoreboard.</p> : <p className="mt-1 text-xs text-slate-300">The scoreboard does not show teams, so tick your five players and fix any name it misread. Names not on your roster are added as tryouts with their stats. Players you tick once are recognised in the next games of this video.</p>}
       </div>
     </div>
     <ul className="mt-3 grid gap-1.5 sm:grid-cols-2">

@@ -11,7 +11,10 @@ const boundary = (timestampMs: number, map: string) => ({ timestampMs, score: 1,
 const discovery = { cacheId: 'cache-1', uploadDate: '2026-10-20', uploader: null, vodUrl: 'https://youtu.be/abc', videoId: 'abc', durationMs: 600_000, width: 1920, height: 1080, games: [], boundaries: [boundary(0, 'Ascent'), boundary(300_000, 'Bind')] };
 const input = (overrides: Partial<VodBatchImportInput> = {}): VodBatchImportInput => ({ vodUrl: 'https://youtu.be/abc', local: null, expectedGames: 2, date: '2026-10-20', perspective: 'coach', povPlayerName: null, mapNames: ['Ascent', 'Bind'], roster: [{ id: 'p1', displayName: 'Alpha' }], matches: [], playerStats: [], ...overrides });
 
-function harness(options: { failOnPost?: number; latestData?: any } = {}) {
+const cleanups: Array<() => void> = [];
+function harness(options: { failOnPost?: number; latestData?: any; typedNames?: string[] | null } = {}) {
+  // Games with no board on an empty roster ask for typed names; by default the coach skips that.
+  cleanups.push(vodImportStore.subscribe(() => { const pick = vodImportStore.getSnapshot().teamPick; if (pick?.noBoard) queueMicrotask(() => { if (vodImportStore.getSnapshot().teamPick === pick) vodImportStore.answerTeamPick(options.typedNames ? [0, 1, 2, 3, 4] : null, options.typedNames ? Object.fromEntries(options.typedNames.map((name, index) => [index, name])) : {}); }); }));
   let emit: ((progress: { stage: string; percent: number | null; message: string }) => void) | null = null;
   let releaseAnalysis: (() => void) | null = null; let posts = 0;
   const desktop = {
@@ -34,7 +37,7 @@ function harness(options: { failOnPost?: number; latestData?: any } = {}) {
   return { deps, desktop, apiFetch, emit: (progress: { stage: string; percent: number | null; message: string }) => emit?.(progress), finishAnalysis };
 }
 
-afterEach(() => vodImportStore.reset());
+afterEach(() => { cleanups.splice(0).forEach(cleanup => cleanup()); vodImportStore.reset(); });
 
 describe('VOD import runner survives leaving the VOD tab', () => {
   it('keeps running and keeps progress with no component subscribed, then finishes and refreshes data', async () => {
@@ -311,6 +314,19 @@ describe('VOD import runner survives leaving the VOD tab', () => {
   it('takes the 24-round board of a played-out custom game as its end-of-game board', () => {
     const at = (timestampMs: number, ourScore: number | null, theirScore: number | null) => ({ timestampMs, draft: { match: { ourScore, theirScore } } });
     expect(endOfGameBoard([at(1, 5, 12), at(2, 7, 17), at(3, 6, 14)])).toMatchObject({ timestampMs: 2 });
+  });
+
+  it('on an empty roster with no scoreboard, asks for our five typed names, credits the kill feed to them and saves K/D/A blank', async () => {
+    const names = ['Ana', 'Ben', 'Cy', 'Dee', 'Eli']; const h = harness({ typedNames: names }); const picks: any[] = [];
+    cleanups.push(vodImportStore.subscribe(() => { const pick = vodImportStore.getSnapshot().teamPick; if (pick && !picks.includes(pick)) picks.push(pick); }));
+    const run = startVodBatchImport(input({ roster: [] }), h.deps);
+    await h.finishAnalysis(); await h.finishAnalysis();
+    await expect(run).resolves.toBe(true);
+    expect(picks.map(pick => [pick.noBoard, pick.rows.map((row: any) => row.name)])).toEqual([[true, ['', '', '', '', '']], [true, names]]);
+    expect((h.desktop.analyzeVod.mock.calls as any[]).map(([request]) => request.players)).toEqual([names.map(name => ({ name, team: 'ours' })), names.map(name => ({ name, team: 'ours' }))]);
+    const bodies = (h.apiFetch.mock.calls as any[]).filter(([url]) => url === '/api/vod-submissions').map(([, init]) => JSON.parse(String(init.body)));
+    expect(bodies[0]).toMatchObject({ addObservedPlayers: true }); expect(bodies[0].players.map((player: any) => [player.observedName, player.kills, player.deaths, player.assists])).toEqual(names.map(name => [name, null, null, null]));
+    expect(vodImportStore.getSnapshot().batchResult[0].status).toContain('names typed, K/D/A blank');
   });
 
   it('drops candidates whose ten rows hold no board, and logs why per candidate', async () => {

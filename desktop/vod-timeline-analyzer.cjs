@@ -373,23 +373,29 @@ function bannerDigitCrop(pixels, width, height) {
 async function readBannerDigits(frames, snapshots, worker, log = line => void line, limit = 40) {
   const out = [...(snapshots || [])]; const counts = { frames: (frames || []).length, withText: 0, anchorWord: 0, darkSplit: 0, tried: 0, read: 0 };
   const textAt = new Map(out.map(item => [item.timestampMs, item]));
-  const chosen = []; const lastMs = Math.max(0, ...(frames || []).map(frame => frame.timestampMs));
+  const chosen = [];
   for (const frame of frames || []) {
     const snapshot = textAt.get(frame.timestampMs); if (snapshot) counts.withText += 1;
     const word = /allies|enemies/i.test(snapshot?.text || ''); if (word) counts.anchorWord += 1;
-    const crop = bannerDigitCrop(frame.pixels, frame.width, frame.height); // Without a word, only a dark split near the end of the game counts: the end screen stays up until the next lobby.
-    const dark = !!crop && crop.background < 70 && frame.timestampMs >= lastMs - 10 * 60_000; if (dark) counts.darkSplit += 1;
-    if (crop && (word || dark)) chosen.push({ frame, crop, snapshot });
+    const crop = bannerDigitCrop(frame.pixels, frame.width, frame.height);
+    const dark = !!crop && crop.background < 70; if (dark) counts.darkSplit += 1;
+    if (crop && (word || dark)) chosen.push({ frame, crop, snapshot, word });
   }
   try {
     if (chosen.length && worker) {
       await worker.setParameters({ tessedit_char_whitelist: '0123456789', tessedit_pageseg_mode: '7' });
-      for (const { frame, crop, snapshot } of chosen.slice(-limit)) {
+      const reads = [];
+      for (const { frame, crop, snapshot, word } of chosen.slice(-limit)) {
         counts.tried += 1;
         const text = String((await worker.recognize(pgm(crop.pixels, crop.width, crop.height)))?.data?.text || ''); const match = text.match(/(\d{1,2})\D+(\d{1,2})/);
-        if (!match) continue;
-        const banner = `ALLIES ${match[1]} - ${match[2]} ENEMIES`; counts.read += 1;
-        if (snapshot) snapshot.text = banner; else out.push({ timestampMs: frame.timestampMs, text: banner, confidence: null });
+        if (match) reads.push({ frame, snapshot, word, banner: `ALLIES ${match[1]} - ${match[2]} ENEMIES` });
+      }
+      // A frame that names a side stands alone. A dark split without a word could be any dark
+      // scene, so it counts only when another frame read the same score: the end screen stays up.
+      for (const item of reads) {
+        if (!item.word && reads.filter(other => other.banner === item.banner).length < 2) continue;
+        counts.read += 1;
+        if (item.snapshot) item.snapshot.text = item.banner; else out.push({ timestampMs: item.frame.timestampMs, text: item.banner, confidence: null });
       }
     }
   } finally {
@@ -489,8 +495,8 @@ async function analyzeVodTimeline(input, options = {}) {
       { key: 'povSnapshots', label: 'POV identity', fps: .25, crop: 'crop=iw*0.34:ih*0.28:0:ih*0.67', width: 560, height: 280, threshold: .08, burstFrames: 1, maxCandidates: 600 },
       { key: 'scoreboardSnapshots', label: 'scoreboard totals', fps: .2, crop: 'crop=iw*0.78:ih*0.72:iw*0.11:ih*0.14', width: 1100, height: 680, threshold: .12, burstFrames: 1, maxCandidates: 480 },
       // The custom-game end screen: one centred line "ALLIES n - m ENEMIES" that stays up for minutes.
-      // It fades in, so the 30 s after the change are kept too.
-      { key: 'endBannerSnapshots', label: 'end screen', fps: .2, crop: 'crop=iw*0.70:ih*0.13:iw*0.15:ih*0.42', width: 980, height: 182, threshold: .12, burstFrames: 6, maxCandidates: 240 },
+      // It is static, so a change gate skips it: every 5 s is a candidate, one kept per time bucket.
+      { key: 'endBannerSnapshots', label: 'end screen', fps: .2, crop: 'crop=iw*0.70:ih*0.13:iw*0.15:ih*0.42', width: 980, height: 182, threshold: 0, burstFrames: 0, maxCandidates: 240 },
     ];
     const checkpointKey = crypto.createHash('sha256').update(JSON.stringify({ source: input.sourceSha256 || path.resolve(file), startMs: Number(input.startMs) || 0, endMs: Number(input.endMs) || null, players: input.players || [], observerMode: !!input.observerMode, povPlayerName: input.povPlayerName || null })).digest('hex');
     const saved = await readCheckpoint(options.checkpointFile); const checkpoint = saved?.schema === 'moetracker.vod-checkpoint/v1' && saved.key === checkpointKey ? saved : { schema: 'moetracker.vod-checkpoint/v1', key: checkpointKey, specs: {}, updatedAt: null };

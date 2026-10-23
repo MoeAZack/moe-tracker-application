@@ -101,6 +101,14 @@ describe('a VOD match takes its missing score from the HUD', () => {
     expect(saved).toMatchObject({ ourScore: 13, theirScore: 7 });
   });
 
+  it('saves five typed names with blank K/D/A on a game with no scoreboard, as observed players', () => {
+    const blank = { agent: null, kills: null, deaths: null, assists: null, acs: null, adr: null, hs: null, fk: null, fd: null, plants: null, defuses: null, trades: null };
+    const state = db(); const saved = integrateVodSubmission(state, submission({ coachTeamEvidence: true, addObservedPlayers: true, players: ['Ana', 'Ben', 'Cy', 'Dee', 'Eli'].map(observedName => ({ observedName, ...blank })) }), 'Coach', ids(), '2026-10-23T00:00:00Z');
+    expect(saved.integration.addedPlayers).toHaveLength(5);
+    expect(state.playerStats.filter((stat: any) => stat.matchId === state.matches[0].id)).toHaveLength(5);
+    expect(state.playerStats.every((stat: any) => stat.kills === null || stat.kills === undefined)).toBe(true);
+  });
+
   it('does not derive the score again once the coach cleared it', () => {
     const state = db(); integrateVodSubmission(state, submission(), 'Coach', ids(), '2026-10-23T00:00:00Z');
     const match = state.matches[0]; match.ourScore = null; match.theirScore = null;
