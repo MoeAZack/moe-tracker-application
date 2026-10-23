@@ -278,6 +278,8 @@ export interface Match {
   /** Team-only round conversion summary synchronized without raw screenshot evidence. */
   roundAnalytics?: Record<string, unknown>;
   vodSubmissionIds?: string[];
+  /** Set when the final score was read from a VOD's in-game HUD (left side counted as ours) instead of a scoreboard or the coach. */
+  scoreEvidence?: { source: 'vod-hud'; basis: 'final-read' | 'last-round'; reads: number; orientation: 'left-is-ours'; derivedAt: string };
   /** Server-owned same-game duplicate state. Quarantined matches are excluded from analytics until a coach decides. */
   duplicateReview?: MatchDuplicateReview;
 }
@@ -853,7 +855,7 @@ export interface VodSubmission {
   rosterMatchCount: number;
   players: VodSubmissionPlayer[];
   timelineEvidence?: VodTimelineEvidence | null;
-  integration: { createdMatch: boolean; createdStats: number; filledFields: number; preservedFields: number; addedPlayers?: string[] };
+  integration: { createdMatch: boolean; createdStats: number; filledFields: number; preservedFields: number; addedPlayers?: string[]; scoreFromHud?: { ourScore: number; theirScore: number; basis: 'final-read' | 'last-round' } };
   createdAt: string;
   integratedAt: string;
 }

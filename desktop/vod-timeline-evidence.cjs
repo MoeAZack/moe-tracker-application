@@ -35,7 +35,10 @@ function parseKillFeedSnapshot(snapshot, players) {
 
 function parseObjectiveSnapshot(snapshot,players=[]) { const text=String(snapshot.text||''), lower=text.toLowerCase(), events=[], names=orderedNames(text,players); const add=kind=>events.push({id:observationId(kind,snapshot.timestampMs,lower),kind,timestampMs:snapshot.timestampMs,confidence:snapshot.confidence??.76,grade:'ocr',player:names[0]?.name,visualSignature:snapshot.visualSignature||null,rawText:text}); if (/spike\s+(planted|plant)/.test(lower)) add('plant'); if (/spike\s+(defused|defuse)|defus(ed|ing)/.test(lower)) add('defuse'); if (/ultimate\s+orb|ult\s+orb|orb\s+captur(ed|e)/.test(lower)) add('orb-capture'); return events; }
 
-function parseRoundStateSnapshot(snapshot) { const text=String(snapshot.text||''), lower=text.toLowerCase(); const scores=[...text.matchAll(/(?:^|\s)(\d{1,2})\s*[-:|]\s*(\d{1,2})(?:\s|$)/g)].map(match=>[Number(match[1]),Number(match[2])]).filter(([a,b])=>a<=30&&b<=30); const roundMatch=text.match(/(?:round|rnd)\s*(\d{1,2})/i), timerMatch=text.match(/\b([0-1]?\d):([0-5]\d)\b/); const winner=/attackers?\s+(?:win|won)|attack\s+victory/i.test(text)?'attack':/defenders?\s+(?:win|won)|defen[cs]e\s+victory/i.test(text)?'defense':null; const phase=/buy\s*phase|buy\s+time/i.test(text)?'buy':/round\s+(?:win|won)|victory|defeat|flawless|thrifty|clutch/i.test(text)?'complete':timerMatch?'live':null; if (!scores.length&&!roundMatch&&!timerMatch&&!winner&&!phase) return null; return {id:observationId('round-state',snapshot.timestampMs,text),kind:'round-state',timestampMs:snapshot.timestampMs,confidence:snapshot.confidence??.7,grade:'ocr',roundNumber:roundMatch?Number(roundMatch[1]):null,score:scores[0]||null,timerSeconds:timerMatch?Number(timerMatch[1])*60+Number(timerMatch[2]):null,phase,winner,rawText:text}; }
+function parseRoundStateSnapshot(snapshot) { const text=String(snapshot.text||''), lower=text.toLowerCase(); 
+  // The HUD shows "left  m:ss  right"; a bare "m:ss" is the round timer, never a score.
+  const hudScores=[...text.matchAll(/(?:^|\s)(\d{1,2})\s+[0-1]?\d:[0-5]\d\s+(\d{1,2})(?=\s|$)/g)], dashScores=[...text.matchAll(/(?:^|\s)(\d{1,2})\s*[-|]\s*(\d{1,2})(?=\s|$)/g)]; const scores=[...hudScores,...dashScores].map(match=>[Number(match[1]),Number(match[2])]).filter(([a,b])=>a<=30&&b<=30), scoreSource=hudScores.length?'hud':dashScores.length?'dash':null;
+   const roundMatch=text.match(/(?:round|rnd)\s*(\d{1,2})/i), timerMatch=text.match(/\b([0-1]?\d):([0-5]\d)\b/); const winner=/attackers?\s+(?:win|won)|attack\s+victory/i.test(text)?'attack':/defenders?\s+(?:win|won)|defen[cs]e\s+victory/i.test(text)?'defense':null; const phase=/buy\s*phase|buy\s+time/i.test(text)?'buy':/round\s+(?:win|won)|victory|defeat|flawless|thrifty|clutch/i.test(text)?'complete':timerMatch?'live':null; if (!scores.length&&!roundMatch&&!timerMatch&&!winner&&!phase) return null; return {id:observationId('round-state',snapshot.timestampMs,text),kind:'round-state',timestampMs:snapshot.timestampMs,confidence:snapshot.confidence??.7,grade:'ocr',roundNumber:roundMatch?Number(roundMatch[1]):null,score:scores[0]||null,...(scores.length?{scoreSource}:{}),timerSeconds:timerMatch?Number(timerMatch[1])*60+Number(timerMatch[2]):null,phase,winner,rawText:text}; }
 
 function trackKillFeedRows(snapshots,players,persistenceMs=7000) { const tracked=[]; for (const snapshot of [...snapshots].sort((a,b)=>a.timestampMs-b.timestampMs)) for (const event of parseKillFeedSnapshot(snapshot,players)) { const previous=tracked.findLast(item=>item.killer===event.killer&&item.victim===event.victim&&event.timestampMs-item.lastSeenMs<=persistenceMs); if (previous) { previous.lastSeenMs=event.timestampMs; previous.confidence=Math.max(previous.confidence||0,event.confidence||0); previous.weapon||=event.weapon; previous.headshot||=event.headshot; previous.assistants=[...new Set([...(previous.assistants||[]),...(event.assistants||[])])]; } else tracked.push(event); } return tracked; }
 
@@ -78,4 +81,34 @@ function fuseVodEvidence(items) {
   base.limitations=[...new Set(sources.flatMap(item=>item.limitations||[]))]; return base;
 }
 
-module.exports={NO_IDENTITIES_LIMITATION,normalizeName,nameAppears,signatureDistance,applyVisualTemplates,parseKillFeedSnapshot,parseObjectiveSnapshot,parseRoundStateSnapshot,parseUltimateSnapshots,parseScoreboardSnapshots,trackKillFeedRows,buildObserverSegments,observerAt,dedupeEvents,groupRounds,buildRoundTimeline,reconcileEvidence,aggregateVideoEvidence,fuseVodEvidence};
+// A score pair the HUD can show: regulation (first to 13), overtime (win by
+// two), or the final score itself.
+function plausibleScore([left,right]) { const high=Math.max(left,right), low=Math.min(left,right); return high<=12||(low>=12&&high-low<=1)||(high===13&&low<=11)||(low>=12&&high-low===2); }
+const finalScore=([left,right])=>{ const high=Math.max(left,right), low=Math.min(left,right); return (high===13&&low<=11)||(low>=12&&high-low===2); };
+
+/**
+ * The final score of one game from the HUD score reads (left, right), or null.
+ * Reads count only when the reader marked them as HUD scores (older evidence
+ * read the round timer as a score). The longest run of reads that never goes
+ * down is kept; if the HUD never showed the final score, the last read before
+ * the final round decides it, because a game only ends when a side reaches 13
+ * (or leads by two in overtime), provided that read is from the final
+ * round. Anything else stays unknown.
+ */
+function deriveFinalScore(evidence) {
+  const observed=(evidence?.observations||[]).filter(item=>item?.kind==='round-state'&&item.scoreSource&&Array.isArray(item.score)&&item.score.length===2&&item.score.every(Number.isInteger)&&plausibleScore(item.score)).sort((a,b)=>a.timestampMs-b.timestampMs).slice(-2000), reads=observed.map(item=>item.score);
+  if (!reads.length) return null;
+  const length=reads.map(()=>1), previous=reads.map(()=>-1);
+  for (let index=0; index<reads.length; index+=1) for (let before=0; before<index; before+=1) if (reads[before][0]<=reads[index][0]&&reads[before][1]<=reads[index][1]&&length[before]+1>length[index]) { length[index]=length[before]+1; previous[index]=before; }
+  let end=0; for (let index=1; index<reads.length; index+=1) if (length[index]>=length[end]) end=index;
+  const chain=length[end]; if (chain<3) return null;
+  const [left,right]=reads[end];
+  if (finalScore([left,right])) return { left, right, basis:'final-read', reads:chain };
+  // The rule needs the final round itself: the last read must sit within one round of the end of what was seen.
+  const lastSeen=Math.max(...(evidence.observations||[]).map(item=>Number(item?.timestampMs)||0));
+  if (lastSeen-observed[end].timestampMs>150000) return null;
+  const next=left===12&&right<12?[13,right]:right===12&&left<12?[left,13]:left>=12&&left-right===1?[left+1,right]:right>=12&&right-left===1?[left,right+1]:null;
+  return next ? { left:next[0], right:next[1], basis:'last-round', reads:chain } : null;
+}
+
+module.exports={NO_IDENTITIES_LIMITATION,normalizeName,nameAppears,signatureDistance,applyVisualTemplates,parseKillFeedSnapshot,parseObjectiveSnapshot,parseRoundStateSnapshot,parseUltimateSnapshots,parseScoreboardSnapshots,trackKillFeedRows,buildObserverSegments,observerAt,dedupeEvents,groupRounds,buildRoundTimeline,reconcileEvidence,aggregateVideoEvidence,fuseVodEvidence,deriveFinalScore};

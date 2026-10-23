@@ -5,6 +5,7 @@ import { findMatchCandidates, normalizedMatchName, similarMatchName } from './ma
 import { captureRosterFromIdentity } from './identityResolver';
 import { refreshDuplicateQuarantine } from './matchIntegrity';
 import { activeCorePlayerIds, ensureObservedRosterPlayer, setObservedRosterStatus, setTryoutsMode } from './roster';
+import { applyVodHudScore } from './vodScore';
 
 const { fuseVodEvidence } = evidenceModule as { fuseVodEvidence: (items: VodTimelineEvidence[]) => VodTimelineEvidence | null };
 
@@ -172,8 +173,11 @@ export function integrateVodSubmission(db: any, input: SubmissionInput, actorNam
   if (duplicate) Object.assign(duplicate, { timelineEvidence: submission.timelineEvidence, integration: submission.integration, integratedAt: now });
   else db.vodSubmissions.unshift(submission);
   const fused = fuseVodEvidence((db.vodSubmissions as VodSubmission[]).filter(item => item.linkedMatchId === match!.id && item.timelineEvidence).map(item => item.timelineEvidence!));
+  let derivedScore: ReturnType<typeof applyVodHudScore> = null;
   if (fused) {
     (match as any).vodTimelineEvidence = fused;
+    derivedScore = applyVodHudScore(match, fused, now);
+    if (derivedScore) Object.assign(duplicate || submission, { ourScore: match.ourScore, theirScore: match.theirScore });
     db.rounds ||= [];
     const submissionIds = (db.vodSubmissions as VodSubmission[]).filter(item => item.linkedMatchId === match!.id && item.timelineEvidence).map(item => item.id);
     const completeEliminations = fused.coverage.signals.eliminations === 'complete';
@@ -190,6 +194,7 @@ export function integrateVodSubmission(db: any, input: SubmissionInput, actorNam
       } else db.rounds.push({ id: `vod:${match!.id}:round:${observedRound.roundNumber}`, matchId: match!.id, roundNo: observedRound.roundNumber, side: '', result: automaticResult, winBy: '', advantageEvidence, vodEvidence, sourceMetadata: { method: 'vod-submission', capturedAt: now, provider: 'local-ocr', externalId: ids.submissionId } });
     }
   }
+  if (derivedScore) (duplicate || submission).integration = { ...(duplicate || submission).integration, scoreFromHud: { ourScore: derivedScore.left, theirScore: derivedScore.right, basis: derivedScore.basis } };
   refreshDuplicateQuarantine(db, now);
   return duplicate || submission;
 }
