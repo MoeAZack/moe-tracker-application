@@ -502,7 +502,7 @@ export type CurrentIdentity = { playerId: string; displayName: string | null; st
 export type EvidenceResolution =
   | { ok: true; reference: EvidenceReferenceV1; storedState: EvidenceState; match: { id: string; location: 'active' | 'archived'; archiveId: string | null } | null;
       round: { id: string | null; roundNumber: number | null } | null; replay: { sha256: string; status: 'accepted' | 'review-required' } | null;
-      screenshot: { artifactId: string | null } | null; vod: { vodReviewId: string } | null;
+      screenshot: { artifactId: string | null } | null; vod: { vodReviewId: string | null; matchId: string | null } | null;
       identities: Array<{ observed: ObservedIdentitySnapshot; current: CurrentIdentity | null }> }
   | { ok: false; reason: EvidenceResolutionFailure; issues?: EvidenceReferenceIssue[] };
 
@@ -609,14 +609,21 @@ export function resolveEvidenceReference(db: any, raw: unknown, caller: { worksp
   }
 
   let vod: Extract<EvidenceResolution, { ok: true }>['vod'] = null;
-  if (reference.vod && !reference.vod.vodReviewId) return { ok: false, reason: 'vod-not-found' };
+  if (reference.vod && !reference.vod.vodReviewId) {
+    // A VOD import has no review record: the match it created (or a VOD row
+    // on that match) is the evidence, so the match id anchors the reference.
+    const vodRows = located ? [located.match, ...(located.container.playerStats || []), ...(located.container.rounds || [])]
+      .filter((row: any) => row === located!.match || row?.matchId === reference.matchId) : [];
+    if (reference.vod.noteId || !vodRows.some((row: any) => sourceTypeForMethod(row?.sourceMetadata?.method) === 'vod')) return { ok: false, reason: 'vod-not-found' };
+    vod = { vodReviewId: null, matchId: reference.matchId };
+  }
   if (reference.vod?.vodReviewId) {
     const reviews = located?.location === 'archived' ? (located.container.vodReviews || []) : (db.vodReviews || []);
     const review = reviews.find((item: any) => item?.id === reference.vod!.vodReviewId);
     if (!review || (reference.matchId && review.matchId && review.matchId !== reference.matchId)) return { ok: false, reason: 'vod-not-found' };
     if (reference.vod.noteId && !(review.notes || []).some((note: any) => note?.id === reference.vod!.noteId)) return { ok: false, reason: 'vod-not-found' };
     if (review.status === 'rejected') storedState = 'rejected';
-    vod = { vodReviewId: review.id };
+    vod = { vodReviewId: review.id, matchId: reference.matchId };
   }
 
   if (reference.scope.ownerDeviceId && ownerDeviceIds.size && !ownerDeviceIds.has(reference.scope.ownerDeviceId)) return { ok: false, reason: 'owner-device-mismatch' };
