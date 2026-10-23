@@ -471,7 +471,9 @@ async function readScoreBox(box, text) {
 const TAB_BOX = { x0: .297, x1: .702, y0: .289, y1: .703 };
 const TAB_OUR_ROWS = [.329, .361, .393, .424, .456];
 const TAB_ROW_HALF = .015;
-const TAB_CELLS = { name: { x0: .322, x1: .47 }, kills: { x0: .490, x1: .504 }, deaths: { x0: .508, x1: .525 }, assists: { x0: .528, x1: .545 } };
+// Measured on the 2782 s frame: name 0.333-0.43 (the agent icon ends at 0.316, ULTIMATE starts at 0.439);
+// K 0.492-0.502, D 0.513-0.523, A 0.535-0.540, each padded so a two-digit value still fits.
+const TAB_CELLS = { name: { x0: .333, x1: .43 }, kills: { x0: .489, x1: .506 }, deaths: { x0: .510, x1: .527 }, assists: { x0: .531, x1: .548 } };
 
 // Cheap test before any OCR: on the board each of our rows has a few lit K/D/A glyph pixels and dark
 // row background around them; gameplay rarely gives that in all five rows at once.

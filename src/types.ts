@@ -832,7 +832,7 @@ export interface VodTimelineEvidence {
   observations: Array<{ id: string; kind: string; timestampMs: number; confidence?: number | null; grade: 'video-observation' | 'ocr'; killer?: string; victim?: string; player?: string; rawText?: string; [key: string]: unknown }>;
   rounds: Array<{ roundNumber: number; startedAtMs: number; endedAtMs: number; events: unknown[]; scoreBefore?: number[] | null; winner?: string | null; boundarySource?: string }>;
   /** The last coach TAB board read, and how many of our rows matched a player by name. */
-  tabBoard?: { timestampMs: number; rows: number; matched: number };
+  tabBoard?: { timestampMs: number; rows: number; matched: number; aliases?: number };
   playerMetrics: Array<{ playerName: string; team: 'ours' | 'theirs'; kills: number; deaths: number; assists?: number | null; source?: 'tab-board+kill-feed'; trades: number; ultimateUses?: number | null; orbCaptures?: number | null; kastSuccessful?: number | null; kastCovered?: number | null; kastRate?: number | null }>;
   throwCandidates: unknown[];
   limitations: string[];
