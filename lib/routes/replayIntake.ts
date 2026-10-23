@@ -25,6 +25,7 @@ import { buildIdentityResolver, identityOcrKey } from '../identityResolver';
 import { deriveRoundAdvantage } from '../roundAdvantage';
 import { recomputeAcceptedMatchAggregates, withCurrentScreenshotMetrics } from '../aggregateVersioning';
 import { refreshCoachingWorkflow } from './coaching';
+import { applyVerifiedMatchScore } from '../vodScore';
 
 const REPLAY_TYPE = 'application/vnd.valorant.replay';
 const MAX_REPLAY_BYTES = Number(process.env.REPLAY_MAX_BYTES || 2 * 1024 * 1024 * 1024);
@@ -332,9 +333,8 @@ function acceptReviewIntoEngines(db: any, store: ReplayStore, job: ReplayParserJ
   const matchCorrected = correctedFields(match);
   db.matches[matchIndex] = { ...match,
     map: mergeVerifiedField(match, 'map', map, matchCorrected),
-    ourScore: mergeVerifiedField(match, 'ourScore', evidenceNumber(ours?.score), matchCorrected),
-    theirScore: mergeVerifiedField(match, 'theirScore', evidenceNumber(theirs?.score), matchCorrected),
     source: 'Replay review', sourceMetadata: { method: 'provider-import', capturedAt: acceptedAt, provider: 'vrfkit', externalId: review.sha256 }, corrections: [...(match.corrections || []), { correctedAt: acceptedAt, correctedBy: user.username, fields: ['replay-evidence-overlay'] }] };
+  applyVerifiedMatchScore(db.matches[matchIndex], evidenceNumber(ours?.score), evidenceNumber(theirs?.score), 'replay');
   const mapping = new Map<string, ReplayMapping>(review.mappings.filter(item => item.rosterPlayerId).map(item => [item.parserPlayerId, item]));
   const rawRows = new Map<string, any>((scoreboard.players || []).map((item: any) => [item.playerId, item]));
   const metricRows = new Map<string, any>((draft.evidence?.playerMetrics || []).map((item: any) => [item.playerId, item]));

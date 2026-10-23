@@ -2,7 +2,7 @@ import { describe, expect, it } from 'vitest';
 import evidenceModule from '../desktop/vod-timeline-evidence.cjs';
 import { createSeed } from '../lib/seed';
 import { integrateVodSubmission } from '../lib/vodSubmissions';
-import { applyVodHudScore } from '../lib/vodScore';
+import { applyVerifiedMatchScore, applyVodHudScore } from '../lib/vodScore';
 import { matchResult, matchScore, sideSplit } from '../src/utils/matchScore';
 
 const { parseRoundStateSnapshot, parseEndBannerSnapshot, deriveFinalScore, aggregateVideoEvidence, learnTabAliases, wordMatchesName } = evidenceModule;
@@ -35,28 +35,39 @@ describe('reading the score on the in-game HUD', () => {
     expect(parseEndBannerSnapshot({ timestampMs: 5, text: 'ALLIES 13 11 ENEMIES' })).toMatchObject({ score: [13, 11] });
     expect(parseEndBannerSnapshot({ timestampMs: 5, text: '7 1:23 5' })).toBeNull();
     // The banner beats HUD reads, and comes through the analyzer from whichever region read it.
-    const aggregated = aggregateVideoEvidence({ players: [], roundStateSnapshots: hud([[0, 0], [5, 12], [5, 17]]).map((item: any) => ({ timestampMs: item.timestampMs, text: item.rawText })), scoreboardSnapshots: [{ timestampMs: 900_000, text: 'ALLIES 7 - 17 ENEMIES' }] });
-    expect(deriveFinalScore(aggregated)).toEqual({ left: 7, right: 17, basis: 'end-banner', reads: 1 });
+    const aggregated = aggregateVideoEvidence({ players: [], roundStateSnapshots: hud([[0, 0], [5, 12], [5, 17]]).map((item: any) => ({ timestampMs: item.timestampMs, text: item.rawText })), scoreboardSnapshots: [{ timestampMs: 895_000, text: 'ALLIES 7 - 17 ENEMIES' }, { timestampMs: 900_000, text: 'ALLIES 7 - 17 ENEMIES' }] });
+    expect(deriveFinalScore(aggregated)).toEqual({ left: 7, right: 17, basis: 'end-banner', reads: 2 });
     // The analyzer's own centre-band crop of the end screen is read too.
-    expect(deriveFinalScore(aggregateVideoEvidence({ players: [], endBannerSnapshots: [{ timestampMs: 900_000, text: 'ALLIES  7      17  ENEMIES' }] }))).toEqual({ left: 7, right: 17, basis: 'end-banner', reads: 1 });
+    expect(deriveFinalScore(aggregateVideoEvidence({ players: [], endBannerSnapshots: [{ timestampMs: 895_000, text: 'ALLIES  7      17  ENEMIES' }, { timestampMs: 900_000, text: 'ALLIES  7      17  ENEMIES' }] }))).toEqual({ left: 7, right: 17, basis: 'end-banner', reads: 2 });
+  });
+
+  it('rejects isolated and contradictory one-read end banners', () => {
+    const observations = [
+      { kind: 'end-banner', timestampMs: 6_822_000, score: [8, 16] },
+      { kind: 'end-banner', timestampMs: 6_842_000, score: [9, 15] },
+      { kind: 'end-banner', timestampMs: 6_847_000, score: [9, 15] },
+    ];
+    expect(deriveFinalScore(evidence(observations))).toEqual({ left: 9, right: 15, basis: 'end-banner', reads: 2 });
+    expect(deriveFinalScore(evidence([observations[0]]))).toBeNull();
+    expect(deriveFinalScore(evidence([observations[1], { ...observations[1] }]))).toBeNull();
   });
 
   it('reads a played-out custom game past 13 and ends it after round 24', () => {
     // Custom games can play all 24 rounds: 5-17 is a real HUD score there.
-    expect(deriveFinalScore(evidence(hud([[0, 0], [3, 9], [5, 14], [5, 17], [7, 17]])))).toEqual({ left: 7, right: 17, basis: 'final-read', reads: 5 });
+    expect(deriveFinalScore(evidence(hud([[0, 0], [3, 9], [5, 14], [5, 17], [7, 17]])))).toBeNull();
     // Seen only up to 5-17: the game had rounds left, so no score is guessed.
     expect(deriveFinalScore(evidence(hud([[0, 0], [3, 9], [5, 14], [5, 17]])))).toBeNull();
   });
 
   it('takes the final score when the HUD showed it', () => {
-    expect(deriveFinalScore(evidence(hud([[0, 0], [1, 0], [5, 3], [9, 7], [13, 9]])))).toEqual({ left: 13, right: 9, basis: 'final-read', reads: 5 });
-    expect(deriveFinalScore(evidence(hud([[10, 12], [12, 12], [13, 13], [13, 15]])))).toEqual({ left: 13, right: 15, basis: 'final-read', reads: 4 });
+    expect(deriveFinalScore(evidence(hud([[0, 0], [1, 0], [5, 3], [9, 7], [13, 9]])))).toBeNull();
+    expect(deriveFinalScore(evidence(hud([[10, 12], [12, 12], [13, 13], [13, 15]])))).toBeNull();
   });
 
-  it('decides the last round from the score before it, because only a winning round ends the game', () => {
-    expect(deriveFinalScore(evidence(hud([[0, 0], [4, 4], [8, 6], [12, 9]])))).toMatchObject({ left: 13, right: 9, basis: 'last-round' });
-    expect(deriveFinalScore(evidence(hud([[0, 0], [3, 6], [7, 12]])))).toMatchObject({ left: 7, right: 13, basis: 'last-round' });
-    expect(deriveFinalScore(evidence(hud([[0, 0], [11, 11], [12, 12], [13, 12]])))).toMatchObject({ left: 14, right: 12, basis: 'last-round' });
+  it('never invents the winner of a last round from HUD state', () => {
+    expect(deriveFinalScore(evidence(hud([[0, 0], [4, 4], [8, 6], [12, 9]])))).toBeNull();
+    expect(deriveFinalScore(evidence(hud([[0, 0], [3, 6], [7, 12]])))).toBeNull();
+    expect(deriveFinalScore(evidence(hud([[0, 0], [11, 11], [12, 12], [13, 12]])))).toBeNull();
   });
 
   it('stays unknown when the reads cannot decide it', () => {
@@ -72,14 +83,14 @@ describe('reading the score on the in-game HUD', () => {
   it('ignores reads that are not HUD scores and reads that break the climb', () => {
     // Old timer reads (no scoreSource) and an OCR misread (3-12 between 8-6 and 12-9) are left out.
     const reads = [...hud([[0, 0], [8, 6], [3, 12], [12, 9]]), { kind: 'round-state', timestampMs: 50_000, score: [1, 23] }, { kind: 'round-state', timestampMs: 60_000, score: [0, 12] }];
-    expect(deriveFinalScore(evidence(reads))).toMatchObject({ left: 13, right: 9, reads: 3 });
+    expect(deriveFinalScore(evidence(reads))).toBeNull();
   });
 
   it('never uses reads without a HUD tag, even when they would make a valid score', () => {
     // Older evidence stored timer reads as scores with no tag; they must never count.
     const untagged = [[0, 0], [6, 4], [12, 7]].map((score, index) => ({ kind: 'round-state', timestampMs: (index + 1) * 100_000, score }));
     expect(deriveFinalScore(evidence(untagged))).toBeNull();
-    expect(deriveFinalScore(evidence(untagged.map(item => ({ ...item, scoreSource: 'hud' }))))).toMatchObject({ left: 13, right: 7 });
+    expect(deriveFinalScore(evidence(untagged.map(item => ({ ...item, scoreSource: 'hud' }))))).toBeNull();
   });
 
   it('keeps the HUD reads in the evidence a game produces', () => {
@@ -102,7 +113,7 @@ describe('the last HUD read and kill-feed names', () => {
     expect(parseEndBannerSnapshot({ timestampMs: 1, text: '8\nDEFEAT\n16' })).toMatchObject({ kind: 'end-banner', score: [8, 16] });
     expect(parseEndBannerSnapshot({ timestampMs: 1, text: '13  VICTORY  9' })).toMatchObject({ score: [13, 9] });
     expect(parseEndBannerSnapshot({ timestampMs: 1, text: '16 DEFEAT 8' })).toBeNull();
-    expect(deriveFinalScore(aggregateVideoEvidence({ players: [], endBannerSnapshots: [{ timestampMs: 900_000, text: '7  DEFEAT  17' }] }))).toMatchObject({ left: 7, right: 17, basis: 'end-banner' });
+    expect(deriveFinalScore(aggregateVideoEvidence({ players: [], endBannerSnapshots: [{ timestampMs: 895_000, text: '7  DEFEAT  17' }, { timestampMs: 900_000, text: '7  DEFEAT  17' }] }))).toMatchObject({ left: 7, right: 17, basis: 'end-banner' });
   });
 
   it('matches feed names loosely: case, prefix and a few OCR edits', () => {
@@ -133,9 +144,10 @@ describe('a VOD match takes its missing score from the HUD', () => {
   let counter = 0; const ids = () => ({ submissionId: `sub-${++counter}`, matchId: `match-${counter}`, statId: () => `stat-${++counter}`, reviewId: `review-${counter}` });
 
   it('fills score and marks where it came from', () => {
-    const state = db(); const saved = integrateVodSubmission(state, submission(), 'Coach', ids(), '2026-10-23T00:00:00Z');
-    expect(state.matches[0]).toMatchObject({ ourScore: 13, theirScore: 7, opponent: 'Unknown opponent', scoreEvidence: { source: 'vod-hud', basis: 'last-round', orientation: 'left-is-ours' } });
-    expect(saved.integration.scoreFromHud).toEqual({ ourScore: 13, theirScore: 7, basis: 'last-round' });
+    const end = { ...timeline([[0, 0], [6, 4], [12, 7]]), observations: [...hud([[0, 0], [6, 4], [12, 7]]), { kind: 'end-banner', timestampMs: 400_000, score: [13, 7] }, { kind: 'end-banner', timestampMs: 405_000, score: [13, 7] }] };
+    const state = db(); const saved = integrateVodSubmission(state, submission({ timelineEvidence: end }), 'Coach', ids(), '2026-10-23T00:00:00Z');
+    expect(state.matches[0]).toMatchObject({ ourScore: 13, theirScore: 7, opponent: 'Unknown opponent', scoreEvidence: { source: 'vod-hud', basis: 'end-banner', orientation: 'left-is-ours' } });
+    expect(saved.integration.scoreFromHud).toEqual({ ourScore: 13, theirScore: 7, basis: 'end-banner' });
     expect(saved).toMatchObject({ ourScore: 13, theirScore: 7 });
   });
 
@@ -198,7 +210,7 @@ describe('a VOD match takes its missing score from the HUD', () => {
     expect(saved.integration.partialScoreFromHud).toEqual({ ourScore: 12, theirScore: 12 });
     expect(saved.integration.scoreFromHud).toBeUndefined();
     // A final score replaces it.
-    const final = { ...match, partialScore: { ...match.partialScore } }; applyVodHudScore(final, { observations: [{ kind: 'end-banner', timestampMs: 1, score: [13, 12] }] } as any);
+    const final = { ...match, partialScore: { ...match.partialScore } }; applyVodHudScore(final, { observations: [{ kind: 'end-banner', timestampMs: 1, score: [13, 12] }, { kind: 'end-banner', timestampMs: 2, score: [13, 12] }] } as any);
     expect(final).toMatchObject({ ourScore: 13, theirScore: 12 }); expect(final.partialScore).toBeUndefined();
   });
 
@@ -206,6 +218,49 @@ describe('a VOD match takes its missing score from the HUD', () => {
     const two = { observations: hud([[11, 10], [12, 11]]) } as any;
     expect(evidenceModule.deriveLastHudScore(two)).toMatchObject({ left: 12, right: 11, basis: 'last-hud', reads: 2 });
     expect(deriveFinalScore(two)).toBeNull();
+  });
+
+  it('upgrades one linked match from partial VOD evidence to a verified board while manual corrections survive', () => {
+    const blank = { agent: null, kills: null, deaths: null, assists: null, acs: null, adr: null, hs: null, fk: null, fd: null, plants: null, defuses: null, trades: null };
+    const names = ['Alpha', 'Bravo', 'Charlie', 'Delta', 'Echo']; const state = db();
+    const first = integrateVodSubmission(state, submission({ imageSha256: '1'.repeat(64), addObservedPlayers: true, players: names.map(observedName => ({ observedName, ...blank })), timelineEvidence: timeline([[0, 0], [6, 5], [12, 11]]) }), 'Coach', ids(), '2026-10-23T00:00:00Z');
+    const match = state.matches[0]; expect(match).toMatchObject({ ourScore: null, theirScore: null, partialScore: { ours: 12, theirs: 11 } });
+    integrateVodSubmission(state, submission({ vodUrl: 'https://example.test/verified-board', imageSha256: '2'.repeat(64), matchId: first.linkedMatchId, scoreProvenance: 'confirmed-scoreboard', ourScore: 9, theirScore: 15, players: names.map(observedName => ({ observedName, ...blank, kills: 20, deaths: 15, assists: 4 })), timelineEvidence: null }), 'Coach', ids(), '2026-10-23T00:05:00Z');
+    expect(state.matches).toHaveLength(1); expect(state.matches[0]).toMatchObject({ ourScore: 9, theirScore: 15 }); expect(state.matches[0].partialScore).toBeUndefined();
+    expect(state.playerStats).toHaveLength(5); expect(state.playerStats.every((row: any) => row.kills === 20 && row.assists === 4)).toBe(true);
+    state.matches[0].ourScore = 10; state.matches[0].theirScore = 14; state.matches[0].corrections = [{ fields: ['ourScore', 'theirScore'], correctedBy: 'Coach' }];
+    integrateVodSubmission(state, submission({ vodUrl: 'https://example.test/later-board', imageSha256: '3'.repeat(64), matchId: first.linkedMatchId, scoreProvenance: 'confirmed-scoreboard', ourScore: 8, theirScore: 16, players: names.map(observedName => ({ observedName, ...blank, kills: 21, deaths: 16, assists: 5 })), timelineEvidence: null }), 'Coach', ids(), '2026-10-23T00:10:00Z');
+    expect(state.matches).toHaveLength(1); expect(state.matches[0]).toMatchObject({ ourScore: 10, theirScore: 14 });
+  });
+
+  it('preserves automatic evidence on timeline reimport and refuses to downgrade replay score trust', () => {
+    const blank = { agent: null, kills: null, deaths: null, assists: null, acs: null, adr: null, hs: null, fk: null, fd: null, plants: null, defuses: null, trades: null };
+    const names = ['Foxtrot', 'Golf', 'Hotel', 'India', 'Juliet']; const state = db();
+    const finalEvidence = { ...timeline([[0, 0], [8, 7], [9, 14]]), observations: [...hud([[0, 0], [8, 7], [9, 14]]), { kind: 'end-banner', timestampMs: 400_000, score: [9, 15] }, { kind: 'end-banner', timestampMs: 401_000, score: [9, 15] }] };
+    const first = integrateVodSubmission(state, submission({ imageSha256: '4'.repeat(64), addObservedPlayers: true, players: names.map(observedName => ({ observedName, ...blank })), timelineEvidence: finalEvidence }), 'Coach', ids(), '2026-10-23T00:00:00Z');
+    expect(state.matches[0].scoreEvidence).toBeTruthy();
+    integrateVodSubmission(state, submission({ imageSha256: '5'.repeat(64), matchId: first.linkedMatchId, ourScore: 9, theirScore: 15, players: names.map(observedName => ({ observedName, ...blank })), timelineEvidence: timeline([[0, 0], [9, 14]]) }), 'Coach', ids(), '2026-10-23T00:05:00Z');
+    expect(state.matches[0].scoreEvidence).toBeTruthy();
+
+    const partialState = db(); const partial = integrateVodSubmission(partialState, submission({ imageSha256: '6'.repeat(64), addObservedPlayers: true, players: names.map(observedName => ({ observedName, ...blank })), timelineEvidence: timeline([[0, 0], [8, 7], [12, 11]]) }), 'Coach', ids(), '2026-10-23T00:00:00Z');
+    integrateVodSubmission(partialState, submission({ imageSha256: '7'.repeat(64), matchId: partial.linkedMatchId, players: names.map(observedName => ({ observedName, ...blank })), timelineEvidence: timeline([[0, 0], [12, 11]]) }), 'Coach', ids(), '2026-10-23T00:05:00Z');
+    expect(partialState.matches[0].partialScore).toMatchObject({ ours: 12, theirs: 11 });
+
+    const replay: any = { ourScore: 10, theirScore: 14, scoreVerification: { source: 'replay' }, sourceMetadata: { provider: 'vrfkit' } };
+    applyVerifiedMatchScore(replay, 8, 16, 'scoreboard');
+    expect(replay).toMatchObject({ ourScore: 10, theirScore: 14, scoreVerification: { source: 'replay' } });
+  });
+
+  it('does not grant replay score authority for null or partial replay scores', () => {
+    for (const incoming of [[null, null], [13, null], [null, 11]] as Array<[number | null, number | null]>) {
+      const match: any = { ourScore: null, theirScore: null, partialScore: { ours: 12, theirs: 11, source: 'vod-hud' }, scoreEvidence: { source: 'vod-hud', basis: 'end-banner' }, sourceMetadata: { provider: 'vrfkit' } };
+      applyVerifiedMatchScore(match, incoming[0], incoming[1], 'replay');
+      expect(match.scoreVerification).toBeUndefined(); expect(match.partialScore).toBeTruthy(); expect(match.scoreEvidence).toBeTruthy();
+      // General replay provenance is not score provenance; a later complete board remains eligible.
+      applyVerifiedMatchScore(match, 9, 15, 'scoreboard');
+      expect(match).toMatchObject({ ourScore: 9, theirScore: 15, scoreVerification: { source: 'scoreboard' } });
+      expect(match.partialScore).toBeUndefined(); expect(match.scoreEvidence).toBeUndefined();
+    }
   });
 
   it('does not derive the score again once the coach cleared it', () => {

@@ -7,13 +7,39 @@ import analyzerModule from '../desktop/vod-timeline-analyzer.cjs';
 import { boundaryTimelinePlayers } from '../src/components/VodSubmission';
 
 const { aggregateVideoEvidence, NO_IDENTITIES_LIMITATION, parseKillFeedSnapshot, parseUltimateSnapshots, parseRoundStateSnapshot, buildRoundTimeline, buildObserverSegments, applyVisualTemplates, fuseVodEvidence } = evidenceModule;
-const { tabBoardRows, tabBoardFit, isTabBoard, tabCellImage, readCoachTabBoards, TAB_BOX, TAB_FRAME, TAB_OUR_ROWS, TAB_CELLS, killFeedSummary, createChangeCollector, readScoreBox, KILL_FEED_BOX, killFeedCrop, scoreBoxCrop, fixSevens, SCORE_BOXES, rowText, stretchedBanner, splitDigitCrop, bannerDigitCrop, readBannerDigits, sweepOrphanedVodDirectories, normalizeYoutubeUrl, youtubeVideoId, frameDifference, visualSignature, scoreboardGeometryScore, agentSelectGeometryScore, chooseGameBoundaries, inferPovPlayer, analyzeVodTimeline, releaseVodSource, discoverVodGames, readVodFrame, readOwnedVodFrame, normalizeTimelinePlayers } = analyzerModule;
+const { tabBoardRows, tabBoardFit, isTabBoard, tabCellImage, readCoachTabBoards, TAB_BOX, TAB_FRAME, TAB_OUR_ROWS, TAB_CELLS, killFeedSummary, createChangeCollector, readScoreBox, KILL_FEED_BOX, killFeedCrop, scoreBoxCrop, fixSevens, SCORE_BOXES, rowText, stretchedBanner, splitDigitCrop, bannerDigitCrop, selectBannerCandidates, readBannerDigits, sweepOrphanedVodDirectories, normalizeYoutubeUrl, youtubeVideoId, frameDifference, visualSignature, scoreboardGeometryScore, agentSelectGeometryScore, chooseGameBoundaries, inferPovPlayer, analyzeVodTimeline, releaseVodSource, discoverVodGames, readVodFrame, readOwnedVodFrame, normalizeTimelinePlayers } = analyzerModule;
 const players = [
   { name: 'Alpha', team: 'ours' }, { name: 'Bravo', team: 'ours' }, { name: 'Charlie', team: 'ours' }, { name: 'Delta', team: 'ours' }, { name: 'Echo', team: 'ours' },
   { name: 'EnemyOne', team: 'theirs' }, { name: 'EnemyTwo', team: 'theirs' }, { name: 'EnemyThree', team: 'theirs' }, { name: 'EnemyFour', team: 'theirs' }, { name: 'EnemyFive', team: 'theirs' },
 ] as const;
 
 describe('VOD timeline evidence', () => {
+  it('keeps late score samples inside measured game windows', () => {
+    const collect = (startSeconds: number, endSeconds: number, fps: number, frames: number) => {
+      const collector = createChangeCollector({ key: 'endBannerSnapshots', label: 'end', width: 1, height: 1, fps, threshold: 0, burstFrames: 0, maxCandidates: 240, everySeconds: 0 }, endSeconds + 10, { startSeconds, endSeconds, sampledDuration: endSeconds - startSeconds }, null, null);
+      for (let index = 0; index < frames; index += 1) collector.push(Buffer.from([index]));
+      return collector.frames().map((frame: any) => frame.timestampMs);
+    };
+    // Full containing window, not a narrowed crop around the known result.
+    const vod2g2 = collect(3_888, 7_504, 1, 3_617);
+    expect(vod2g2.every(timestamp => timestamp >= 3_888_000 && timestamp <= 7_504_000)).toBe(true);
+    expect(vod2g2.filter(timestamp => timestamp >= 6_822_000 && timestamp <= 6_852_000).length).toBeGreaterThanOrEqual(2);
+    const vod2g3 = collect(7_504, 10_180, 1, 2_677);
+    expect(vod2g3.every(timestamp => timestamp >= 7_504_000 && timestamp <= 10_180_000)).toBe(true);
+    const vod3g3 = collect(7_408, 10_079, 1, 2_672);
+    expect(vod3g3.every(timestamp => timestamp >= 7_408_000 && timestamp <= 10_079_000)).toBe(true);
+    expect(vod3g3.filter(timestamp => timestamp >= 10_076_000 && timestamp <= 10_079_000)).toEqual([10_076_000, 10_077_000, 10_078_000, 10_079_000]);
+  });
+
+  it('retains TAB openings from one 0.25-second frame through 4.5 seconds', () => {
+    const retained = (frames: number) => {
+      const collector = createChangeCollector({ key: 'tabBoardSnapshots', label: 'TAB', width: 1, height: 1, fps: 4, threshold: 1, burstFrames: 0, maxCandidates: 480, everySeconds: 0, rank: () => 10, rankKeep: 9, rankOnly: true }, 600, { startSeconds: 100, endSeconds: 200, sampledDuration: 100 }, null, null);
+      for (let index = 0; index < frames; index += 1) collector.push(Buffer.from([index]));
+      return collector.frames();
+    };
+    expect(retained(1).map((frame: any) => frame.timestampMs)).toEqual([100_000]);
+    expect(retained(18).length).toBeGreaterThan(0);
+  });
   it('runs with no known player identity on an empty workspace and says what is missing', () => {
     expect(normalizeTimelinePlayers(undefined)).toEqual([]);
     expect(normalizeTimelinePlayers([])).toEqual([]);
@@ -259,7 +285,7 @@ describe('VOD timeline evidence', () => {
   it('reads the end-screen words from the stretched line and each score from its own box, then restores the worker', async () => {
     const frame = endScreenFrame(); const worker = fakeWorker({ line: 'ALLIES | ENEMIES', boxLeft: '1', boxRight: '17', other: '717' });
     const snapshots = [{ timestampMs: 2_850_000, text: 'ALLIES | 1' }, { timestampMs: 2_900_000, text: 'spike planted' }]; const lines: string[] = [];
-    const out = await readBannerDigits([{ ...frame, timestampMs: 2_800_000 }, { ...frame, timestampMs: 2_850_000 }, { ...frame, timestampMs: 2_900_000 }], snapshots, worker, (line: string) => lines.push(line));
+    const out = await readBannerDigits([{ ...frame, timestampMs: 2_800_000 }, { ...frame, timestampMs: 2_850_000 }, { ...frame, timestampMs: 2_900_000 }], snapshots, worker, (line: string) => lines.push(line), 40, null);
     expect(out.map((item: any) => [item.timestampMs, item.text])).toEqual([[2_800_000, 'ALLIES 7 - 17 ENEMIES'], [2_850_000, 'ALLIES 7 - 17 ENEMIES'], [2_900_000, 'ALLIES 7 - 17 ENEMIES']]);
     expect(lines.at(-1)).toBe('end-banner: frames 3, with text 2, anchor word 1, dark split 3, tried 3, anchor read 3, digits read 3');
     // One line per attempt with each crop's raw OCR text.
@@ -284,12 +310,45 @@ describe('VOD timeline evidence', () => {
 
   it('takes the scores from the stretched line when no score crop reads', async () => {
     const frame = endScreenFrame(); const worker = fakeWorker({ line: 'ALLIES 13 - 11 ENEMIES', boxLeft: '', boxRight: '' });
-    expect((await readBannerDigits([{ ...frame, timestampMs: 5 }], [], worker)).map((item: any) => item.text)).toEqual(['ALLIES 13 - 11 ENEMIES']);
+    expect((await readBannerDigits([{ ...frame, timestampMs: 5 }], [], worker, undefined, 40, null)).map((item: any) => item.text)).toEqual(['ALLIES 13 - 11 ENEMIES']);
   });
 
   it('never takes dark frames for the end screen when no frame of the game names a side (lobby, loading)', async () => {
     const frame = endScreenFrame(); const worker = fakeWorker({ line: '', boxLeft: '3', boxRight: '5', other: '3 5' });
-    expect((await readBannerDigits([{ ...frame, timestampMs: 1 }, { ...frame, timestampMs: 2 }], [], worker)).length).toBe(0);
+    expect((await readBannerDigits([{ ...frame, timestampMs: 1 }, { ...frame, timestampMs: 2 }], [], worker, undefined, 40, null)).length).toBe(0);
+  });
+
+  it('uses confident digit OCR and repeated full geometry for a stylized defeat banner', async () => {
+    const frame = endScreenFrame(); const worker = fakeWorker({ line: 'DEEEAT', boxLeft: '0', boxRight: '15', other: '' });
+    let digitCall = 0; const digitReader = { read: async () => ({ text: digitCall++ % 2 === 0 ? '9' : '5', confidence: 95 }) };
+    const out = await readBannerDigits([{ ...frame, timestampMs: 6_822_000 }, { ...frame, timestampMs: 6_842_000 }], [], worker, undefined, 40, digitReader);
+    expect(out.map((item: any) => [item.timestampMs, item.text])).toEqual([[6_822_000, 'ALLIES 9 - 15 ENEMIES'], [6_842_000, 'ALLIES 9 - 15 ENEMIES']]);
+  });
+
+  it('keeps a short middle-of-window score banner when a later dark lobby fills the candidate tail', () => {
+    const banner = endScreenFrame(); const lobbyPixels = Buffer.alloc(banner.width * banner.height, 25);
+    const candidates = [
+      ...Array.from({ length: 20 }, (_, index) => ({ frame: { width: banner.width, height: banner.height, pixels: lobbyPixels, timestampMs: 3_900_000 + index * 10_000 }, crop: null, snapshot: null, word: false })),
+      ...[6_822_000, 6_842_000].map(timestampMs => ({ frame: { ...banner, timestampMs }, crop: bannerDigitCrop(banner.pixels, banner.width, banner.height), snapshot: null, word: false })),
+      ...Array.from({ length: 60 }, (_, index) => ({ frame: { width: banner.width, height: banner.height, pixels: lobbyPixels, timestampMs: 6_900_000 + index * 10_000 }, crop: null, snapshot: null, word: false })),
+    ];
+    expect(selectBannerCandidates(candidates, 10).map((item: any) => item.frame.timestampMs)).toEqual(expect.arrayContaining([6_822_000, 6_842_000]));
+  });
+
+  it('keeps the retained neighbor of a high-value banner transition for distinct-frame corroboration', () => {
+    const banner = endScreenFrame(); const crop = bannerDigitCrop(banner.pixels, banner.width, banner.height);
+    const candidates = Array.from({ length: 80 }, (_, index) => ({ frame: { ...banner, timestampMs: 6_000_000 + index * 10_000, difference: 1 }, crop, snapshot: null, word: false }));
+    candidates[68].frame.difference = 999; // 6680s seed; its retained 6670s/6690s neighbors must follow it.
+    const selected = selectBannerCandidates(candidates, 20).map((item: any) => item.frame.timestampMs);
+    expect(selected).toEqual(expect.arrayContaining([6_670_000, 6_680_000]));
+  });
+
+  it('keeps one-second tail neighbors around a three-second final banner', () => {
+    const banner = endScreenFrame(); const crop = bannerDigitCrop(banner.pixels, banner.width, banner.height);
+    const candidates = Array.from({ length: 120 }, (_, index) => ({ frame: { ...banner, timestampMs: 9_960_000 + index * 1_000, difference: 1 }, crop, snapshot: null, word: false }));
+    for (let index = 0; index < 20; index += 1) candidates[index].frame.difference = 1_000 - index; // noisy earlier transitions must not exhaust the tail allowance
+    const selected = selectBannerCandidates(candidates, 20).map((item: any) => item.frame.timestampMs);
+    expect(selected).toEqual(expect.arrayContaining([10_076_000, 10_077_000, 10_078_000]));
   });
 
   it('crops the kill feed to its own box, which holds the coach-view rows measured at 720p', () => {

@@ -275,14 +275,16 @@ function visualSignature(frame) {
 // Keeps the most-changed frame per time bucket for one HUD region. Fed raw gray
 // frames in decode order, from either decode path.
 function createChangeCollector(spec, durationSeconds, range, progress, signal, label = spec.label) {
-  const frameBytes = spec.width * spec.height; const fps = spec.fps; const buckets = new Map(); let previous = null; let pending = Buffer.alloc(0); let index = 0; let burstRemaining = 0; let lastKeptMs = -Infinity;
-  const { startSeconds, sampledDuration } = range;
+  const frameBytes = spec.width * spec.height; const fps = spec.fps; const buckets = new Map(); const periodic = new Map(); const tail = new Map(); let previous = null; let pending = Buffer.alloc(0); let index = 0; let burstRemaining = 0; let lastKeptMs = -Infinity;
+  const { startSeconds, endSeconds, sampledDuration } = range; const tailStartMs = Math.max(startSeconds * 1000, ((endSeconds || durationSeconds) * 1000) - 30_000);
   return {
     push(chunk) {
       pending = Buffer.concat([pending, chunk]);
       while (pending.length >= frameBytes) {
         throwIfAborted(signal);
         const frame = Buffer.from(pending.subarray(0, frameBytes)); pending = pending.subarray(frameBytes); const timestampMs = Math.round(startSeconds * 1000 + index / fps * 1000); index += 1;
+        if (spec.key === 'endBannerSnapshots') { const slot=Math.floor((timestampMs-startSeconds*1000)/10_000); if (!periodic.has(slot)) periodic.set(slot,{timestampMs,pixels:frame}); }
+        if ((spec.key === 'roundStateSnapshots' || spec.key === 'endBannerSnapshots') && timestampMs >= tailStartMs) tail.set(timestampMs, { timestampMs, pixels: frame });
         const difference = frameDifference(previous, frame); const changed = difference >= spec.threshold;
         if (changed) burstRemaining = Math.max(burstRemaining, spec.burstFrames || 0);
         // A static HUD (the score between rounds, the last score before a disconnect) still gets a frame every few seconds.
@@ -301,7 +303,7 @@ function createChangeCollector(spec, durationSeconds, range, progress, signal, l
         if (progress && index % 100 === 0) progress({ stage: 'sampling', percent: Math.min(99, Math.round((timestampMs / 1000 - startSeconds) / Math.max(1, sampledDuration) * 100)), message: `Sampling ${label} across the selected game…` });
       }
     },
-    frames() { return [...buckets.values()].sort((a, b) => a.timestampMs - b.timestampMs).map(({ difference: _difference, rank: _rank, ...frame }) => frame); },
+    frames() { const frames=new Map([...buckets.values(),...periodic.values(),...tail.values()].map(frame=>[frame.timestampMs,frame])); return [...frames.values()].sort((a, b) => a.timestampMs - b.timestampMs).map(({ rank: _rank, ...frame }) => frame); },
   };
 }
 
@@ -661,6 +663,47 @@ async function readCoachTabBoards(frames, worker, log = line => void line, limit
 }
 
 const BANNER_LINE = /\ballies\b[^\d]{0,24}?(\d{1,2})[^\d]{1,24}?(\d{1,2})[^\d]{0,24}?\benemies\b/i;
+const RESULT_WORD = /\b(?:victory|defeat|[dr]e{2,4}at)\b/i;
+
+function selectBannerCandidates(candidates, limit) {
+  const cap = Math.max(1, limit); const picked = []; const seen = new Set();
+  const add = item => { if (!item || seen.has(item.frame.timestampMs) || picked.length >= cap) return false; seen.add(item.frame.timestampMs); picked.push(item); return true; };
+  const distributed = (items, count) => {
+    const remaining = Math.min(count, cap - picked.length); if (remaining <= 0 || !items.length) return;
+    if (items.length <= remaining) { for (const item of items) add(item); return; }
+    for (let index = 0; index < remaining; index += 1) add(items[Math.min(items.length - 1, Math.floor((index + .5) * items.length / remaining))]);
+  };
+  const geometry = item => {
+    let score = item.crop && splitDigitCrop(item.crop) ? 2 : 0;
+    for (const layout of [SCORE_BOXES, RESULT_SCORE_BOXES]) {
+      const boxes = layout.map(box => scoreBoxCrop(item.frame.pixels, item.frame.width, item.frame.height, box));
+      if (boxes.every(Boolean)) score = Math.max(score, 4 + boxes.filter(box => box.glyphs.length <= 2).length);
+    }
+    return score;
+  };
+  for (const item of candidates) item.geometry = geometry(item);
+  // Text anchors and measured two-score geometry are rare and must beat a long dark lobby tail.
+  distributed(candidates.filter(item => item.word), Math.min(12, cap));
+  // A genuine result screen can occupy only the final 2-3 seconds. Reserve a small fixed tail
+  // before earlier transition neighborhoods consume the bounded OCR budget.
+  for (const item of candidates.slice(-Math.min(6, cap))) add(item);
+  const seeds = [];
+  let before = picked.length; distributed(candidates.filter(item => item.geometry >= 6), Math.min(10, cap)); seeds.push(...picked.slice(before));
+  // A transition into the banner may be the only sharply changed frame retained by the collector.
+  const transitionSeeds = [...candidates].sort((a, b) => (b.frame.difference || 0) - (a.frame.difference || 0)).slice(0, Math.min(6, cap));
+  for (const item of transitionSeeds) add(item);
+  seeds.unshift(...transitionSeeds);
+  // One representative is not corroboration. Retain the nearest sampled frame around each
+  // strong seed so a short 2-30 second result screen survives a multi-hour window.
+  for (const seed of seeds) {
+    const beforeSeed = candidates.filter(item => item.frame.timestampMs < seed.frame.timestampMs && seed.frame.timestampMs - item.frame.timestampMs <= 15_000).at(-1);
+    const afterSeed = candidates.filter(item => item.frame.timestampMs > seed.frame.timestampMs && item.frame.timestampMs - seed.frame.timestampMs <= 15_000).slice(0, 2);
+    for (const item of [beforeSeed, ...afterSeed]) add(item);
+  }
+  // Finally cover the entire containing game window instead of selecting only its last frames.
+  distributed(candidates, cap);
+  return picked.sort((a, b) => a.frame.timestampMs - b.frame.timestampMs);
+}
 
 /**
  * Re-read the end screen. The page read often drops the stylised words, so a frame qualifies when
@@ -668,7 +711,7 @@ const BANNER_LINE = /\ballies\b[^\d]{0,24}?(\d{1,2})[^\d]{1,24}?(\d{1,2})[^\d]{0
  * glyphs) over a dark full-screen overlay. Each one is read again as one line on a contrast-stretched
  * crop (the words), then each score digits-only from its own crop. Left is Allies (ours).
  */
-async function readBannerDigits(frames, snapshots, worker, log = line => void line, limit = 40) {
+async function readBannerDigits(frames, snapshots, worker, log = line => void line, limit = 40, digitReader = undefined) {
   const out = [...(snapshots || [])]; const counts = { frames: (frames || []).length, withText: 0, anchorWord: 0, darkSplit: 0, tried: 0, anchorRead: 0, read: 0 };
   const textAt = new Map(out.map(item => [item.timestampMs, item]));
   const chosen = [];
@@ -681,9 +724,17 @@ async function readBannerDigits(frames, snapshots, worker, log = line => void li
     if (word || dark) chosen.push({ frame, crop, snapshot, word });
   }
   const text = async image => String((await worker.recognize(pgm(image.pixels, image.width, image.height)))?.data?.text || '');
+  let readerPromise = null;
+  const scoreText = async image => {
+    const tesseract = await text(image);
+    const reader = digitReader === undefined ? await (readerPromise ||= loadPaddleDigitReader(log)) : digitReader;
+    if (!reader) return tesseract;
+    const paddle = await reader.read(image);
+    return /^\d{1,2}$/.test(paddle?.text || '') && (paddle.confidence ?? 0) >= 70 ? paddle.text : tesseract;
+  };
   try {
     if (chosen.length && worker) {
-      const tried = chosen.slice(-limit); counts.tried = tried.length;
+      const tried = selectBannerCandidates(chosen, limit); counts.tried = tried.length;
       // The words: one line, then one block, on the stretched crop.
       for (const mode of ['7', '6']) {
         await worker.setParameters({ tessedit_char_whitelist: '', tessedit_pageseg_mode: mode });
@@ -703,15 +754,18 @@ async function readBannerDigits(frames, snapshots, worker, log = line => void li
         const resultWord = /victory|defeat/i.test(`${item.snapshot?.text || ''} ${raw.line7 || ''} ${raw.line6 || ''}`); let boxes = [];
         for (const layout of resultWord ? [RESULT_SCORE_BOXES, SCORE_BOXES] : [SCORE_BOXES, RESULT_SCORE_BOXES]) {
           if (left && right) break; boxes = layout.map(box => scoreBoxCrop(item.frame.pixels, item.frame.width, item.frame.height, box));
-          if (boxes.every(Boolean)) { const reads = [await readScoreBox(boxes[0], text), await readScoreBox(boxes[1], text)]; raw.boxLeft = JSON.stringify(reads[0].raw); raw.boxRight = JSON.stringify(reads[1].raw); left = reads[0].value; right = reads[1].value; }
+          if (boxes.every(Boolean)) { const reads = [await readScoreBox(boxes[0], scoreText), await readScoreBox(boxes[1], scoreText)]; raw.boxLeft = JSON.stringify(reads[0].raw); raw.boxRight = JSON.stringify(reads[1].raw); left = reads[0].value; right = reads[1].value; }
         }
-        if ((!left || !right) && halves) { raw.left = await text(halves[0]); raw.right = await text(halves[1]); left = raw.left.match(/\d{1,2}/)?.[0]; right = raw.right.match(/\d{1,2}/)?.[0]; }
+        if ((!left || !right) && halves) { raw.left = await scoreText(halves[0]); raw.right = await scoreText(halves[1]); left = raw.left.match(/\d{1,2}/)?.[0]; right = raw.right.match(/\d{1,2}/)?.[0]; }
         if ((!left || !right) && item.crop) { raw.middle = await text(item.crop); const match = raw.middle.match(/(\d{1,2})\D+(\d{1,2})/); if (match) [left, right] = [match[1], match[2]]; }
         // Every attempt's raw OCR text, so a miss shows which crop read what.
         log(`end-banner attempt ${Math.round(item.frame.timestampMs / 1000)}s: crop ${item.crop ? `${item.crop.width}x${item.crop.height}` : 'none'}, split ${halves ? halves.map(half => half.width).join('+') : 'none'}, boxes ${boxes.map(box => box ? box.glyphs.map(glyph => `${glyph.width}x${glyph.height}`).join('/') : 'empty').join(' + ')}, ${['line7', 'line6', 'boxLeft', 'boxRight', 'left', 'right', 'middle'].filter(key => key in raw).map(key => `${key} ${JSON.stringify(String(raw[key]).trim().slice(0, 60))}`).join(', ')}`);
         if ((!left || !right) && item.line) { const match = item.line.match(BANNER_LINE); [left, right] = [match[1], match[2]]; }
         // The result word, when one was read, must agree with the digits (a lone 7 read as 1 can still pass; a swapped side cannot).
-        const outcome = /victory/i.test(`${item.snapshot?.text || ''} ${raw.line7 || ''} ${raw.line6 || ''}`) ? 1 : /defeat/i.test(`${item.snapshot?.text || ''} ${raw.line7 || ''} ${raw.line6 || ''}`) ? -1 : 0;
+        const resultText = `${item.snapshot?.text || ''} ${raw.line7 || ''} ${raw.line6 || ''}`;
+        const fuzzyResult = RESULT_WORD.test(resultText) && item.geometry >= 6;
+        if (left && right && fuzzyResult) item.word = true;
+        const outcome = /victory/i.test(resultText) ? 1 : /(?:defeat|[dr]e{2,4}at)/i.test(resultText) ? -1 : 0;
         if (left && right && outcome && Math.sign(Number(left) - Number(right)) !== outcome) continue;
         if (left && right) reads.push({ ...item, banner: `ALLIES ${Number(left)} - ${Number(right)} ENEMIES` });
       }
@@ -850,7 +904,7 @@ async function analyzeVodTimeline(input, options = {}) {
       // The custom-game end screen: one centred line "ALLIES n - m ENEMIES" that stays up for minutes.
       // It is static, so a change gate skips it: every 5 s is a candidate, one kept per time bucket.
       { key: 'tabBoardSnapshots', label: 'TAB board', fps: 4, rank: (pixels, width, height) => { const fit = tabBoardFit(pixels, width, height); return isTabBoard(fit) ? fit.total : 0; }, rankKeep: 9, rankOnly: true, crop: `crop=iw*${+(TAB_BOX.x1 - TAB_BOX.x0).toFixed(3)}:ih*${+(TAB_BOX.y1 - TAB_BOX.y0).toFixed(3)}:iw*${TAB_BOX.x0}:ih*${TAB_BOX.y0}`, width: TAB_FRAME.width, height: TAB_FRAME.height, threshold: .2, burstFrames: 1, maxCandidates: 480, ocr: false },
-      { key: 'endBannerSnapshots', label: 'end screen', fps: .2, crop: 'crop=iw*0.70:ih*0.13:iw*0.15:ih*0.42', width: 980, height: 182, threshold: 0, burstFrames: 0, maxCandidates: 240 },
+      { key: 'endBannerSnapshots', label: 'end screen', fps: 1, crop: 'crop=iw*0.70:ih*0.13:iw*0.15:ih*0.42', width: 980, height: 182, threshold: 0, burstFrames: 0, maxCandidates: 240 },
     ];
     const checkpointKey = crypto.createHash('sha256').update(JSON.stringify({ source: input.sourceSha256 || path.resolve(file), startMs: Number(input.startMs) || 0, endMs: Number(input.endMs) || null, players: input.players || [], observerMode: !!input.observerMode, povPlayerName: input.povPlayerName || null })).digest('hex');
     const saved = await readCheckpoint(options.checkpointFile); const checkpoint = saved?.schema === 'moetracker.vod-checkpoint/v1' && saved.key === checkpointKey ? saved : { schema: 'moetracker.vod-checkpoint/v1', key: checkpointKey, specs: {}, updatedAt: null };
@@ -923,4 +977,4 @@ async function readVodFrame(directory, frame) {
   return { mediaType: 'image/png', base64: (await fsp.readFile(path.join(path.resolve(directory), name))).toString('base64') };
 }
 
-module.exports = { RESULT_SCORE_BOXES, tabBoardRows, tabBoardFit, isTabBoard, TAB_BLOCK, tabCellImage, loadPaddleDigitReader, readCoachTabBoards, TAB_BOX, TAB_FRAME, TAB_OUR_ROWS, TAB_CELLS, killFeedSummary, createChangeCollector, readScoreBox, KILL_FEED_BOX, killFeedCrop, scoreBoxCrop, fixSevens, SCORE_BOXES, rowText, stretchedBanner, splitDigitCrop, bannerDigitCrop, readBannerDigits, sweepOrphanedVodDirectories, readOwnedVodFrame, readVodFrame, normalizeYoutubeUrl, youtubeVideoId, probeVideo, analyzeVodTimeline, normalizeTimelinePlayers, discoverVodGames, releaseVodSource, createReviewClips, changedFrames, changedFramesTogether, sampleRegions, recognizeFrames, createOcrPool, frameDifference, visualSignature, ensureDiskSpace, scoreboardGeometryScore, agentSelectGeometryScore, chooseGameBoundaries, inferPovPlayer };
+module.exports = { RESULT_SCORE_BOXES, tabBoardRows, tabBoardFit, isTabBoard, TAB_BLOCK, tabCellImage, loadPaddleDigitReader, readCoachTabBoards, TAB_BOX, TAB_FRAME, TAB_OUR_ROWS, TAB_CELLS, killFeedSummary, createChangeCollector, readScoreBox, KILL_FEED_BOX, killFeedCrop, scoreBoxCrop, fixSevens, SCORE_BOXES, rowText, stretchedBanner, splitDigitCrop, bannerDigitCrop, selectBannerCandidates, readBannerDigits, sweepOrphanedVodDirectories, readOwnedVodFrame, readVodFrame, normalizeYoutubeUrl, youtubeVideoId, probeVideo, analyzeVodTimeline, normalizeTimelinePlayers, discoverVodGames, releaseVodSource, createReviewClips, changedFrames, changedFramesTogether, sampleRegions, recognizeFrames, createOcrPool, frameDifference, visualSignature, ensureDiskSpace, scoreboardGeometryScore, agentSelectGeometryScore, chooseGameBoundaries, inferPovPlayer };

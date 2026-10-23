@@ -54,6 +54,23 @@ beforeEach(async () => {
 afterEach(async () => { if (server) { server.closeAllConnections(); await new Promise<void>((resolve, reject) => server!.close(error => error ? reject(error) : resolve())); server = undefined; } vi.unstubAllEnvs(); vi.resetModules(); if (tempDir) await fs.rm(tempDir, { recursive: true, force: true }); });
 
 describe('coach replay review workflow', () => {
+  it('keeps the existing score and uncertainty when accepted replay score is incomplete', async () => {
+    const coach = await login(adminKey); const seeded = JSON.parse(await fs.readFile(dbPath, 'utf8'));
+    seeded.matches[0].ourScore = 8; seeded.matches[0].theirScore = 16;
+    seeded.matches[0].scoreEvidence = { source: 'vod-hud', basis: 'end-banner', reads: 2 };
+    seeded.matches[0].partialScore = { ours: 8, theirs: 15, source: 'vod-hud' };
+    seeded.replayIntake.parserJobs.job1.result.scoreboard.finalScore.teamB.score = { value: null, status: 'unavailable', source: 'synthetic-redacted-fixture', confidence: 0 };
+    await fs.writeFile(dbPath, JSON.stringify(seeded));
+    expect((await request(`/api/replay-intake/uploads/${sha256}/review`, coach, { expectedRevision: 0, requestId: 'partial-score-review', matchId: 'm1', teamId: 'team-us', mappings })).status).toBe(200);
+    expect((await request(`/api/replay-intake/uploads/${sha256}/accept`, coach, { expectedRevision: 1, requestId: 'partial-score-accept', confirmed: true })).status).toBe(200);
+    const stored = JSON.parse(await fs.readFile(dbPath, 'utf8')); const match = stored.matches[0];
+    expect(match).toMatchObject({ ourScore: 8, theirScore: 16, scoreEvidence: { source: 'vod-hud' }, partialScore: { ours: 8, theirs: 15 } });
+    expect(match.scoreVerification).toBeUndefined();
+    const { applyVerifiedMatchScore } = await import('../lib/vodScore');
+    applyVerifiedMatchScore(match, 9, 15, 'scoreboard');
+    expect(match).toMatchObject({ ourScore: 9, theirScore: 15, scoreVerification: { source: 'scoreboard' } });
+  });
+
   it('creates new allied profiles on explicit replay acceptance beside a twenty-profile library', async () => {
     const coach = await login(adminKey); const seeded = JSON.parse(await fs.readFile(dbPath, 'utf8'));
     seeded.rosterPlayers.push(...Array.from({ length: 18 }, (_, index) => ({ id: `extra-${index}`, displayName: `Existing profile ${index}`, retiredAt: null })));
@@ -85,6 +102,9 @@ describe('coach replay review workflow', () => {
 
   it('accepts only an explicit current revision, preserves raw evidence and hands canonical facts to analytics plus review-only ratings', async () => {
     const coach = await login(adminKey); const seeded = JSON.parse(await fs.readFile(dbPath, 'utf8'));
+    seeded.matches[0].ourScore = 8; seeded.matches[0].theirScore = 16;
+    seeded.matches[0].scoreEvidence = { source: 'vod-hud', basis: 'end-banner', reads: 2 };
+    seeded.matches[0].partialScore = { ours: 8, theirs: 15, source: 'vod-hud' };
     seeded.playerStats = [
       { id: 'manual-p1', matchId: 'm1', playerId: 'p1', player: 'Alpha', agent: 'Sova', kills: 99, hs: 44, notes: 'coach player note', corrections: [{ correctedAt: '2026-10-02T00:00:00.000Z', correctedBy: 'Coach', fields: ['kills'] }] },
       { id: 'manual-standin', matchId: 'm1', playerId: 'p3', player: 'Stand-in', notes: 'keep unmatched annotation', kills: 4, sourceMetadata: { method: 'manual', capturedAt: '2026-10-02T00:00:00.000Z' } },
@@ -110,6 +130,7 @@ describe('coach replay review workflow', () => {
     expect((await request(`/api/replay-intake/uploads/${secondSha256}/accept`, coach, { expectedRevision: 1, requestId: 'accept-2', confirmed: true })).status).toBe(200);
     const { readDB } = await import('../lib/store'); const stored = await readDB(); expect(stored.replayIntake.parserJobs.job1.result).toEqual(rawBefore); expect(stored.replayIntake.reviews[sha256].mappings).toEqual(mappings);
     expect(stored.matches[0]).toMatchObject({ id: 'm1', map: 'Haven', ourScore: 1, theirScore: 0, sourceMetadata: { provider: 'vrfkit', externalId: sha256 } });
+    expect(stored.matches[0].scoreEvidence).toBeUndefined(); expect(stored.matches[0].partialScore).toBeUndefined();
     expect(stored.playerStats).toEqual(expect.arrayContaining([expect.objectContaining({ matchId: 'm1', playerId: 'p1', player: 'Reviewed Alpha', displayNameSnapshot: 'Reviewed Alpha', deaths: 0, fk: 1 }), expect.objectContaining({ matchId: 'm1', playerId: 'p2', player: 'Reviewed Bravo', displayNameSnapshot: 'Reviewed Bravo', kills: 1, defuses: 1 })]));
     expect(stored.playerStats.find((row: any) => row.matchId === 'm1' && row.playerId === 'p1')).toMatchObject({ id: 'manual-p1', kills: 99, hs: 44, notes: 'coach player note', corrections: expect.arrayContaining([expect.objectContaining({ fields: ['kills'] })]) });
     expect(stored.playerStats.find((row: any) => row.id === 'manual-standin')).toMatchObject({ playerId: 'p3', notes: 'keep unmatched annotation', kills: 4, sourceMetadata: { method: 'manual' } });

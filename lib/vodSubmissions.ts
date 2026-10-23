@@ -5,7 +5,7 @@ import { findMatchCandidates, normalizedMatchName, similarMatchName } from './ma
 import { captureRosterFromIdentity } from './identityResolver';
 import { refreshDuplicateQuarantine } from './matchIntegrity';
 import { activeCorePlayerIds, ensureObservedRosterPlayer, setObservedRosterStatus, setTryoutsMode } from './roster';
-import { applyVodHudScore, applyVodPartialScore } from './vodScore';
+import { applyVerifiedMatchScore, applyVodHudScore, applyVodPartialScore } from './vodScore';
 
 const { fuseVodEvidence } = evidenceModule as { fuseVodEvidence: (items: VodTimelineEvidence[]) => VodTimelineEvidence | null };
 
@@ -20,6 +20,7 @@ type SubmissionInput = {
    * stopping the import.
    */
   addObservedPlayers?: boolean;
+  scoreProvenance?: 'confirmed-scoreboard';
 };
 
 const METRIC_FIELDS = ['kills', 'deaths', 'assists', 'acs', 'adr', 'hs', 'fk', 'fd', 'plants', 'defuses', 'trades'] as const;
@@ -129,6 +130,7 @@ export function integrateVodSubmission(db: any, input: SubmissionInput, actorNam
   } else {
     match.vod ||= input.vodUrl;
     match.vodSubmissionIds = [...new Set([...(match.vodSubmissionIds || []), ids.submissionId])];
+    if (input.scoreProvenance === 'confirmed-scoreboard' && players.length === 5 && Number.isSafeInteger(input.ourScore) && Number.isSafeInteger(input.theirScore)) applyVerifiedMatchScore(match, input.ourScore, input.theirScore, 'scoreboard');
   }
   let createdStats = 0; let filledFields = 0; let preservedFields = 0;
   const claimedStatIds = new Set<string>();
