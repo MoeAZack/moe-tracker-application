@@ -684,6 +684,9 @@ function selectBannerCandidates(candidates, limit) {
   for (const item of candidates) item.geometry = geometry(item);
   // Text anchors and measured two-score geometry are rare and must beat a long dark lobby tail.
   distributed(candidates.filter(item => item.word), Math.min(12, cap));
+  // A genuine result screen can occupy only the final 2-3 seconds. Reserve a small fixed tail
+  // before earlier transition neighborhoods consume the bounded OCR budget.
+  for (const item of candidates.slice(-Math.min(6, cap))) add(item);
   const seeds = [];
   let before = picked.length; distributed(candidates.filter(item => item.geometry >= 6), Math.min(10, cap)); seeds.push(...picked.slice(before));
   // A transition into the banner may be the only sharply changed frame retained by the collector.
