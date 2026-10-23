@@ -667,7 +667,7 @@ const RESULT_WORD = /\b(?:victory|defeat|[dr]e{2,4}at)\b/i;
 
 function selectBannerCandidates(candidates, limit) {
   const cap = Math.max(1, limit); const picked = []; const seen = new Set();
-  const add = item => { if (!item || seen.has(item.frame.timestampMs) || picked.length >= cap) return; seen.add(item.frame.timestampMs); picked.push(item); };
+  const add = item => { if (!item || seen.has(item.frame.timestampMs) || picked.length >= cap) return false; seen.add(item.frame.timestampMs); picked.push(item); return true; };
   const distributed = (items, count) => {
     const remaining = Math.min(count, cap - picked.length); if (remaining <= 0 || !items.length) return;
     if (items.length <= remaining) { for (const item of items) add(item); return; }
@@ -684,9 +684,19 @@ function selectBannerCandidates(candidates, limit) {
   for (const item of candidates) item.geometry = geometry(item);
   // Text anchors and measured two-score geometry are rare and must beat a long dark lobby tail.
   distributed(candidates.filter(item => item.word), Math.min(12, cap));
-  distributed(candidates.filter(item => item.geometry >= 6), Math.min(20, cap));
+  const seeds = [];
+  let before = picked.length; distributed(candidates.filter(item => item.geometry >= 6), Math.min(10, cap)); seeds.push(...picked.slice(before));
   // A transition into the banner may be the only sharply changed frame retained by the collector.
-  for (const item of [...candidates].sort((a, b) => (b.frame.difference || 0) - (a.frame.difference || 0)).slice(0, Math.min(8, cap))) add(item);
+  const transitionSeeds = [...candidates].sort((a, b) => (b.frame.difference || 0) - (a.frame.difference || 0)).slice(0, Math.min(6, cap));
+  for (const item of transitionSeeds) add(item);
+  seeds.unshift(...transitionSeeds);
+  // One representative is not corroboration. Retain the nearest sampled frame around each
+  // strong seed so a short 2-30 second result screen survives a multi-hour window.
+  for (const seed of seeds) {
+    const beforeSeed = candidates.filter(item => item.frame.timestampMs < seed.frame.timestampMs && seed.frame.timestampMs - item.frame.timestampMs <= 15_000).at(-1);
+    const afterSeed = candidates.filter(item => item.frame.timestampMs > seed.frame.timestampMs && item.frame.timestampMs - seed.frame.timestampMs <= 15_000).slice(0, 2);
+    for (const item of [beforeSeed, ...afterSeed]) add(item);
+  }
   // Finally cover the entire containing game window instead of selecting only its last frames.
   distributed(candidates, cap);
   return picked.sort((a, b) => a.frame.timestampMs - b.frame.timestampMs);

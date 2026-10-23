@@ -333,6 +333,22 @@ describe('VOD timeline evidence', () => {
     expect(selectBannerCandidates(candidates, 10).map((item: any) => item.frame.timestampMs)).toEqual(expect.arrayContaining([6_822_000, 6_842_000]));
   });
 
+  it('keeps the retained neighbor of a high-value banner transition for distinct-frame corroboration', () => {
+    const banner = endScreenFrame(); const crop = bannerDigitCrop(banner.pixels, banner.width, banner.height);
+    const candidates = Array.from({ length: 80 }, (_, index) => ({ frame: { ...banner, timestampMs: 6_000_000 + index * 10_000, difference: 1 }, crop, snapshot: null, word: false }));
+    candidates[68].frame.difference = 999; // 6680s seed; its retained 6670s/6690s neighbors must follow it.
+    const selected = selectBannerCandidates(candidates, 20).map((item: any) => item.frame.timestampMs);
+    expect(selected).toEqual(expect.arrayContaining([6_670_000, 6_680_000, 6_690_000]));
+  });
+
+  it('keeps one-second tail neighbors around a three-second final banner', () => {
+    const banner = endScreenFrame(); const crop = bannerDigitCrop(banner.pixels, banner.width, banner.height);
+    const candidates = Array.from({ length: 120 }, (_, index) => ({ frame: { ...banner, timestampMs: 9_960_000 + index * 1_000, difference: 1 }, crop, snapshot: null, word: false }));
+    candidates[116].frame.difference = 999;
+    const selected = selectBannerCandidates(candidates, 20).map((item: any) => item.frame.timestampMs);
+    expect(selected).toEqual(expect.arrayContaining([10_076_000, 10_077_000, 10_078_000]));
+  });
+
   it('crops the kill feed to its own box, which holds the coach-view rows measured at 720p', () => {
     expect(killFeedCrop()).toBe('crop=iw*0.25:ih*0.215:iw*0.74:ih*0.085');
     for (const row of [{ x0: .746, x1: .988, y0: .090, y1: .121 }, { x0: .762, x1: .990, y0: .088, y1: .121 }]) expect(row.x0 >= KILL_FEED_BOX.x0 && row.x1 <= KILL_FEED_BOX.x1 && row.y0 >= KILL_FEED_BOX.y0 && row.y1 <= KILL_FEED_BOX.y1).toBe(true);
