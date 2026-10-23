@@ -60,4 +60,29 @@ describe('canonical data spine', () => {
     const codes = validateCanonicalDataSpine(spine).issues.map(issue => issue.code);
     expect(codes).toEqual(expect.arrayContaining(['missing-match', 'orphan-derived-build']));
   });
+
+  it('loads a workspace whose matches all came from an unnamed VOD import', () => {
+    const data = fixture(); const vodSource = { method: 'vod-submission', capturedAt: '2026-10-22T23:22:48.000Z', provider: 'local-ocr', externalId: 'sub-1' };
+    data.matches = [{ id: 'vod-m1', date: '2026-10-22', map: 'Haven', opponent: '', source: 'vod-submission', sourceMetadata: vodSource }];
+    data.rounds = [{ id: 'vod:vod-m1:round:1', matchId: 'vod-m1', roundNo: 1, side: '', result: '', sourceMetadata: vodSource }];
+    data.playerStats = []; data.analyticsBuilds = {};
+    const spine = toPublicTrackerData(data, 'coach').canonicalDataSpine;
+    expect(spine.matches.map((match: any) => match.id)).toEqual(['vod-m1']);
+    expect(spine.sources.every((source: any) => source.types.includes('vod'))).toBe(true);
+    expect(validateCanonicalDataSpine(spine)).toEqual({ ok: true, issues: [] });
+  });
+
+  it('keeps a VOD-imported stat row on a manual match as its own VOD source', () => {
+    const data = fixture();
+    data.playerStats[0].sourceMetadata = { method: 'vod-submission', capturedAt: '2026-10-22T23:22:48.000Z', provider: 'local-ocr', externalId: 'sub-2' };
+    const spine = buildCanonicalDataSpine(data);
+    expect(spine.sources.some(source => source.types.includes('vod') && source.reference.vod)).toBe(true);
+  });
+
+  it('leaves the spine out instead of failing the whole workspace when it cannot be built', () => {
+    const data = fixture(); delete data.workspace;
+    const result = toPublicTrackerData(data, 'coach');
+    expect(result).not.toHaveProperty('canonicalDataSpine');
+    expect(result.matches).toHaveLength(1);
+  });
 });

@@ -400,7 +400,9 @@ export function evidenceReferenceForMatch(db: any, matchId: string, options: Bui
     schema: EVIDENCE_REFERENCE_SCHEMA,
     scope: { workspaceId, ownerDeviceId: shot?.ownerDeviceId || null },
     state, sourceTypes: [...sources], matchId, round: null, captureSessionId, screenshot: null,
-    replay: replay ? { sha256: replay.sha256, evidenceSha256: replay.evidenceSha256 } : null, vod: null,
+    replay: replay ? { sha256: replay.sha256, evidenceSha256: replay.evidenceSha256 } : null,
+    // A VOD-imported match is itself the VOD evidence: the match id anchors it.
+    vod: sources.has('vod') ? { vodReviewId: null, noteId: null, atSeconds: null } : null,
     producer: { parser: replay?.parser || null, ocr, capture: null },
     capturedAt: match.sourceMetadata?.capturedAt || null,
     acceptedAt: state === 'accepted' ? latest(shot?.acceptedAt, replay?.acceptedAt) : null,
