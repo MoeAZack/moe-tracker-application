@@ -79,3 +79,29 @@ describe('the file store under a brief Windows lock', () => {
     } finally { vi.unstubAllEnvs(); vi.resetModules(); await fs.rm(dir, { recursive: true, force: true }); }
   });
 });
+
+describe('saving under a brief Windows lock', () => {
+  it('saveDB waits out EPERM when replacing db.json, and the saved file holds the change', async () => {
+    const fs = (await import('fs/promises')).default; const os = await import('os'); const path = await import('path');
+    const dir = await fs.mkdtemp(path.join(os.tmpdir(), 'moetracker-rename-'));
+    const dbPath = path.join(dir, 'db.json');
+    vi.stubEnv('DB_PATH', dbPath);
+    vi.resetModules();
+    try {
+      const { readDB, saveDB } = await import('../lib/store');
+      const db: any = await readDB();
+      db.settings = { ...(db.settings || {}), teamName: 'Renamed under lock' };
+      const real = fs.rename.bind(fs); let blocked = 0;
+      const spy = vi.spyOn(fs, 'rename').mockImplementation((async (from: any, to: any) => {
+        if (String(to) === dbPath && blocked < 2) { blocked += 1; throw Object.assign(new Error('EPERM: operation not permitted, rename'), { code: 'EPERM' }); }
+        return real(from, to);
+      }) as any);
+      try {
+        await saveDB(db);
+        expect(blocked).toBe(2);
+      } finally { spy.mockRestore(); }
+      expect(JSON.parse(await fs.readFile(dbPath, 'utf8')).settings.teamName).toBe('Renamed under lock');
+      expect((await fs.readdir(dir)).filter(name => name.endsWith('.tmp'))).toEqual([]);
+    } finally { vi.unstubAllEnvs(); vi.resetModules(); await fs.rm(dir, { recursive: true, force: true }); }
+  });
+});

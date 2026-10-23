@@ -328,6 +328,21 @@ describe('VOD import runner survives leaving the VOD tab', () => {
     } finally { discovery.boundaries = savedBoundaries; vi.unstubAllGlobals(); }
   });
 
+  it('keeps the store percent when the analyzer reports a lower game percent or an earlier step', async () => {
+    const h = harness();
+    const run = startVodBatchImport(input({ roster: [] }), h.deps);
+    for (let i = 0; i < 20 && h.desktop.analyzeVod.mock.calls.length === 0; i += 1) await new Promise(resolve => setTimeout(resolve, 0));
+    h.emit({ stage: 'ocr', percent: 88, message: 'ocr', gamePercent: 93, stageIndex: 3, stageCount: 3, stageLabel: 'ocr' } as any);
+    const high = vodImportStore.getSnapshot().progress!;
+    expect(high.step).toBe(3);
+    h.emit({ stage: 'sampling', percent: 10, message: 'sampling', gamePercent: 25, stageIndex: 2, stageCount: 3, stageLabel: 'sampling' } as any);
+    expect(vodImportStore.getSnapshot().progress).toMatchObject({ step: 3, stepPercent: high.stepPercent });
+    h.emit({ stage: 'discover', percent: 5, message: 'discover' } as any);
+    expect(vodImportStore.getSnapshot().progress).toMatchObject({ step: 3, stepPercent: high.stepPercent });
+    await h.finishAnalysis(); await h.finishAnalysis();
+    await expect(run).resolves.toBe(true);
+  });
+
   it('splits a pasted list of links into one VOD each', () => {
     expect(splitVodLinks('https://youtu.be/a\nhttps://youtu.be/b, https://youtu.be/a  https://www.youtube.com/live/c')).toEqual(['https://youtu.be/a', 'https://youtu.be/b', 'https://www.youtube.com/live/c']);
     expect(splitVodLinks('  ')).toEqual([]);

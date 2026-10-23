@@ -26,6 +26,13 @@ describe('reading the map on an agent-select frame', () => {
     expect(resolveBoundaryMap('LOCK IN HAVFN', ['Ascent'], [{ token: 'havfn', map: 'Haven' }]).map).toBeNull();
   });
 
+  it('does not fire a learned hint whose token is not one of the frame\'s read tokens', () => {
+    const hints = [{ token: 'havfn', map: 'Haven' }];
+    expect(resolveBoundaryMap('LOCK IN XQZT', maps, hints)).toEqual({ map: null, mapSource: null, mapRead: ['lock', 'xqzt'], firedTokens: [] });
+    // Only a whole token counts: "havfnx" contains the learned token but is not it.
+    expect(resolveBoundaryMap('LOCK IN HAVFNX', maps, hints)).toEqual({ map: null, mapSource: null, mapRead: ['lock', 'havfnx'], firedTokens: [] });
+  });
+
   it('keeps only well-formed hints and short tokens', () => {
     expect(normalizeMapHints([{ token: 'HAVFN', map: ' Haven ' }, { token: 'x', map: 'Bind' }, { token: 'ok ok', map: 'Bind' }, { token: 'fine', map: '' }, null])).toEqual([{ token: 'havfn', map: 'Haven' }]);
     expect(normalizeMapHints('nope')).toEqual([]);
@@ -68,6 +75,19 @@ describe('learning corrected map reads', () => {
     expect(mapHints(samples)).toEqual([]);
     samples = recordMapCorrection(samples, { source: 'm2', mapRead: ['havfn'], map: 'Haven' }).samples;
     expect(mapHints(samples)).toEqual([{ token: 'havfn', map: 'Haven' }]);
+  });
+
+  it('re-correcting a game drops the sightings it recorded before, so the earlier rule comes back on', () => {
+    let samples = recordMapCorrection([], { source: 'm1', mapRead: ['havfn'], map: 'Haven' }).samples;
+    // m2 was kept as Bind while reading havfn: one sighting against havfn -> Haven.
+    samples = recordConfirmedMaps(samples, [{ source: 'm2', mapRead: ['havfn'], map: 'Bind' }]);
+    expect(mapHints(samples)).toEqual([]);
+    // The coach now says m2 was Lotus. havfn does not look like Lotus, so nothing new is
+    // learned; only dropping m2's old Bind sighting turns the Haven rule back on.
+    const corrected = recordMapCorrection(samples, { source: 'm2', mapRead: ['havfn'], map: 'Lotus' });
+    expect(corrected.learned).toEqual([]);
+    expect(corrected.samples.filter(sample => sample.source === 'm2')).toEqual([]);
+    expect(mapHints(corrected.samples)).toEqual([{ token: 'havfn', map: 'Haven' }]);
   });
 
   it('stores samples locally and survives broken storage', () => {
