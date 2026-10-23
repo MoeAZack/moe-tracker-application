@@ -115,7 +115,7 @@ describe('coach replay review workflow', () => {
     seeded.matches[0].scoreEvidence = { source: 'vod-hud', basis: 'end-banner', reads: 2 };
     seeded.matches[0].partialScore = { ours: 8, theirs: 15, source: 'vod-hud' };
     seeded.playerStats = [
-      { id: 'manual-p1', matchId: 'm1', playerId: 'p1', player: 'Alpha', agent: 'Sova', kills: 99, fk: 7, hs: 44, notes: 'coach player note', corrections: [{ correctedAt: '2026-10-02T00:00:00.000Z', correctedBy: 'Coach', fields: ['kills', 'fk'] }] },
+      { id: 'manual-p1', matchId: 'm1', playerId: 'p1', player: 'Alpha', agent: 'Sova', kills: 99, fk: 7, trades: 9, hs: 44, notes: 'coach player note', corrections: [{ correctedAt: '2026-10-02T00:00:00.000Z', correctedBy: 'Coach', fields: ['kills', 'fk', 'trades'] }] },
       { id: 'manual-standin', matchId: 'm1', playerId: 'p3', player: 'Stand-in', notes: 'keep unmatched annotation', kills: 4, sourceMetadata: { method: 'manual', capturedAt: '2026-10-02T00:00:00.000Z' } },
     ];
     seeded.rounds = [
@@ -123,6 +123,8 @@ describe('coach replay review workflow', () => {
       { id: 'manual-r2', matchId: 'm1', roundNo: 2, side: 'Attack', result: 'L', notes: 'outside partial replay coverage', sourceMetadata: { method: 'manual', capturedAt: '2026-10-02T00:00:00.000Z' } },
     ];
     seeded.replayIntake.parserJobs.job1.result.reviewDraft.coverage = { playedRounds: 2, resolvedRounds: 1, unknownRounds: 1, resolvedPercent: 50, unknownReasons: { 'sequence-incomplete': 1 } };
+    seeded.replayIntake.parserJobs.job1.result.scoreboard.players.find((player: any) => player.playerId === 'raw-a').trades = value(4);
+    seeded.replayIntake.parserJobs.job1.result.scoreboard.players.find((player: any) => player.playerId === 'raw-b').trades = value(3);
     seeded.replayIntake.parserJobs.job1.result.reviewDraft.rounds.push({ roundNumber: 2, status: 'unknown', firstKillPlayerId: null, firstDeathPlayerId: null, sourceEventId: null, reason: 'sequence-incomplete', excludedEventCount: 0 });
     await fs.writeFile(dbPath, JSON.stringify(seeded)); const rawBefore = seeded.replayIntake.parserJobs.job1.result;
     await request(`/api/replay-intake/uploads/${sha256}/review`, coach, { expectedRevision: 0, requestId: 'save-1', matchId: 'm1', teamId: 'team-us', mappings });
@@ -140,8 +142,8 @@ describe('coach replay review workflow', () => {
     const { readDB } = await import('../lib/store'); const stored = await readDB(); expect(stored.replayIntake.parserJobs.job1.result).toEqual(rawBefore); expect(stored.replayIntake.reviews[sha256].mappings).toEqual(mappings);
     expect(stored.matches[0]).toMatchObject({ id: 'm1', map: 'Haven', ourScore: 1, theirScore: 0, sourceMetadata: { provider: 'vrfkit', externalId: sha256 } });
     expect(stored.matches[0].scoreEvidence).toBeUndefined(); expect(stored.matches[0].partialScore).toBeUndefined();
-    expect(stored.playerStats).toEqual(expect.arrayContaining([expect.objectContaining({ matchId: 'm1', playerId: 'p1', player: 'Reviewed Alpha', displayNameSnapshot: 'Reviewed Alpha', deaths: 0, fk: 7 }), expect.objectContaining({ matchId: 'm1', playerId: 'p2', player: 'Reviewed Bravo', displayNameSnapshot: 'Reviewed Bravo', kills: 1, defuses: 1 })]));
-    expect(stored.playerStats.find((row: any) => row.matchId === 'm1' && row.playerId === 'p1')).toMatchObject({ id: 'manual-p1', kills: 99, fk: 7, trades: null, hs: 44, notes: 'coach player note', corrections: expect.arrayContaining([expect.objectContaining({ fields: ['kills', 'fk'] })]) });
+    expect(stored.playerStats).toEqual(expect.arrayContaining([expect.objectContaining({ matchId: 'm1', playerId: 'p1', player: 'Reviewed Alpha', displayNameSnapshot: 'Reviewed Alpha', deaths: 0, fk: 7, trades: 9 }), expect.objectContaining({ matchId: 'm1', playerId: 'p2', player: 'Reviewed Bravo', displayNameSnapshot: 'Reviewed Bravo', kills: 1, defuses: 1, trades: 3 })]));
+    expect(stored.playerStats.find((row: any) => row.matchId === 'm1' && row.playerId === 'p1')).toMatchObject({ id: 'manual-p1', kills: 99, fk: 7, trades: 9, hs: 44, notes: 'coach player note', corrections: expect.arrayContaining([expect.objectContaining({ fields: ['kills', 'fk', 'trades'] })]) });
     expect(stored.playerStats.find((row: any) => row.id === 'manual-standin')).toMatchObject({ playerId: 'p3', notes: 'keep unmatched annotation', kills: 4, sourceMetadata: { method: 'manual' } });
     expect(stored.rounds.filter((round: any) => round.matchId === 'm1')).toEqual(expect.arrayContaining([expect.objectContaining({ id: 'manual-r1', roundNo: 1, side: 'Defense', result: 'W', winBy: 'elimination', firstKillBy: 'Reviewed Alpha', firstDeathBy: 'Opponent X', buy: 'Force', enemyBuy: 'Full', notes: 'review spacing', isThrow: 'TRUE', thrownBy: 'Alpha', throwReason: 'overpeek', replayEvidence: { tradeOpportunities: 1, successfulTrades: 1, tacticalAssessment: 'unreviewed' } })]));
     expect(stored.rounds.find((round: any) => round.id === 'manual-r2')).toMatchObject({ roundNo: 2, notes: 'outside partial replay coverage', sourceMetadata: { method: 'manual' } });
