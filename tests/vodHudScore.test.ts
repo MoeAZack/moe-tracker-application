@@ -2,7 +2,7 @@ import { describe, expect, it } from 'vitest';
 import evidenceModule from '../desktop/vod-timeline-evidence.cjs';
 import { createSeed } from '../lib/seed';
 import { integrateVodSubmission } from '../lib/vodSubmissions';
-import { applyVodHudScore } from '../lib/vodScore';
+import { applyVodHudScore, orientVodHudScores, vodHudOrientation } from '../lib/vodScore';
 import { matchResult, matchScore, sideSplit } from '../src/utils/matchScore';
 
 const { parseRoundStateSnapshot, deriveFinalScore, aggregateVideoEvidence } = evidenceModule;
@@ -108,5 +108,42 @@ describe('a match with no score shows no result', () => {
     expect(matchResult({ ourScore: 9, theirScore: 13 })).toBe('LOSS');
     expect(matchResult({ ourScore: 13, theirScore: 13 })).toBe('DRAW');
     expect(sideSplit(null, null)).toBe('–'); expect(sideSplit(7, 5)).toBe('7W - 5L');
+  });
+});
+
+describe('which HUD side is ours, learned from a game that showed its scoreboard', () => {
+  const reads = (pairs: Array<[number, number]>) => ({ observations: hud(pairs) });
+  const board = (id: string, ourScore: number, theirScore: number, pairs: Array<[number, number]>, vod = 'https://example.test/vod') => ({ id, vod, ourScore, theirScore, vodTimelineEvidence: reads(pairs) }) as any;
+  const hudOnly = (id: string, ourScore: number, theirScore: number, vod = 'https://example.test/vod', extra: any = {}) => ({ id, vod, ourScore, theirScore, scoreEvidence: { source: 'vod-hud', basis: 'final-read', reads: 5, orientation: 'left-is-ours', derivedAt: 'then', ...extra } }) as any;
+
+  it('reads the side from a scoreboard score that the HUD shows one way round or the other', () => {
+    // The board says 13-9 for us; the HUD ended 9-13, so our team is on the right.
+    expect(vodHudOrientation([board('b1', 13, 9, [[0, 0], [5, 8], [9, 12]])])).toEqual({ orientation: 'right-is-ours', fromMatchId: 'b1' });
+    expect(vodHudOrientation([board('b1', 13, 9, [[0, 0], [8, 5], [12, 9]])])).toEqual({ orientation: 'left-is-ours', fromMatchId: 'b1' });
+  });
+
+  it('learns nothing when games disagree, the HUD shows another score, or the score itself came from the HUD', () => {
+    expect(vodHudOrientation([board('b1', 13, 9, [[0, 0], [8, 5], [12, 9]]), board('b2', 13, 5, [[0, 0], [3, 8], [5, 12]])])).toBeNull();
+    expect(vodHudOrientation([board('b1', 13, 9, [[0, 0], [8, 5], [12, 4]])])).toBeNull();
+    expect(vodHudOrientation([hudOnly('h1', 13, 9)])).toBeNull();
+    expect(vodHudOrientation([])).toBeNull();
+  });
+
+  it('turns round the HUD-only games of the same video, and leaves confirmed, oriented or other-video games alone', () => {
+    const db = { matches: [
+      board('b1', 13, 9, [[0, 0], [5, 8], [9, 12]]),
+      hudOnly('h1', 13, 7), hudOnly('h2', 4, 13),
+      hudOnly('other', 13, 2, 'https://example.test/another'),
+      hudOnly('done', 13, 3, undefined, { orientationFrom: 'b0' }),
+      { id: 'confirmed', vod: 'https://example.test/vod', ourScore: 13, theirScore: 1 },
+    ] };
+    const result = orientVodHudScores(db, 'https://example.test/vod', ['h1', 'h2', 'other', 'done', 'confirmed'], ['b1']);
+    expect(result).toEqual({ orientation: 'right-is-ours', changed: [{ id: 'h1', ourScore: 7, theirScore: 13 }, { id: 'h2', ourScore: 13, theirScore: 4 }] });
+    expect(db.matches[1].scoreEvidence).toMatchObject({ orientation: 'right-is-ours', orientationFrom: 'b1' });
+    expect(db.matches.slice(3).map((match: any) => [match.ourScore, match.theirScore])).toEqual([[13, 2], [13, 3], [13, 1]]);
+    // Run again: already oriented, nothing changes.
+    expect(orientVodHudScores(db, 'https://example.test/vod', ['h1', 'h2'], ['b1']).changed).toEqual([]);
+    // A scoreboard game from another video teaches nothing here.
+    expect(orientVodHudScores({ matches: [board('b9', 13, 9, [[0, 0], [5, 8], [9, 12]], 'https://example.test/another'), hudOnly('h9', 13, 7)] }, 'https://example.test/vod', ['h9'], ['b9'])).toEqual({ orientation: null, changed: [] });
   });
 });

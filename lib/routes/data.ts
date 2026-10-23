@@ -522,6 +522,8 @@ export function registerDataRoutes(app: Express, options: { websiteSummaryOnly?:
       // from a form that shows it (scoreConfirmed) or changes it. Server-owned too.
       const confirmsScore = match.scoreConfirmed === true; delete match.scoreConfirmed; delete match.scoreEvidence;
       if (existingMatch?.scoreEvidence && !confirmsScore && match.ourScore === existingMatch.ourScore && match.theirScore === existingMatch.theirScore) match.scoreEvidence = existingMatch.scoreEvidence;
+      // A score the coach cleared stays cleared: a later import of the same VOD must not read it back in.
+      else if (confirmsScore && typeof existingMatch?.ourScore === 'number' && (match.ourScore ?? null) === null && (match.theirScore ?? null) === null) match.scoreEvidence = { source: 'coach-cleared', clearedAt: timestamp };
       if (!match.id) match.id = uid();
 
       let savedStats: any[] | undefined;

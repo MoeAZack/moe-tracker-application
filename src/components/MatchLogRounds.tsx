@@ -400,8 +400,8 @@ export default function MatchLogRounds({ data, theme, onSaveMatch, onRemove, onS
 
                   <div className="flex justify-between items-center text-xs font-mono text-gray-400">
                     <span>{m.map}</span>
-                    {result && <span className={`px-1.5 py-0.5 rounded-sm ${resultClass} font-black text-xs`} title={m.scoreEvidence ? 'Score read from the in-game HUD with the left side counted as yours. Edit the match if the sides are reversed.' : undefined}>
-                      {result}{m.scoreEvidence && <span className="ml-1 font-normal text-gray-500">· HUD, sides unconfirmed</span>}
+                    {result && <span className={`px-1.5 py-0.5 rounded-sm ${resultClass} font-black text-xs`} title={m.scoreEvidence?.source === 'vod-hud' ? (m.scoreEvidence.orientationFrom ? 'Score read from the in-game HUD; which side is yours was taken from another game of this video that showed its scoreboard. Edit the match if the sides are reversed.' : 'Score read from the in-game HUD with the left side counted as yours. Edit the match if the sides are reversed.') : undefined}>
+                      {result}{m.scoreEvidence?.source === 'vod-hud' && <span className="ml-1 font-normal text-gray-500">· HUD, {m.scoreEvidence.orientationFrom ? 'sides from this video' : 'sides unconfirmed'}</span>}
                     </span>}
                   </div>
                 </button>

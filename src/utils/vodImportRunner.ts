@@ -167,6 +167,21 @@ const fileFromBase64 = (base64: string, name: string, type: string) => {
 const sha256File = async (file: File) => [...new Uint8Array(await crypto.subtle.digest('SHA-256', await file.arrayBuffer()))].map(item => item.toString(16).padStart(2, '0')).join('');
 // The final score the server read from the in-game HUD, when no scoreboard or saved match gave one.
 const hudScore = (payload: any) => { const read = payload?.submission?.integration?.scoreFromHud; return read ? `${read.ourScore}–${read.theirScore}` : null; };
+// Asks the server to orient this VOD's HUD-only scores from its scoreboard games,
+// then shows the result on their cards. A failure leaves the scores as read.
+async function orientHudScores(deps: VodImportDeps, vodUrl: string, matchIds: string[], fromMatchIds: string[], imported: VodBatchGame[]) {
+  try {
+    const response = await deps.apiFetch('/api/vod-hud-orientation', { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ vodUrl, matchIds, fromMatchIds }) });
+    if (!response.ok) return;
+    const result = await response.json();
+    for (const changed of result.changed || []) {
+      const game = imported.find(item => item.matchId === changed.id); if (!game) continue;
+      game.score = `${changed.ourScore}–${changed.theirScore}`;
+      game.status = game.status.replace(' · score read from the in-game HUD (left side counted as yours; Edit if reversed)', ' · score read from the in-game HUD, sides taken from this video\'s scoreboard');
+    }
+    setState({ batchResult: [...imported] });
+  } catch { /* Orientation is a refinement; the scores stay as read. */ }
+}
 const stripRawText = (evidence: unknown) => JSON.parse(JSON.stringify(evidence, (key, item) => key === 'rawText' ? undefined : item));
 
 /**
@@ -308,6 +323,8 @@ async function runOneImport(input: VodBatchImportInput, deps: VodImportDeps): Pr
     const dateKey = discovery.uploadDate || input.date;
     const imported: VodBatchGame[] = [];
     const addedPlayers = new Set<string>(); const oursThisRun: string[] = []; let unnamedGames = 0;
+    // Games scored by their scoreboard can show which HUD side is ours for the games scored from the HUD alone.
+    const boardScoredIds: string[] = []; const hudScoredIds: string[] = [];
 
     // One game with its end-of-game scoreboard: our five are known from the roster or picked by the coach.
     const importScoreboardGame = async (game: (typeof detected)[number], index: number, total: number, startMs: number, endMs: number, fallbackMap: string | null) => {
@@ -336,6 +353,7 @@ async function runOneImport(input: VodBatchImportInput, deps: VodImportDeps): Pr
       const payload = await response.json(); if (!response.ok) throw new Error(payload.error || `Game ${index + 1} could not be integrated.`);
       const added: string[] = payload.submission.integration?.addedPlayers || []; added.forEach(name => addedPlayers.add(name));
       if (!selected.length) unnamedGames += 1;
+      if (hudScore(payload)) hudScoredIds.push(payload.submission.linkedMatchId); else if (game.draft.match.ourScore !== null && game.draft.match.theirScore !== null) boardScoredIds.push(payload.submission.linkedMatchId);
       imported.push({ map: map || 'Unknown map', matchId: payload.submission.linkedMatchId, score: hudScore(payload) || scoreLabel, status: `${payload.submission.linkMode === 'new-match' ? 'New match created' : 'Linked to existing match'}${added.length ? ` · ${added.length} new player${added.length === 1 ? '' : 's'} added` : ''}${selected.length ? '' : ' · players not named'}${hudScore(payload) ? ' · score read from the in-game HUD (left side counted as yours; Edit if reversed)' : ''}` });
       setState({ batchResult: [...imported] });
     };
@@ -357,6 +375,7 @@ async function runOneImport(input: VodBatchImportInput, deps: VodImportDeps): Pr
       const payload = await response.json(); if (!response.ok) throw new Error(payload.error || `Game ${index + 1} could not be integrated.`);
       const unnamed = players.length === 0; if (unnamed) unnamedGames += 1;
       const score = linked && typeof linked.ourScore === 'number' ? `${linked.ourScore}–${linked.theirScore}` : hudScore(payload);
+      if (!linked && hudScore(payload)) hudScoredIds.push(payload.submission.linkedMatchId);
       imported.push({ map: mapName, matchId: payload.submission.linkedMatchId, mapRead: boundary.mapRead, mapSource: boundary.mapSource ?? null, firedTokens: boundary.firedTokens, score: score || 'Score pending', status: `${payload.submission.linkMode === 'new-match' ? 'Timeline imported · scoreboard pending' : 'Linked and timeline imported'}${unnamed ? ' · players not named yet' : ''}${!linked && score ? ' · score read from the in-game HUD (left side counted as yours; Edit if reversed)' : ''}` });
       if (boundary.mapSource === 'learned') imported[imported.length - 1].status += ' · map remembered from your correction';
       setState({ batchResult: [...imported] });
@@ -380,6 +399,7 @@ async function runOneImport(input: VodBatchImportInput, deps: VodImportDeps): Pr
         else await importTimelineGame(boundary, index, boundaries.length, endMs);
       }
     }
+    if (hudScoredIds.length && boardScoredIds.length) await orientHudScores(deps, normalizedVodUrl, hudScoredIds, boardScoredIds, imported);
     // On a fresh workspace nobody is on the roster yet; say what that leaves out instead of failing the import.
     const unnamedNote = unnamedGames ? ` No player names were known for ${unnamedGames === imported.length ? (imported.length === 1 ? 'this game' : 'these games') : `${unnamedGames} of them`}, so kills, deaths, trades and KAST are not credited to anyone yet. Players are added automatically from the end-of-game scoreboard when a VOD shows one; you can also add them under Roster and import this VOD again.` : '';
     const addedNote = addedPlayers.size ? ` ${addedPlayers.size} new player${addedPlayers.size === 1 ? ' was' : 's were'} added from the scoreboard names with their stats. They are tryouts under Roster: promote the ones you keep to core, and archive the rest (their matches stay).` : '';

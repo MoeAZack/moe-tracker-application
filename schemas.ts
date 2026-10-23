@@ -238,6 +238,11 @@ const vodTimelineEvidenceSchema = z.object({
   sourceSet: z.array(z.object({ kind: z.enum(['youtube', 'local-file']), videoId: z.string().max(30).nullable().optional(), sha256: z.string().regex(/^[a-f0-9]{64}$/), width: z.number().int().positive().max(16384), height: z.number().int().positive().max(16384), durationMs: z.number().int().positive().max(14_400_000), analyzedAt: z.string().datetime({ offset: true }) }).strict()).max(20).optional(),
   fusion: z.object({ sourceCount: z.number().int().min(1).max(20), fusedAt: z.string().datetime({ offset: true }), conflicts: z.array(z.unknown()).max(1000) }).strict().optional(),
 }).strict();
+export const vodHudOrientationSchema = z.object({
+  vodUrl: z.string().trim().min(1).max(2000),
+  matchIds: z.array(z.string().trim().min(1).max(200)).max(12),
+  fromMatchIds: z.array(z.string().trim().min(1).max(200)).max(12),
+}).strict();
 export const vodSubmissionSchema = z.object({
   vodUrl: z.string().trim().max(2000).refine(value => /^https?:\/\//i.test(value) || /^moetracker-local:\/\/sha256\/[a-f0-9]{64}$/.test(value), 'VOD sources must be an HTTP link or a verified local video.'),
   imageSha256: z.string().regex(/^[a-f0-9]{64}$/),
