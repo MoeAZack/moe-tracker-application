@@ -246,6 +246,13 @@ export interface Goal {
   dueBlockId?: string;
 }
 
+/**
+ * A final score read from a VOD's in-game HUD. orientationFrom names the game
+ * of the same VOD whose scoreboard showed which HUD side is ours; without it
+ * the left side was assumed.
+ */
+export type VodHudScoreEvidence = { source: 'vod-hud'; basis: 'final-read' | 'last-round'; reads: number; orientation: 'left-is-ours' | 'right-is-ours'; orientationFrom?: string; derivedAt: string };
+
 export interface Match {
   id: string;
   date: string;
@@ -279,7 +286,7 @@ export interface Match {
   roundAnalytics?: Record<string, unknown>;
   vodSubmissionIds?: string[];
   /** Set when the final score was read from a VOD's in-game HUD (left side counted as ours) instead of a scoreboard or the coach. */
-  scoreEvidence?: { source: 'vod-hud'; basis: 'final-read' | 'last-round'; reads: number; orientation: 'left-is-ours'; derivedAt: string };
+  scoreEvidence?: VodHudScoreEvidence | { source: 'coach-cleared'; clearedAt: string };
   /** Server-owned same-game duplicate state. Quarantined matches are excluded from analytics until a coach decides. */
   duplicateReview?: MatchDuplicateReview;
 }

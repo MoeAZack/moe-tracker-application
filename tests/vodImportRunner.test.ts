@@ -331,6 +331,31 @@ describe('VOD import runner survives leaving the VOD tab', () => {
     expect(vodImportStore.getSnapshot().batchResult[0].status).toContain('score read from the in-game HUD');
   });
 
+  it('asks the server to orient the HUD-only games from the game whose scoreboard gave the score, and shows the result', async () => {
+    const names = ['Ana', 'Ben', 'Cy', 'Dee', 'Eli', 'Foe1', 'Foe2', 'Foe3', 'Foe4', 'Foe5'];
+    const board = { imageSha256: 'f'.repeat(64), draft: { match: { map: 'Ascent', ourScore: 13, theirScore: 9 }, stats: names.map(extractedName => ({ extractedName, rosterMatch: { status: 'unmatched' }, matchedPlayerId: null, agent: 'Sova', kills: 15, deaths: 12, assists: 4 })) } };
+    discovery.games = [{ timestampMs: 290_000, frame: 'g1' }] as any;
+    try {
+      const h = harness(); let posts = 0; const orientation: any[] = [];
+      (h.deps as any).extractScoreboard = vi.fn(async () => board);
+      h.apiFetch.mockImplementation(async (url: string, init?: RequestInit) => {
+        if (url === '/api/data') return new Response(JSON.stringify({ matches: [], playerStats: [] }), { status: 200 });
+        if (url === '/api/vod-hud-orientation') { orientation.push(JSON.parse(String(init?.body))); return new Response(JSON.stringify({ orientation: 'right-is-ours', changed: [{ id: 'm-2', ourScore: 7, theirScore: 13 }] }), { status: 200 }); }
+        posts += 1;
+        return new Response(JSON.stringify({ submission: { linkMode: 'new-match', linkedMatchId: `m-${posts}`, integration: posts === 2 ? { scoreFromHud: { ourScore: 13, theirScore: 7, basis: 'final-read' } } : {} } }), { status: 200 });
+      });
+      const run = startVodBatchImport(input({ roster: [] }), h.deps);
+      for (let i = 0; i < 20 && !vodImportStore.getSnapshot().teamPick; i += 1) await new Promise(resolve => setTimeout(resolve, 0));
+      expect(vodImportStore.answerTeamPick([0, 1, 2, 3, 4])).toBe(true);
+      await h.finishAnalysis(); await h.finishAnalysis();
+      await expect(run).resolves.toBe(true);
+      expect(orientation).toEqual([{ vodUrl: 'https://youtu.be/abc', matchIds: ['m-2'], fromMatchIds: ['m-1'] }]);
+      const games = vodImportStore.getSnapshot().batchResult;
+      expect(games[1]).toMatchObject({ score: '7–13' });
+      expect(games[1].status).toContain("sides taken from this video's scoreboard");
+    } finally { discovery.games = []; }
+  });
+
   it('shows one overall percentage that never drops across games, stages and saves', async () => {
     const h = harness(); const overall: number[] = []; const details: string[] = [];
     const unsubscribe = vodImportStore.subscribe(() => { const progress = vodImportStore.getSnapshot().progress; if (progress?.status === 'working') { overall.push(overallVodPercent(progress)); if (progress.detail) details.push(progress.detail); } });

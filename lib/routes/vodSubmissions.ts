@@ -4,6 +4,7 @@ import * as schemas from '../../schemas';
 import { readDB, saveDB } from '../store';
 import { uid, validate } from '../utils';
 import { integrateVodSubmission } from '../vodSubmissions';
+import { orientVodHudScores } from '../vodScore';
 import { recomputeAcceptedMatchAggregates } from '../aggregateVersioning';
 import { refreshCoachingWorkflow } from './coaching';
 
@@ -39,6 +40,23 @@ export function registerVodSubmissionRoutes(app: Express) {
       refreshCoachingWorkflow(db, user.username || rosterPlayer?.displayName || 'VOD automation');
       await saveDB(db);
       res.status(201).json({ submission });
+    } catch (error: any) { res.status(error.status || 500).json({ error: error.message }); }
+  });
+
+  // After a VOD import: its games with a scoreboard show which HUD side is
+  // ours, and the games scored from the HUD alone take that side.
+  app.post('/api/vod-hud-orientation', async (req, res) => {
+    try {
+      if ((req as any).user?.role !== 'coach') return res.status(403).json({ error: 'Only a coach can change match scores.' });
+      const body = validate(schemas.vodHudOrientationSchema, req.body, res); if (!body) return;
+      const db = await readDB();
+      const result = orientVodHudScores(db, body.vodUrl, body.matchIds, body.fromMatchIds);
+      if (result.changed.length) {
+        db.analyticsBuilds ||= {};
+        for (const { id } of result.changed) db.analyticsBuilds[id] = recomputeAcceptedMatchAggregates(db, id);
+        await saveDB(db);
+      }
+      res.json(result);
     } catch (error: any) { res.status(error.status || 500).json({ error: error.message }); }
   });
 }
