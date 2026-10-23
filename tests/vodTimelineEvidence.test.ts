@@ -230,7 +230,9 @@ describe('VOD timeline evidence', () => {
     const snapshots = [{ timestampMs: 700_000, text: 'ALLIES | 1' }, { timestampMs: 900_000, text: 'spike planted' }]; const lines: string[] = [];
     const out = await readBannerDigits([{ ...frame, timestampMs: 1 }, { ...frame, timestampMs: 700_000 }, { ...frame, timestampMs: 900_000 }], snapshots, worker, (line: string) => lines.push(line));
     expect(out.map((item: any) => [item.timestampMs, item.text])).toEqual([[1, 'ALLIES 7 - 17 ENEMIES'], [700_000, 'ALLIES 7 - 17 ENEMIES'], [900_000, 'ALLIES 7 - 17 ENEMIES']]);
-    expect(lines).toEqual(['end-banner: frames 3, with text 2, anchor word 1, dark split 3, tried 3, anchor read 3, digits read 3']);
+    expect(lines.at(-1)).toBe('end-banner: frames 3, with text 2, anchor word 1, dark split 3, tried 3, anchor read 3, digits read 3');
+    // One line per attempt with each crop's raw OCR text.
+    expect(lines.slice(0, -1)).toEqual([0, 700, 900].map(second => `end-banner attempt ${second}s: crop 199x50, split 36+51, line7 "ALLIES | ENEMIES", line6 "ALLIES | ENEMIES", left "7", right "17"`));
     expect(worker.calls).toEqual([{ tessedit_char_whitelist: '', tessedit_pageseg_mode: '7' }, { tessedit_char_whitelist: '', tessedit_pageseg_mode: '6' }, { tessedit_char_whitelist: '0123456789', tessedit_pageseg_mode: '7' }, { tessedit_char_whitelist: '', tessedit_pageseg_mode: '11' }]);
   });
 

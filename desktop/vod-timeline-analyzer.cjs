@@ -419,16 +419,18 @@ async function readBannerDigits(frames, snapshots, worker, log = line => void li
         await worker.setParameters({ tessedit_char_whitelist: '', tessedit_pageseg_mode: mode });
         for (const item of tried) {
           if (item.line) continue; const stretched = stretchedBanner(item.frame.pixels, item.frame.width, item.frame.height); if (!stretched) continue;
-          const read = await text(stretched); if (/allies|enemies/i.test(read)) { item.word = true; item.line = BANNER_LINE.test(read) ? read : item.line; if (!item.anchored) { item.anchored = true; counts.anchorRead += 1; } }
+          const read = await text(stretched); item.raw = { ...item.raw, [`line${mode}`]: read }; if (/allies|enemies/i.test(read)) { item.word = true; item.line = BANNER_LINE.test(read) ? read : item.line; if (!item.anchored) { item.anchored = true; counts.anchorRead += 1; } }
         }
       }
       // The scores: each from its own crop, digits only; the whole middle only when it will not split.
       await worker.setParameters({ tessedit_char_whitelist: '0123456789', tessedit_pageseg_mode: '7' });
       const reads = [];
       for (const item of tried) {
-        let left = null, right = null; const halves = splitDigitCrop(item.crop);
-        if (halves) { left = (await text(halves[0])).match(/\d{1,2}/)?.[0]; right = (await text(halves[1])).match(/\d{1,2}/)?.[0]; }
-        if (!left || !right) { const match = (await text(item.crop)).match(/(\d{1,2})\D+(\d{1,2})/); if (match) [left, right] = [match[1], match[2]]; }
+        let left = null, right = null; const halves = splitDigitCrop(item.crop); const raw = item.raw || {};
+        if (halves) { raw.left = await text(halves[0]); raw.right = await text(halves[1]); left = raw.left.match(/\d{1,2}/)?.[0]; right = raw.right.match(/\d{1,2}/)?.[0]; }
+        if (!left || !right) { raw.middle = await text(item.crop); const match = raw.middle.match(/(\d{1,2})\D+(\d{1,2})/); if (match) [left, right] = [match[1], match[2]]; }
+        // Every attempt's raw OCR text, so a miss shows which crop read what.
+        log(`end-banner attempt ${Math.round(item.frame.timestampMs / 1000)}s: crop ${item.crop.width}x${item.crop.height}, split ${halves ? halves.map(half => half.width).join('+') : 'none'}, ${['line7', 'line6', 'left', 'right', 'middle'].filter(key => key in raw).map(key => `${key} ${JSON.stringify(String(raw[key]).trim().slice(0, 60))}`).join(', ')}`);
         if ((!left || !right) && item.line) { const match = item.line.match(BANNER_LINE); [left, right] = [match[1], match[2]]; }
         if (left && right) reads.push({ ...item, banner: `ALLIES ${Number(left)} - ${Number(right)} ENEMIES` });
       }
