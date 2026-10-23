@@ -90,7 +90,9 @@ export function integrateVodSubmission(db: any, input: SubmissionInput, actorNam
   }
   db.vodSubmissions ||= [];
   const duplicate = db.vodSubmissions.find((item: VodSubmission) => item.submittedByPlayerId === input.playerId && item.imageSha256 === input.imageSha256 && item.vodUrl === input.vodUrl);
-  if (duplicate && (!input.timelineEvidence || duplicate.timelineEvidence)) return duplicate;
+  // Re-import is an enrichment operation. Older builds persisted the timeline
+  // but discarded its five player rows, so an early return here made repair
+  // impossible even though the evidence was retained.
   if (duplicate) { input.matchId = duplicate.linkedMatchId; ids.submissionId = duplicate.id; }
   const rosterBefore = new Set((db.rosterPlayers || []).map((player: any) => player.id));
   const players = resolveFive(db, input.players, input.addObservedPlayers === true && !input.playerId);
@@ -99,7 +101,8 @@ export function integrateVodSubmission(db: any, input: SubmissionInput, actorNam
   const requested = input.matchId ? (db.matches || []).find((match: Match) => match.id === input.matchId) : null;
   if (input.matchId && !requested) throw Object.assign(new Error('The selected match no longer exists.'), { status: 404 });
   const rosterIds = new Set(players.map(row => row.rosterPlayerId));
-  if (requested && [...rosterIds].filter(id => matchRosterIds(db, requested.id).has(id)).length < 5 && !hasUniqueKdaCoverage(db, requested.id, players)) throw Object.assign(new Error('The selected match does not contain the same five-player roster or five unique K/D/A rows. Choose the correct match or create a new VOD entry.'), { status: 409 });
+  const repairsOwnDuplicate = Boolean(duplicate && duplicate.linkedMatchId === requested?.id);
+  if (requested && !repairsOwnDuplicate && [...rosterIds].filter(id => matchRosterIds(db, requested.id).has(id)).length < 5 && !hasUniqueKdaCoverage(db, requested.id, players)) throw Object.assign(new Error('The selected match does not contain the same five-player roster or five unique K/D/A rows. Choose the correct match or create a new VOD entry.'), { status: 409 });
   const incomingIdentityRows = players.map(player => ({ playerId: player.rosterPlayerId, player: player.rosterDisplayName }));
   // One shared identity answer; a header-only candidate must also hold all five players.
   // With no identities a date/map header alone could land on another game, so an unnamed import only ever creates its own match.
@@ -184,8 +187,8 @@ export function integrateVodSubmission(db: any, input: SubmissionInput, actorNam
   }
   db.vodReviews ||= [];
   if (!db.vodReviews.some((review: any) => review.matchId === match!.id && review.vodUrl === input.vodUrl)) db.vodReviews.unshift({ id: ids.reviewId, matchId: match.id, title: `${players.find(row => row.rosterPlayerId === input.playerId)?.rosterDisplayName || actorName} VOD · ${match.map}`, vodUrl: input.vodUrl, date: input.date, createdAt: now, notes: [] });
-  const submission: VodSubmission = { schema: 'moetracker.vod-submission/v1', id: ids.submissionId, submittedByPlayerId: input.playerId, submittedByName: players.find(row => row.rosterPlayerId === input.playerId)?.rosterDisplayName || actorName, vodUrl: input.vodUrl, imageSha256: input.imageSha256, date: input.date, map: input.map, opponent: input.opponent, ourScore: input.ourScore, theirScore: input.theirScore, requestedMatchId: input.matchId || null, linkedMatchId: match.id, linkMode: createdMatch ? 'new-match' : 'existing-match', status: 'integrated', rosterMatchCount: players.length, players, timelineEvidence: input.timelineEvidence || null, integration: { createdMatch, createdStats, filledFields, preservedFields, ...(addedPlayers.length ? { addedPlayers } : {}) }, createdAt: now, integratedAt: now };
-  if (duplicate) Object.assign(duplicate, { timelineEvidence: submission.timelineEvidence, integration: submission.integration, integratedAt: now });
+  const submission: VodSubmission = { schema: 'moetracker.vod-submission/v1', id: ids.submissionId, submittedByPlayerId: input.playerId, submittedByName: players.find(row => row.rosterPlayerId === input.playerId)?.rosterDisplayName || duplicate?.submittedByName || actorName, vodUrl: input.vodUrl, imageSha256: input.imageSha256, date: input.date, map: input.map ?? duplicate?.map ?? null, opponent: input.opponent ?? duplicate?.opponent ?? null, ourScore: input.ourScore ?? duplicate?.ourScore ?? null, theirScore: input.theirScore ?? duplicate?.theirScore ?? null, requestedMatchId: duplicate?.requestedMatchId ?? input.matchId ?? null, linkedMatchId: match.id, linkMode: duplicate?.linkMode || (createdMatch ? 'new-match' : 'existing-match'), status: 'integrated', rosterMatchCount: players.length, players: players.length ? players : duplicate?.players || [], timelineEvidence: input.timelineEvidence || duplicate?.timelineEvidence || null, integration: { createdMatch, createdStats, filledFields, preservedFields, ...(addedPlayers.length ? { addedPlayers } : {}) }, createdAt: duplicate?.createdAt || now, integratedAt: now };
+  if (duplicate) Object.assign(duplicate, submission);
   else db.vodSubmissions.unshift(submission);
   const fused = fuseVodEvidence((db.vodSubmissions as VodSubmission[]).filter(item => item.linkedMatchId === match!.id && item.timelineEvidence).map(item => item.timelineEvidence!));
   let derivedScore: ReturnType<typeof applyVodHudScore> = null; let partialScore: ReturnType<typeof applyVodPartialScore> = null;

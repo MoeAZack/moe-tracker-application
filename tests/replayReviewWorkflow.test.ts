@@ -54,6 +54,23 @@ beforeEach(async () => {
 afterEach(async () => { if (server) { server.closeAllConnections(); await new Promise<void>((resolve, reject) => server!.close(error => error ? reject(error) : resolve())); server = undefined; } vi.unstubAllEnvs(); vi.resetModules(); if (tempDir) await fs.rm(tempDir, { recursive: true, force: true }); });
 
 describe('coach replay review workflow', () => {
+  it('creates new allied profiles on explicit replay acceptance beside a twenty-profile library', async () => {
+    const coach = await login(adminKey); const seeded = JSON.parse(await fs.readFile(dbPath, 'utf8'));
+    seeded.rosterPlayers.push(...Array.from({ length: 18 }, (_, index) => ({ id: `extra-${index}`, displayName: `Existing profile ${index}`, retiredAt: null })));
+    await fs.writeFile(dbPath, JSON.stringify(seeded));
+    const unresolved = mappings.map(item => item.parserPlayerId === 'raw-a' || item.parserPlayerId === 'raw-b' ? { ...item, rosterPlayerId: null, displayName: item.parserPlayerId === 'raw-a' ? 'New Replay Alpha' : 'New Replay Bravo' } : item);
+    const saved = await request(`/api/replay-intake/uploads/${sha256}/review`, coach, { expectedRevision: 0, requestId: 'new-profile-review', matchId: 'm1', teamId: 'team-us', mappings: unresolved });
+    expect(saved.status).toBe(200);
+    expect(JSON.parse(await fs.readFile(dbPath, 'utf8')).rosterPlayers).toHaveLength(20);
+    const accepted = await request(`/api/replay-intake/uploads/${sha256}/accept`, coach, { expectedRevision: 1, requestId: 'new-profile-accept', confirmed: true });
+    expect(accepted.status).toBe(200);
+    const stored = JSON.parse(await fs.readFile(dbPath, 'utf8'));
+    expect(stored.rosterPlayers).toHaveLength(22);
+    const created = stored.rosterPlayers.filter((player: any) => ['New Replay Alpha', 'New Replay Bravo'].includes(player.displayName));
+    expect(created.every((player: any) => player.rosterStatus === 'standIn')).toBe(true);
+    expect(stored.playerStats.filter((row: any) => created.some((player: any) => player.id === row.playerId)).map((row: any) => [row.player, row.kills, row.deaths, row.assists])).toEqual([['New Replay Alpha', 2, 0, 1], ['New Replay Bravo', 1, 1, 2]]);
+  });
+
   it('enforces coach ownership, explicit complete mappings, collision checks and stale revisions', async () => {
     const coach = await login(adminKey); const player = await login(playerKey);
     expect((await request(`/api/replay-intake/uploads/${sha256}/review`, player, { expectedRevision: 0, requestId: 'player-attempt', matchId: 'm1', teamId: 'team-us', mappings })).status).toBe(403);

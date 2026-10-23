@@ -1,3 +1,5 @@
+import { activeCorePlayerIds, ensureObservedRosterPlayer, setObservedRosterStatus, setTryoutsMode } from './roster';
+
 const APPEARANCE_TYPES = new Set(['core', 'tryout', 'standIn']);
 
 function fail(message: string): never {
@@ -10,6 +12,27 @@ export function preserveExistingRosterContext(existingMatch: any, submittedMatch
 }
 
 export function validateAndNormalizeLineup(db: any, match: any, stats: any[], existingStats: any[] = []) {
+  // A coach-confirmed scoreboard is identity evidence: every allied observed
+  // name belongs in the profile library, even when twenty other profiles
+  // already exist. Do this before lineup validation so the same save also
+  // materializes canonical playerStats instead of leaving anonymous rows.
+  if (match.sourceMetadata?.method === 'screenshot' && match.reviewConfirmation?.alliedSideConfirmed) {
+    const coreIds = activeCorePlayerIds(db);
+    const hasObservedNames = stats.some(stat => String(stat.displayNameSnapshot || stat.player || '').trim());
+    const tryoutBatch = !coreIds.size && hasObservedNames ? setTryoutsMode(db, true).batch : null;
+    stats = stats.map(stat => {
+      if (stat.playerId) return stat;
+      const observedName = typeof stat.displayNameSnapshot === 'string' && stat.displayNameSnapshot.trim()
+        ? stat.displayNameSnapshot.trim()
+        : typeof stat.player === 'string' ? stat.player.trim() : '';
+      if (!observedName) return stat;
+      const player = ensureObservedRosterPlayer(db, observedName);
+      const appearanceType = coreIds.has(player.id) ? 'core' : coreIds.size ? 'standIn' : 'tryout';
+      if (!player.rosterStatus) setObservedRosterStatus(db, { playerId: player.id, displayName: player.displayName, status: appearanceType });
+      return { ...stat, playerId: player.id, appearanceType };
+    });
+    match.rosterContext = tryoutBatch ? { kind: 'tryout', tryoutBatchId: tryoutBatch.id } : { kind: 'mixed' };
+  }
   const context = match.rosterContext || { kind: 'unclassified' };
   match.rosterContext = context;
 

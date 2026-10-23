@@ -65,7 +65,7 @@ export function nextVodProgress(previous: VodProgress | null, next: VodProgress)
   return { ...next, stepPercent: next.stepPercent === null ? previous.stepPercent : Math.max(previous.stepPercent ?? 0, next.stepPercent) };
 }
 
-type Roster = Array<{ id: string; displayName: string; aliases?: string[] }>;
+type Roster = Array<{ id: string; displayName: string; aliases?: string[]; isCore?: boolean }>;
 export type VodBatchImportInput = {
   vodUrl: string;
   local: { path: string; name: string } | null;
@@ -239,8 +239,20 @@ export function knownScoreboardRows(stats: ReadonlyArray<{ extractedName?: strin
   return stats.map((row, index) => row.rosterMatch?.status === 'matched' || ours.has(normalizedMatchName(row.extractedName)) ? index : -1).filter(index => index >= 0);
 }
 
-export function boundaryTimelinePlayers(activeRoster: readonly { displayName: string }[], linkedMatch: any) {
-  const ours = activeRoster.map(player => String(player.displayName || '').trim()).filter(Boolean);
+export function boundaryTimelinePlayers(
+  activeRoster: readonly { id?: string; displayName: string; isCore?: boolean }[],
+  linkedMatch: any,
+  playerStats: readonly { matchId?: string; playerId?: string; player?: string; displayNameSnapshot?: string }[] = [],
+) {
+  const rosterById = new Map(activeRoster.map(player => [player.id, player]));
+  const linkedOurs = linkedMatch ? playerStats
+    .filter(stat => stat.matchId === linkedMatch.id && stat.playerId && rosterById.has(stat.playerId))
+    .map(stat => String(stat.displayNameSnapshot || stat.player || rosterById.get(stat.playerId)?.displayName || '').trim())
+    .filter(Boolean) : [];
+  const core = activeRoster.filter(player => player.isCore).map(player => String(player.displayName || '').trim()).filter(Boolean);
+  // A profile library is not a lineup. A saved match proves its participants;
+  // otherwise only an exact five-player active core can safely seed the picker.
+  const ours = linkedOurs.length === 5 ? linkedOurs : !linkedMatch && core.length === 5 ? core : [];
   const theirs = (linkedMatch?.screenshotEvidence?.scoreboardPlayers || [])
     .filter((player: any) => player?.allied === false)
     .map((player: any) => String(player?.name || '').trim()).filter(Boolean);
@@ -249,6 +261,14 @@ export function boundaryTimelinePlayers(activeRoster: readonly { displayName: st
     ...theirs.map((name: string) => ({ name, team: 'theirs' as const })),
   ];
   return [...new Map(identified.map(player => [player.name.toLocaleLowerCase('en'), player])).values()].slice(0, 10);
+}
+
+function timelineSubmissionPlayers(names: readonly string[], evidence: any) {
+  return names.map(observedName => {
+    const metric = (evidence?.playerMetrics || []).find((row: any) => row?.team === 'ours' && normalizedMatchName(row.playerName) === normalizedMatchName(observedName));
+    const value = (field: string) => Number.isFinite(metric?.[field]) ? Number(metric[field]) : null;
+    return { observedName, agent: null, kills: value('kills'), deaths: value('deaths'), assists: value('assists'), acs: value('acs'), adr: value('adr'), hs: value('hs'), fk: value('fk'), fd: value('fd'), plants: value('plants'), defuses: value('defuses'), trades: value('trades') };
+  });
 }
 
 // One listener for the whole window, installed on the first import and never
@@ -412,33 +432,39 @@ async function runOneImport(input: VodBatchImportInput, deps: VodImportDeps): Pr
 
     // One game with no scoreboard: its timeline, and the score the HUD showed.
     const importTimelineGame = async (boundary: NonNullable<typeof discovery.boundaries>[number], index: number, total: number, endMs: number) => {
-      const mapName = boundary.map || 'Unknown map'; const rosterIds = new Set(activeRoster.map(player => player.id));
-      const possibleMatches = matches.filter(candidate => candidate.date === dateKey && (!boundary.map || candidate.map?.toLocaleLowerCase() === boundary.map.toLocaleLowerCase()) && [...rosterIds].every(id => playerStats.some(stat => stat.matchId === candidate.id && stat.playerId === id)));
-      // An empty roster proves nothing about which saved game this is, so it never links.
-      const linked = rosterIds.size && possibleMatches.length === 1 ? possibleMatches[0] : null;
+      const mapName = boundary.map || 'Unknown map'; const activeIds = new Set(activeRoster.map(player => player.id));
+      const possibleMatches = matches.filter(candidate => {
+        if (candidate.date !== dateKey || (boundary.map && candidate.map?.toLocaleLowerCase() !== boundary.map.toLocaleLowerCase())) return false;
+        const participantIds = new Set(playerStats.filter(stat => stat.matchId === candidate.id && stat.playerId && activeIds.has(stat.playerId)).map(stat => stat.playerId));
+        return participantIds.size === 5;
+      });
+      // The saved match's five appearances are a lineup. The full profile registry is not.
+      const linked = possibleMatches.length === 1 ? possibleMatches[0] : null;
       progressContext.gameIndex = index; progressContext.totalGames = total; setProgress({ owner: 'batch', step: 3, stepPercent: Math.round(index / total * 100), message: `Analyzing game ${index + 1}/${total} · ${mapName}…`, status: 'working' });
       // A channel/uploader name is not a player identity. Reuse opponent names
       // only when a linked scoreboard proved them; otherwise unknown opponents
       // remain unknown instead of being mislabeled as our team.
-      let players: Array<{ name: string; team: 'ours' | 'theirs' }> = boundaryTimelinePlayers(activeRoster, linked); let typedNames: string[] = [];
-      // Nobody on the roster and no board to read names from: the coach can type our five before the
-      // scan, so the kill feed credits them. K/D/A stays blank; it only comes from a scoreboard.
-      if (!players.length && !linked) {
-        const previous = oursThisRun.slice(-5);
+      let players: Array<{ name: string; team: 'ours' | 'theirs' }> = boundaryTimelinePlayers(activeRoster, linked, playerStats);
+      let lineupNames = players.filter(player => player.team === 'ours').map(player => player.name); let typedNames: string[] = [];
+      // With no proven lineup, ask for exactly five. Existing core names merely prefill the form;
+      // they never cause a 20-profile library to be treated as match participants.
+      if (lineupNames.length !== 5) {
+        const core = activeRoster.filter(player => player.isCore).map(player => player.displayName);
+        const previous = oursThisRun.slice(-5); const suggested = core.length === 5 ? core : previous;
         setProgress({ owner: 'batch', step: 3, stepPercent: Math.round(index / total * 100), message: `Waiting for you: type your five players for game ${index + 1}/${total} · ${mapName}.`, status: 'working' });
         teamPickNames = {};
-        const answer = await askTeamPick({ game: index + 1, totalGames: total, map: mapName, score: 'Score pending', noBoard: true, rows: Array.from({ length: 5 }, (_, rowIndex) => ({ index: rowIndex, name: previous[rowIndex] || '', agent: null, kills: null, deaths: null, assists: null, known: false })) });
+        const answer = await askTeamPick({ game: index + 1, totalGames: total, map: mapName, score: 'Score pending', noBoard: true, rows: Array.from({ length: 5 }, (_, rowIndex) => ({ index: rowIndex, name: suggested[rowIndex] || '', agent: null, kills: null, deaths: null, assists: null, known: false })) });
         if (answer === 'cancel') throw new Error('The import was cancelled while it waited for you to name your players.');
         typedNames = (answer || []).map(rowIndex => teamPickNames[rowIndex]).filter(Boolean);
-        oursThisRun.push(...typedNames); players = typedNames.map(name => ({ name, team: 'ours' as const }));
+        lineupNames = typedNames; oursThisRun.push(...typedNames); players = typedNames.map(name => ({ name, team: 'ours' as const }));
       }
       const evidence = await desktop.analyzeVod({ vodUrl: normalizedVodUrl, cacheId, startMs: boundary.timestampMs, endMs, players, observerMode: perspective === 'coach', ...(perspective === 'player' && selectedPovName ? { povPlayerName: selectedPovName } : {}) });
       // The server fills kills and deaths from the kill feed (marked partial) when no board gave them.
       const feedKills = (evidence.playerMetrics || []).reduce((sum: number, metric: any) => sum + (metric.kills || 0) + (metric.deaths || 0), 0);
       const publicTimeline = stripRawText(evidence); const boundaryFrame = await desktop.readVodFrame({ cacheId, frame: boundary.frame }); const frame = fileFromBase64(boundaryFrame.base64, `vod-game-start-${index + 1}.png`, boundaryFrame.mediaType);
-      setProgress(savingProgress(index, total)); const response = await deps.apiFetch('/api/vod-submissions', { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ vodUrl: normalizedVodUrl, imageSha256: await sha256File(frame), ...(linked ? { matchId: linked.id } : {}), coachTeamEvidence: true, date: dateKey, map: boundary.map ?? null, opponent: linked?.opponent || null, ourScore: linked?.ourScore ?? null, theirScore: linked?.theirScore ?? null, ...(typedNames.length ? { addObservedPlayers: true } : {}), players: typedNames.map(observedName => ({ observedName, agent: null, kills: null, deaths: null, assists: null, acs: null, adr: null, hs: null, fk: null, fd: null, plants: null, defuses: null, trades: null })), timelineEvidence: publicTimeline }) });
+      setProgress(savingProgress(index, total)); const response = await deps.apiFetch('/api/vod-submissions', { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ vodUrl: normalizedVodUrl, imageSha256: await sha256File(frame), ...(linked ? { matchId: linked.id } : {}), coachTeamEvidence: true, date: dateKey, map: boundary.map ?? null, opponent: linked?.opponent || null, ourScore: linked?.ourScore ?? null, theirScore: linked?.theirScore ?? null, ...(typedNames.length ? { addObservedPlayers: true } : {}), players: timelineSubmissionPlayers(lineupNames, publicTimeline), timelineEvidence: publicTimeline }) });
       const payload = await response.json(); if (!response.ok) throw new Error(submissionError(payload, index));
-      const unnamed = players.length === 0; if (unnamed) unnamedGames += 1;
+      const unnamed = lineupNames.length === 0; if (unnamed) unnamedGames += 1;
       const added: string[] = payload.submission.integration?.addedPlayers || []; added.forEach(name => addedPlayers.add(name));
       const score = linked && typeof linked.ourScore === 'number' ? `${linked.ourScore}–${linked.theirScore}` : hudScore(payload);
       imported.push({ map: mapName, matchId: payload.submission.linkedMatchId, mapRead: boundary.mapRead, mapSource: boundary.mapSource ?? null, firedTokens: boundary.firedTokens, score: score || partialHudScore(payload) || 'Score pending', status: `${payload.submission.linkMode === 'new-match' ? 'Timeline imported · scoreboard pending' : 'Linked and timeline imported'}${unnamed ? ' · players not named yet' : typedNames.length ? (feedKills ? (evidence.tabBoard?.matched ? ` · names typed, K/D/A from the TAB board at ${Math.floor(evidence.tabBoard.timestampMs / 60000)}:${String(Math.floor(evidence.tabBoard.timestampMs / 1000) % 60).padStart(2, '0')} plus the kill feed after it, partial (${evidence.tabBoard.matched} of 5 names matched)` : ' · names typed, kills and deaths from the kill feed, partial (no scoreboard; assists blank, the feed does not name them)') : ' · names typed, K/D/A blank (no scoreboard, kill feed unread)') : ''}${!linked && score ? hudScoreNote(payload) : ''}` });

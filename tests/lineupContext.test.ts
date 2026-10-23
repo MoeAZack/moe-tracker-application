@@ -74,6 +74,19 @@ describe('lineup context contract', () => {
       statsUpdate: { operation: 'replace', stats: [] },
     }).success).toBe(false);
   });
+
+  it('creates and links every new allied scoreboard name beside a twenty-profile library', () => {
+    const db: any = rosterDb();
+    db.rosterPlayers = Array.from({ length: 20 }, (_, index) => ({ id: `existing-${index}`, displayName: `Existing ${index}` }));
+    db.coreMemberships = [];
+    const names = Array.from({ length: 5 }, (_, index) => `Observed ${index + 1}`);
+    const match: any = { sourceMetadata: { method: 'screenshot' }, reviewConfirmation: { alliedSideConfirmed: true } };
+    const saved = validateAndNormalizeLineup(db, match, names.map(player => ({ player, kills: 10 })));
+    expect(db.rosterPlayers).toHaveLength(25);
+    expect(saved.map(row => row.displayNameSnapshot)).toEqual(names);
+    expect(saved.every(row => row.playerId && row.appearanceType === 'tryout')).toBe(true);
+    expect(match.rosterContext).toMatchObject({ kind: 'tryout', tryoutBatchId: expect.any(String) });
+  });
 });
 
 describe('central analytics history filtering', () => {
