@@ -7,7 +7,7 @@ import analyzerModule from '../desktop/vod-timeline-analyzer.cjs';
 import { boundaryTimelinePlayers } from '../src/components/VodSubmission';
 
 const { aggregateVideoEvidence, NO_IDENTITIES_LIMITATION, parseKillFeedSnapshot, parseUltimateSnapshots, parseRoundStateSnapshot, buildRoundTimeline, buildObserverSegments, applyVisualTemplates, fuseVodEvidence } = evidenceModule;
-const { tabBoardRows, tabBoardFit, isTabBoard, tabCellImage, readCoachTabBoards, TAB_BOX, TAB_FRAME, TAB_OUR_ROWS, TAB_CELLS, killFeedSummary, createChangeCollector, readScoreBox, KILL_FEED_BOX, killFeedCrop, scoreBoxCrop, fixSevens, SCORE_BOXES, rowText, stretchedBanner, splitDigitCrop, bannerDigitCrop, readBannerDigits, sweepOrphanedVodDirectories, normalizeYoutubeUrl, youtubeVideoId, frameDifference, visualSignature, scoreboardGeometryScore, agentSelectGeometryScore, chooseGameBoundaries, inferPovPlayer, analyzeVodTimeline, releaseVodSource, discoverVodGames, readVodFrame, readOwnedVodFrame, normalizeTimelinePlayers } = analyzerModule;
+const { tabBoardRows, tabBoardFit, isTabBoard, tabCellImage, readCoachTabBoards, TAB_BOX, TAB_FRAME, TAB_OUR_ROWS, TAB_CELLS, killFeedSummary, createChangeCollector, readScoreBox, KILL_FEED_BOX, killFeedCrop, scoreBoxCrop, fixSevens, SCORE_BOXES, rowText, stretchedBanner, splitDigitCrop, bannerDigitCrop, selectBannerCandidates, readBannerDigits, sweepOrphanedVodDirectories, normalizeYoutubeUrl, youtubeVideoId, frameDifference, visualSignature, scoreboardGeometryScore, agentSelectGeometryScore, chooseGameBoundaries, inferPovPlayer, analyzeVodTimeline, releaseVodSource, discoverVodGames, readVodFrame, readOwnedVodFrame, normalizeTimelinePlayers } = analyzerModule;
 const players = [
   { name: 'Alpha', team: 'ours' }, { name: 'Bravo', team: 'ours' }, { name: 'Charlie', team: 'ours' }, { name: 'Delta', team: 'ours' }, { name: 'Echo', team: 'ours' },
   { name: 'EnemyOne', team: 'theirs' }, { name: 'EnemyTwo', team: 'theirs' }, { name: 'EnemyThree', team: 'theirs' }, { name: 'EnemyFour', team: 'theirs' }, { name: 'EnemyFive', team: 'theirs' },
@@ -283,7 +283,7 @@ describe('VOD timeline evidence', () => {
   it('reads the end-screen words from the stretched line and each score from its own box, then restores the worker', async () => {
     const frame = endScreenFrame(); const worker = fakeWorker({ line: 'ALLIES | ENEMIES', boxLeft: '1', boxRight: '17', other: '717' });
     const snapshots = [{ timestampMs: 2_850_000, text: 'ALLIES | 1' }, { timestampMs: 2_900_000, text: 'spike planted' }]; const lines: string[] = [];
-    const out = await readBannerDigits([{ ...frame, timestampMs: 2_800_000 }, { ...frame, timestampMs: 2_850_000 }, { ...frame, timestampMs: 2_900_000 }], snapshots, worker, (line: string) => lines.push(line));
+    const out = await readBannerDigits([{ ...frame, timestampMs: 2_800_000 }, { ...frame, timestampMs: 2_850_000 }, { ...frame, timestampMs: 2_900_000 }], snapshots, worker, (line: string) => lines.push(line), 40, null);
     expect(out.map((item: any) => [item.timestampMs, item.text])).toEqual([[2_800_000, 'ALLIES 7 - 17 ENEMIES'], [2_850_000, 'ALLIES 7 - 17 ENEMIES'], [2_900_000, 'ALLIES 7 - 17 ENEMIES']]);
     expect(lines.at(-1)).toBe('end-banner: frames 3, with text 2, anchor word 1, dark split 3, tried 3, anchor read 3, digits read 3');
     // One line per attempt with each crop's raw OCR text.
@@ -308,12 +308,29 @@ describe('VOD timeline evidence', () => {
 
   it('takes the scores from the stretched line when no score crop reads', async () => {
     const frame = endScreenFrame(); const worker = fakeWorker({ line: 'ALLIES 13 - 11 ENEMIES', boxLeft: '', boxRight: '' });
-    expect((await readBannerDigits([{ ...frame, timestampMs: 5 }], [], worker)).map((item: any) => item.text)).toEqual(['ALLIES 13 - 11 ENEMIES']);
+    expect((await readBannerDigits([{ ...frame, timestampMs: 5 }], [], worker, undefined, 40, null)).map((item: any) => item.text)).toEqual(['ALLIES 13 - 11 ENEMIES']);
   });
 
   it('never takes dark frames for the end screen when no frame of the game names a side (lobby, loading)', async () => {
     const frame = endScreenFrame(); const worker = fakeWorker({ line: '', boxLeft: '3', boxRight: '5', other: '3 5' });
-    expect((await readBannerDigits([{ ...frame, timestampMs: 1 }, { ...frame, timestampMs: 2 }], [], worker)).length).toBe(0);
+    expect((await readBannerDigits([{ ...frame, timestampMs: 1 }, { ...frame, timestampMs: 2 }], [], worker, undefined, 40, null)).length).toBe(0);
+  });
+
+  it('uses confident digit OCR and repeated full geometry for a stylized defeat banner', async () => {
+    const frame = endScreenFrame(); const worker = fakeWorker({ line: 'DEEEAT', boxLeft: '0', boxRight: '15', other: '' });
+    let digitCall = 0; const digitReader = { read: async () => ({ text: digitCall++ % 2 === 0 ? '9' : '5', confidence: 95 }) };
+    const out = await readBannerDigits([{ ...frame, timestampMs: 6_822_000 }, { ...frame, timestampMs: 6_842_000 }], [], worker, undefined, 40, digitReader);
+    expect(out.map((item: any) => [item.timestampMs, item.text])).toEqual([[6_822_000, 'ALLIES 9 - 15 ENEMIES'], [6_842_000, 'ALLIES 9 - 15 ENEMIES']]);
+  });
+
+  it('keeps a short middle-of-window score banner when a later dark lobby fills the candidate tail', () => {
+    const banner = endScreenFrame(); const lobbyPixels = Buffer.alloc(banner.width * banner.height, 25);
+    const candidates = [
+      ...Array.from({ length: 20 }, (_, index) => ({ frame: { width: banner.width, height: banner.height, pixels: lobbyPixels, timestampMs: 3_900_000 + index * 10_000 }, crop: null, snapshot: null, word: false })),
+      ...[6_822_000, 6_842_000].map(timestampMs => ({ frame: { ...banner, timestampMs }, crop: bannerDigitCrop(banner.pixels, banner.width, banner.height), snapshot: null, word: false })),
+      ...Array.from({ length: 60 }, (_, index) => ({ frame: { width: banner.width, height: banner.height, pixels: lobbyPixels, timestampMs: 6_900_000 + index * 10_000 }, crop: null, snapshot: null, word: false })),
+    ];
+    expect(selectBannerCandidates(candidates, 10).map((item: any) => item.frame.timestampMs)).toEqual(expect.arrayContaining([6_822_000, 6_842_000]));
   });
 
   it('crops the kill feed to its own box, which holds the coach-view rows measured at 720p', () => {
