@@ -20,6 +20,7 @@ import RecentlyDeletedMatches from './RecentlyDeletedMatches';
 import { activeResourceNames } from '../../lib/resourceCatalog';
 import { Swords, Plus, FileText, BarChart3, Save, Shuffle, Sparkles } from 'lucide-react';
 import { confirmDialog, notify } from '../utils/appDialogs';
+import { matchResult, matchScore, sideSplit } from '../utils/matchScore';
 
 interface ComponentProps {
   data: TrackerData;
@@ -360,9 +361,9 @@ export default function MatchLogRounds({ data, theme, onSaveMatch, onRemove, onS
           {matches
             .sort((a, b) => new Date(b.date).getTime() - new Date(a.date).getTime())
             .map((m) => {
-              const totalOur = m.attW + m.defW;
-              const totalTheir = m.attL + m.defL;
-              const won = totalOur > totalTheir;
+              const score = matchScore(m); const result = matchResult(m);
+              const won = result === 'WIN';
+              const resultClass = result === 'WIN' ? 'text-emerald-400' : result === 'LOSS' ? 'text-rose-400' : 'text-gray-400';
               const isSelected = selectedMatch?.id === m.id;
 
               return (
@@ -389,18 +390,18 @@ export default function MatchLogRounds({ data, theme, onSaveMatch, onRemove, onS
 
                   <div className="flex justify-between items-baseline">
                     <span className="font-black tracking-tight text-sm truncate max-w-[110px]">{m.opponent}</span>
-                    <span className="text-sm font-black font-mono">
-                      <span className={won ? 'text-emerald-400' : 'text-rose-400'}>{totalOur}</span>
+                    {score ? <span className="text-sm font-black font-mono">
+                      <span className={result === 'DRAW' ? 'text-gray-300' : won ? 'text-emerald-400' : 'text-rose-400'}>{score.ours}</span>
                       <span className="text-gray-500"> - </span>
-                      <span className={won ? 'text-rose-400' : 'text-emerald-400'}>{totalTheir}</span>
-                    </span>
+                      <span className={result === 'DRAW' ? 'text-gray-300' : won ? 'text-rose-400' : 'text-emerald-400'}>{score.theirs}</span>
+                    </span> : <span className="text-xs font-mono text-gray-500">Score pending</span>}
                   </div>
 
                   <div className="flex justify-between items-center text-xs font-mono text-gray-400">
                     <span>{m.map}</span>
-                    <span className={`px-1.5 py-0.5 rounded-sm ${won ? 'text-emerald-400' : 'text-rose-400'} font-black text-xs`}>
-                      {won ? 'WIN' : 'LOSS'}
-                    </span>
+                    {result && <span className={`px-1.5 py-0.5 rounded-sm ${resultClass} font-black text-xs`}>
+                      {result}
+                    </span>}
                   </div>
                 </button>
               );
@@ -457,15 +458,15 @@ export default function MatchLogRounds({ data, theme, onSaveMatch, onRemove, onS
               <div className="grid grid-cols-2 md:grid-cols-4 gap-4 bg-black/10 p-4 rounded-xl border border-white/5 text-center font-mono text-xs">
                 <div>
                   <p className="text-xs text-gray-500 uppercase font-black tracking-widest mb-1">SCORE</p>
-                  <p className="text-lg font-black text-white">{selectedMatch.attW + selectedMatch.defW} - {selectedMatch.attL + selectedMatch.defL}</p>
+                  <p className="text-lg font-black text-white">{(() => { const score = matchScore(selectedMatch); return score ? `${score.ours} - ${score.theirs}` : 'Pending'; })()}</p>
                 </div>
                 <div>
                   <p className="text-xs text-gray-500 uppercase font-black tracking-widest mb-1">ATT SPLIT</p>
-                  <p className="text-lg font-black text-amber-500">{selectedMatch.attW}W - {selectedMatch.attL}L</p>
+                  <p className="text-lg font-black text-amber-500">{sideSplit(selectedMatch.attW, selectedMatch.attL)}</p>
                 </div>
                 <div>
                   <p className="text-xs text-gray-500 uppercase font-black tracking-widest mb-1">DEF SPLIT</p>
-                  <p className="text-lg font-black text-cyan-500">{selectedMatch.defW}W - {selectedMatch.defL}L</p>
+                  <p className="text-lg font-black text-cyan-500">{sideSplit(selectedMatch.defW, selectedMatch.defL)}</p>
                 </div>
                 <div>
                   <p className="text-xs text-gray-500 uppercase font-black tracking-widest mb-1">Pistol ATT/DEF</p>

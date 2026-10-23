@@ -255,7 +255,7 @@ describe('VOD import runner survives leaving the VOD tab', () => {
     } finally { discovery.games = []; }
   });
 
-  it('keeps a board with an unreadable opponent name when five rows are on the roster, and drops it otherwise', async () => {
+  it('keeps a board with an unreadable name: five on the roster need no pick, otherwise the coach picks and types the name', async () => {
     const roster = ['Alpha', 'Bravo', 'Charlie', 'Delta', 'Echo'].map((displayName, index) => ({ id: `p${index + 1}`, displayName }));
     const names = ['Alpha', 'Bravo', 'Charlie', 'Delta', 'Echo', 'Foe1', '', 'Foe3', 'Foe4', 'Foe5'];
     const board = (rostered: number) => ({ imageSha256: 'e'.repeat(64), draft: { match: { map: 'Ascent', ourScore: 13, theirScore: 7 }, stats: names.map((extractedName, index) => ({ extractedName, rosterMatch: { status: index < rostered ? 'matched' : 'unmatched' }, matchedPlayerId: index < rostered ? `p${index + 1}` : null, agent: 'Sova', kills: 15, deaths: 12, assists: 4 })) } });
@@ -273,15 +273,62 @@ describe('VOD import runner survives leaving the VOD tab', () => {
       expect(body.ourScore).toBe(13);
       vodImportStore.reset();
 
-      // Four on the roster: the coach would have to pick from a board missing a name, so the board is not used.
-      const dropped = harness(); (dropped.deps as any).extractScoreboard = vi.fn().mockResolvedValue(board(4));
-      const droppedRun = startVodBatchImport(input({ expectedGames: 1, roster }), dropped.deps);
-      await dropped.finishAnalysis();
-      await expect(droppedRun).resolves.toBe(true);
-      const [, droppedInit] = (dropped.apiFetch.mock.calls as any[]).find(([url]) => url === '/api/vod-submissions');
-      expect(JSON.parse(String(droppedInit.body)).players).toEqual([]);
-      expect(vodImportStore.getSnapshot().batchResult[0].status).toContain('scoreboard pending');
+      // Four on the roster: the board is kept and the coach picks the fifth, typing the name the scoreboard could not read.
+      const picked = harness(); (picked.deps as any).extractScoreboard = vi.fn().mockResolvedValue(board(4));
+      const pickedRun = startVodBatchImport(input({ expectedGames: 1, roster }), picked.deps);
+      for (let i = 0; i < 20 && !vodImportStore.getSnapshot().teamPick; i += 1) await new Promise(resolve => setTimeout(resolve, 0));
+      expect(vodImportStore.getSnapshot().teamPick?.rows.filter(row => row.known).map(row => row.index)).toEqual([0, 1, 2, 3]);
+      expect(vodImportStore.answerTeamPick([0, 1, 2, 3, 6])).toBe(false);
+      expect(vodImportStore.answerTeamPick([0, 1, 2, 3, 6], { 6: ' ' })).toBe(false);
+      expect(vodImportStore.answerTeamPick([0, 1, 2, 3, 6], { 6: 'Foxtrot' })).toBe(true);
+      await picked.finishAnalysis();
+      await expect(pickedRun).resolves.toBe(true);
+      const [, pickedInit] = (picked.apiFetch.mock.calls as any[]).find(([url]) => url === '/api/vod-submissions');
+      const pickedBody = JSON.parse(String(pickedInit.body));
+      expect(pickedBody.players.map((player: any) => player.observedName)).toEqual(['Alpha', 'Bravo', 'Charlie', 'Delta', 'Foxtrot']);
+      expect(pickedBody.addObservedPlayers).toBe(true);
     } finally { discovery.games = []; discovery.boundaries = savedBoundaries; }
+  });
+
+  it('uses the scoreboard of the one game that showed it, asks for our five on an empty roster, and logs why other candidates were dropped', async () => {
+    const names = ['Ana', 'Ben', 'Cy', 'Dee', 'Eli', 'Foe1', 'Foe2', 'Foe3', 'Foe4', 'Foe5'];
+    const board = { imageSha256: 'f'.repeat(64), draft: { match: { map: null, ourScore: null, theirScore: null }, stats: names.map(extractedName => ({ extractedName, rosterMatch: { status: 'unmatched' }, matchedPlayerId: null, agent: 'Sova', kills: 15, deaths: 12, assists: 4 })) } };
+    discovery.games = [{ timestampMs: 290_000, frame: 'g-in-game-1' }, { timestampMs: 400_000, frame: 'g-not-a-board' }, { timestampMs: 500_000, frame: 'g-nine-rows' }] as any;
+    const savedBoundaries = discovery.boundaries;
+    discovery.boundaries = [boundary(0, 'Ascent'), boundary(300_000, 'Bind'), boundary(450_000, 'Lotus')];
+    try {
+      const h = harness(); const reportDiagnostic = vi.fn(async () => ({ code: 'x' })); (h.deps.desktop as any).reportDiagnostic = reportDiagnostic;
+      (h.deps as any).extractScoreboard = vi.fn(async (image: File) => {
+        if (image.name === 'vod-scoreboard-1.png') return board;
+        if (image.name === 'vod-scoreboard-2.png') throw new Error('not a scoreboard');
+        return { ...board, draft: { ...board.draft, stats: board.draft.stats.slice(0, 9) } };
+      });
+      const run = startVodBatchImport(input({ expectedGames: 3, roster: [] }), h.deps);
+      for (let i = 0; i < 20 && !vodImportStore.getSnapshot().teamPick; i += 1) await new Promise(resolve => setTimeout(resolve, 0));
+      // Game 1 showed a scoreboard: nobody is on the roster, so the coach picks; the map comes from the game start.
+      expect(vodImportStore.getSnapshot().teamPick).toMatchObject({ game: 1, totalGames: 3, map: 'Ascent', score: 'Score pending' });
+      expect(vodImportStore.answerTeamPick([0, 1, 2, 3, 4])).toBe(true);
+      await h.finishAnalysis(); await h.finishAnalysis(); await h.finishAnalysis();
+      await expect(run).resolves.toBe(true);
+      const bodies = (h.apiFetch.mock.calls as any[]).filter(([url]) => url === '/api/vod-submissions').map(([, init]) => JSON.parse(String(init.body)));
+      expect(bodies.map(body => body.map)).toEqual(['Ascent', 'Bind', 'Lotus']);
+      expect(bodies[0]).toMatchObject({ addObservedPlayers: true, imageSha256: 'f'.repeat(64) });
+      expect(bodies[0].players.map((player: any) => player.observedName)).toEqual(names.slice(0, 5));
+      expect(bodies.slice(1).map(body => body.players)).toEqual([[], []]);
+      expect((h.desktop.analyzeVod.mock.calls as any[]).map(([request]) => [request.startMs, request.endMs])).toEqual([[0, 300_000], [300_000, 450_000], [450_000, 600_000]]);
+      expect(reportDiagnostic).toHaveBeenCalledWith({ action: 'vod-scoreboard-candidates', message: 'read 3, used 1, not a scoreboard 1, not ten rows 1, duplicate 0' });
+      expect(vodImportStore.getSnapshot().message).toContain('1 of them showed a complete post-match scoreboard');
+    } finally { discovery.games = []; discovery.boundaries = savedBoundaries; }
+  });
+
+  it('shows the score the server read from the HUD on a game with no scoreboard', async () => {
+    const h = harness();
+    h.apiFetch.mockImplementation(async (url: string) => url === '/api/data' ? new Response(JSON.stringify({ matches: [], playerStats: [] }), { status: 200 }) : new Response(JSON.stringify({ submission: { linkMode: 'new-match', linkedMatchId: 'm-hud', integration: { scoreFromHud: { ourScore: 13, theirScore: 9, basis: 'final-read' } } } }), { status: 200 }));
+    const run = startVodBatchImport(input({ roster: [] }), h.deps);
+    await h.finishAnalysis(); await h.finishAnalysis();
+    await expect(run).resolves.toBe(true);
+    expect(vodImportStore.getSnapshot().batchResult[0]).toMatchObject({ score: '13–9' });
+    expect(vodImportStore.getSnapshot().batchResult[0].status).toContain('score read from the in-game HUD');
   });
 
   it('shows one overall percentage that never drops across games, stages and saves', async () => {
