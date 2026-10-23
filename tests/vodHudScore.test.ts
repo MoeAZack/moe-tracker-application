@@ -125,6 +125,23 @@ describe('a VOD match takes its missing score from the HUD', () => {
     expect(empty.playerStats.filter((stat: any) => stat.matchId === none.linkedMatchId).map((stat: any) => [stat.kills, stat.vodEvidence.killFeed])).toEqual(five.map(() => [null, undefined]));
   });
 
+  it('takes K/D/A from the last TAB board and adds the kill feed after it', () => {
+    const players = [{ name: 'Ana', team: 'ours' }, { name: 'Ben', team: 'ours' }];
+    const evidence: any = { observations: [{ kind: 'elimination', timestampMs: 50_000, killer: 'Ana', victim: 'x' }, { kind: 'elimination', timestampMs: 150_000, killer: 'Ana', victim: 'x' }, { kind: 'elimination', timestampMs: 160_000, killer: 'x', victim: 'Ben' }], playerMetrics: players.map(player => ({ playerName: player.name, team: 'ours', kills: 0, deaths: 0, trades: 0 })) };
+    evidenceModule.applyTabBoards(evidence, [{ timestampMs: 20_000, rows: [{ row: 0, name: 'Ana', kills: 1, deaths: 1, assists: 1 }] }, { timestampMs: 100_000, rows: [{ row: 0, name: 'ANA', kills: 10, deaths: 5, assists: 3 }, { row: 1, name: 'Bxx', kills: 2, deaths: 2, assists: 2 }] }]);
+    // Ana: board 10/5/3 at 100 s plus one kill after. Ben's row did not match his name, so he keeps the feed count.
+    expect(evidence.playerMetrics.map((metric: any) => [metric.kills, metric.deaths, metric.assists ?? null, metric.source ?? null])).toEqual([[11, 5, 3, 'tab-board+kill-feed'], [0, 0, null, null]]);
+    expect(evidence.tabBoard).toEqual({ timestampMs: 100_000, rows: 2, matched: 1 });
+  });
+
+  it('saves TAB-board assists with the kill-feed counts, marked partial', () => {
+    const blank = { agent: null, kills: null, deaths: null, assists: null, acs: null, adr: null, hs: null, fk: null, fd: null, plants: null, defuses: null, trades: null };
+    const five = ['Ana', 'Ben', 'Cy', 'Dee', 'Eli'];
+    const state = db(); const saved = integrateVodSubmission(state, submission({ imageSha256: '7'.repeat(64), coachTeamEvidence: true, addObservedPlayers: true, players: five.map(observedName => ({ observedName, ...blank })), timelineEvidence: { ...timeline([[0, 0], [6, 4], [12, 7]]), playerMetrics: five.map(playerName => ({ playerName, team: 'ours', kills: 11, deaths: 5, assists: 3, source: 'tab-board+kill-feed', trades: 0 })) } }), 'Coach', ids(), '2026-10-23T00:00:00Z');
+    const rows = state.playerStats.filter((stat: any) => stat.matchId === saved.linkedMatchId);
+    expect(rows.map((stat: any) => [stat.kills, stat.deaths, stat.assists, stat.vodEvidence.killFeed.source, stat.vodEvidence.killFeed.fields.join()])).toEqual(five.map(() => [11, 5, 3, 'tab-board+kill-feed', 'kills,deaths,assists']));
+  });
+
   it('gives each game of one VOD its own match when the same five names are typed for every game', () => {
     const blank = { agent: null, kills: null, deaths: null, assists: null, acs: null, adr: null, hs: null, fk: null, fd: null, plants: null, defuses: null, trades: null };
     const state = db(); const five = ['Ana', 'Ben', 'Cy', 'Dee', 'Eli'];

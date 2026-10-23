@@ -169,10 +169,12 @@ export function integrateVodSubmission(db: any, input: SubmissionInput, actorNam
     // No board gave kills or deaths: count them from this VOD's kill feed when it resolved any kill at
     // all (zero events means the feed was unread, not that nobody died). Marked partial, never complete.
     const feedResolved = (input.timelineEvidence?.playerMetrics || []).some(metric => (metric.kills || 0) + (metric.deaths || 0) > 0);
-    if (timelineMetric && feedResolved) for (const field of ['kills', 'deaths'] as const) {
-      if ((stat as any)[field] === null || (stat as any)[field] === undefined || feedFields.has(field)) { stat[field] = timelineMetric[field]; feedFields.add(field); fields.push(field); }
+    // A TAB board the coach opened mid-game is the base for these (plus the feed after it), and gives assists.
+    if (timelineMetric && feedResolved) for (const field of ['kills', 'deaths', 'assists'] as const) {
+      const value = timelineMetric[field]; if (!Number.isInteger(value)) continue;
+      if ((stat as any)[field] === null || (stat as any)[field] === undefined || feedFields.has(field)) { stat[field] = value as number; feedFields.add(field); fields.push(field); }
     }
-    const killFeed = feedFields.size ? { submissionId: ids.submissionId, fields: [...feedFields] as Array<'kills' | 'deaths'>, coverage: 'partial' as const } : null;
+    const killFeed = feedFields.size ? { submissionId: ids.submissionId, fields: [...feedFields] as Array<'kills' | 'deaths' | 'assists'>, coverage: 'partial' as const, ...(timelineMetric?.source ? { source: timelineMetric.source } : {}) } : null;
     stat.vodEvidence = {
       ...(killFeed ? { killFeed } : {}),
       submissionIds: [...new Set([...(stat.vodEvidence?.submissionIds || []), ids.submissionId])], fields: [...new Set([...(stat.vodEvidence?.fields || []), ...fields])], updatedAt: now,

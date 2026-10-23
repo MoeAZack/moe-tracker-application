@@ -7,7 +7,7 @@ import analyzerModule from '../desktop/vod-timeline-analyzer.cjs';
 import { boundaryTimelinePlayers } from '../src/components/VodSubmission';
 
 const { aggregateVideoEvidence, NO_IDENTITIES_LIMITATION, parseKillFeedSnapshot, parseUltimateSnapshots, parseRoundStateSnapshot, buildRoundTimeline, buildObserverSegments, applyVisualTemplates, fuseVodEvidence } = evidenceModule;
-const { killFeedSummary, createChangeCollector, readScoreBox, KILL_FEED_BOX, killFeedCrop, scoreBoxCrop, fixSevens, SCORE_BOXES, rowText, stretchedBanner, splitDigitCrop, bannerDigitCrop, readBannerDigits, sweepOrphanedVodDirectories, normalizeYoutubeUrl, youtubeVideoId, frameDifference, visualSignature, scoreboardGeometryScore, agentSelectGeometryScore, chooseGameBoundaries, inferPovPlayer, analyzeVodTimeline, releaseVodSource, discoverVodGames, readVodFrame, readOwnedVodFrame, normalizeTimelinePlayers } = analyzerModule;
+const { tabBoardRows, readCoachTabBoards, TAB_BOX, TAB_OUR_ROWS, TAB_CELLS, killFeedSummary, createChangeCollector, readScoreBox, KILL_FEED_BOX, killFeedCrop, scoreBoxCrop, fixSevens, SCORE_BOXES, rowText, stretchedBanner, splitDigitCrop, bannerDigitCrop, readBannerDigits, sweepOrphanedVodDirectories, normalizeYoutubeUrl, youtubeVideoId, frameDifference, visualSignature, scoreboardGeometryScore, agentSelectGeometryScore, chooseGameBoundaries, inferPovPlayer, analyzeVodTimeline, releaseVodSource, discoverVodGames, readVodFrame, readOwnedVodFrame, normalizeTimelinePlayers } = analyzerModule;
 const players = [
   { name: 'Alpha', team: 'ours' }, { name: 'Bravo', team: 'ours' }, { name: 'Charlie', team: 'ours' }, { name: 'Delta', team: 'ours' }, { name: 'Echo', team: 'ours' },
   { name: 'EnemyOne', team: 'theirs' }, { name: 'EnemyTwo', team: 'theirs' }, { name: 'EnemyThree', team: 'theirs' }, { name: 'EnemyFour', team: 'theirs' }, { name: 'EnemyFive', team: 'theirs' },
@@ -311,6 +311,36 @@ describe('VOD timeline evidence', () => {
   it('logs kill-feed counts that show whether rows were read but named nobody of ours', () => {
     const line = killFeedSummary([{ text: 'Ana vandal Zed\nQuux phantom Bar' }, { text: '' }], [{ name: 'Ana', team: 'ours' }], { observations: [{ kind: 'elimination' }], playerMetrics: [{ team: 'ours', kills: 1, deaths: 0 }] });
     expect(line).toBe('kill-feed: frames 2, rows 2, rows with two names 2, rows naming ours 1, eliminations 1, our kills 1, our deaths 0');
+  });
+
+  // The coach-view TAB board crop (table box x 0.297-0.702, y 0.289-0.703 at 1036x596): dark rows, and
+  // in each of our five rows lit digits in the K, D and A cells.
+  const tabFrame = () => {
+    const width = 1036, height = 596, pixels = Buffer.alloc(width * height, 120);
+    const x = (value: number) => Math.round((value - TAB_BOX.x0) / (TAB_BOX.x1 - TAB_BOX.x0) * width), y = (value: number) => Math.round((value - TAB_BOX.y0) / (TAB_BOX.y1 - TAB_BOX.y0) * height);
+    const block = (x0: number, x1: number, y0: number, y1: number, value: number) => { for (let row = y(y0); row <= y(y1); row += 1) for (let col = x(x0); col <= x(x1); col += 1) pixels[row * width + col] = value; };
+    for (const centre of TAB_OUR_ROWS) {
+      block(TAB_BOX.x0, TAB_BOX.x1, centre - .015, centre + .015, 30);
+      for (const cell of [TAB_CELLS.kills, TAB_CELLS.deaths, TAB_CELLS.assists]) block(cell.x0 + .003, cell.x0 + .008, centre - .006, centre + .006, 230);
+      block(TAB_CELLS.name.x0 + .01, TAB_CELLS.name.x0 + .05, centre - .005, centre + .005, 220);
+    }
+    return { pixels, width, height };
+  };
+
+  it('tells a coach TAB board from gameplay before any OCR', () => {
+    const frame = tabFrame(); expect(tabBoardRows(frame.pixels, frame.width, frame.height)).toBe(5);
+    expect(tabBoardRows(Buffer.alloc(1036 * 596, 120), 1036, 596)).toBe(0);
+  });
+
+  it('reads K, D and A of our five TAB rows digits-only, then the names, and restores the worker', async () => {
+    const frame = tabFrame(); const calls: any[] = []; let names = 0; let whitelist = '';
+    const worker = { setParameters: vi.fn(async (params: any) => { calls.push(params); whitelist = params.tessedit_char_whitelist; }), recognize: vi.fn(async () => ({ data: { text: whitelist ? '8' : ['Ana', 'Ben', 'Cy', 'Dee', 'Eli'][names++ % 5] } })) };
+    const lines: string[] = [];
+    const boards = await readCoachTabBoards([{ ...frame, timestampMs: 2_782_000 }, { ...frame, timestampMs: 2_782_500 }, { pixels: Buffer.alloc(1036 * 596, 120), width: 1036, height: 596, timestampMs: 10 }], worker, (line: string) => lines.push(line));
+    expect(boards).toHaveLength(1);
+    expect(boards[0].rows.map((row: any) => [row.name, row.kills, row.deaths, row.assists])).toEqual(['Ana', 'Ben', 'Cy', 'Dee', 'Eli'].map(name => [name, 8, 8, 8]));
+    expect(lines).toEqual(['tab-board: frames 3, looked like a board 2, tried 1, boards read 1, last at 2782s']);
+    expect(calls.at(-1)).toEqual({ tessedit_char_whitelist: '', tessedit_pageseg_mode: '11' });
   });
 
   it('puts kill-feed words back into rows so killer and victim share a line', () => {

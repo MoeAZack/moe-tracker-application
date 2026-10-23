@@ -561,7 +561,7 @@ export function registerDataRoutes(app: Express, options: { websiteSummaryOnly?:
           if (withMetadata.fdDerivedFrom && (!existingStat || withMetadata.fd !== existingStat.fd)) delete withMetadata.fdDerivedFrom;
           // A kill-feed count the coach changed is a correction: it is no longer partial. Server-owned mark.
           const killFeed = existingStat?.vodEvidence?.killFeed; if (withMetadata.vodEvidence) delete withMetadata.vodEvidence.killFeed;
-          const keptFeed = killFeed ? killFeed.fields.filter((field: 'kills' | 'deaths') => withMetadata[field] === existingStat[field]) : [];
+          const keptFeed = killFeed ? killFeed.fields.filter((field: 'kills' | 'deaths' | 'assists') => withMetadata[field] === existingStat[field]) : [];
           if (keptFeed.length && withMetadata.vodEvidence) withMetadata.vodEvidence.killFeed = { ...killFeed, fields: keptFeed };
           return { ...withMetadata, id: existingStat?.id || uid(), matchId: match.id };
         });

@@ -408,9 +408,9 @@ const SCORE_BOXES = [{ x0: .255, x1: .295, y0: .445, y1: .525 }, { x0: .690, x1:
 
 // One score cut from its fixed box: lit pixels (over half the box's brightest; the overlay is ~25) as ink, dark on
 // white, trimmed, padded and scaled up 3x (its height). Each glyph's width/height goes with it for the 7/1 check.
-function scoreBoxCrop(pixels, width, height, box, scale = 3, light = null) {
+function scoreBoxCrop(pixels, width, height, box, scale = 3, light = null, { frameBox = BANNER_CROP, minGlyphHeight = .5 } = {}) {
   if (!pixels || pixels.length < width * height) return null;
-  const px = value => Math.round((value - BANNER_CROP.x0) / (BANNER_CROP.x1 - BANNER_CROP.x0) * width), py = value => Math.round((value - BANNER_CROP.y0) / (BANNER_CROP.y1 - BANNER_CROP.y0) * height);
+  const px = value => Math.round((value - frameBox.x0) / (frameBox.x1 - frameBox.x0) * width), py = value => Math.round((value - frameBox.y0) / (frameBox.y1 - frameBox.y0) * height);
   const left = Math.max(0, px(box.x0)), right = Math.min(width - 1, px(box.x1)), top = Math.max(0, py(box.y0)), bottom = Math.min(height - 1, py(box.y1));
   // The red score is dim in grey (~110, near a fixed cut), so each box is cut at half its own brightest pixel.
   if (light === null) { let brightest = 0; for (let y = top; y <= bottom; y += 1) for (let x = left; x <= right; x += 1) brightest = Math.max(brightest, pixels[y * width + x]); light = Math.max(60, Math.round(brightest * .55)); }
@@ -423,13 +423,15 @@ function scoreBoxCrop(pixels, width, height, box, scale = 3, light = null) {
   }
   // The crop is squeezed (980x182 from a 16:9 band 0.70 wide, 0.13 tall): widths are stretched back
   // so glyph shapes, and the 7/1 width check, are as on screen.
-  const aspect = ((BANNER_CROP.x1 - BANNER_CROP.x0) * 16) / ((BANNER_CROP.y1 - BANNER_CROP.y0) * 9) / (width / height); const sx = Math.max(1, Math.round(scale * aspect)), sy = scale;
+  const aspect = ((frameBox.x1 - frameBox.x0) * 16) / ((frameBox.y1 - frameBox.y0) * 9) / (width / height); const sx = Math.max(1, Math.round(scale * aspect)), sy = scale;
   // Digits fill ~70% of the box height; the words (~25%) and specks do not count.
-  let kept = glyphs.filter(run => run.bottom - run.top + 1 >= (bottom - top + 1) * .5); if (!kept.length) return null;
+  let kept = glyphs.filter(run => run.bottom - run.top + 1 >= (bottom - top + 1) * minGlyphHeight); if (!kept.length) return null;
   // One glyph wider than any digit (~0.45) is two touching digits: split it at its thinnest column.
   kept = kept.flatMap(run => {
     if ((run.end - run.start + 1) * aspect / (run.bottom - run.top + 1) <= .62) return [run];
     const from = run.start + Math.floor((run.end - run.start) * .2), to = run.end - Math.floor((run.end - run.start) * .2); let cut = from; for (let x = from; x <= to; x += 1) if (ink.get(x) < ink.get(cut)) cut = x;
+    // Both halves must be digit-sized; a sliver means one wide glyph, not two.
+    const height = run.bottom - run.top + 1; if ((cut - run.start) * aspect < height * .2 || (run.end - cut) * aspect < height * .2) return [run];
     return [{ ...run, end: cut - 1 }, { ...run, start: cut + 1 }];
   });
   const render = (x0, x1, y0, y1) => {
@@ -461,6 +463,67 @@ async function readScoreBox(box, text) {
     if (digits.length === box.glyphs.length) return { value: digits.join(''), raw };
   }
   raw.box = await text(box); return { value: fixSevens(raw.box, box.glyphs)?.slice(0, 2) || null, raw };
+}
+
+// The coach-view TAB board (measured on a 1280x720 coach VOD): the table box, our five rows on top
+// (teal) at a 0.0316 pitch, and the K, D and A cells under one "KDA" header. The coach only taps TAB,
+// so the board is up ~1 s; the region is sampled at 2 fps and read here, never by the page OCR.
+const TAB_BOX = { x0: .297, x1: .702, y0: .289, y1: .703 };
+const TAB_OUR_ROWS = [.329, .361, .393, .424, .456];
+const TAB_ROW_HALF = .015;
+const TAB_CELLS = { name: { x0: .322, x1: .47 }, kills: { x0: .490, x1: .504 }, deaths: { x0: .508, x1: .525 }, assists: { x0: .528, x1: .545 } };
+
+// Cheap test before any OCR: on the board each of our rows has a few lit K/D/A glyph pixels and dark
+// row background around them; gameplay rarely gives that in all five rows at once.
+function tabBoardRows(pixels, width, height) {
+  if (!pixels || pixels.length < width * height) return 0;
+  const px = value => Math.round((value - TAB_BOX.x0) / (TAB_BOX.x1 - TAB_BOX.x0) * width), py = value => Math.round((value - TAB_BOX.y0) / (TAB_BOX.y1 - TAB_BOX.y0) * height);
+  let rows = 0;
+  for (const centre of TAB_OUR_ROWS) {
+    let lit = 0, dark = 0, count = 0;
+    for (let y = py(centre - TAB_ROW_HALF); y <= py(centre + TAB_ROW_HALF); y += 1) for (let x = px(TAB_CELLS.kills.x0); x <= px(TAB_CELLS.assists.x1); x += 1) { const value = pixels[y * width + x]; if (value > 170) lit += 1; else if (value < 90) dark += 1; count += 1; }
+    if (count && lit / count >= .02 && lit / count <= .4 && dark / count >= .4) rows += 1;
+  }
+  return rows;
+}
+
+/**
+ * Read our five rows of each TAB board the coach opened: the name cell as text, then K, D and A each
+ * digits-only from its own cell. A board counts when four of the five rows read all three numbers.
+ * Returns [{ timestampMs, rows: [{ row, name, kills, deaths, assists }] }], oldest first.
+ */
+async function readCoachTabBoards(frames, worker, log = line => void line, limit = 12) {
+  const counts = { frames: (frames || []).length, looked: 0, tried: 0, boards: 0 }; const boards = [];
+  const chosen = [];
+  for (const frame of frames || []) { const rows = tabBoardRows(frame.pixels, frame.width, frame.height); if (rows >= 4) { counts.looked += 1; chosen.push({ frame, rows }); } }
+  // Best-looking frames first, at least 5 s apart (one tap gives two frames at 2 fps).
+  const picked = []; for (const item of chosen.sort((a, b) => b.rows - a.rows)) { if (picked.length >= limit) break; if (picked.every(other => Math.abs(other.frame.timestampMs - item.frame.timestampMs) >= 5000)) picked.push(item); }
+  const cell = (frame, centre, column, minGlyphHeight) => scoreBoxCrop(frame.pixels, frame.width, frame.height, { x0: column.x0, x1: column.x1, y0: centre - TAB_ROW_HALF, y1: centre + TAB_ROW_HALF }, 3, null, { frameBox: TAB_BOX, minGlyphHeight });
+  const text = async image => String((await worker.recognize(pgm(image.pixels, image.width, image.height)))?.data?.text || '');
+  try {
+    if (picked.length && worker) {
+      counts.tried = picked.length;
+      await worker.setParameters({ tessedit_char_whitelist: '0123456789', tessedit_pageseg_mode: '7' });
+      for (const item of picked) {
+        item.read = [];
+        for (const [row, centre] of TAB_OUR_ROWS.entries()) {
+          const values = {};
+          for (const field of ['kills', 'deaths', 'assists']) { const crop = cell(item.frame, centre, TAB_CELLS[field], .3); const read = crop ? await readScoreBox(crop, text) : null; values[field] = read?.value && Number(read.value) <= 80 ? Number(read.value) : null; }
+          item.read.push({ row, name: null, ...values });
+        }
+      }
+      await worker.setParameters({ tessedit_char_whitelist: '', tessedit_pageseg_mode: '7' });
+      for (const item of picked) {
+        if (item.read.filter(row => [row.kills, row.deaths, row.assists].every(Number.isInteger)).length < 4) continue;
+        for (const row of item.read) { const crop = cell(item.frame, TAB_OUR_ROWS[row.row], TAB_CELLS.name, .3); row.name = crop ? (await text(crop)).trim().replace(/\s+/g, ' ') || null : null; }
+        counts.boards += 1; boards.push({ timestampMs: item.frame.timestampMs, rows: item.read });
+      }
+    }
+  } finally {
+    if (picked.length && worker) await worker.setParameters({ tessedit_char_whitelist: '', tessedit_pageseg_mode: '11' }).catch(() => {});
+    log(`tab-board: frames ${counts.frames}, looked like a board ${counts.looked}, tried ${counts.tried}, boards read ${counts.boards}${boards.length ? `, last at ${Math.round(boards.at(-1).timestampMs / 1000)}s` : ''}`);
+  }
+  return boards.sort((a, b) => a.timestampMs - b.timestampMs);
 }
 
 const BANNER_LINE = /\ballies\b[^\d]{0,24}?(\d{1,2})[^\d]{1,24}?(\d{1,2})[^\d]{0,24}?\benemies\b/i;
@@ -643,22 +706,25 @@ async function analyzeVodTimeline(input, options = {}) {
       { key: 'scoreboardSnapshots', label: 'scoreboard totals', fps: .2, crop: 'crop=iw*0.78:ih*0.72:iw*0.11:ih*0.14', width: 1100, height: 680, threshold: .12, burstFrames: 1, maxCandidates: 480 },
       // The custom-game end screen: one centred line "ALLIES n - m ENEMIES" that stays up for minutes.
       // It is static, so a change gate skips it: every 5 s is a candidate, one kept per time bucket.
+      { key: 'tabBoardSnapshots', label: 'TAB board', fps: 2, crop: `crop=iw*${+(TAB_BOX.x1 - TAB_BOX.x0).toFixed(3)}:ih*${+(TAB_BOX.y1 - TAB_BOX.y0).toFixed(3)}:iw*${TAB_BOX.x0}:ih*${TAB_BOX.y0}`, width: 1036, height: 596, threshold: .2, burstFrames: 1, maxCandidates: 360, ocr: false },
       { key: 'endBannerSnapshots', label: 'end screen', fps: .2, crop: 'crop=iw*0.70:ih*0.13:iw*0.15:ih*0.42', width: 980, height: 182, threshold: 0, burstFrames: 0, maxCandidates: 240 },
     ];
     const checkpointKey = crypto.createHash('sha256').update(JSON.stringify({ source: input.sourceSha256 || path.resolve(file), startMs: Number(input.startMs) || 0, endMs: Number(input.endMs) || null, players: input.players || [], observerMode: !!input.observerMode, povPlayerName: input.povPlayerName || null })).digest('hex');
     const saved = await readCheckpoint(options.checkpointFile); const checkpoint = saved?.schema === 'moetracker.vod-checkpoint/v1' && saved.key === checkpointKey ? saved : { schema: 'moetracker.vod-checkpoint/v1', key: checkpointKey, specs: {}, updatedAt: null };
     const performance = { ...normalizeVodPerformance(options.performance), singleDecode: options.performance?.singleDecode !== false }; const log = options.log || (() => {});
     const candidates = await sampleRegions(file, specs, probe.durationSeconds, progress, signal, { startMs: input.startMs, endMs: input.endMs }, performance, log);
-    const total = specs.reduce((sum, spec) => sum + candidates[spec.key].length, 0);
+    const total = specs.reduce((sum, spec) => sum + (spec.ocr === false ? 0 : candidates[spec.key].length), 0);
     const frameBytes = specs.reduce((sum, spec) => sum + candidates[spec.key].length * spec.width * spec.height, 0);
     const workerCount = resolveOcrWorkers(performance.ocrWorkers, { cpus: os.availableParallelism?.() || os.cpus().length, freeBytes: os.freemem(), frameBytes });
     progress?.({ stage: 'ocr', percent: 0, message: `Reading ${total} changed HUD frames locally${workerCount > 1 ? ` on ${workerCount} threads` : ''}…` }); log(`ocr: ${workerCount} worker${workerCount === 1 ? '' : 's'} (setting ${performance.ocrWorkers})`);
     const pool = await createOcrPool(workerCount, log);
     let offset = 0; const snapshots = {};
     try {
-      for (const spec of specs) { snapshots[spec.key] = await recognizeFrames(candidates[spec.key], spec, pool, progress, offset, total, signal, checkpoint.specs[spec.key], async state => { checkpoint.specs[spec.key] = state; checkpoint.updatedAt = new Date().toISOString(); await writeCheckpoint(options.checkpointFile, checkpoint); }); offset += candidates[spec.key].length; }
+      for (const spec of specs) { if (spec.ocr === false) { snapshots[spec.key] = []; continue; } snapshots[spec.key] = await recognizeFrames(candidates[spec.key], spec, pool, progress, offset, total, signal, checkpoint.specs[spec.key], async state => { checkpoint.specs[spec.key] = state; checkpoint.updatedAt = new Date().toISOString(); await writeCheckpoint(options.checkpointFile, checkpoint); }); offset += candidates[spec.key].length; }
       const bannerSpec = specs.find(spec => spec.key === 'endBannerSnapshots');
       snapshots.endBannerSnapshots = await readBannerDigits(candidates.endBannerSnapshots.map(frame => ({ ...frame, width: bannerSpec.width, height: bannerSpec.height })), snapshots.endBannerSnapshots, pool.workers[0], log);
+      const tabSpec = specs.find(spec => spec.key === 'tabBoardSnapshots');
+      snapshots.tabBoards = tabSpec ? await readCoachTabBoards((candidates.tabBoardSnapshots || []).map(frame => ({ ...frame, width: tabSpec.width, height: tabSpec.height })), pool.workers[0], log) : [];
     }
     finally { await pool.terminate(); }
     // Comparison runs (scripts/vod-speed-compare.cjs) hash exactly what was sampled and read.
@@ -666,7 +732,7 @@ async function analyzeVodTimeline(input, options = {}) {
     if (Array.isArray(input.visualTemplates) && input.visualTemplates.length) for (const spec of specs) snapshots[spec.key] = applyVisualTemplates(snapshots[spec.key], input.visualTemplates);
     const rangeDurationMs = Number(input.endMs) > Number(input.startMs || 0) ? Number(input.endMs) - Number(input.startMs || 0) : probe.durationMs;
     const inferredPov = input.observerMode ? null : (input.povPlayerName || inferPovPlayer(snapshots.povSnapshots || [], input.players || []));
-    const evidence = aggregateVideoEvidence({ players: input.players || [], povPlayerName: inferredPov || null, observerMode: !!input.observerMode, durationMs: rangeDurationMs, killFeedSnapshots: snapshots.killFeedSnapshots, objectiveSnapshots: snapshots.objectiveSnapshots, roundStateSnapshots: snapshots.roundStateSnapshots, ultimateSnapshots: snapshots.ultimateSnapshots, povSnapshots: snapshots.povSnapshots, scoreboardSnapshots: snapshots.scoreboardSnapshots, endBannerSnapshots: snapshots.endBannerSnapshots });
+    const evidence = aggregateVideoEvidence({ players: input.players || [], povPlayerName: inferredPov || null, observerMode: !!input.observerMode, durationMs: rangeDurationMs, killFeedSnapshots: snapshots.killFeedSnapshots, objectiveSnapshots: snapshots.objectiveSnapshots, roundStateSnapshots: snapshots.roundStateSnapshots, ultimateSnapshots: snapshots.ultimateSnapshots, povSnapshots: snapshots.povSnapshots, scoreboardSnapshots: snapshots.scoreboardSnapshots, endBannerSnapshots: snapshots.endBannerSnapshots, tabBoards: snapshots.tabBoards || [] });
     log(killFeedSummary(snapshots.killFeedSnapshots, input.players || [], evidence));
     evidence.limitations.push(inferredPov ? `POV identity used for personal orb and ultimate evidence: ${inferredPov}.` : 'No single player POV identity was proven; personal orb and ultimate totals remain unknown.');
     evidence.source = { kind: input.sourceKind || (downloaded ? 'youtube' : 'local-file'), videoId: input.videoId || youtubeVideoId(input.vodUrl), sha256: input.sourceSha256 || await sha256File(file), width: probe.width, height: probe.height, durationMs: probe.durationMs, analyzedAt: new Date().toISOString() };
@@ -711,4 +777,4 @@ async function readVodFrame(directory, frame) {
   return { mediaType: 'image/png', base64: (await fsp.readFile(path.join(path.resolve(directory), name))).toString('base64') };
 }
 
-module.exports = { killFeedSummary, createChangeCollector, readScoreBox, KILL_FEED_BOX, killFeedCrop, scoreBoxCrop, fixSevens, SCORE_BOXES, rowText, stretchedBanner, splitDigitCrop, bannerDigitCrop, readBannerDigits, sweepOrphanedVodDirectories, readOwnedVodFrame, readVodFrame, normalizeYoutubeUrl, youtubeVideoId, probeVideo, analyzeVodTimeline, normalizeTimelinePlayers, discoverVodGames, releaseVodSource, createReviewClips, changedFrames, changedFramesTogether, sampleRegions, recognizeFrames, createOcrPool, frameDifference, visualSignature, ensureDiskSpace, scoreboardGeometryScore, agentSelectGeometryScore, chooseGameBoundaries, inferPovPlayer };
+module.exports = { tabBoardRows, readCoachTabBoards, TAB_BOX, TAB_OUR_ROWS, TAB_CELLS, killFeedSummary, createChangeCollector, readScoreBox, KILL_FEED_BOX, killFeedCrop, scoreBoxCrop, fixSevens, SCORE_BOXES, rowText, stretchedBanner, splitDigitCrop, bannerDigitCrop, readBannerDigits, sweepOrphanedVodDirectories, readOwnedVodFrame, readVodFrame, normalizeYoutubeUrl, youtubeVideoId, probeVideo, analyzeVodTimeline, normalizeTimelinePlayers, discoverVodGames, releaseVodSource, createReviewClips, changedFrames, changedFramesTogether, sampleRegions, recognizeFrames, createOcrPool, frameDifference, visualSignature, ensureDiskSpace, scoreboardGeometryScore, agentSelectGeometryScore, chooseGameBoundaries, inferPovPlayer };
