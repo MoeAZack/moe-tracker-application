@@ -3,6 +3,7 @@ import type { ScreenshotReviewDraft, TrackerData } from '../types';
 import { extractScoreboardLocally } from './localScoreboard';
 import { apiFetch } from './api';
 import { normalizedMatchName } from '../../lib/matchIdentity';
+import { loadMapReadSamples, mapHints, recordConfirmedMaps, saveMapReadSamples } from './vodMapLearning';
 
 // The automatic multi-game VOD import used to run inside the VOD tab's React
 // component, so switching tabs threw away its progress and the link to the
@@ -13,7 +14,14 @@ import { normalizedMatchName } from '../../lib/matchIdentity';
 // because each one downloads and scans a whole video on this machine.
 
 export type VodProgress = { owner: 'batch' | 'personal'; step: number; stepPercent: number | null; message: string; status: 'working' | 'ready' | 'done' | 'error'; detail?: string };
-export type VodBatchGame = { map: string; score: string; status: string };
+export type VodBatchGame = {
+  map: string; score: string; status: string;
+  /** The saved match, so the coach can correct this game while the import runs. */
+  matchId?: string;
+  /** Tokens of the agent-select read and the learned tokens that chose its map, for map learning. */
+  mapRead?: string[]; mapSource?: 'read' | 'learned' | null; firedTokens?: string[];
+  edited?: boolean;
+};
 export type VodQueueStatus = 'waiting' | 'running' | 'done' | 'error' | 'removed';
 export type VodQueueItem = { id: string; label: string; expectedGames: number; status: VodQueueStatus; message: string; games: VodBatchGame[] };
 /** A game whose scoreboard does not name five known players: the coach ticks our five before anyone is added. */
@@ -113,6 +121,12 @@ export const vodImportStore = {
   getSnapshot: () => state,
   subscribe: (listener: () => void) => { listeners.add(listener); return () => { listeners.delete(listener); }; },
   dismiss: () => { if (!state.running) setState({ dismissed: true }); },
+  /** Applies a coach's correction to one game card; the saved match was already updated. */
+  updateGame: (index: number, patch: Partial<VodBatchGame>) => {
+    if (!state.batchResult[index]) return false;
+    setState({ batchResult: state.batchResult.map((game, at) => at === index ? { ...game, ...patch } : game) });
+    return true;
+  },
   /**
    * The coach's answer to the team pick: five scoreboard rows, or null to save
    * the game without naming anyone. Anything else is refused.
@@ -261,7 +275,7 @@ async function runOneImport(input: VodBatchImportInput, deps: VodImportDeps): Pr
   const { roster: activeRoster, matches, playerStats, perspective, povPlayerName: selectedPovName } = input;
   try {
     const requestedGames = Math.max(1, Math.min(12, input.expectedGames || 1));
-    const discovery = await desktop.discoverVodGames({ ...(chosenUrl ? { vodUrl: chosenUrl } : {}), expectedGames: requestedGames, mapNames: input.mapNames, ...(chosenLocal ? { localPath: chosenLocal.path } : {}) }); cacheId = discovery.cacheId; const normalizedVodUrl = discovery.vodUrl || chosenUrl;
+    const discovery = await desktop.discoverVodGames({ ...(chosenUrl ? { vodUrl: chosenUrl } : {}), expectedGames: requestedGames, mapNames: input.mapNames, mapHints: mapHints(loadMapReadSamples()), ...(chosenLocal ? { localPath: chosenLocal.path } : {}) }); cacheId = discovery.cacheId; const normalizedVodUrl = discovery.vodUrl || chosenUrl;
     setProgress({ owner: 'batch', step: 2, stepPercent: 0, message: 'Reading detected scoreboard candidates…', status: 'working' });
     const detected: Array<{ timestampMs: number; draft: ScreenshotReviewDraft; imageSha256: string }> = [];
     const signatures = new Set<string>();
@@ -300,7 +314,8 @@ async function runOneImport(input: VodBatchImportInput, deps: VodImportDeps): Pr
         setProgress(savingProgress(index, boundaries.length)); const response = await deps.apiFetch('/api/vod-submissions', { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ vodUrl: normalizedVodUrl, imageSha256: await sha256File(frame), ...(linked ? { matchId: linked.id } : {}), coachTeamEvidence: true, date: dateKey, map: boundary.map, opponent: linked?.opponent || null, ourScore: linked?.ourScore ?? null, theirScore: linked?.theirScore ?? null, players: [], timelineEvidence: publicTimeline }) });
         const payload = await response.json(); if (!response.ok) throw new Error(payload.error || `Game ${index + 1} could not be integrated.`);
         const unnamed = players.length === 0; if (unnamed) unnamedGames += 1;
-        imported.push({ map: mapName, score: linked && typeof linked.ourScore === 'number' ? `${linked.ourScore}–${linked.theirScore}` : 'Score pending', status: `${payload.submission.linkMode === 'new-match' ? 'Timeline imported · scoreboard pending' : 'Linked and timeline imported'}${unnamed ? ' · players not named yet' : ''}` });
+        imported.push({ map: mapName, matchId: payload.submission.linkedMatchId, mapRead: boundary.mapRead, mapSource: boundary.mapSource ?? null, firedTokens: boundary.firedTokens, score: linked && typeof linked.ourScore === 'number' ? `${linked.ourScore}–${linked.theirScore}` : 'Score pending', status: `${payload.submission.linkMode === 'new-match' ? 'Timeline imported · scoreboard pending' : 'Linked and timeline imported'}${unnamed ? ' · players not named yet' : ''}` });
+        if (boundary.mapSource === 'learned') imported[imported.length - 1].status += ' · map remembered from your correction';
         setState({ batchResult: [...imported] });
       }
       // On a fresh workspace nobody is on the roster yet; say what that leaves out instead of failing the import.
@@ -332,13 +347,15 @@ async function runOneImport(input: VodBatchImportInput, deps: VodImportDeps): Pr
         setProgress(savingProgress(index, detected.length)); const response = await deps.apiFetch('/api/vod-submissions', { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ vodUrl: normalizedVodUrl, imageSha256: game.imageSha256, ...(linked ? { matchId: linked.id } : {}), coachTeamEvidence: true, ...(newPlayers ? { addObservedPlayers: true } : {}), date: dateKey, map: game.draft.match.map, opponent: linked?.opponent || null, ourScore: game.draft.match.ourScore, theirScore: game.draft.match.theirScore, players: rows.map(row => ({ observedName: row.extractedName, agent: row.agent, kills: value(row.kills), deaths: value(row.deaths), assists: value(row.assists), acs: value(row.acs), adr: value(row.adr), hs: value(row.hs), fk: value(row.fk), fd: value(row.fd), plants: value(row.plants), defuses: value(row.defuses), trades: value(row.trades) })), timelineEvidence: publicTimeline }) });
         const payload = await response.json(); if (!response.ok) throw new Error(payload.error || `Game ${index + 1} could not be integrated.`);
         const added: string[] = payload.submission.integration?.addedPlayers || []; added.forEach(name => addedPlayers.add(name));
-        imported.push({ map: game.draft.match.map, score: `${game.draft.match.ourScore}–${game.draft.match.theirScore}`, status: `${payload.submission.linkMode === 'new-match' ? 'New match created' : 'Linked to existing match'}${added.length ? ` · ${added.length} new player${added.length === 1 ? '' : 's'} added` : ''}${selected.length ? '' : ' · players not named'}` });
+        imported.push({ map: game.draft.match.map, matchId: payload.submission.linkedMatchId, score: `${game.draft.match.ourScore}–${game.draft.match.theirScore}`, status: `${payload.submission.linkMode === 'new-match' ? 'New match created' : 'Linked to existing match'}${added.length ? ` · ${added.length} new player${added.length === 1 ? '' : 's'} added` : ''}${selected.length ? '' : ' · players not named'}` });
         setState({ batchResult: [...imported] });
       }
       const addedNote = addedPlayers.size ? ` ${addedPlayers.size} new player${addedPlayers.size === 1 ? ' was' : 's were'} added from the scoreboard names with their stats. They are tryouts under Roster: promote the ones you keep to core, and archive the rest (their matches stay).` : '';
       setState({ message: `${imported.length} game${imported.length === 1 ? '' : 's'} detected, analyzed, and integrated automatically.${addedNote}`, progress: { owner: 'batch', step: 4, stepPercent: 100, message: `${imported.length} games saved successfully.`, status: 'done' } });
     }
     completed = true;
+    // Maps nobody corrected count as confirmed: they weigh against learned reads that point elsewhere.
+    saveMapReadSamples(recordConfirmedMaps(loadMapReadSamples(), state.batchResult.filter(game => !game.edited).map(game => ({ source: game.matchId || '', mapRead: game.mapRead, map: game.mapRead ? (game.map === 'Unknown map' ? null : game.map) : null }))));
     await Promise.resolve(input.onSaved?.()).catch(() => null);
   } catch (error: any) {
     const saved = state.batchResult.length;

@@ -23,6 +23,7 @@ const { isTrustedSenderUrl, sessionIsFresh } = require('./session-security.cjs')
 const { loginCredentials } = require('./session-credentials.cjs');
 const { publicSession, apiRequestFilter, createSessionHeaderInjector } = require('./renderer-session.cjs');
 const { normalizeVodPerformance, MAX_OCR_WORKERS } = require('./vod-performance.cjs');
+const { normalizeMapHints } = require('./vod-map-reads.cjs');
 const { analyzeVodTimeline, normalizeTimelinePlayers, discoverVodGames, releaseVodSource, createReviewClips, readOwnedVodFrame, sweepOrphanedVodDirectories } = require('./vod-timeline-analyzer.cjs');
 const { launchScrimCapture } = require('./capture-launch.cjs');
 const { createIngestionJob, updateIngestionJob: evolveIngestionJob, recoverInterruptedJobs, publicIngestionJob, clearIngestionHistory, listedIngestionJobs } = require('./ingestion-jobs.cjs');
@@ -730,7 +731,7 @@ handleTrusted('desktop:discover-vod-games', async (event, input = {}) => {
   const jobKey = event.sender.id; if (activeVodAnalyses.has(jobKey)) throw new Error('A VOD analysis is already running in this window.');
   const controller = new AbortController(); activeVodAnalyses.set(jobKey, controller); activeIngestionControllers.set(jobId, controller);
   try {
-    const result = await discoverVodGames({ vodUrl: String(input.vodUrl || '').trim(), localPath, expectedGames: input.expectedGames, mapNames: Array.isArray(input.mapNames) ? input.mapNames.slice(0, 50).map(item => String(item || '').slice(0, 100)) : [] }, { progress, signal: controller.signal, workRoot: path.join(runtime.paths.local, 'Vod Analysis'), resume: resumed?.directory ? resumed : null });
+    const result = await discoverVodGames({ vodUrl: String(input.vodUrl || '').trim(), localPath, expectedGames: input.expectedGames, mapNames: Array.isArray(input.mapNames) ? input.mapNames.slice(0, 50).map(item => String(item || '').slice(0, 100)) : [], mapHints: normalizeMapHints(input.mapHints) }, { progress, signal: controller.signal, workRoot: path.join(runtime.paths.local, 'Vod Analysis'), resume: resumed?.directory ? resumed : null });
     approvedVodPaths.add(path.resolve(result.file));
     discoveredVodSources.set(result.cacheId, { directory: result.directory, file: result.file, downloaded: result.downloaded, videoId: result.videoId, durationMs: result.durationMs, sourceSha256: result.sourceSha256, owner: event.sender.id, createdAt: Date.now(), jobId });
     // Candidate frames are intentionally numerous so OCR has several chances to
