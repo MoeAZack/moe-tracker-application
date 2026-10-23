@@ -85,6 +85,9 @@ describe('coach replay review workflow', () => {
 
   it('accepts only an explicit current revision, preserves raw evidence and hands canonical facts to analytics plus review-only ratings', async () => {
     const coach = await login(adminKey); const seeded = JSON.parse(await fs.readFile(dbPath, 'utf8'));
+    seeded.matches[0].ourScore = 8; seeded.matches[0].theirScore = 16;
+    seeded.matches[0].scoreEvidence = { source: 'vod-hud', basis: 'end-banner', reads: 2 };
+    seeded.matches[0].partialScore = { ours: 8, theirs: 15, source: 'vod-hud' };
     seeded.playerStats = [
       { id: 'manual-p1', matchId: 'm1', playerId: 'p1', player: 'Alpha', agent: 'Sova', kills: 99, hs: 44, notes: 'coach player note', corrections: [{ correctedAt: '2026-10-02T00:00:00.000Z', correctedBy: 'Coach', fields: ['kills'] }] },
       { id: 'manual-standin', matchId: 'm1', playerId: 'p3', player: 'Stand-in', notes: 'keep unmatched annotation', kills: 4, sourceMetadata: { method: 'manual', capturedAt: '2026-10-02T00:00:00.000Z' } },
@@ -110,6 +113,7 @@ describe('coach replay review workflow', () => {
     expect((await request(`/api/replay-intake/uploads/${secondSha256}/accept`, coach, { expectedRevision: 1, requestId: 'accept-2', confirmed: true })).status).toBe(200);
     const { readDB } = await import('../lib/store'); const stored = await readDB(); expect(stored.replayIntake.parserJobs.job1.result).toEqual(rawBefore); expect(stored.replayIntake.reviews[sha256].mappings).toEqual(mappings);
     expect(stored.matches[0]).toMatchObject({ id: 'm1', map: 'Haven', ourScore: 1, theirScore: 0, sourceMetadata: { provider: 'vrfkit', externalId: sha256 } });
+    expect(stored.matches[0].scoreEvidence).toBeUndefined(); expect(stored.matches[0].partialScore).toBeUndefined();
     expect(stored.playerStats).toEqual(expect.arrayContaining([expect.objectContaining({ matchId: 'm1', playerId: 'p1', player: 'Reviewed Alpha', displayNameSnapshot: 'Reviewed Alpha', deaths: 0, fk: 1 }), expect.objectContaining({ matchId: 'm1', playerId: 'p2', player: 'Reviewed Bravo', displayNameSnapshot: 'Reviewed Bravo', kills: 1, defuses: 1 })]));
     expect(stored.playerStats.find((row: any) => row.matchId === 'm1' && row.playerId === 'p1')).toMatchObject({ id: 'manual-p1', kills: 99, hs: 44, notes: 'coach player note', corrections: expect.arrayContaining([expect.objectContaining({ fields: ['kills'] })]) });
     expect(stored.playerStats.find((row: any) => row.id === 'manual-standin')).toMatchObject({ playerId: 'p3', notes: 'keep unmatched annotation', kills: 4, sourceMetadata: { method: 'manual' } });

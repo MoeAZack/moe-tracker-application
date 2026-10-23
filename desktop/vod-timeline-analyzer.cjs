@@ -275,14 +275,16 @@ function visualSignature(frame) {
 // Keeps the most-changed frame per time bucket for one HUD region. Fed raw gray
 // frames in decode order, from either decode path.
 function createChangeCollector(spec, durationSeconds, range, progress, signal, label = spec.label) {
-  const frameBytes = spec.width * spec.height; const fps = spec.fps; const buckets = new Map(); let previous = null; let pending = Buffer.alloc(0); let index = 0; let burstRemaining = 0; let lastKeptMs = -Infinity;
-  const { startSeconds, sampledDuration } = range;
+  const frameBytes = spec.width * spec.height; const fps = spec.fps; const buckets = new Map(); const periodic = new Map(); const tail = new Map(); let previous = null; let pending = Buffer.alloc(0); let index = 0; let burstRemaining = 0; let lastKeptMs = -Infinity;
+  const { startSeconds, endSeconds, sampledDuration } = range; const tailStartMs = Math.max(startSeconds * 1000, ((endSeconds || durationSeconds) * 1000) - 30_000);
   return {
     push(chunk) {
       pending = Buffer.concat([pending, chunk]);
       while (pending.length >= frameBytes) {
         throwIfAborted(signal);
         const frame = Buffer.from(pending.subarray(0, frameBytes)); pending = pending.subarray(frameBytes); const timestampMs = Math.round(startSeconds * 1000 + index / fps * 1000); index += 1;
+        if (spec.key === 'endBannerSnapshots') { const slot=Math.floor((timestampMs-startSeconds*1000)/10_000); if (!periodic.has(slot)) periodic.set(slot,{timestampMs,pixels:frame}); }
+        if ((spec.key === 'roundStateSnapshots' || spec.key === 'endBannerSnapshots') && timestampMs >= tailStartMs) tail.set(timestampMs, { timestampMs, pixels: frame });
         const difference = frameDifference(previous, frame); const changed = difference >= spec.threshold;
         if (changed) burstRemaining = Math.max(burstRemaining, spec.burstFrames || 0);
         // A static HUD (the score between rounds, the last score before a disconnect) still gets a frame every few seconds.
@@ -301,7 +303,7 @@ function createChangeCollector(spec, durationSeconds, range, progress, signal, l
         if (progress && index % 100 === 0) progress({ stage: 'sampling', percent: Math.min(99, Math.round((timestampMs / 1000 - startSeconds) / Math.max(1, sampledDuration) * 100)), message: `Sampling ${label} across the selected game…` });
       }
     },
-    frames() { return [...buckets.values()].sort((a, b) => a.timestampMs - b.timestampMs).map(({ difference: _difference, rank: _rank, ...frame }) => frame); },
+    frames() { const frames=new Map([...buckets.values(),...periodic.values(),...tail.values()].map(frame=>[frame.timestampMs,frame])); return [...frames.values()].sort((a, b) => a.timestampMs - b.timestampMs).map(({ difference: _difference, rank: _rank, ...frame }) => frame); },
   };
 }
 
@@ -850,7 +852,7 @@ async function analyzeVodTimeline(input, options = {}) {
       // The custom-game end screen: one centred line "ALLIES n - m ENEMIES" that stays up for minutes.
       // It is static, so a change gate skips it: every 5 s is a candidate, one kept per time bucket.
       { key: 'tabBoardSnapshots', label: 'TAB board', fps: 4, rank: (pixels, width, height) => { const fit = tabBoardFit(pixels, width, height); return isTabBoard(fit) ? fit.total : 0; }, rankKeep: 9, rankOnly: true, crop: `crop=iw*${+(TAB_BOX.x1 - TAB_BOX.x0).toFixed(3)}:ih*${+(TAB_BOX.y1 - TAB_BOX.y0).toFixed(3)}:iw*${TAB_BOX.x0}:ih*${TAB_BOX.y0}`, width: TAB_FRAME.width, height: TAB_FRAME.height, threshold: .2, burstFrames: 1, maxCandidates: 480, ocr: false },
-      { key: 'endBannerSnapshots', label: 'end screen', fps: .2, crop: 'crop=iw*0.70:ih*0.13:iw*0.15:ih*0.42', width: 980, height: 182, threshold: 0, burstFrames: 0, maxCandidates: 240 },
+      { key: 'endBannerSnapshots', label: 'end screen', fps: 1, crop: 'crop=iw*0.70:ih*0.13:iw*0.15:ih*0.42', width: 980, height: 182, threshold: 0, burstFrames: 0, maxCandidates: 240 },
     ];
     const checkpointKey = crypto.createHash('sha256').update(JSON.stringify({ source: input.sourceSha256 || path.resolve(file), startMs: Number(input.startMs) || 0, endMs: Number(input.endMs) || null, players: input.players || [], observerMode: !!input.observerMode, povPlayerName: input.povPlayerName || null })).digest('hex');
     const saved = await readCheckpoint(options.checkpointFile); const checkpoint = saved?.schema === 'moetracker.vod-checkpoint/v1' && saved.key === checkpointKey ? saved : { schema: 'moetracker.vod-checkpoint/v1', key: checkpointKey, specs: {}, updatedAt: null };

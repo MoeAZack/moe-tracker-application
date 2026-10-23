@@ -14,6 +14,30 @@ const players = [
 ] as const;
 
 describe('VOD timeline evidence', () => {
+  it('keeps late score samples inside measured game windows', () => {
+    const collect = (startSeconds: number, endSeconds: number, fps: number, frames: number) => {
+      const collector = createChangeCollector({ key: 'endBannerSnapshots', label: 'end', width: 1, height: 1, fps, threshold: 0, burstFrames: 0, maxCandidates: 240, everySeconds: 0 }, endSeconds + 10, { startSeconds, endSeconds, sampledDuration: endSeconds - startSeconds }, null, null);
+      for (let index = 0; index < frames; index += 1) collector.push(Buffer.from([index]));
+      return collector.frames().map((frame: any) => frame.timestampMs);
+    };
+    // Full containing window, not a narrowed crop around the known result.
+    const vod2g2 = collect(3_888, 7_504, 1, 3_617);
+    expect(vod2g2.every(timestamp => timestamp >= 3_888_000 && timestamp <= 7_504_000)).toBe(true);
+    expect(vod2g2.filter(timestamp => timestamp >= 6_822_000 && timestamp <= 6_852_000).length).toBeGreaterThanOrEqual(2);
+    const vod3g3 = collect(8_928, 10_079, 1, 1_152);
+    expect(vod3g3.every(timestamp => timestamp >= 8_928_000 && timestamp <= 10_079_000)).toBe(true);
+    expect(vod3g3.filter(timestamp => timestamp >= 10_076_000 && timestamp <= 10_079_000)).toEqual([10_076_000, 10_077_000, 10_078_000, 10_079_000]);
+  });
+
+  it('retains TAB openings from one 0.25-second frame through 4.5 seconds', () => {
+    const retained = (frames: number) => {
+      const collector = createChangeCollector({ key: 'tabBoardSnapshots', label: 'TAB', width: 1, height: 1, fps: 4, threshold: 1, burstFrames: 0, maxCandidates: 480, everySeconds: 0, rank: () => 10, rankKeep: 9, rankOnly: true }, 600, { startSeconds: 100, endSeconds: 200, sampledDuration: 100 }, null, null);
+      for (let index = 0; index < frames; index += 1) collector.push(Buffer.from([index]));
+      return collector.frames();
+    };
+    expect(retained(1).map((frame: any) => frame.timestampMs)).toEqual([100_000]);
+    expect(retained(18).length).toBeGreaterThan(0);
+  });
   it('runs with no known player identity on an empty workspace and says what is missing', () => {
     expect(normalizeTimelinePlayers(undefined)).toEqual([]);
     expect(normalizeTimelinePlayers([])).toEqual([]);

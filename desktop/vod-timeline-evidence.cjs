@@ -149,7 +149,12 @@ const finalScore=([left,right])=>{ const high=Math.max(left,right), low=Math.min
 function deriveFinalScore(evidence, options={}) {
   // The end screen names the sides: Allies first, so it beats any HUD read.
   const banners=(evidence?.observations||[]).filter(item=>item?.kind==='end-banner'&&Array.isArray(item.score)&&item.score.length===2&&item.score.every(Number.isInteger)).sort((a,b)=>a.timestampMs-b.timestampMs);
-  if (banners.length&&!options.partial) { const [left,right]=banners.at(-1).score; return { left, right, basis:'end-banner', reads:banners.length }; }
+  if (banners.length&&!options.partial) {
+    const groups=new Map(); for (const banner of banners) { const key=banner.score.join(':'); const group=groups.get(key)||[]; group.push(banner); groups.set(key,group); }
+    const confirmed=[...groups.values()].filter(group=>group.length>=2).sort((a,b)=>a.at(-1).timestampMs-b.at(-1).timestampMs);
+    if (!confirmed.length) return null;
+    const group=confirmed.at(-1), [left,right]=group.at(-1).score; return { left, right, basis:'end-banner', reads:group.length };
+  }
   const observed=(evidence?.observations||[]).filter(item=>item?.kind==='round-state').map(item=>options.partial&&!item.scoreSource&&item.bareScore?{...item,score:item.bareScore,scoreSource:'hud-bare'}:item).filter(item=>item.scoreSource&&Array.isArray(item.score)&&item.score.length===2&&item.score.every(Number.isInteger)&&plausibleScore(item.score)).sort((a,b)=>a.timestampMs-b.timestampMs).slice(-2000), reads=observed.map(item=>item.score);
   if (!reads.length) return null;
   const length=reads.map(()=>1), previous=reads.map(()=>-1);
@@ -159,14 +164,9 @@ function deriveFinalScore(evidence, options={}) {
   const chain=length[end]; if (chain<(options.partial?2:3)) return null;
   const [left,right]=reads[end];
   if (options.partial) return { left, right, basis:'last-hud', reads:chain };
-  if (finalScore([left,right])) return { left, right, basis:'final-read', reads:chain };
-  // The rule needs the final round itself: the last read must sit within one round of the end of what was seen.
-  const lastSeen=Math.max(...(evidence.observations||[]).map(item=>Number(item?.timestampMs)||0));
-  if (lastSeen-observed[end].timestampMs>150000) return null;
-  // A played-out game (past 13 with no overtime) can end either way after round 24: unknown.
-  if (Math.max(left,right)>13&&Math.min(left,right)<=11) return null;
-  const next=left===12&&right<12?[13,right]:right===12&&left<12?[left,13]:left>=12&&left-right===1?[left+1,right]:right>=12&&right-left===1?[left,right+1]:null;
-  return next ? { left:next[0], right:next[1], basis:'last-round', reads:chain } : null;
+  // Repeated HUD reads prove only the latest observed state. They never prove
+  // that play ended there or that the next round was won by either side.
+  return null;
 }
 
 // A game with no final score (no end screen, the VOD cut off or the game abandoned) still showed a
