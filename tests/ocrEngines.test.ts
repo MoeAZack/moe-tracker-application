@@ -15,7 +15,7 @@ import {
 } from '../lib/ocrEngines';
 import { KDA_CONFIDENCE_FLOOR, parseLocalScoreboardRecognitions } from '../lib/localOcrEngine';
 import { recognitionCacheKey } from '../lib/ocrAutonomy';
-import { OCR_LEARNING_VERSION, applyLocalCorrection, correctionSamplesFromAcceptedEdit, learningModelForField, type LocalCorrectionModel } from '../lib/ocrLearning';
+import { OCR_LEARNING_VERSION, applyLearnedCorrections, applyLocalCorrection, buildLocalCorrectionModel, correctionSamplesFromAcceptedEdit, learningModelForField, type LocalCorrectionModel } from '../lib/ocrLearning';
 import { loadOnnxRuntimeWeb, loadPaddleAssets, numberCrop, timelineNumberCrops } from '../scripts/ocrEngineFixtures.mts';
 
 describe('engine selection', () => {
@@ -200,5 +200,28 @@ describe('corrections recorded in PaddleOCR or Ensemble mode', () => {
       nextStats: [{ player: 'Row 0', kills: 7, plants: 4 }], nextScoreboardRows: [0], recordedAt: '2026-10-23T00:00:00.000Z',
     });
     expect(Object.fromEntries(samples.map(sample => [sample.field, sample.modelVersion]))).toEqual({ kills: model, plants: '7.0.0/eng-1.0.0/parser-v1' });
+  });
+});
+
+describe('learned rules end to end in PaddleOCR mode', () => {
+  it('a plants correction learned under "+numbers:" fires on plants in every mode; a K/D/A rule stays with the Paddle model', () => {
+    const draftModel = (engine?: 'paddle') => parseLocalScoreboardRecognitions([], { capturedAt: '2026-10-23T00:00:00.000Z', rosterPlayers: [], engine }).sourceMetadata.model;
+    const paddleModel = draftModel('paddle'); const tesseractModel = draftModel();
+    expect(paddleModel).toContain('+numbers:');
+    const session = (index: number) => {
+      const match = { id: `m${index}`, source: 'scrim-import', sourceMetadata: { method: 'screenshot', model: `${paddleModel}+review` }, screenshotEvidence: { captureId: `cap-${index}`, diagnostics: { layout: 'custom', resolution: '1920x1080' } } };
+      return correctionSamplesFromAcceptedEdit({
+        beforeMatch: match, beforeStats: [{ extractedName: 'Row 0', kills: 1, plants: 1 }], nextMatch: match,
+        nextStats: [{ player: 'Row 0', kills: 7, plants: 4 }], nextScoreboardRows: [0], recordedAt: `2026-10-23T00:00:0${index}.000Z`,
+      });
+    };
+    const model = buildLocalCorrectionModel([1, 2, 3].flatMap(session));
+    const rule = (field: string) => model.rules.find(item => item.field === field && item.sourceRegion === 'player.0.' + field);
+    expect(rule('plants')).toMatchObject({ corrected: 4, sourceModel: tesseractModel });
+    expect(rule('kills')).toMatchObject({ corrected: 7, sourceModel: paddleModel });
+    const row = [{ kills: 1, plants: 1 }];
+    const context = { layout: 'custom', resolution: '1920x1080' };
+    expect(applyLearnedCorrections(row, model, { ...context, sourceModel: paddleModel })[0]).toMatchObject({ kills: 7, plants: 4 });
+    expect(applyLearnedCorrections(row, model, { ...context, sourceModel: tesseractModel })[0]).toMatchObject({ kills: 1, plants: 4 });
   });
 });
