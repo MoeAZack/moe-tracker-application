@@ -30,12 +30,15 @@ describe('reading the score on the in-game HUD', () => {
     expect(parseEndBannerSnapshot({ timestampMs: 5, text: 'ALLIES 7 – 17 ENEMIES' })).toMatchObject({ kind: 'end-banner', score: [7, 17] });
     expect(parseEndBannerSnapshot({ timestampMs: 5, text: 'Allies  13\n- 11  Enemies' })).toMatchObject({ score: [13, 11] });
     expect(parseEndBannerSnapshot({ timestampMs: 5, text: 'ALLIES 40 - 2 ENEMIES' })).toBeNull();
+    expect(parseEndBannerSnapshot({ timestampMs: 5, text: 'ALLIES\n7\n17\nENEMIES' })).toMatchObject({ score: [7, 17] });
     expect(parseEndBannerSnapshot({ timestampMs: 5, text: 'ALLIES ENEMIES' })).toBeNull();
     expect(parseEndBannerSnapshot({ timestampMs: 5, text: 'ALLIES 13 11 ENEMIES' })).toMatchObject({ score: [13, 11] });
     expect(parseEndBannerSnapshot({ timestampMs: 5, text: '7 1:23 5' })).toBeNull();
     // The banner beats HUD reads, and comes through the analyzer from whichever region read it.
     const aggregated = aggregateVideoEvidence({ players: [], roundStateSnapshots: hud([[0, 0], [5, 12], [5, 17]]).map((item: any) => ({ timestampMs: item.timestampMs, text: item.rawText })), scoreboardSnapshots: [{ timestampMs: 900_000, text: 'ALLIES 7 - 17 ENEMIES' }] });
     expect(deriveFinalScore(aggregated)).toEqual({ left: 7, right: 17, basis: 'end-banner', reads: 1 });
+    // The analyzer's own centre-band crop of the end screen is read too.
+    expect(deriveFinalScore(aggregateVideoEvidence({ players: [], endBannerSnapshots: [{ timestampMs: 900_000, text: 'ALLIES  7      17  ENEMIES' }] }))).toEqual({ left: 7, right: 17, basis: 'end-banner', reads: 1 });
   });
 
   it('reads a played-out custom game past 13 and ends it after round 24', () => {

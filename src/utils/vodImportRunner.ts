@@ -196,12 +196,13 @@ export function endOfGameBoard<T extends { timestampMs: number; draft: { match: 
 
 /**
  * The fixed layout always yields ten rows, so ten rows prove nothing: agent select and
- * gameplay frames read as ten mostly empty rows. A real board has K, D, A and ACS on
- * nearly every row, and its kills and deaths roughly balance (each kill is someone's death).
+ * gameplay frames read as ten mostly empty rows. A real board has K, D and A on nearly
+ * every row, and its kills and deaths roughly balance (each kill is someone's death).
+ * ACS often reads empty at 720p, so it is not required, but a read ACS must be sane.
  */
 export function looksLikeScoreboard(stats: ReadonlyArray<{ kills?: unknown; deaths?: unknown; assists?: unknown; acs?: unknown }>) {
   const count = (input: unknown, max: number) => typeof input === 'number' && Number.isInteger(input) && input >= 0 && input <= max;
-  const rows = stats.filter(row => count(row.kills, 80) && count(row.deaths, 80) && count(row.assists, 80) && count(row.acs, 999) && (row.acs as number) > 0);
+  const rows = stats.filter(row => count(row.kills, 80) && count(row.deaths, 80) && count(row.assists, 80) && (row.acs === null || row.acs === undefined || (count(row.acs, 999) && (row.acs as number) > 0)));
   if (stats.length !== 10 || rows.length < 8) return false;
   const kills = rows.reduce((sum, row) => sum + (row.kills as number), 0); const deaths = rows.reduce((sum, row) => sum + (row.deaths as number), 0);
   return deaths > 0 && Math.abs(kills - deaths) <= Math.max(8, Math.round(deaths * 0.25));
