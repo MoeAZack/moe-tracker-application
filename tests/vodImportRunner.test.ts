@@ -51,6 +51,17 @@ describe('timeline lineup isolation', () => {
     expect(boundaryTimelinePlayers(five, null).filter(row => row.team === 'ours')).toHaveLength(5);
     expect(boundaryTimelinePlayers([...five, { id: 'p-6', displayName: 'Sixth core', isCore: true }], null)).toEqual([]);
   });
+
+  it('reuses five allied screenshot identities when a linked legacy match has no canonical stats', () => {
+    const roster = Array.from({ length: 20 }, (_, index) => ({ id: `p-${index}`, displayName: `Profile ${index}` }));
+    const scoreboardPlayers = [
+      ...Array.from({ length: 5 }, (_, index) => ({ name: `Linked ally ${index + 1}`, allied: true })),
+      ...Array.from({ length: 5 }, (_, index) => ({ name: `Linked opponent ${index + 1}`, allied: false })),
+    ];
+    const result = boundaryTimelinePlayers(roster, { id: 'legacy-match', screenshotEvidence: { scoreboardPlayers } }, []);
+    expect(result.filter(row => row.team === 'ours').map(row => row.name)).toEqual(['Linked ally 1', 'Linked ally 2', 'Linked ally 3', 'Linked ally 4', 'Linked ally 5']);
+    expect(result.filter(row => row.team === 'theirs')).toHaveLength(5);
+  });
 });
 
 describe('VOD import runner survives leaving the VOD tab', () => {

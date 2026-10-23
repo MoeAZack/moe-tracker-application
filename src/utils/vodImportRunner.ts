@@ -249,10 +249,14 @@ export function boundaryTimelinePlayers(
     .filter(stat => stat.matchId === linkedMatch.id && stat.playerId && rosterById.has(stat.playerId))
     .map(stat => String(stat.displayNameSnapshot || stat.player || rosterById.get(stat.playerId)?.displayName || '').trim())
     .filter(Boolean) : [];
+  const screenshotOurs = (linkedMatch?.screenshotEvidence?.scoreboardPlayers || [])
+    .filter((player: any) => player?.allied === true)
+    .map((player: any) => String(player?.name || '').trim()).filter(Boolean);
   const core = activeRoster.filter(player => player.isCore).map(player => String(player.displayName || '').trim()).filter(Boolean);
   // A profile library is not a lineup. A saved match proves its participants;
+  // legacy linked matches may prove them through confirmed screenshot rows;
   // otherwise only an exact five-player active core can safely seed the picker.
-  const ours = linkedOurs.length === 5 ? linkedOurs : !linkedMatch && core.length === 5 ? core : [];
+  const ours = linkedOurs.length === 5 ? linkedOurs : screenshotOurs.length ? screenshotOurs : !linkedMatch && core.length === 5 ? core : [];
   const theirs = (linkedMatch?.screenshotEvidence?.scoreboardPlayers || [])
     .filter((player: any) => player?.allied === false)
     .map((player: any) => String(player?.name || '').trim()).filter(Boolean);
