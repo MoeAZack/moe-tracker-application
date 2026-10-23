@@ -1,7 +1,7 @@
 import React from 'react';
 import { renderToStaticMarkup } from 'react-dom/server';
 import { afterEach, describe, expect, it, vi } from 'vitest';
-import { cancelVodImport, endOfGameBoard, knownScoreboardRows, looksLikeScoreboard, overallVodPercent, splitVodLinks, startVodBatchImport, vodImportStore, type VodBatchImportInput, type VodImportDeps } from '../src/utils/vodImportRunner';
+import { cancelVodImport, endOfGameBoard, knownScoreboardRows, looksLikeScoreboard, scoreboardCheck, overallVodPercent, splitVodLinks, startVodBatchImport, vodImportStore, type VodBatchImportInput, type VodImportDeps } from '../src/utils/vodImportRunner';
 import VodImportStatus from '../src/components/VodImportStatus';
 import VodImportQueue from '../src/components/VodImportQueue';
 import VodTeamPick from '../src/components/VodTeamPick';
@@ -294,9 +294,11 @@ describe('VOD import runner survives leaving the VOD tab', () => {
     const row = (kills: number | null, deaths: number | null, assists: number | null, acs: number | null) => ({ kills, deaths, assists, acs });
     const real = Array.from({ length: 10 }, (_, index) => row(10 + (index % 3), 11, 4, 180 + index));
     expect(looksLikeScoreboard(real)).toBe(true);
-    // ACS often reads empty at 720p: K/D/A alone still make a board, but a nonsense ACS does not.
+    // ACS reads empty or garbled at 720p: K/D/A alone make a board.
     expect(looksLikeScoreboard(real.map(item => ({ ...item, acs: null })))).toBe(true);
-    expect(looksLikeScoreboard(real.map(item => ({ ...item, acs: 0 })))).toBe(false);
+    expect(looksLikeScoreboard(real.map(item => ({ ...item, acs: 0 })))).toBe(true);
+    expect(scoreboardCheck(Array.from({ length: 10 }, () => row(null, null, null, null)))).toMatchObject({ ok: false, reason: 'few K/D/A rows', kdaRows: 0 });
+    expect(scoreboardCheck(real.map(item => ({ ...item, deaths: 1 })))).toMatchObject({ ok: false, reason: 'kills and deaths do not balance', kdaRows: 10 });
     // Agent select: names and agents, no numbers.
     expect(looksLikeScoreboard(Array.from({ length: 10 }, () => row(null, null, null, null)))).toBe(false);
     // A gameplay frame: a few stray digits, most cells empty.
@@ -324,6 +326,7 @@ describe('VOD import runner survives leaving the VOD tab', () => {
       await expect(run).resolves.toBe(true);
       expect(vodImportStore.getSnapshot().teamPick).toBeNull();
       expect(reportDiagnostic).toHaveBeenCalledWith({ action: 'vod-scoreboard-candidates', message: 'read 2, used 0, not a scoreboard 2, not ten rows 0, duplicate 0' });
+      expect(reportDiagnostic).toHaveBeenCalledWith({ action: 'vod-scoreboard-check', message: 'unreadable 0, agent select 1, few K/D/A rows 1, kills and deaths do not balance 0; per candidate: g20/a40 kda10 k150 d120, g60/a5 kda0 k0 d0' });
     } finally { discovery.games = []; }
   });
 

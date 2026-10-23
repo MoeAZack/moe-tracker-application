@@ -198,15 +198,17 @@ export function endOfGameBoard<T extends { timestampMs: number; draft: { match: 
  * The fixed layout always yields ten rows, so ten rows prove nothing: agent select and
  * gameplay frames read as ten mostly empty rows. A real board has K, D and A on nearly
  * every row, and its kills and deaths roughly balance (each kill is someone's death).
- * ACS often reads empty at 720p, so it is not required, but a read ACS must be sane.
+ * ACS is ignored: it reads empty or garbled at 720p. The reason is kept for the log.
  */
-export function looksLikeScoreboard(stats: ReadonlyArray<{ kills?: unknown; deaths?: unknown; assists?: unknown; acs?: unknown }>) {
-  const count = (input: unknown, max: number) => typeof input === 'number' && Number.isInteger(input) && input >= 0 && input <= max;
-  const rows = stats.filter(row => count(row.kills, 80) && count(row.deaths, 80) && count(row.assists, 80) && (row.acs === null || row.acs === undefined || (count(row.acs, 999) && (row.acs as number) > 0)));
-  if (stats.length !== 10 || rows.length < 8) return false;
+export function scoreboardCheck(stats: ReadonlyArray<{ kills?: unknown; deaths?: unknown; assists?: unknown }>) {
+  const count = (input: unknown) => typeof input === 'number' && Number.isInteger(input) && input >= 0 && input <= 80;
+  const rows = stats.filter(row => count(row.kills) && count(row.deaths) && count(row.assists));
   const kills = rows.reduce((sum, row) => sum + (row.kills as number), 0); const deaths = rows.reduce((sum, row) => sum + (row.deaths as number), 0);
-  return deaths > 0 && Math.abs(kills - deaths) <= Math.max(8, Math.round(deaths * 0.25));
+  const reason = stats.length !== 10 ? 'not ten rows' as const : rows.length < 8 ? 'few K/D/A rows' as const : deaths === 0 || Math.abs(kills - deaths) > Math.max(8, Math.round(deaths * 0.25)) ? 'kills and deaths do not balance' as const : null;
+  return { ok: reason === null, reason, kdaRows: rows.length, kills, deaths };
 }
+
+export const looksLikeScoreboard = (stats: Parameters<typeof scoreboardCheck>[0]) => scoreboardCheck(stats).ok;
 
 export function knownScoreboardRows(stats: ReadonlyArray<{ extractedName?: string | null; rosterMatch?: { status?: string } }>, oursThisRun: readonly string[]) {
   const ours = new Set(oursThisRun.map(name => normalizedMatchName(name)).filter(Boolean));
@@ -323,23 +325,28 @@ async function runOneImport(input: VodBatchImportInput, deps: VodImportDeps): Pr
     const signatures = new Set<string>();
     // Why candidates were not used, so a VOD that yields no scoreboard can be explained from the log.
     const dropped = { notScoreboard: 0, notTenRows: 0, duplicate: 0 };
+    // Why each candidate was or was not a board, as counts only (no names), for the log.
+    const why = { unreadable: 0, agentSelect: 0, fewKdaRows: 0, unbalanced: 0 }; const perCandidate: string[] = [];
     for (let index = 0; index < discovery.games.length; index += 1) {
       setProgress({ owner: 'batch', step: 2, stepPercent: Math.round(index / Math.max(1, discovery.games.length) * 100), message: `Reading scoreboard candidate ${index + 1}/${discovery.games.length}…`, status: 'working' });
       let extracted: Awaited<ReturnType<VodImportDeps['extractScoreboard']>>;
       try {
         const frame = await desktop.readVodFrame({ cacheId, frame: discovery.games[index].frame }); const image = fileFromBase64(frame.base64, `vod-scoreboard-${index + 1}.png`, frame.mediaType);
         extracted = await deps.extractScoreboard(image, activeRoster, undefined, { trackJob: false });
-      } catch { dropped.notScoreboard += 1; continue; /* Geometry and identity gates intentionally discard non-scoreboard candidates. */ }
+      } catch { dropped.notScoreboard += 1; why.unreadable += 1; perCandidate.push('x'); continue; /* Geometry and identity gates intentionally discard non-scoreboard candidates. */ }
       // Ten rows make a scoreboard. Unreadable names, score or map do not drop it:
       // the coach names our five in the picker, and the score and map have other sources.
       if (extracted.draft.stats.length !== 10) { dropped.notTenRows += 1; continue; }
       // A frame picked for looking like agent select, or ten rows that hold no board, is not a scoreboard.
-      const candidate = discovery.games[index]; if ((Number(candidate.agentSelectScore) || 0) * 1.25 > (Number(candidate.score) || 0) || !looksLikeScoreboard(extracted.draft.stats)) { dropped.notScoreboard += 1; continue; }
+      const candidate = discovery.games[index]; const agentSelect = (Number(candidate.agentSelectScore) || 0) * 1.25 > (Number(candidate.score) || 0); const check = scoreboardCheck(extracted.draft.stats);
+      perCandidate.push(`g${Math.round(Number(candidate.score) || 0)}/a${Math.round(Number(candidate.agentSelectScore) || 0)} kda${check.kdaRows} k${check.kills} d${check.deaths}`);
+      if (agentSelect || !check.ok) { dropped.notScoreboard += 1; if (agentSelect) why.agentSelect += 1; else if (check.reason === 'few K/D/A rows') why.fewKdaRows += 1; else why.unbalanced += 1; continue; }
       const signature = `${String(extracted.draft.match.map || '').toLocaleLowerCase()}:${extracted.draft.match.ourScore}:${extracted.draft.match.theirScore}:${extracted.draft.stats.map(row => `${row.matchedPlayerId || String(row.extractedName || '').toLocaleLowerCase('en')}:${row.kills}:${row.deaths}`).sort().join('|')}`;
       if (signatures.has(signature)) { dropped.duplicate += 1; continue; }
       signatures.add(signature); detected.push({ timestampMs: discovery.games[index].timestampMs, draft: extracted.draft, imageSha256: extracted.imageSha256 });
     }
     void deps.desktop.reportDiagnostic?.({ action: 'vod-scoreboard-candidates', message: `read ${discovery.games.length}, used ${detected.length}, not a scoreboard ${dropped.notScoreboard}, not ten rows ${dropped.notTenRows}, duplicate ${dropped.duplicate}` }).catch(() => null);
+    void deps.desktop.reportDiagnostic?.({ action: 'vod-scoreboard-check', message: `unreadable ${why.unreadable}, agent select ${why.agentSelect}, few K/D/A rows ${why.fewKdaRows}, kills and deaths do not balance ${why.unbalanced}; per candidate: ${perCandidate.join(', ')}`.slice(0, 1800) }).catch(() => null);
     detected.sort((left, right) => left.timestampMs - right.timestampMs);
     const dateKey = discovery.uploadDate || input.date;
     const imported: VodBatchGame[] = [];

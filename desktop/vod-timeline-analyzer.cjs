@@ -341,6 +341,45 @@ async function sampleRegions(file, specs, durationSeconds, progress, signal, ran
   log('decode: per-region software'); return frames;
 }
 
+/**
+ * The end screen's stylised score digits read as junk in a sparse page read ("ALLIES | 1 ENEMIES"
+ * for 7-17). Find the two words by column ink (the widest two runs are ALLIES and ENEMIES) and
+ * cut out what lies between them: the two scores, binarized dark-on-light so the red digit
+ * survives as well as the teal one. Returns null when the line does not split that way.
+ */
+function bannerDigitCrop(pixels, width, height) {
+  if (!pixels || pixels.length < width * height) return null;
+  const histogram = new Uint32Array(256); let max = 0; for (let index = 0; index < width * height; index += 1) { histogram[pixels[index]] += 1; if (pixels[index] > max) max = pixels[index]; }
+  let seen = 0, median = 0; for (let value = 0; value < 256; value += 1) { seen += histogram[value]; if (seen >= width * height / 2) { median = value; break; } }
+  const threshold = median + Math.max(30, Math.round((max - median) * 0.3)); if (threshold >= 255) return null;
+  const ink = column => { let count = 0; for (let y = 0; y < height; y += 1) if (pixels[y * width + column] >= threshold) count += 1; return count >= 2; };
+  const gap = Math.max(6, Math.round(height * 0.12)); const segments = [];
+  for (let x = 0; x < width; x += 1) if (ink(x)) { const last = segments.at(-1); if (last && x - last.end <= gap) last.end = x; else segments.push({ start: x, end: x }); }
+  const glyphs = segments.filter(item => item.end - item.start >= 2); if (glyphs.length < 3) return null;
+  const words = [...glyphs].sort((a, b) => (b.end - b.start) - (a.end - a.start)).slice(0, 2).sort((a, b) => a.start - b.start);
+  const left = words[0].end + 1, right = words[1].start - 1; if (right - left < 6 || !glyphs.some(item => item.start > words[0].end && item.end < words[1].start)) return null;
+  let top = height, bottom = -1; for (let y = 0; y < height; y += 1) for (let x = left; x <= right; x += 1) if (pixels[y * width + x] >= threshold) { if (y < top) top = y; if (y > bottom) bottom = y; break; }
+  if (bottom < top) return null;
+  const pad = 10, cropWidth = right - left + 1 + pad * 2, cropHeight = bottom - top + 1 + pad * 2; const crop = Buffer.alloc(cropWidth * cropHeight, 255);
+  for (let y = top; y <= bottom; y += 1) for (let x = left; x <= right; x += 1) if (pixels[y * width + x] >= threshold) crop[(y - top + pad) * cropWidth + (x - left + pad)] = 0;
+  return { pixels: crop, width: cropWidth, height: cropHeight };
+}
+
+/** Re-read the end-screen scores of frames whose page read found ALLIES and ENEMIES, digits only. */
+async function readBannerDigits(frames, snapshots, worker, log = () => {}, limit = 40) {
+  const anchored = (snapshots || []).filter(item => /allies/i.test(item.text) && /enemies/i.test(item.text)).slice(-limit); let read = 0;
+  if (!anchored.length || !worker) return snapshots || [];
+  try {
+    await worker.setParameters({ tessedit_char_whitelist: '0123456789', tessedit_pageseg_mode: '7' });
+    for (const snapshot of anchored) {
+      const frame = frames.find(item => item.timestampMs === snapshot.timestampMs); const crop = frame && bannerDigitCrop(frame.pixels, frame.width, frame.height); if (!crop) continue;
+      const text = String((await worker.recognize(pgm(crop.pixels, crop.width, crop.height)))?.data?.text || ''); const match = text.match(/(\d{1,2})\D+(\d{1,2})/);
+      if (match) { snapshot.text = `ALLIES ${match[1]} - ${match[2]} ENEMIES`; read += 1; }
+    }
+  } finally { await worker.setParameters({ tessedit_char_whitelist: '', tessedit_pageseg_mode: '11' }).catch(() => {}); }
+  log(`end-banner: anchors ${anchored.length}, digits read ${read}`); return snapshots;
+}
+
 function pgm(frame, width, height) { return Buffer.concat([Buffer.from(`P5\n${width} ${height}\n255\n`), frame]); }
 
 // OCR workers for one analysis. degrade() drops to a single fresh worker after
@@ -443,7 +482,11 @@ async function analyzeVodTimeline(input, options = {}) {
     progress?.({ stage: 'ocr', percent: 0, message: `Reading ${total} changed HUD frames locally${workerCount > 1 ? ` on ${workerCount} threads` : ''}…` }); log(`ocr: ${workerCount} worker${workerCount === 1 ? '' : 's'} (setting ${performance.ocrWorkers})`);
     const pool = await createOcrPool(workerCount, log);
     let offset = 0; const snapshots = {};
-    try { for (const spec of specs) { snapshots[spec.key] = await recognizeFrames(candidates[spec.key], spec, pool, progress, offset, total, signal, checkpoint.specs[spec.key], async state => { checkpoint.specs[spec.key] = state; checkpoint.updatedAt = new Date().toISOString(); await writeCheckpoint(options.checkpointFile, checkpoint); }); offset += candidates[spec.key].length; } }
+    try {
+      for (const spec of specs) { snapshots[spec.key] = await recognizeFrames(candidates[spec.key], spec, pool, progress, offset, total, signal, checkpoint.specs[spec.key], async state => { checkpoint.specs[spec.key] = state; checkpoint.updatedAt = new Date().toISOString(); await writeCheckpoint(options.checkpointFile, checkpoint); }); offset += candidates[spec.key].length; }
+      const bannerSpec = specs.find(spec => spec.key === 'endBannerSnapshots');
+      snapshots.endBannerSnapshots = await readBannerDigits(candidates.endBannerSnapshots.map(frame => ({ ...frame, width: bannerSpec.width, height: bannerSpec.height })), snapshots.endBannerSnapshots, pool.workers[0], log);
+    }
     finally { await pool.terminate(); }
     // Comparison runs (scripts/vod-speed-compare.cjs) hash exactly what was sampled and read.
     options.inspect?.({ candidates, snapshots: structuredClone(snapshots), ocrWorkers: workerCount });
@@ -494,4 +537,4 @@ async function readVodFrame(directory, frame) {
   return { mediaType: 'image/png', base64: (await fsp.readFile(path.join(path.resolve(directory), name))).toString('base64') };
 }
 
-module.exports = { sweepOrphanedVodDirectories, readOwnedVodFrame, readVodFrame, normalizeYoutubeUrl, youtubeVideoId, probeVideo, analyzeVodTimeline, normalizeTimelinePlayers, discoverVodGames, releaseVodSource, createReviewClips, changedFrames, changedFramesTogether, sampleRegions, recognizeFrames, createOcrPool, frameDifference, visualSignature, ensureDiskSpace, scoreboardGeometryScore, agentSelectGeometryScore, chooseGameBoundaries, inferPovPlayer };
+module.exports = { bannerDigitCrop, readBannerDigits, sweepOrphanedVodDirectories, readOwnedVodFrame, readVodFrame, normalizeYoutubeUrl, youtubeVideoId, probeVideo, analyzeVodTimeline, normalizeTimelinePlayers, discoverVodGames, releaseVodSource, createReviewClips, changedFrames, changedFramesTogether, sampleRegions, recognizeFrames, createOcrPool, frameDifference, visualSignature, ensureDiskSpace, scoreboardGeometryScore, agentSelectGeometryScore, chooseGameBoundaries, inferPovPlayer };
