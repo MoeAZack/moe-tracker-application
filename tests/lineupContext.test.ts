@@ -87,6 +87,19 @@ describe('lineup context contract', () => {
     expect(saved.every(row => row.playerId && row.appearanceType === 'tryout')).toBe(true);
     expect(match.rosterContext).toMatchObject({ kind: 'tryout', tryoutBatchId: expect.any(String) });
   });
+
+  it('resolves confirmed screenshot aliases and rejects ambiguous or archived identities', () => {
+    const db: any = rosterDb();
+    db.rosterPlayers[0].aliases = ['Known scoreboard alias'];
+    const match = () => ({ sourceMetadata: { method: 'screenshot' }, reviewConfirmation: { alliedSideConfirmed: true } });
+    const [saved] = validateAndNormalizeLineup(db, match(), [{ player: 'Known scoreboard alias', kills: 12 }]);
+    expect(saved.playerId).toBe(coreId); expect(db.rosterPlayers).toHaveLength(3);
+
+    db.rosterPlayers[1].aliases = ['Collision alias']; db.rosterPlayers[2].aliases = ['Collision alias'];
+    expect(() => validateAndNormalizeLineup(db, match(), [{ player: 'Collision alias' }])).toThrow(/more than one profile/i);
+    db.rosterPlayers[1].retiredAt = '2026-10-20T00:00:00Z'; db.rosterPlayers[1].aliases = ['Archived alias'];
+    expect(() => validateAndNormalizeLineup(db, match(), [{ player: 'Archived alias' }])).toThrow(/archived profile/i);
+  });
 });
 
 describe('central analytics history filtering', () => {

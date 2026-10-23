@@ -101,7 +101,9 @@ export function integrateVodSubmission(db: any, input: SubmissionInput, actorNam
   const requested = input.matchId ? (db.matches || []).find((match: Match) => match.id === input.matchId) : null;
   if (input.matchId && !requested) throw Object.assign(new Error('The selected match no longer exists.'), { status: 404 });
   const rosterIds = new Set(players.map(row => row.rosterPlayerId));
-  const repairsOwnDuplicate = Boolean(duplicate && duplicate.linkedMatchId === requested?.id);
+  const requestedRosterIds = requested ? matchRosterIds(db, requested.id) : new Set<string>();
+  const repairsOwnDuplicate = Boolean(duplicate && duplicate.linkedMatchId === requested?.id && requestedRosterIds.size < 5);
+  if (duplicate && duplicate.linkedMatchId === requested?.id && requestedRosterIds.size >= 5 && [...rosterIds].some(id => !requestedRosterIds.has(id))) throw Object.assign(new Error('A duplicate enrichment must keep the same five-player roster as its linked match.'), { status: 409 });
   if (requested && !repairsOwnDuplicate && [...rosterIds].filter(id => matchRosterIds(db, requested.id).has(id)).length < 5 && !hasUniqueKdaCoverage(db, requested.id, players)) throw Object.assign(new Error('The selected match does not contain the same five-player roster or five unique K/D/A rows. Choose the correct match or create a new VOD entry.'), { status: 409 });
   const incomingIdentityRows = players.map(player => ({ playerId: player.rosterPlayerId, player: player.rosterDisplayName }));
   // One shared identity answer; a header-only candidate must also hold all five players.

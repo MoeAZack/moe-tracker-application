@@ -110,6 +110,14 @@ describe('player VOD submission integration', () => {
     expect(db.playerStats[0].kills).toBe(99);
   });
 
+  it('rejects a duplicate that tries to relabel an already complete five-player lineup', () => {
+    const db = fixture();
+    integrateVodSubmission(db, { ...input, matchId: 'm1' }, 'Coach', ids, '2026-10-18T14:00:00Z');
+    db.rosterPlayers.push({ id: 'replacement', displayName: 'Replacement', createdAt: '2026-10-18T14:30:00Z' });
+    const changed = input.players.map((row, index) => index === 4 ? { ...row, observedName: 'Replacement' } : row);
+    expect(() => integrateVodSubmission(db, { ...input, matchId: 'm1', players: changed }, 'Coach', ids, '2026-10-18T15:00:00Z')).toThrow(/same five-player roster/i);
+  });
+
   it('creates five newly observed profiles without treating twenty existing profiles as the lineup', () => {
     const db: any = createSeed(); db.rosterPlayers = Array.from({ length: 20 }, (_, index) => ({ id: `existing-${index}`, displayName: `Existing ${index}`, createdAt: '2026-10-18T10:00:00Z' })); db.matches = []; db.playerStats = [];
     const newNames = ['Kilo', 'Lima', 'Mike', 'November', 'Oscar'];

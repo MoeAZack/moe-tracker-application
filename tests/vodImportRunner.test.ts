@@ -46,9 +46,9 @@ describe('timeline lineup isolation', () => {
     expect(boundaryTimelinePlayers(roster, { id: 'match-1' }, stats).filter(row => row.team === 'ours').map(row => row.name)).toEqual(['Profile 3', 'Profile 7', 'Profile 11', 'Profile 15', 'Profile 19']);
   });
 
-  it('seeds only an exact five-player core and never all active profiles', () => {
+  it('never silently adopts core profiles as an unlinked match lineup', () => {
     const five = Array.from({ length: 5 }, (_, index) => ({ id: `p-${index}`, displayName: `Core ${index}`, isCore: true }));
-    expect(boundaryTimelinePlayers(five, null).filter(row => row.team === 'ours')).toHaveLength(5);
+    expect(boundaryTimelinePlayers(five, null)).toEqual([]);
     expect(boundaryTimelinePlayers([...five, { id: 'p-6', displayName: 'Sixth core', isCore: true }], null)).toEqual([]);
   });
 
@@ -357,7 +357,7 @@ describe('VOD import runner survives leaving the VOD tab', () => {
     expect(bodies[0]).toMatchObject({ addObservedPlayers: true }); expect(bodies[0].players.map((player: any) => [player.observedName, player.kills, player.deaths, player.assists])).toEqual(names.map(name => [name, null, null, null]));
     expect(vodImportStore.getSnapshot().batchResult[0].status).toContain('names typed, K/D/A blank (no scoreboard, kill feed unread)');
     // The counts travel in the timeline; the server fills them, marked partial. The rows stay blank.
-    expect(bodies[1].players.map((player: any) => [player.observedName, player.kills, player.deaths])).toEqual(names.map((name, index) => [name, index, 2]));
+    expect(bodies[1].players.map((player: any) => [player.observedName, player.kills, player.deaths, player.trades])).toEqual(names.map(name => [name, null, null, null]));
     expect(vodImportStore.getSnapshot().batchResult[1].status).toContain('kills and deaths from the kill feed');
   });
 

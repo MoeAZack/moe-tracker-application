@@ -252,11 +252,10 @@ export function boundaryTimelinePlayers(
   const screenshotOurs = (linkedMatch?.screenshotEvidence?.scoreboardPlayers || [])
     .filter((player: any) => player?.allied === true)
     .map((player: any) => String(player?.name || '').trim()).filter(Boolean);
-  const core = activeRoster.filter(player => player.isCore).map(player => String(player.displayName || '').trim()).filter(Boolean);
   // A profile library is not a lineup. A saved match proves its participants;
-  // legacy linked matches may prove them through confirmed screenshot rows;
-  // otherwise only an exact five-player active core can safely seed the picker.
-  const ours = linkedOurs.length === 5 ? linkedOurs : screenshotOurs.length ? screenshotOurs : !linkedMatch && core.length === 5 ? core : [];
+  // legacy linked matches may prove them through confirmed screenshot rows.
+  // Core membership can prefill a confirmation UI, but never proves a match lineup.
+  const ours = linkedOurs.length === 5 ? linkedOurs : screenshotOurs.length ? screenshotOurs : [];
   const theirs = (linkedMatch?.screenshotEvidence?.scoreboardPlayers || [])
     .filter((player: any) => player?.allied === false)
     .map((player: any) => String(player?.name || '').trim()).filter(Boolean);
@@ -268,11 +267,11 @@ export function boundaryTimelinePlayers(
 }
 
 function timelineSubmissionPlayers(names: readonly string[], evidence: any) {
-  return names.map(observedName => {
-    const metric = (evidence?.playerMetrics || []).find((row: any) => row?.team === 'ours' && normalizedMatchName(row.playerName) === normalizedMatchName(observedName));
-    const value = (field: string) => Number.isFinite(metric?.[field]) ? Number(metric[field]) : null;
-    return { observedName, agent: null, kills: value('kills'), deaths: value('deaths'), assists: value('assists'), acs: value('acs'), adr: value('adr'), hs: value('hs'), fk: value('fk'), fd: value('fd'), plants: value('plants'), defuses: value('defuses'), trades: value('trades') };
-  });
+  // These are identity rows, not a scoreboard. Counts remain solely in
+  // timelineEvidence so integration tags them partial and a verified board
+  // can replace them later.
+  void evidence;
+  return names.map(observedName => ({ observedName, agent: null, kills: null, deaths: null, assists: null, acs: null, adr: null, hs: null, fk: null, fd: null, plants: null, defuses: null, trades: null }));
 }
 
 // One listener for the whole window, installed on the first import and never
@@ -456,7 +455,7 @@ async function runOneImport(input: VodBatchImportInput, deps: VodImportDeps): Pr
         const core = activeRoster.filter(player => player.isCore).map(player => player.displayName);
         const previous = oursThisRun.slice(-5); const suggested = core.length === 5 ? core : previous;
         setProgress({ owner: 'batch', step: 3, stepPercent: Math.round(index / total * 100), message: `Waiting for you: type your five players for game ${index + 1}/${total} · ${mapName}.`, status: 'working' });
-        teamPickNames = {};
+        teamPickNames = Object.fromEntries(suggested.map((name, rowIndex) => [rowIndex, name]).filter(([, name]) => Boolean(name)));
         const answer = await askTeamPick({ game: index + 1, totalGames: total, map: mapName, score: 'Score pending', noBoard: true, rows: Array.from({ length: 5 }, (_, rowIndex) => ({ index: rowIndex, name: suggested[rowIndex] || '', agent: null, kills: null, deaths: null, assists: null, known: false })) });
         if (answer === 'cancel') throw new Error('The import was cancelled while it waited for you to name your players.');
         typedNames = (answer || []).map(rowIndex => teamPickNames[rowIndex]).filter(Boolean);

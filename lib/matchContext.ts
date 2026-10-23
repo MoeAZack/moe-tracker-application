@@ -1,4 +1,5 @@
 import { activeCorePlayerIds, ensureObservedRosterPlayer, setObservedRosterStatus, setTryoutsMode } from './roster';
+import { buildIdentityResolver } from './identityResolver';
 
 const APPEARANCE_TYPES = new Set(['core', 'tryout', 'standIn']);
 
@@ -18,6 +19,8 @@ export function validateAndNormalizeLineup(db: any, match: any, stats: any[], ex
   // materializes canonical playerStats instead of leaving anonymous rows.
   if (match.sourceMetadata?.method === 'screenshot' && match.reviewConfirmation?.alliedSideConfirmed) {
     const coreIds = activeCorePlayerIds(db);
+    const identityResolver = buildIdentityResolver(db, { observedNames: 'coach-accepted' });
+    const linkedIds = new Set<string>();
     const hasObservedNames = stats.some(stat => String(stat.displayNameSnapshot || stat.player || '').trim());
     const tryoutBatch = !coreIds.size && hasObservedNames ? setTryoutsMode(db, true).batch : null;
     stats = stats.map(stat => {
@@ -26,7 +29,13 @@ export function validateAndNormalizeLineup(db: any, match: any, stats: any[], ex
         ? stat.displayNameSnapshot.trim()
         : typeof stat.player === 'string' ? stat.player.trim() : '';
       if (!observedName) return stat;
-      const player = ensureObservedRosterPlayer(db, observedName);
+      const resolved = identityResolver.resolve({ observedName, includeArchived: true });
+      if (resolved.status === 'ambiguous') fail('A confirmed scoreboard name matches more than one profile. Choose the identity explicitly.');
+      let player = resolved.status === 'matched' ? (db.rosterPlayers || []).find((entry: any) => entry.id === resolved.playerId) : null;
+      if (player?.retiredAt) fail('A confirmed scoreboard name belongs to an archived profile. Restore it before saving.');
+      player ||= ensureObservedRosterPlayer(db, observedName);
+      if (linkedIds.has(player.id)) fail('Two confirmed scoreboard rows resolve to the same profile.');
+      linkedIds.add(player.id);
       const appearanceType = coreIds.has(player.id) ? 'core' : coreIds.size ? 'standIn' : 'tryout';
       if (!player.rosterStatus) setObservedRosterStatus(db, { playerId: player.id, displayName: player.displayName, status: appearanceType });
       return { ...stat, playerId: player.id, appearanceType };
