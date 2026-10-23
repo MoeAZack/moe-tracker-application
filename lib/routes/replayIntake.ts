@@ -274,7 +274,7 @@ const cleanText = (value: unknown, maximum = 120) => typeof value === 'string' &
 const evidenceNumber = (value: any) => value?.status === 'available' && typeof value.value === 'number' && Number.isFinite(value.value) ? value.value : null;
 const evidenceText = (value: any) => value?.status === 'available' && typeof value.value === 'string' && value.value.trim() ? value.value.trim() : null;
 
-function normalizeReview(body: any, job: ReplayParserJob, db: any): Omit<ReplayReview, 'sha256' | 'status' | 'revision' | 'requestId' | 'requestHash' | 'rawEvidenceHash' | 'updatedAt' | 'acceptedAt' | 'acceptedBy' | 'ratingDraftKeys'> {
+function normalizeReview(body: any, job: ReplayParserJob, db: any, createObserved = false): Omit<ReplayReview, 'sha256' | 'status' | 'revision' | 'requestId' | 'requestHash' | 'rawEvidenceHash' | 'updatedAt' | 'acceptedAt' | 'acceptedBy' | 'ratingDraftKeys'> {
   const matchId = cleanText(body?.matchId); const teamId = cleanText(body?.teamId);
   if (!matchId || !(db.matches || []).some((match: any) => match.id === matchId)) throw Object.assign(new Error('Choose an active-season match.'), { status: 409 });
   const players = job.result?.scoreboard?.players;
@@ -293,9 +293,21 @@ function normalizeReview(body: any, job: ReplayParserJob, db: any): Omit<ReplayR
     return { parserPlayerId, rosterPlayerId, displayName };
   });
   const mappingById = new Map<string, ReplayMapping>(mappings.map(item => [item.parserPlayerId, item]));
+  const identityResolver = buildIdentityResolver(db); const hasCore = activeCorePlayerIds(db).size > 0;
   for (const player of players) {
     const mapping = mappingById.get(player.playerId)!;
-    if (player.teamId === teamId && !mapping.rosterPlayerId) throw Object.assign(new Error('Every player on our selected team must map to an active roster identity.'), { status: 409 });
+    if (player.teamId === teamId && !mapping.rosterPlayerId) {
+      if (!createObserved) continue;
+      const resolved = identityResolver.resolve({ observedName: mapping.displayName, includeArchived: true });
+      if (resolved.status === 'ambiguous') throw Object.assign(new Error('An allied replay name matches more than one profile. Choose the player explicitly.'), { status: 409 });
+      let roster = resolved.status === 'matched' ? (db.rosterPlayers || []).find((item: any) => item.id === resolved.playerId) : null;
+      if (roster?.retiredAt) throw Object.assign(new Error('An allied replay name belongs to an archived profile. Restore that profile before accepting the replay.'), { status: 409 });
+      roster ||= ensureObservedRosterPlayer(db, mapping.displayName);
+      if (rosterIds.has(roster.id)) throw Object.assign(new Error('Two allied replay rows resolve to the same active player.'), { status: 409 });
+      roster.addedFrom ||= 'replay-import';
+      if (!roster.rosterStatus) setObservedRosterStatus(db, { playerId: roster.id, displayName: roster.displayName, status: hasCore ? 'standIn' : 'tryout' });
+      mapping.rosterPlayerId = roster.id; rosterIds.add(roster.id);
+    }
     if (player.teamId !== teamId && mapping.rosterPlayerId) throw Object.assign(new Error('Opponent rows cannot be mapped into our roster.'), { status: 409 });
   }
   return { matchId, teamId, mappings };
@@ -1294,7 +1306,8 @@ export async function registerReplayDeviceRoutes(app: Express) {
       if (review.revision !== expectedRevision) return res.status(409).json({ error: 'Stale review revision. Reload and retry.' });
       if (review.rawEvidenceHash !== contentHash(job.result)) return res.status(409).json({ error: 'Raw parser evidence changed after review. Reload before accepting.' });
       // Re-validate roster ownership and match scope at acceptance time; an earlier valid mapping may have gone stale.
-      normalizeReview(review, job, db);
+      const normalized = normalizeReview(review, job, db, true);
+      review.mappings = normalized.mappings;
       review.screenshotLinks = Object.values(store.screenshots).filter(item => item.status === 'linked' && item.replaySha256 === sha256).map(item => ({ id: item.id, imageSha256: item.imageSha256, replaySha256: sha256 }));
       const accepted = acceptReviewIntoEngines(db, store, job, review, user, requestId, requestHash);
       review.status = 'accepted'; review.revision += 1; review.requestId = requestId; review.requestHash = requestHash; review.updatedAt = accepted.acceptedAt; review.acceptedAt = accepted.acceptedAt; review.acceptedBy = user.actorId; review.ratingDraftKeys = accepted.ratingDraftKeys;

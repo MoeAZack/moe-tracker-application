@@ -114,7 +114,10 @@ export default function VodSubmission({ data, role, onRefresh }: Props) {
   const importState = useVodImportState();
   const [vodJobs, setVodJobs] = useState<Awaited<ReturnType<NonNullable<typeof window.moeDesktop>['listVodJobs']>>>([]);
   const [screenshotJobId, setScreenshotJobId] = useState('');
-  const activeRoster = useMemo(() => (data.rosterPlayers || []).filter(player => !player.retiredAt), [data.rosterPlayers]);
+  const activeRoster = useMemo(() => {
+    const coreIds = new Set((data.coreMemberships || []).filter(member => !member.endedAt).map(member => member.playerId));
+    return (data.rosterPlayers || []).filter(player => !player.retiredAt).map(player => ({ ...player, isCore: coreIds.has(player.id) }));
+  }, [data.rosterPlayers, data.coreMemberships]);
   // A fresh workspace has nobody on the roster: the POV player's in-game name can be typed instead.
   const [vodPovTypedName, setVodPovTypedName] = useState('');
   const vodPovName = activeRoster.find(player => player.id === vodPovPlayerId)?.displayName || vodPovTypedName.trim() || null;

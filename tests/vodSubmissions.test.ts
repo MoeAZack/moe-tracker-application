@@ -98,6 +98,43 @@ describe('player VOD submission integration', () => {
     expect(upgraded.id).toBe(first.id); expect(upgraded.timelineEvidence).toBeTruthy(); expect(db.vodSubmissions).toHaveLength(1);
   });
 
+  it('re-enters a retained duplicate to backfill five missing canonical rows while preserving stronger values', () => {
+    const db = fixture(); db.playerStats = [];
+    const timeline: any = { schema: 'moetracker.vod-timeline-evidence/v2', grade: 'video-observation', source: { kind: 'youtube', sha256: 'b'.repeat(64), width: 1920, height: 1080, durationMs: 60_000, analyzedAt: '2026-10-18T14:00:00Z' }, coverage: { durationMs: 60_000, killFeedSnapshots: 5, objectiveSnapshots: 0, ultimateSnapshots: 0, resolvedEliminations: 10, inferredRoundGroups: 2, signals: { eliminations: 'partial', trades: 'partial', kast: 'partial' } }, observations: [], rounds: [], playerMetrics: players.map(row => ({ playerName: row.observedName, team: 'ours', kills: row.kills, deaths: row.deaths, assists: row.assists, trades: row.trades })), throwCandidates: [], limitations: [] };
+    db.vodSubmissions = [{ schema: 'moetracker.vod-submission/v1', id: ids.submissionId, submittedByPlayerId: input.playerId, submittedByName: 'Existing', vodUrl: input.vodUrl, imageSha256: input.imageSha256, date: input.date, map: input.map, opponent: input.opponent, ourScore: input.ourScore, theirScore: input.theirScore, requestedMatchId: 'm1', linkedMatchId: 'm1', linkMode: 'existing-match', status: 'integrated', rosterMatchCount: 0, players: [], timelineEvidence: timeline, integration: { createdMatch: false, createdStats: 0, filledFields: 0, preservedFields: 0 }, createdAt: '2026-10-18T13:00:00Z', integratedAt: '2026-10-18T13:00:00Z' }];
+    const enriched = integrateVodSubmission(db, { ...input, matchId: 'm1', timelineEvidence: timeline }, 'Coach', ids, '2026-10-18T15:00:00Z');
+    expect(db.vodSubmissions).toHaveLength(1); expect(enriched.rosterMatchCount).toBe(5); expect(db.playerStats).toHaveLength(5);
+    expect(db.playerStats.map((row: any) => [row.kills, row.deaths, row.assists])).toEqual(players.map(row => [row.kills, row.deaths, row.assists]));
+    db.playerStats[0].kills = 99;
+    integrateVodSubmission(db, { ...input, matchId: 'm1', players: input.players.map((row, index) => index ? row : { ...row, kills: 1 }), timelineEvidence: timeline }, 'Coach', ids, '2026-10-18T16:00:00Z');
+    expect(db.playerStats[0].kills).toBe(99);
+  });
+
+  it('rejects a duplicate that tries to relabel an already complete five-player lineup', () => {
+    const db = fixture();
+    integrateVodSubmission(db, { ...input, matchId: 'm1' }, 'Coach', ids, '2026-10-18T14:00:00Z');
+    db.rosterPlayers.push({ id: 'replacement', displayName: 'Replacement', createdAt: '2026-10-18T14:30:00Z' });
+    const changed = input.players.map((row, index) => index === 4 ? { ...row, observedName: 'Replacement' } : row);
+    expect(() => integrateVodSubmission(db, { ...input, matchId: 'm1', players: changed }, 'Coach', ids, '2026-10-18T15:00:00Z')).toThrow(/same five-player roster/i);
+  });
+
+  it('rejects duplicate repair when an incomplete linked lineup conflicts with incoming identities', () => {
+    const db = fixture(); db.playerStats = db.playerStats.slice(0, 4);
+    db.vodSubmissions = [{ schema: 'moetracker.vod-submission/v1', id: ids.submissionId, submittedByPlayerId: null, submittedByName: 'Existing', vodUrl: input.vodUrl, imageSha256: input.imageSha256, date: input.date, map: input.map, opponent: input.opponent, ourScore: input.ourScore, theirScore: input.theirScore, requestedMatchId: 'm1', linkedMatchId: 'm1', linkMode: 'existing-match', status: 'integrated', rosterMatchCount: 0, players: [], timelineEvidence: null, integration: { createdMatch: false, createdStats: 0, filledFields: 0, preservedFields: 0 }, createdAt: '2026-10-18T13:00:00Z', integratedAt: '2026-10-18T13:00:00Z' }];
+    const replacements = ['Quebec', 'Romeo', 'Sierra', 'Tango', 'Uniform'].map((observedName, index) => ({ ...players[index], observedName }));
+    db.rosterPlayers.push(...replacements.map((row, index) => ({ id: `replacement-${index}`, displayName: row.observedName, createdAt: '2026-10-18T14:30:00Z' })));
+    expect(() => integrateVodSubmission(db, { ...input, playerId: null, matchId: 'm1', players: replacements }, 'Coach', ids, '2026-10-18T15:00:00Z')).toThrow(/conflicts with identities already linked/i);
+  });
+
+  it('creates five newly observed profiles without treating twenty existing profiles as the lineup', () => {
+    const db: any = createSeed(); db.rosterPlayers = Array.from({ length: 20 }, (_, index) => ({ id: `existing-${index}`, displayName: `Existing ${index}`, createdAt: '2026-10-18T10:00:00Z' })); db.matches = []; db.playerStats = [];
+    const newNames = ['Kilo', 'Lima', 'Mike', 'November', 'Oscar'];
+    const observed = Array.from({ length: 5 }, (_, index) => ({ ...players[index], observedName: newNames[index] }));
+    const submission = integrateVodSubmission(db, { ...input, playerId: null, players: observed, addObservedPlayers: true }, 'Coach', ids);
+    expect(submission.players.map(row => row.rosterDisplayName)).toEqual(observed.map(row => row.observedName));
+    expect(db.rosterPlayers).toHaveLength(25); expect(db.playerStats).toHaveLength(5);
+  });
+
   it('materializes accepted v2 VOD rounds and exact lost advantages without overwriting coach results', () => {
     const db = fixture(); db.rounds = [{ id: 'coach-r1', matchId: 'm1', roundNo: 1, side: 'Attack', result: 'W' }];
     const lostEvents = [

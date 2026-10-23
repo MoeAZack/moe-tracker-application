@@ -74,6 +74,32 @@ describe('lineup context contract', () => {
       statsUpdate: { operation: 'replace', stats: [] },
     }).success).toBe(false);
   });
+
+  it('creates and links every new allied scoreboard name beside a twenty-profile library', () => {
+    const db: any = rosterDb();
+    db.rosterPlayers = Array.from({ length: 20 }, (_, index) => ({ id: `existing-${index}`, displayName: `Existing ${index}` }));
+    db.coreMemberships = [];
+    const names = Array.from({ length: 5 }, (_, index) => `Observed ${index + 1}`);
+    const match: any = { sourceMetadata: { method: 'screenshot' }, reviewConfirmation: { alliedSideConfirmed: true } };
+    const saved = validateAndNormalizeLineup(db, match, names.map(player => ({ player, kills: 10 })));
+    expect(db.rosterPlayers).toHaveLength(25);
+    expect(saved.map(row => row.displayNameSnapshot)).toEqual(names);
+    expect(saved.every(row => row.playerId && row.appearanceType === 'tryout')).toBe(true);
+    expect(match.rosterContext).toMatchObject({ kind: 'tryout', tryoutBatchId: expect.any(String) });
+  });
+
+  it('resolves confirmed screenshot aliases and rejects ambiguous or archived identities', () => {
+    const db: any = rosterDb();
+    db.rosterPlayers[0].aliases = ['Known scoreboard alias'];
+    const match = () => ({ sourceMetadata: { method: 'screenshot' }, reviewConfirmation: { alliedSideConfirmed: true } });
+    const [saved] = validateAndNormalizeLineup(db, match(), [{ player: 'Known scoreboard alias', kills: 12 }]);
+    expect(saved.playerId).toBe(coreId); expect(db.rosterPlayers).toHaveLength(3);
+
+    db.rosterPlayers[1].aliases = ['Collision alias']; db.rosterPlayers[2].aliases = ['Collision alias'];
+    expect(() => validateAndNormalizeLineup(db, match(), [{ player: 'Collision alias' }])).toThrow(/more than one profile/i);
+    db.rosterPlayers[1].retiredAt = '2026-10-20T00:00:00Z'; db.rosterPlayers[1].aliases = ['Archived alias'];
+    expect(() => validateAndNormalizeLineup(db, match(), [{ player: 'Archived alias' }])).toThrow(/archived profile/i);
+  });
 });
 
 describe('central analytics history filtering', () => {

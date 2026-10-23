@@ -497,11 +497,9 @@ describe('VOD timeline evidence', () => {
       { name: 'Alpha', allied: true }, { name: 'EnemyOne', allied: false }, { name: 'EnemyTwo', allied: false },
     ] } };
     expect(boundaryTimelinePlayers(roster, linked)).toEqual([
-      { name: 'Alpha', team: 'ours' }, { name: 'Bravo', team: 'ours' },
+      { name: 'Alpha', team: 'ours' },
       { name: 'EnemyOne', team: 'theirs' }, { name: 'EnemyTwo', team: 'theirs' },
     ]);
-    expect(boundaryTimelinePlayers(roster, null)).toEqual([
-      { name: 'Alpha', team: 'ours' }, { name: 'Bravo', team: 'ours' },
-    ]);
+    expect(boundaryTimelinePlayers(roster, null)).toEqual([]);
   });
 });

@@ -46,6 +46,12 @@ interface ComponentProps {
 export const pistolResultLabel = (value: unknown) => String(value ?? '').trim() || 'Unknown';
 /** Won reads green, lost red, and an unrecorded result stays neutral. */
 export const pistolResultClass = (value: unknown) => { const result = knownResult(value); return result === 'win' ? 'text-emerald-400' : result === 'loss' ? 'text-rose-400' : 'text-slate-400'; };
+/** The detail card keeps the last observed HUD score visible without calling it a final result. */
+export const matchScoreDisplay = (match: Match) => {
+  const score = matchScore(match);
+  if (score) return `${score.ours} - ${score.theirs}`;
+  return match.partialScore ? `Pending · last HUD ${match.partialScore.ours}–${match.partialScore.theirs} (partial)` : 'Pending';
+};
 
 export default function MatchLogRounds({ data, theme, onSaveMatch, onRemove, onSaveRounds, onSaveVeto, onRefreshDatabase, manualReplayDraft, onManualReplayDraftConsumed, reviewMatchId, reviewRoundNo, onReviewContextChange, onDuplicateReview, onAcceptRoundEvidence, onRecordLive }: ComponentProps) {
   const isLight = data.settings.theme === 'daylight';
@@ -459,7 +465,7 @@ export default function MatchLogRounds({ data, theme, onSaveMatch, onRemove, onS
               <div className="grid grid-cols-2 md:grid-cols-4 gap-4 bg-black/10 p-4 rounded-xl border border-white/5 text-center font-mono text-xs">
                 <div>
                   <p className="text-xs text-gray-500 uppercase font-black tracking-widest mb-1">SCORE</p>
-                  <p className="text-lg font-black text-white">{(() => { const score = matchScore(selectedMatch); return score ? `${score.ours} - ${score.theirs}` : 'Pending'; })()}</p>
+                  <p className="text-lg font-black text-white">{matchScoreDisplay(selectedMatch)}</p>
                 </div>
                 <div>
                   <p className="text-xs text-gray-500 uppercase font-black tracking-widest mb-1">ATT SPLIT</p>

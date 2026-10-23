@@ -1,7 +1,7 @@
 import React from 'react';
 import { renderToStaticMarkup } from 'react-dom/server';
 import { afterEach, describe, expect, it, vi } from 'vitest';
-import { cancelVodImport, endOfGameBoard, knownScoreboardRows, looksLikeScoreboard, scoreboardCheck, overallVodPercent, splitVodLinks, startVodBatchImport, vodImportStore, type VodBatchImportInput, type VodImportDeps } from '../src/utils/vodImportRunner';
+import { boundaryTimelinePlayers, cancelVodImport, endOfGameBoard, knownScoreboardRows, looksLikeScoreboard, scoreboardCheck, overallVodPercent, splitVodLinks, startVodBatchImport, vodImportStore, type VodBatchImportInput, type VodImportDeps } from '../src/utils/vodImportRunner';
 import VodImportStatus from '../src/components/VodImportStatus';
 import VodImportQueue from '../src/components/VodImportQueue';
 import VodTeamPick from '../src/components/VodTeamPick';
@@ -38,6 +38,31 @@ function harness(options: { failOnPost?: number; latestData?: any; typedNames?: 
 }
 
 afterEach(() => { cleanups.splice(0).forEach(cleanup => cleanup()); vodImportStore.reset(); });
+
+describe('timeline lineup isolation', () => {
+  it('uses the linked match five instead of the full twenty-profile registry', () => {
+    const roster = Array.from({ length: 20 }, (_, index) => ({ id: `p-${index + 1}`, displayName: `Profile ${index + 1}`, isCore: index < 5 }));
+    const stats = [3, 7, 11, 15, 19].map(index => ({ matchId: 'match-1', playerId: `p-${index}`, displayNameSnapshot: `Profile ${index}` }));
+    expect(boundaryTimelinePlayers(roster, { id: 'match-1' }, stats).filter(row => row.team === 'ours').map(row => row.name)).toEqual(['Profile 3', 'Profile 7', 'Profile 11', 'Profile 15', 'Profile 19']);
+  });
+
+  it('never silently adopts core profiles as an unlinked match lineup', () => {
+    const five = Array.from({ length: 5 }, (_, index) => ({ id: `p-${index}`, displayName: `Core ${index}`, isCore: true }));
+    expect(boundaryTimelinePlayers(five, null)).toEqual([]);
+    expect(boundaryTimelinePlayers([...five, { id: 'p-6', displayName: 'Sixth core', isCore: true }], null)).toEqual([]);
+  });
+
+  it('reuses five allied screenshot identities when a linked legacy match has no canonical stats', () => {
+    const roster = Array.from({ length: 20 }, (_, index) => ({ id: `p-${index}`, displayName: `Profile ${index}` }));
+    const scoreboardPlayers = [
+      ...Array.from({ length: 5 }, (_, index) => ({ name: `Linked ally ${index + 1}`, allied: true })),
+      ...Array.from({ length: 5 }, (_, index) => ({ name: `Linked opponent ${index + 1}`, allied: false })),
+    ];
+    const result = boundaryTimelinePlayers(roster, { id: 'legacy-match', screenshotEvidence: { scoreboardPlayers } }, []);
+    expect(result.filter(row => row.team === 'ours').map(row => row.name)).toEqual(['Linked ally 1', 'Linked ally 2', 'Linked ally 3', 'Linked ally 4', 'Linked ally 5']);
+    expect(result.filter(row => row.team === 'theirs')).toHaveLength(5);
+  });
+});
 
 describe('VOD import runner survives leaving the VOD tab', () => {
   it('keeps running and keeps progress with no component subscribed, then finishes and refreshes data', async () => {
@@ -97,10 +122,11 @@ describe('VOD import runner survives leaving the VOD tab', () => {
   });
 
   it('links a queued VOD against data saved by the VOD before it', async () => {
-    const latest = { matches: [{ id: 'm-new', date: '2026-10-20', map: 'Ascent', ourScore: 13, theirScore: 9, opponent: 'OpponentA' }], playerStats: [{ matchId: 'm-new', playerId: 'p1' }] };
+    const latest = { matches: [{ id: 'm-new', date: '2026-10-20', map: 'Ascent', ourScore: 13, theirScore: 9, opponent: 'OpponentA' }], playerStats: Array.from({ length: 5 }, (_, index) => ({ matchId: 'm-new', playerId: `p${index + 1}` })) };
     const h = harness({ latestData: latest });
-    const first = startVodBatchImport(input(), h.deps);
-    const second = startVodBatchImport(input({ vodUrl: 'https://youtu.be/second' }), h.deps);
+    const five = Array.from({ length: 5 }, (_, index) => ({ id: `p${index + 1}`, displayName: `Player ${index + 1}`, isCore: true }));
+    const first = startVodBatchImport(input({ roster: five }), h.deps);
+    const second = startVodBatchImport(input({ vodUrl: 'https://youtu.be/second', roster: five }), h.deps);
     await h.finishAnalysis(); await h.finishAnalysis(); await first;
     await h.finishAnalysis(); await h.finishAnalysis(); await second;
     const posts = h.apiFetch.mock.calls.filter(([url]) => url === '/api/vod-submissions').map(([, init]) => JSON.parse(String(init?.body)));
@@ -331,7 +357,7 @@ describe('VOD import runner survives leaving the VOD tab', () => {
     expect(bodies[0]).toMatchObject({ addObservedPlayers: true }); expect(bodies[0].players.map((player: any) => [player.observedName, player.kills, player.deaths, player.assists])).toEqual(names.map(name => [name, null, null, null]));
     expect(vodImportStore.getSnapshot().batchResult[0].status).toContain('names typed, K/D/A blank (no scoreboard, kill feed unread)');
     // The counts travel in the timeline; the server fills them, marked partial. The rows stay blank.
-    expect(bodies[1].players.map((player: any) => [player.observedName, player.kills, player.deaths])).toEqual(names.map(name => [name, null, null]));
+    expect(bodies[1].players.map((player: any) => [player.observedName, player.kills, player.deaths, player.trades])).toEqual(names.map(name => [name, null, null, null]));
     expect(vodImportStore.getSnapshot().batchResult[1].status).toContain('kills and deaths from the kill feed');
   });
 
