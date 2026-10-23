@@ -321,6 +321,26 @@ describe('VOD import runner survives leaving the VOD tab', () => {
     } finally { discovery.games = []; discovery.boundaries = savedBoundaries; }
   });
 
+  it('uses the end-of-game board when mid-game TAB boards were read in the same game', async () => {
+    const names = ['Ana', 'Ben', 'Cy', 'Dee', 'Eli', 'Foe1', 'Foe2', 'Foe3', 'Foe4', 'Foe5'];
+    const board = (ourScore: number | null, theirScore: number | null, kills: number) => ({ imageSha256: String(kills).padStart(64, '0'), draft: { match: { map: null, ourScore, theirScore }, stats: names.map(extractedName => ({ extractedName, rosterMatch: { status: 'unmatched' }, matchedPlayerId: null, agent: 'Sova', kills, deaths: 9, assists: 4 })) } });
+    // Game 1: two TAB boards, the final 13-9 board, then a later TAB-like read with no score. Game 2: two TAB boards, no final.
+    const boards = [board(5, 3, 5), board(9, 8, 11), board(13, 9, 18), board(null, null, 19), board(2, 1, 3), board(6, 4, 7)];
+    discovery.games = [100_000, 200_000, 280_000, 290_000, 350_000, 420_000].map((timestampMs, i) => ({ timestampMs, frame: `g-${i}` })) as any;
+    try {
+      const h = harness();
+      (h.deps as any).extractScoreboard = vi.fn(async (image: File) => boards[Number(image.name.match(/(\d+)\.png$/)![1]) - 1]);
+      const run = startVodBatchImport(input({ roster: [] }), h.deps);
+      // Our five are picked once; game 2 recognises them.
+      for (let i = 0; i < 40 && !vodImportStore.getSnapshot().teamPick; i += 1) await new Promise(resolve => setTimeout(resolve, 0));
+      expect(vodImportStore.answerTeamPick([0, 1, 2, 3, 4])).toBe(true);
+      await h.finishAnalysis(); await h.finishAnalysis();
+      await expect(run).resolves.toBe(true);
+      const bodies = (h.apiFetch.mock.calls as any[]).filter(([url]) => url === '/api/vod-submissions').map(([, init]) => JSON.parse(String(init.body)));
+      expect(bodies.map(body => [body.ourScore, body.theirScore, body.players[0]?.kills])).toEqual([[13, 9, 18], [6, 4, 7]]);
+    } finally { discovery.games = []; }
+  });
+
   it('shows the score the server read from the HUD on a game with no scoreboard', async () => {
     const h = harness();
     h.apiFetch.mockImplementation(async (url: string) => url === '/api/data' ? new Response(JSON.stringify({ matches: [], playerStats: [] }), { status: 200 }) : new Response(JSON.stringify({ submission: { linkMode: 'new-match', linkedMatchId: 'm-hud', integration: { scoreFromHud: { ourScore: 13, theirScore: 9, basis: 'final-read' } } } }), { status: 200 }));
