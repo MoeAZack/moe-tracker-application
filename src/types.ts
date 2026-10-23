@@ -480,7 +480,7 @@ export interface PlayerStats {
     submissionIds: string[]; fields: string[]; updatedAt: string;
     timeline?: { submissionId: string; grade: 'video-observation'; coverage: Record<string, 'complete' | 'partial' | 'unsupported'>; metrics: Record<string, number | null> };
     /** Fields counted from the kill feed when no board gave them: partial, replaced by a board or a coach edit. */
-    killFeed?: { submissionId: string; fields: Array<'kills' | 'deaths'>; coverage: 'partial' };
+    killFeed?: { submissionId: string; fields: Array<'kills' | 'deaths' | 'assists'>; coverage: 'partial'; source?: 'tab-board+kill-feed' };
   };
 }
 
@@ -831,7 +831,9 @@ export interface VodTimelineEvidence {
   coverage: { durationMs: number; killFeedSnapshots: number; objectiveSnapshots: number; ultimateSnapshots: number; roundStateSnapshots?: number; scoreboardSnapshots?: number; resolvedEliminations: number; inferredRoundGroups: number; temporalAmbiguities?: number; roundDetection?: { mode: 'authoritative' | 'inferred'; confidence: number; detectedRounds: number }; signals: Record<string, 'complete' | 'partial' | 'unsupported'> };
   observations: Array<{ id: string; kind: string; timestampMs: number; confidence?: number | null; grade: 'video-observation' | 'ocr'; killer?: string; victim?: string; player?: string; rawText?: string; [key: string]: unknown }>;
   rounds: Array<{ roundNumber: number; startedAtMs: number; endedAtMs: number; events: unknown[]; scoreBefore?: number[] | null; winner?: string | null; boundarySource?: string }>;
-  playerMetrics: Array<{ playerName: string; team: 'ours' | 'theirs'; kills: number; deaths: number; trades: number; ultimateUses?: number | null; orbCaptures?: number | null; kastSuccessful?: number | null; kastCovered?: number | null; kastRate?: number | null }>;
+  /** The last coach TAB board read, and how many of our rows matched a player by name. */
+  tabBoard?: { timestampMs: number; rows: number; matched: number };
+  playerMetrics: Array<{ playerName: string; team: 'ours' | 'theirs'; kills: number; deaths: number; assists?: number | null; source?: 'tab-board+kill-feed'; trades: number; ultimateUses?: number | null; orbCaptures?: number | null; kastSuccessful?: number | null; kastCovered?: number | null; kastRate?: number | null }>;
   throwCandidates: unknown[];
   limitations: string[];
   observerSegments?: Array<{ player: string; startedAtMs: number; endedAtMs: number; confidence: number; source: string }>;
