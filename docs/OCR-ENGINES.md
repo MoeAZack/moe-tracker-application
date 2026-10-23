@@ -1,12 +1,14 @@
 # OCR engines: Tesseract, PaddleOCR and ensemble
 
-Settings → OCR health & learning → **Number reader** picks who reads scoreboard numbers on this PC (K/D/A, scores, first bloods, plants, defuses, round-screen loadouts/banks/distances). Names, maps and labels are always read by Tesseract. Everything runs offline from the app's own `/ocr-assets/`; no OCR request leaves the app.
+Settings → OCR health & learning → **Number reader** picks who reads the **full scoreboard's K/D/A numbers** on this PC. Every other number (plants, defuses, first kills and deaths, scores, the round screens' banks, loadouts and kill distances, performance, head-to-head and the player table) and all names, maps and labels are read by Tesseract in every mode, exactly as with the default. Everything runs offline from the app's own `/ocr-assets/`; no OCR request leaves the app.
+
+Why only K/D/A: on the PC corpus (15 scrims, 1080p) PaddleOCR read every labelled K/D/A cell right, but on the other scoreboard columns it left most cells empty that Tesseract read (plants, defuses, first kills), and it changed about 10,000 round-screen values. Those crops (tiny single digits, icons next to numbers, coloured backgrounds) are not what it was measured on, so it doesn't read them (`numberReaderFor` in `lib/ocrEngines.ts`).
 
 | Setting | What reads numbers | When a number is kept |
 | --- | --- | --- |
 | Tesseract (default) | Tesseract 7, as before | Unchanged |
-| PaddleOCR numbers | PP-OCRv4 recognition model in ONNX Runtime WebAssembly | Same parser rules and K/D/A confidence floor as Tesseract |
-| Ensemble (must agree) | Tesseract and PaddleOCR read every number; for K/D/A, learned digit templates of the game font vote as well once they know the digits | At least two voters read the same digits and no voter read anything else. A voter that finds nothing abstains; any different number from any voter leaves the cell empty. Confidence is the lowest of the votes. With two voters this is plain "both must agree". A K/D/A line the splitter can't cut into three numbers stays empty (Tesseract's whole-line fallback has no second opinion). |
+| PaddleOCR numbers | Scoreboard K/D/A: PP-OCRv4 recognition model in ONNX Runtime WebAssembly. Everything else: Tesseract | Same parser rules and K/D/A confidence floor as Tesseract |
+| Ensemble (must agree) | Scoreboard K/D/A: Tesseract, PaddleOCR and, once they know the digits, learned templates of the game font. Everything else: Tesseract | At least two voters read the same digits and no voter read anything else. A voter that finds nothing abstains; any different number from any voter leaves the cell empty. Confidence is the lowest of the votes. With two voters this is plain "both must agree". A K/D/A line the splitter can't cut into three numbers stays empty (Tesseract's whole-line fallback has no second opinion). |
 
 ### Learned digit templates (third voter)
 

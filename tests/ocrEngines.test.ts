@@ -8,13 +8,14 @@ import {
   createPaddleDigitRecognizer,
   decodeDigitsCtc,
   normalizeOcrEngineId,
+  numberReaderFor,
   ocrEngineModelSuffix,
   paddleCharacters,
   paddleRecognitionTensor,
 } from '../lib/ocrEngines';
 import { KDA_CONFIDENCE_FLOOR, parseLocalScoreboardRecognitions } from '../lib/localOcrEngine';
 import { recognitionCacheKey } from '../lib/ocrAutonomy';
-import { OCR_LEARNING_VERSION, applyLocalCorrection, type LocalCorrectionModel } from '../lib/ocrLearning';
+import { OCR_LEARNING_VERSION, applyLocalCorrection, correctionSamplesFromAcceptedEdit, learningModelForField, type LocalCorrectionModel } from '../lib/ocrLearning';
 import { loadOnnxRuntimeWeb, loadPaddleAssets, numberCrop, timelineNumberCrops } from '../scripts/ocrEngineFixtures.mts';
 
 describe('engine selection', () => {
@@ -41,6 +42,13 @@ describe('engine selection', () => {
     const context = { layout: 'custom', resolution: '1920x1080', sourceRegion: 'row-0' };
     expect(applyLocalCorrection(model, 'kills', 1, { ...context, sourceModel: draft() })).toBe(7);
     expect(applyLocalCorrection(model, 'kills', 1, { ...context, sourceModel: draft('paddle') })).toBe(1);
+    // Every other field is Tesseract's read in every mode, so its rules keep firing.
+    for (const engine of ['paddle', 'ensemble'] as const) {
+      const plants: LocalCorrectionModel = { version: OCR_LEARNING_VERSION, rules: [{ field: 'plants', predicted: 1, corrected: 4, confirmations: 3, sourceModel: draft(), layout: 'custom', resolution: '1920x1080', sourceRegion: 'row-0' }] };
+      expect(applyLocalCorrection(plants, 'plants', 1, { ...context, sourceModel: draft(engine) })).toBe(4);
+      expect(learningModelForField(draft(engine), 'plants')).toBe(draft());
+      expect(learningModelForField(draft(engine), 'deaths')).toBe(draft(engine));
+    }
   });
 });
 
@@ -152,5 +160,45 @@ describe('licences', () => {
     expect(pkg.build.extraResources.some((item: { from: string }) => item.from === 'THIRD-PARTY-NOTICES.md')).toBe(true);
     const notices = readFileSync('THIRD-PARTY-NOTICES.md', 'utf8');
     for (const name of ['tesseract.js', 'tesseract.js-core', '@tesseract.js-data/eng', 'ONNX Runtime Web', 'PP-OCRv4', 'Apache-2.0']) expect(notices).toContain(name);
+  });
+});
+
+describe('where PaddleOCR reads', () => {
+  const scoreboards = ['valorant-post-match-scoreboard-v1', 'valorant-post-match-scoreboard-competitive-v1'];
+  it('reads only the full scoreboard K/D/A; every other number stays with Tesseract in every mode', () => {
+    for (const engine of ['paddle', 'ensemble'] as const) {
+      for (const profile of scoreboards) expect(numberReaderFor(engine, profile, 'kda')).toBe(engine);
+      // Plants, defuses, first kills/deaths, scores: integer cells on the scoreboard.
+      for (const profile of scoreboards) expect(numberReaderFor(engine, profile, undefined)).toBe('tesseract');
+      // Round screens (banks, loadouts, kill distances), performance, head-to-head and the player table.
+      for (const profile of ['valorant-round-summary-v1', 'valorant-performance-v1', 'valorant-head-to-head-v1', 'valorant-player-table-v1']) {
+        expect(numberReaderFor(engine, profile, undefined)).toBe('tesseract');
+        expect(numberReaderFor(engine, profile, 'kda')).toBe('tesseract');
+        expect(numberReaderFor(engine, profile, 'timestamp')).toBe('tesseract');
+      }
+    }
+    for (const profile of scoreboards) expect(numberReaderFor('tesseract', profile, 'kda')).toBe('tesseract');
+  });
+
+  it('the browser adapter calls PaddleOCR only from the segmented K/D/A reader', () => {
+    const source = readFileSync('lib/localOcrEngine.ts', 'utf8');
+    expect(source.match(/paddle!?\.readDigits\(/g)).toHaveLength(1);
+    const start = source.indexOf('const readNumber = async');
+    const call = source.indexOf('paddle.readDigits(');
+    expect(call).toBeGreaterThan(start);
+    expect(call).toBeLessThan(source.indexOf('const grayscaleNumber =', start));
+    expect(source.slice(start, call)).toContain("if (!paddle || reader === 'tesseract') return readTesseractNumber(");
+  });
+});
+
+describe('corrections recorded in PaddleOCR or Ensemble mode', () => {
+  it('key K/D/A on the engine\'s model and every other field on Tesseract\'s', () => {
+    const model = '7.0.0/eng-1.0.0/parser-v1+numbers:ensemble(tesseract,ppocrv4-rec-digits-v1,glyph-templates-v1)';
+    const match = { id: 'm1', source: 'scrim-import', sourceMetadata: { method: 'screenshot', model: `${model}+review` }, screenshotEvidence: { captureId: 'cap-1', diagnostics: { layout: 'custom', resolution: '1920x1080' } } };
+    const samples = correctionSamplesFromAcceptedEdit({
+      beforeMatch: match, beforeStats: [{ extractedName: 'Row 0', kills: 1, plants: 1 }], nextMatch: match,
+      nextStats: [{ player: 'Row 0', kills: 7, plants: 4 }], nextScoreboardRows: [0], recordedAt: '2026-10-23T00:00:00.000Z',
+    });
+    expect(Object.fromEntries(samples.map(sample => [sample.field, sample.modelVersion]))).toEqual({ kills: model, plants: '7.0.0/eng-1.0.0/parser-v1' });
   });
 });

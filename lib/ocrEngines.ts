@@ -19,8 +19,8 @@ export const DEFAULT_OCR_ENGINE: OcrEngineId = 'tesseract';
 
 export const OCR_ENGINE_LABELS: Readonly<Record<OcrEngineId, { label: string; detail: string }>> = Object.freeze({
   tesseract: { label: 'Tesseract', detail: 'The original reader. Reads names and numbers.' },
-  paddle: { label: 'PaddleOCR numbers', detail: 'PP-OCRv4 reads K/D/A and other numbers; Tesseract still reads names.' },
-  ensemble: { label: 'Ensemble (must agree)', detail: 'Tesseract, PaddleOCR and the digit templates it learns read every number. Any disagreement leaves the cell empty for you to fill in.' },
+  paddle: { label: 'PaddleOCR numbers', detail: 'PP-OCRv4 reads the scoreboard K/D/A; Tesseract reads everything else.' },
+  ensemble: { label: 'Ensemble (must agree)', detail: 'Tesseract, PaddleOCR and learned digit templates vote on the scoreboard K/D/A; any disagreement leaves the cell empty. Tesseract reads everything else.' },
 });
 
 /** Pinned offline runtime: served from the app's own origin like the Tesseract assets. */
@@ -53,6 +53,20 @@ export function calibratedPaddleConfidence(probability: number) {
 
 export function normalizeOcrEngineId(value: unknown): OcrEngineId {
   return OCR_ENGINE_IDS.includes(value as OcrEngineId) ? value as OcrEngineId : DEFAULT_OCR_ENGINE;
+}
+
+/** The only screens PaddleOCR is measured on: the full post-match scoreboard's K/D/A numbers. */
+export const PADDLE_PROVEN_PROFILES: ReadonlySet<string> = new Set(['valorant-post-match-scoreboard-v1', 'valorant-post-match-scoreboard-competitive-v1']);
+
+/**
+ * Who reads one number. PaddleOCR (alone or in the ensemble) reads only the
+ * segmented K/D/A numbers of the full scoreboard, where the PC corpus proved
+ * it. Every other number (plants, defuses, first bloods, scores, round-screen
+ * banks, loadouts and distances, the player table) stays with Tesseract: on
+ * those crops PaddleOCR left most cells empty that Tesseract read.
+ */
+export function numberReaderFor(engine: OcrEngineId, profileId: string, recognitionKind: string | undefined): OcrEngineId {
+  return engine !== 'tesseract' && recognitionKind === 'kda' && PADDLE_PROVEN_PROFILES.has(profileId) ? engine : 'tesseract';
 }
 
 /**

@@ -1,5 +1,5 @@
 import { buildScreenshotReviewDraft } from './entryEngine';
-import { agreeingNumberRead, loadBrowserPaddleDigitRecognizer, normalizeOcrEngineId, ocrEngineModelSuffix, unanimousNumberRead, type OcrEngineId } from './ocrEngines';
+import { agreeingNumberRead, loadBrowserPaddleDigitRecognizer, normalizeOcrEngineId, numberReaderFor, ocrEngineModelSuffix, unanimousNumberRead, type OcrEngineId } from './ocrEngines';
 import { classifyGlyphs, glyphFeatures, glyphLearningLabel, learnGlyphs, type GlyphFeature, type GlyphTemplateSet } from './glyphTemplates';
 
 export const LOCAL_OCR_RUNTIME = Object.freeze({
@@ -811,6 +811,7 @@ export async function createBrowserLocalTesseractAdapter(options: {
           const enlargedContext = enlarged.getContext('2d'); if (!enlargedContext) throw new Error('Canvas preprocessing is unavailable.');
           enlargedContext.fillStyle = '#fff'; enlargedContext.fillRect(0, 0, enlarged.width, enlarged.height); enlargedContext.imageSmoothingEnabled = false; enlargedContext.drawImage(rawCrop, padding, padding, processed.width * scale, processed.height * scale); recognitionImage = enlarged;
         }
+        const reader = paddle ? numberReaderFor(engine, immutableProfile.id, region.recognitionKind) : 'tesseract';
         if (region.recognitionKind === 'kda') {
           const segmented = segmentKdaNumberRectangles(processed);
           if (segmented) {
@@ -829,9 +830,9 @@ export async function createBrowserLocalTesseractAdapter(options: {
             };
             // The second, low-resolution read gives PaddleOCR a wider white margin instead of a larger image.
             const readNumber = async (crop: { width: number; height: number; data: Uint8ClampedArray }, rectangle: KdaNumberRectangle, enlarge = 1): Promise<KdaNumberRead> => {
-              if (!paddle) return readTesseractNumber(crop, rectangle, enlarge);
+              if (!paddle || reader === 'tesseract') return readTesseractNumber(crop, rectangle, enlarge);
               const paddleRead = await paddle.readDigits(crop, enlarge === 1 ? .25 : .5);
-              if (engine === 'paddle') return paddleRead;
+              if (reader === 'paddle') return paddleRead;
               const tesseractRead = await readTesseractNumber(crop, rectangle, enlarge);
               const templates = options.glyphTemplates; if (!templates) return agreeingNumberRead([tesseractRead, paddleRead]);
               // The learned font templates are a third voter; they abstain until they know the digits.
@@ -857,7 +858,7 @@ export async function createBrowserLocalTesseractAdapter(options: {
           }
           // Ensemble keeps a number only when both engines read it. The whole-line
           // fallback below is Tesseract alone, so an unsplit line stays unknown.
-          if (engine === 'ensemble') { results.push({ regionId: region.id, text: '', confidence: null }); continue; }
+          if (reader === 'ensemble') { results.push({ regionId: region.id, text: '', confidence: null }); continue; }
           const scale = Math.max(4, Math.ceil(96 / processed.height)); const padding = 12;
           const padded = document.createElement('canvas'); padded.width = processed.width * scale + padding * 2; padded.height = processed.height * scale + padding * 2;
           const paddedContext = padded.getContext('2d');
@@ -865,9 +866,6 @@ export async function createBrowserLocalTesseractAdapter(options: {
           paddedContext.fillStyle = '#fff'; paddedContext.fillRect(0, 0, padded.width, padded.height); paddedContext.imageSmoothingEnabled = false;
           paddedContext.drawImage(rawCrop, padding, padding, processed.width * scale, processed.height * scale); recognitionImage = padded;
         }
-        // Team-colour averages keep their colour mask; every other number reads the antialiased grayscale crop.
-        const paddleNumberCrop = () => region.id.startsWith('averages.') ? processed : preprocessNumericGrayscale(sourcePixels, region.rectangle);
-        if (engine === 'paddle' && region.kind === 'integer') { results.push({ regionId: region.id, ...await paddle!.readDigits(paddleNumberCrop()) }); continue; }
         await worker.setParameters({
           tessedit_pageseg_mode: region.layout === 'block' ? tesseract.PSM.SINGLE_BLOCK : tesseract.PSM.SINGLE_LINE,
           preserve_interword_spaces: region.layout === 'block' ? '1' : '0',
@@ -899,7 +897,6 @@ export async function createBrowserLocalTesseractAdapter(options: {
           ], /^\d{1,5}$/);
           text = selected.text; confidence = selected.confidence;
         }
-        if (engine === 'ensemble' && region.kind === 'integer') ({ text, confidence } = agreeingNumberRead([{ text, confidence }, await paddle!.readDigits(paddleNumberCrop())]));
         results.push({ regionId: region.id, text, confidence });
       }
       return results;

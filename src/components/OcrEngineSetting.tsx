@@ -24,7 +24,7 @@ export default function OcrEngineSetting({ isLight }: { isLight: boolean }) {
     <fieldset className={`rounded-xl border p-4 ${card}`}>
       <legend className="px-1 text-xs font-black uppercase tracking-wider">Number reader</legend>
       <p className="text-xs text-slate-400">
-        Which engine reads K/D/A, scores and other numbers on this PC. Everything runs offline. Names are always read by Tesseract. Each engine learns its own
+        Which engine reads the scoreboard's K/D/A on this PC; every other number and all names stay with Tesseract. Everything runs offline. Each engine learns its own
         corrections, so a switch starts learning for that engine from zero.
       </p>
       <div className="mt-3 grid gap-2 sm:grid-cols-3">

@@ -8,6 +8,16 @@ export type OcrLearningField = 'map' | 'opponent' | 'name' | 'agent' | 'kills' |
 /** Scoreboard cells a learned rule can correct. */
 export const CORRECTED_STAT_FIELDS: readonly OcrLearningField[] = ['agent', 'kills', 'deaths', 'assists', 'fk', 'fd', 'plants', 'defuses', 'trades'];
 
+/**
+ * The OCR model a field's learned rules are keyed on. Only the scoreboard's
+ * K/D/A is read by the chosen number reader (lib/ocrEngines.ts
+ * numberReaderFor); every other field is Tesseract's read in every mode, so
+ * its rules drop the "+numbers:…" engine suffix and stay shared across modes.
+ */
+export function learningModelForField(model: string, field: OcrLearningField) {
+  return field === 'kills' || field === 'deaths' || field === 'assists' ? model : model.replace(/\+numbers:[^+]*/, '');
+}
+
 export interface OcrCorrectionSample {
   id: string;
   captureId: string | null;
@@ -96,7 +106,7 @@ export function correctionSamplesFromAcceptedEdit(input: {
     const kept = same(predicted, corrected);
     // A kept read is evidence only for a scoreboard stat cell; elsewhere it says nothing.
     if (kept && (rowIndex === null || !CORRECTED_STAT_FIELDS.includes(field) || comparable(predicted) === null)) return;
-    samples.push({ id: `${matchId}:${playerId || `row-${rowIndex ?? 'match'}`}:${field}:${recordedAt}`, captureId, matchId, playerId, field, predicted: comparable(predicted) as any, corrected: comparable(corrected) as any, modelVersion, recordedAt, rowIndex, sourceRegion: rowIndex === null ? field : `player.${rowIndex}.${field}`, layout, resolution, ...(kept ? { kept: true } : {}) });
+    samples.push({ id: `${matchId}:${playerId || `row-${rowIndex ?? 'match'}`}:${field}:${recordedAt}`, captureId, matchId, playerId, field, predicted: comparable(predicted) as any, corrected: comparable(corrected) as any, modelVersion: learningModelForField(modelVersion, field), recordedAt, rowIndex, sourceRegion: rowIndex === null ? field : `player.${rowIndex}.${field}`, layout, resolution, ...(kept ? { kept: true } : {}) });
   };
   add('map', input.beforeMatch.map, input.nextMatch?.map);
   add('opponent', input.beforeMatch.opponent, input.nextMatch?.opponent);
@@ -186,7 +196,7 @@ export function buildLocalCorrectionModel(samples: readonly OcrCorrectionSample[
 export function applyLocalCorrection(model: LocalCorrectionModel | undefined, field: OcrLearningField, value: unknown, context?: { sourceModel?: string; layout?: string; resolution?: string; sourceRegion?: string }) {
   if (value === null || value === undefined || !model) return value;
   const candidates = model.rules.filter(rule => rule.field === field && same(rule.predicted, value)
-    && (!context?.sourceModel || rule.sourceModel === context.sourceModel)
+    && (!context?.sourceModel || rule.sourceModel === learningModelForField(context.sourceModel, field))
     && (!context?.layout || rule.layout === context.layout)
     && (!context?.resolution || rule.resolution === context.resolution)
     && (!context?.sourceRegion || rule.sourceRegion === context.sourceRegion));
