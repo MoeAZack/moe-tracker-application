@@ -5,7 +5,7 @@ import { integrateVodSubmission } from '../lib/vodSubmissions';
 import { applyVodHudScore } from '../lib/vodScore';
 import { matchResult, matchScore, sideSplit } from '../src/utils/matchScore';
 
-const { parseRoundStateSnapshot, deriveFinalScore, aggregateVideoEvidence } = evidenceModule;
+const { parseRoundStateSnapshot, parseEndBannerSnapshot, deriveFinalScore, aggregateVideoEvidence } = evidenceModule;
 
 // HUD reads as the round-state reader stores them: "left  timer  right".
 const hud = (pairs: Array<[number, number]>, stepMs = 100_000) => pairs.map(([left, right], index) => parseRoundStateSnapshot({ timestampMs: (index + 1) * stepMs, text: `${left}  1:${String(30 - (index % 30)).padStart(2, '0')}  ${right}`, confidence: .8 }));
@@ -24,6 +24,25 @@ describe('reading the score on the in-game HUD', () => {
     const states = [0, 1, 2].map(index => parseRoundStateSnapshot({ timestampMs: index * 90_000, text: `BUY PHASE 0:${30 - index} ROUND ${index + 1}` }));
     const result = evidenceModule.buildRoundTimeline(states, []);
     expect(result.rounds.map((round: any) => [round.roundNumber, round.scoreBefore])).toEqual([[1, null], [2, null], [3, null]]);
+  });
+
+  it('reads the custom-game end screen "ALLIES n - m ENEMIES" as the final score, Allies first', () => {
+    expect(parseEndBannerSnapshot({ timestampMs: 5, text: 'ALLIES 7 – 17 ENEMIES' })).toMatchObject({ kind: 'end-banner', score: [7, 17] });
+    expect(parseEndBannerSnapshot({ timestampMs: 5, text: 'Allies  13\n- 11  Enemies' })).toMatchObject({ score: [13, 11] });
+    expect(parseEndBannerSnapshot({ timestampMs: 5, text: 'ALLIES 40 - 2 ENEMIES' })).toBeNull();
+    expect(parseEndBannerSnapshot({ timestampMs: 5, text: 'ALLIES ENEMIES' })).toBeNull();
+    expect(parseEndBannerSnapshot({ timestampMs: 5, text: 'ALLIES 13 11 ENEMIES' })).toMatchObject({ score: [13, 11] });
+    expect(parseEndBannerSnapshot({ timestampMs: 5, text: '7 1:23 5' })).toBeNull();
+    // The banner beats HUD reads, and comes through the analyzer from whichever region read it.
+    const aggregated = aggregateVideoEvidence({ players: [], roundStateSnapshots: hud([[0, 0], [5, 12], [5, 17]]).map((item: any) => ({ timestampMs: item.timestampMs, text: item.rawText })), scoreboardSnapshots: [{ timestampMs: 900_000, text: 'ALLIES 7 - 17 ENEMIES' }] });
+    expect(deriveFinalScore(aggregated)).toEqual({ left: 7, right: 17, basis: 'end-banner', reads: 1 });
+  });
+
+  it('reads a played-out custom game past 13 and ends it after round 24', () => {
+    // Custom games can play all 24 rounds: 5-17 is a real HUD score there.
+    expect(deriveFinalScore(evidence(hud([[0, 0], [3, 9], [5, 14], [5, 17], [7, 17]])))).toEqual({ left: 7, right: 17, basis: 'final-read', reads: 5 });
+    // Seen only up to 5-17: the game had rounds left, so no score is guessed.
+    expect(deriveFinalScore(evidence(hud([[0, 0], [3, 9], [5, 14], [5, 17]])))).toBeNull();
   });
 
   it('takes the final score when the HUD showed it', () => {

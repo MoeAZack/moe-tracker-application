@@ -1,7 +1,7 @@
 import React from 'react';
 import { renderToStaticMarkup } from 'react-dom/server';
 import { afterEach, describe, expect, it, vi } from 'vitest';
-import { cancelVodImport, knownScoreboardRows, overallVodPercent, splitVodLinks, startVodBatchImport, vodImportStore, type VodBatchImportInput, type VodImportDeps } from '../src/utils/vodImportRunner';
+import { cancelVodImport, endOfGameBoard, knownScoreboardRows, looksLikeScoreboard, overallVodPercent, splitVodLinks, startVodBatchImport, vodImportStore, type VodBatchImportInput, type VodImportDeps } from '../src/utils/vodImportRunner';
 import VodImportStatus from '../src/components/VodImportStatus';
 import VodImportQueue from '../src/components/VodImportQueue';
 import VodTeamPick from '../src/components/VodTeamPick';
@@ -170,7 +170,7 @@ describe('VOD import runner survives leaving the VOD tab', () => {
     const h = harness();
     // ACS-ranked board: opponents hold four of the top five rows; only Alpha is on the roster.
     const names = ['Alpha', 'Foe1', 'Foe2', 'Foe3', 'Foe4', 'Bravo', 'Charlie', 'Delta', 'Echo', 'Foe5'];
-    const board = (map: string, theirScore: number) => ({ imageSha256: map === 'Ascent' ? 'a'.repeat(64) : 'b'.repeat(64), draft: { match: { map, ourScore: 13, theirScore }, stats: names.map((extractedName, index) => ({ extractedName, rosterMatch: { status: extractedName === 'Alpha' ? 'matched' : 'unmatched' }, matchedPlayerId: extractedName === 'Alpha' ? 'p1' : null, agent: 'Jett', kills: 20 - index, deaths: 10, assists: 3 })) } });
+    const board = (map: string, theirScore: number) => ({ imageSha256: map === 'Ascent' ? 'a'.repeat(64) : 'b'.repeat(64), draft: { match: { map, ourScore: 13, theirScore }, stats: names.map((extractedName, index) => ({ extractedName, rosterMatch: { status: extractedName === 'Alpha' ? 'matched' : 'unmatched' }, matchedPlayerId: extractedName === 'Alpha' ? 'p1' : null, agent: 'Jett', kills: 20 - index, deaths: 15, assists: 3, acs: 200 })) } });
     (h.deps as any).extractScoreboard = vi.fn().mockResolvedValueOnce(board('Ascent', 5)).mockResolvedValueOnce(board('Bind', 9));
     discovery.games = [{ timestampMs: 280_000, frame: 'g1' }, { timestampMs: 590_000, frame: 'g2' }] as any;
     h.apiFetch.mockImplementation(async (url: string, init?: RequestInit) => {
@@ -214,7 +214,7 @@ describe('VOD import runner survives leaving the VOD tab', () => {
 
   it('saves a game without names when the coach skips the pick, and stops cleanly when cancelled', async () => {
     const names = Array.from({ length: 10 }, (_, index) => `Name${index}`);
-    const board = { imageSha256: 'c'.repeat(64), draft: { match: { map: 'Ascent', ourScore: 13, theirScore: 4 }, stats: names.map(extractedName => ({ extractedName, rosterMatch: { status: 'unmatched' }, matchedPlayerId: null, agent: null, kills: 10, deaths: 10, assists: 1 })) } };
+    const board = { imageSha256: 'c'.repeat(64), draft: { match: { map: 'Ascent', ourScore: 13, theirScore: 4 }, stats: names.map(extractedName => ({ extractedName, rosterMatch: { status: 'unmatched' }, matchedPlayerId: null, agent: null, kills: 10, deaths: 10, assists: 1, acs: 200 })) } };
     discovery.games = [{ timestampMs: 280_000, frame: 'g1' }] as any;
     const waitForPick = async () => { for (let i = 0; i < 50 && !vodImportStore.getSnapshot().teamPick; i += 1) await new Promise(resolve => setTimeout(resolve, 0)); };
     try {
@@ -241,7 +241,7 @@ describe('VOD import runner survives leaving the VOD tab', () => {
 
   it('a game saved without names never links to a saved match, even one with the same date, map and score', async () => {
     const names = Array.from({ length: 10 }, (_, index) => `Name${index}`);
-    const board = { imageSha256: 'd'.repeat(64), draft: { match: { map: 'Ascent', ourScore: 13, theirScore: 4 }, stats: names.map(extractedName => ({ extractedName, rosterMatch: { status: 'unmatched' }, matchedPlayerId: null, agent: null, kills: 10, deaths: 10, assists: 1 })) } };
+    const board = { imageSha256: 'd'.repeat(64), draft: { match: { map: 'Ascent', ourScore: 13, theirScore: 4 }, stats: names.map(extractedName => ({ extractedName, rosterMatch: { status: 'unmatched' }, matchedPlayerId: null, agent: null, kills: 10, deaths: 10, assists: 1, acs: 200 })) } };
     discovery.games = [{ timestampMs: 280_000, frame: 'g1' }] as any;
     try {
       const h = harness(); (h.deps as any).extractScoreboard = vi.fn().mockResolvedValue(board);
@@ -258,7 +258,7 @@ describe('VOD import runner survives leaving the VOD tab', () => {
   it('keeps a board with an unreadable name: five on the roster need no pick, otherwise the coach picks and types the name', async () => {
     const roster = ['Alpha', 'Bravo', 'Charlie', 'Delta', 'Echo'].map((displayName, index) => ({ id: `p${index + 1}`, displayName }));
     const names = ['Alpha', 'Bravo', 'Charlie', 'Delta', 'Echo', 'Foe1', '', 'Foe3', 'Foe4', 'Foe5'];
-    const board = (rostered: number) => ({ imageSha256: 'e'.repeat(64), draft: { match: { map: 'Ascent', ourScore: 13, theirScore: 7 }, stats: names.map((extractedName, index) => ({ extractedName, rosterMatch: { status: index < rostered ? 'matched' : 'unmatched' }, matchedPlayerId: index < rostered ? `p${index + 1}` : null, agent: 'Sova', kills: 15, deaths: 12, assists: 4 })) } });
+    const board = (rostered: number) => ({ imageSha256: 'e'.repeat(64), draft: { match: { map: 'Ascent', ourScore: 13, theirScore: 7 }, stats: names.map((extractedName, index) => ({ extractedName, rosterMatch: { status: index < rostered ? 'matched' : 'unmatched' }, matchedPlayerId: index < rostered ? `p${index + 1}` : null, agent: 'Sova', kills: 15, deaths: 12, assists: 4, acs: 200 })) } });
     discovery.games = [{ timestampMs: 280_000, frame: 'g1' }] as any;
     const savedBoundaries = discovery.boundaries; discovery.boundaries = [boundary(0, 'Ascent')];
     try {
@@ -290,9 +290,59 @@ describe('VOD import runner survives leaving the VOD tab', () => {
     } finally { discovery.games = []; discovery.boundaries = savedBoundaries; }
   });
 
+  it('tells a real scoreboard from agent select and gameplay frames read in the same ten-row layout', () => {
+    const row = (kills: number | null, deaths: number | null, assists: number | null, acs: number | null) => ({ kills, deaths, assists, acs });
+    const real = Array.from({ length: 10 }, (_, index) => row(10 + (index % 3), 11, 4, 180 + index));
+    expect(looksLikeScoreboard(real)).toBe(true);
+    // Agent select: names and agents, no numbers.
+    expect(looksLikeScoreboard(Array.from({ length: 10 }, () => row(null, null, null, null)))).toBe(false);
+    // A gameplay frame: a few stray digits, most cells empty.
+    expect(looksLikeScoreboard(real.map((item, index) => index < 4 ? item : row(1, null, null, null)))).toBe(false);
+    // Numbers in every cell that cannot be a board: kills nowhere near deaths.
+    expect(looksLikeScoreboard(real.map(item => ({ ...item, deaths: 1 })))).toBe(false);
+    expect(looksLikeScoreboard(real.slice(0, 9))).toBe(false);
+  });
+
+  it('takes the 24-round board of a played-out custom game as its end-of-game board', () => {
+    const at = (timestampMs: number, ourScore: number | null, theirScore: number | null) => ({ timestampMs, draft: { match: { ourScore, theirScore } } });
+    expect(endOfGameBoard([at(1, 5, 12), at(2, 7, 17), at(3, 6, 14)])).toMatchObject({ timestampMs: 2 });
+  });
+
+  it('drops a candidate picked for looking like agent select, and one with ten empty rows', async () => {
+    const names = ['Ana', 'Ben', 'Cy', 'Dee', 'Eli', 'Foe1', 'Foe2', 'Foe3', 'Foe4', 'Foe5'];
+    const board = { imageSha256: 'f'.repeat(64), draft: { match: { map: null, ourScore: null, theirScore: null }, stats: names.map(extractedName => ({ extractedName, rosterMatch: { status: 'unmatched' }, matchedPlayerId: null, agent: 'Sova', kills: 15, deaths: 12, assists: 4, acs: 200 })) } };
+    const empty = { ...board, draft: { ...board.draft, stats: board.draft.stats.map(item => ({ ...item, kills: null, deaths: null, assists: null, acs: null })) } };
+    discovery.games = [{ timestampMs: 100_000, frame: 'g-agent-select', score: 20, agentSelectScore: 40 }, { timestampMs: 200_000, frame: 'g-hud', score: 60, agentSelectScore: 5 }] as any;
+    try {
+      const h = harness(); const reportDiagnostic = vi.fn(async () => ({ code: 'x' })); (h.deps.desktop as any).reportDiagnostic = reportDiagnostic;
+      (h.deps as any).extractScoreboard = vi.fn(async (image: File) => image.name === 'vod-scoreboard-1.png' ? board : empty);
+      const run = startVodBatchImport(input({ roster: [] }), h.deps);
+      await h.finishAnalysis(); await h.finishAnalysis();
+      await expect(run).resolves.toBe(true);
+      expect(vodImportStore.getSnapshot().teamPick).toBeNull();
+      expect(reportDiagnostic).toHaveBeenCalledWith({ action: 'vod-scoreboard-candidates', message: 'read 2, used 0, not a scoreboard 2, not ten rows 0, duplicate 0' });
+    } finally { discovery.games = []; }
+  });
+
+  it('on a player POV with an empty roster, the typed POV name is known in the five-picker and goes to the analyzer', async () => {
+    const names = ['Ana', 'Ben', 'Cy', 'Dee', 'Eli', 'Foe1', 'Foe2', 'Foe3', 'Foe4', 'Foe5'];
+    const board = { imageSha256: 'f'.repeat(64), draft: { match: { map: 'Ascent', ourScore: 13, theirScore: 9 }, stats: names.map(extractedName => ({ extractedName, rosterMatch: { status: 'unmatched' }, matchedPlayerId: null, agent: 'Sova', kills: 15, deaths: 12, assists: 4, acs: 200 })) } };
+    discovery.games = [{ timestampMs: 290_000, frame: 'g1' }] as any;
+    try {
+      const h = harness(); (h.deps as any).extractScoreboard = vi.fn(async () => board);
+      const run = startVodBatchImport(input({ roster: [], perspective: 'player', povPlayerName: 'Cy' }), h.deps);
+      for (let i = 0; i < 20 && !vodImportStore.getSnapshot().teamPick; i += 1) await new Promise(resolve => setTimeout(resolve, 0));
+      expect(vodImportStore.getSnapshot().teamPick?.rows.filter(row => row.known).map(row => row.name)).toEqual(['Cy']);
+      expect(vodImportStore.answerTeamPick([0, 1, 2, 3, 4])).toBe(true);
+      await h.finishAnalysis(); await h.finishAnalysis();
+      await expect(run).resolves.toBe(true);
+      expect((h.desktop.analyzeVod.mock.calls as any[]).map(([request]) => request.povPlayerName)).toEqual(['Cy', 'Cy']);
+    } finally { discovery.games = []; }
+  });
+
   it('uses the scoreboard of the one game that showed it, asks for our five on an empty roster, and logs why other candidates were dropped', async () => {
     const names = ['Ana', 'Ben', 'Cy', 'Dee', 'Eli', 'Foe1', 'Foe2', 'Foe3', 'Foe4', 'Foe5'];
-    const board = { imageSha256: 'f'.repeat(64), draft: { match: { map: null, ourScore: null, theirScore: null }, stats: names.map(extractedName => ({ extractedName, rosterMatch: { status: 'unmatched' }, matchedPlayerId: null, agent: 'Sova', kills: 15, deaths: 12, assists: 4 })) } };
+    const board = { imageSha256: 'f'.repeat(64), draft: { match: { map: null, ourScore: null, theirScore: null }, stats: names.map(extractedName => ({ extractedName, rosterMatch: { status: 'unmatched' }, matchedPlayerId: null, agent: 'Sova', kills: 15, deaths: 12, assists: 4, acs: 200 })) } };
     discovery.games = [{ timestampMs: 290_000, frame: 'g-in-game-1' }, { timestampMs: 400_000, frame: 'g-not-a-board' }, { timestampMs: 500_000, frame: 'g-nine-rows' }] as any;
     const savedBoundaries = discovery.boundaries;
     discovery.boundaries = [boundary(0, 'Ascent'), boundary(300_000, 'Bind'), boundary(450_000, 'Lotus')];
@@ -323,7 +373,7 @@ describe('VOD import runner survives leaving the VOD tab', () => {
 
   it('uses the end-of-game board when mid-game TAB boards were read in the same game', async () => {
     const names = ['Ana', 'Ben', 'Cy', 'Dee', 'Eli', 'Foe1', 'Foe2', 'Foe3', 'Foe4', 'Foe5'];
-    const board = (ourScore: number | null, theirScore: number | null, kills: number) => ({ imageSha256: String(kills).padStart(64, '0'), draft: { match: { map: null, ourScore, theirScore }, stats: names.map(extractedName => ({ extractedName, rosterMatch: { status: 'unmatched' }, matchedPlayerId: null, agent: 'Sova', kills, deaths: 9, assists: 4 })) } });
+    const board = (ourScore: number | null, theirScore: number | null, kills: number) => ({ imageSha256: String(kills).padStart(64, '0'), draft: { match: { map: null, ourScore, theirScore }, stats: names.map(extractedName => ({ extractedName, rosterMatch: { status: 'unmatched' }, matchedPlayerId: null, agent: 'Sova', kills, deaths: kills, assists: 4, acs: 200 })) } });
     // Game 1: two TAB boards, the final 13-9 board, then a later TAB-like read with no score. Game 2: two TAB boards, no final.
     const boards = [board(5, 3, 5), board(9, 8, 11), board(13, 9, 18), board(null, null, 19), board(2, 1, 3), board(6, 4, 7)];
     discovery.games = [100_000, 200_000, 280_000, 290_000, 350_000, 420_000].map((timestampMs, i) => ({ timestampMs, frame: `g-${i}` })) as any;
@@ -337,7 +387,9 @@ describe('VOD import runner survives leaving the VOD tab', () => {
       await h.finishAnalysis(); await h.finishAnalysis();
       await expect(run).resolves.toBe(true);
       const bodies = (h.apiFetch.mock.calls as any[]).filter(([url]) => url === '/api/vod-submissions').map(([, init]) => JSON.parse(String(init.body)));
-      expect(bodies.map(body => [body.ourScore, body.theirScore, body.players[0]?.kills])).toEqual([[13, 9, 18], [6, 4, 7]]);
+      expect(bodies.map(body => [body.ourScore, body.theirScore, body.players[0]?.kills])).toEqual([[13, 9, 18], [null, null, 7]]);
+      // Game 2 only had a mid-game TAB board: its score is not final, and its stats are labelled partial.
+      expect(vodImportStore.getSnapshot().batchResult.map(game => game.status.includes("may be partial"))).toEqual([false, true]);
     } finally { discovery.games = []; }
   });
 

@@ -115,6 +115,9 @@ export default function VodSubmission({ data, role, onRefresh }: Props) {
   const [vodJobs, setVodJobs] = useState<Awaited<ReturnType<NonNullable<typeof window.moeDesktop>['listVodJobs']>>>([]);
   const [screenshotJobId, setScreenshotJobId] = useState('');
   const activeRoster = useMemo(() => (data.rosterPlayers || []).filter(player => !player.retiredAt), [data.rosterPlayers]);
+  // A fresh workspace has nobody on the roster: the POV player's in-game name can be typed instead.
+  const [vodPovTypedName, setVodPovTypedName] = useState('');
+  const vodPovName = activeRoster.find(player => player.id === vodPovPlayerId)?.displayName || vodPovTypedName.trim() || null;
   const matches = useMemo(() => [...(data.matches || [])].sort((a, b) => `${b.date}:${b.id}`.localeCompare(`${a.date}:${a.id}`)), [data.matches]);
   const chosenMatch = matches.find(match => match.id === matchId);
   const queuedLinkCount = localVod ? 1 : splitVodLinks(vodUrl).length;
@@ -251,12 +254,12 @@ export default function VodSubmission({ data, role, onRefresh }: Props) {
     const chosenLocal = sourceOverride ? { path: sourceOverride.path, name: sourceOverride.name } : localVod;
     // A local video takes the typed link as its source link; without one, every pasted link is its own VOD.
     const links = sourceOverride ? [sourceOverride.vodUrl ?? ''] : chosenLocal ? [vodUrl.trim()] : splitVodLinks(vodUrl);
-    if (!window.moeDesktop || (!links.some(Boolean) && !chosenLocal) || role !== 'coach' || (vodPerspective === 'player' && !vodPovPlayerId)) return;
+    if (!window.moeDesktop || (!links.some(Boolean) && !chosenLocal) || role !== 'coach' || (vodPerspective === 'player' && !vodPovName)) return;
     const shared = {
       expectedGames: sourceOverride?.expectedGames || Number.parseInt(expectedGames, 10) || 1,
       date,
       perspective: vodPerspective,
-      povPlayerName: activeRoster.find(player => player.id === vodPovPlayerId)?.displayName || null,
+      povPlayerName: vodPovName,
       mapNames: activeResourceNames(data, 'map'),
       roster: activeRoster,
       matches,
@@ -386,7 +389,7 @@ export default function VodSubmission({ data, role, onRefresh }: Props) {
               Whose POV?
               <select
                 value={vodPovPlayerId}
-                onChange={event => setVodPovPlayerId(event.target.value)}
+                onChange={event => { setVodPovPlayerId(event.target.value); if (event.target.value) setVodPovTypedName(''); }}
                 className="ui-field mt-1 min-h-11 w-full px-3 text-sm normal-case"
               >
                 <option value="">Choose the player</option>
@@ -396,6 +399,14 @@ export default function VodSubmission({ data, role, onRefresh }: Props) {
                   </option>
                 ))}
               </select>
+              <input
+                value={vodPovTypedName}
+                onChange={event => { setVodPovTypedName(event.target.value); if (event.target.value.trim()) setVodPovPlayerId(''); }}
+                placeholder={activeRoster.length ? 'Or type their in-game name' : 'Their in-game name'}
+                aria-label="POV player's in-game name"
+                maxLength={40}
+                className="ui-field mt-2 min-h-11 w-full px-3 text-sm normal-case"
+              />
             </label>
           )}
           <div className="mt-3 grid gap-3 sm:grid-cols-[minmax(0,1fr)_auto_110px_auto]">
@@ -426,7 +437,7 @@ export default function VodSubmission({ data, role, onRefresh }: Props) {
             </label>
             <button
               type="button"
-              disabled={!!busy || (!vodUrl.trim() && !localVod) || (vodPerspective === 'player' && !vodPovPlayerId)}
+              disabled={!!busy || (!vodUrl.trim() && !localVod) || (vodPerspective === 'player' && !vodPovName)}
               onClick={() => void autoImportAllGames()}
               className="ui-button ui-button-primary min-h-11 px-5 text-sm disabled:opacity-40"
             >

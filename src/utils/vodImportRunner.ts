@@ -167,6 +167,8 @@ const fileFromBase64 = (base64: string, name: string, type: string) => {
 const sha256File = async (file: File) => [...new Uint8Array(await crypto.subtle.digest('SHA-256', await file.arrayBuffer()))].map(item => item.toString(16).padStart(2, '0')).join('');
 // The final score the server read from the in-game HUD, when no scoreboard or saved match gave one.
 const hudScore = (payload: any) => { const read = payload?.submission?.integration?.scoreFromHud; return read ? `${read.ourScore}–${read.theirScore}` : null; };
+// Where a derived score came from, for the game card: the end screen names the sides, the HUD does not.
+const hudScoreNote = (payload: any) => payload?.submission?.integration?.scoreFromHud?.basis === 'end-banner' ? ' · score read from the end screen (Allies counted as yours)' : ' · score read from the in-game HUD (left side counted as yours; Edit if reversed)';
 const stripRawText = (evidence: unknown) => JSON.parse(JSON.stringify(evidence, (key, item) => key === 'rawText' ? undefined : item));
 
 /**
@@ -175,11 +177,34 @@ const stripRawText = (evidence: unknown) => JSON.parse(JSON.stringify(evidence, 
  * coach is asked again.
  */
 /** Mid-game TAB boards look like scoreboards too. A game's own board is the last one with a
- *  finished score (13+ and two clear), else the last board read inside that game. */
+ *  finished score (13+ and two clear, or all 24 rounds of a played-out custom game), else the
+ *  last board read inside that game. */
+/** A board that shows a finished game: 13+ and two clear, or all 24 rounds of a played-out custom game. */
+export function isFinishedBoard({ draft: { match: { ourScore, theirScore } } }: { draft: { match: { ourScore: number | null; theirScore: number | null } } }) {
+  if (typeof ourScore !== 'number' || typeof theirScore !== 'number') return false;
+  return ourScore + theirScore >= 24 || (Math.max(ourScore, theirScore) >= 13 && Math.abs(ourScore - theirScore) >= 2);
+}
+
 export function endOfGameBoard<T extends { timestampMs: number; draft: { match: { ourScore: number | null; theirScore: number | null } } }>(boards: T[]): T | null {
   const ordered = [...boards].sort((left, right) => left.timestampMs - right.timestampMs);
-  const finished = ordered.filter(({ draft: { match: { ourScore, theirScore } } }) => typeof ourScore === 'number' && typeof theirScore === 'number' && Math.max(ourScore, theirScore) >= 13 && Math.abs(ourScore - theirScore) >= 2);
-  return finished.at(-1) || ordered.at(-1) || null;
+  const scored = ordered.filter(({ draft: { match: { ourScore, theirScore } } }) => typeof ourScore === 'number' && typeof theirScore === 'number');
+  // A played-out game passes 13 mid-game, so a 24-round board outranks the regulation rule.
+  const playedOut = scored.filter(({ draft: { match } }) => (match.ourScore as number) + (match.theirScore as number) >= 24);
+  const finished = scored.filter(({ draft: { match } }) => Math.max(match.ourScore as number, match.theirScore as number) >= 13 && Math.abs((match.ourScore as number) - (match.theirScore as number)) >= 2);
+  return playedOut.at(-1) || finished.at(-1) || ordered.at(-1) || null;
+}
+
+/**
+ * The fixed layout always yields ten rows, so ten rows prove nothing: agent select and
+ * gameplay frames read as ten mostly empty rows. A real board has K, D, A and ACS on
+ * nearly every row, and its kills and deaths roughly balance (each kill is someone's death).
+ */
+export function looksLikeScoreboard(stats: ReadonlyArray<{ kills?: unknown; deaths?: unknown; assists?: unknown; acs?: unknown }>) {
+  const count = (input: unknown, max: number) => typeof input === 'number' && Number.isInteger(input) && input >= 0 && input <= max;
+  const rows = stats.filter(row => count(row.kills, 80) && count(row.deaths, 80) && count(row.assists, 80) && count(row.acs, 999) && (row.acs as number) > 0);
+  if (stats.length !== 10 || rows.length < 8) return false;
+  const kills = rows.reduce((sum, row) => sum + (row.kills as number), 0); const deaths = rows.reduce((sum, row) => sum + (row.deaths as number), 0);
+  return deaths > 0 && Math.abs(kills - deaths) <= Math.max(8, Math.round(deaths * 0.25));
 }
 
 export function knownScoreboardRows(stats: ReadonlyArray<{ extractedName?: string | null; rosterMatch?: { status?: string } }>, oursThisRun: readonly string[]) {
@@ -307,6 +332,8 @@ async function runOneImport(input: VodBatchImportInput, deps: VodImportDeps): Pr
       // Ten rows make a scoreboard. Unreadable names, score or map do not drop it:
       // the coach names our five in the picker, and the score and map have other sources.
       if (extracted.draft.stats.length !== 10) { dropped.notTenRows += 1; continue; }
+      // A frame picked for looking like agent select, or ten rows that hold no board, is not a scoreboard.
+      const candidate = discovery.games[index]; if ((Number(candidate.agentSelectScore) || 0) * 1.25 > (Number(candidate.score) || 0) || !looksLikeScoreboard(extracted.draft.stats)) { dropped.notScoreboard += 1; continue; }
       const signature = `${String(extracted.draft.match.map || '').toLocaleLowerCase()}:${extracted.draft.match.ourScore}:${extracted.draft.match.theirScore}:${extracted.draft.stats.map(row => `${row.matchedPlayerId || String(row.extractedName || '').toLocaleLowerCase('en')}:${row.kills}:${row.deaths}`).sort().join('|')}`;
       if (signatures.has(signature)) { dropped.duplicate += 1; continue; }
       signatures.add(signature); detected.push({ timestampMs: discovery.games[index].timestampMs, draft: extracted.draft, imageSha256: extracted.imageSha256 });
@@ -315,10 +342,12 @@ async function runOneImport(input: VodBatchImportInput, deps: VodImportDeps): Pr
     detected.sort((left, right) => left.timestampMs - right.timestampMs);
     const dateKey = discovery.uploadDate || input.date;
     const imported: VodBatchGame[] = [];
-    const addedPlayers = new Set<string>(); const oursThisRun: string[] = []; let unnamedGames = 0;
+    const addedPlayers = new Set<string>(); const oursThisRun: string[] = perspective === 'player' && selectedPovName ? [selectedPovName] : []; let unnamedGames = 0;
 
     // One game with its end-of-game scoreboard: our five are known from the roster or picked by the coach.
     const importScoreboardGame = async (game: (typeof detected)[number], index: number, total: number, startMs: number, endMs: number, fallbackMap: string | null) => {
+      // A TAB board opened mid-game shows the score and stats so far: its score is not the final one, and its stats may be partial.
+      const midGame = !isFinishedBoard(game); if (midGame) game.draft.match = { ...game.draft.match, ourScore: null, theirScore: null };
       const map = game.draft.match.map || fallbackMap; const scoreLabel = game.draft.match.ourScore !== null && game.draft.match.theirScore !== null ? `${game.draft.match.ourScore}–${game.draft.match.theirScore}` : 'Score pending';
       // Five known names decide our side. Otherwise the coach ticks our five; position on the board proves nothing.
       const known = knownScoreboardRows(game.draft.stats, oursThisRun);
@@ -344,7 +373,7 @@ async function runOneImport(input: VodBatchImportInput, deps: VodImportDeps): Pr
       const payload = await response.json(); if (!response.ok) throw new Error(payload.error || `Game ${index + 1} could not be integrated.`);
       const added: string[] = payload.submission.integration?.addedPlayers || []; added.forEach(name => addedPlayers.add(name));
       if (!selected.length) unnamedGames += 1;
-      imported.push({ map: map || 'Unknown map', matchId: payload.submission.linkedMatchId, score: hudScore(payload) || scoreLabel, status: `${payload.submission.linkMode === 'new-match' ? 'New match created' : 'Linked to existing match'}${added.length ? ` · ${added.length} new player${added.length === 1 ? '' : 's'} added` : ''}${selected.length ? '' : ' · players not named'}${hudScore(payload) ? ' · score read from the in-game HUD (left side counted as yours; Edit if reversed)' : ''}` });
+      imported.push({ map: map || 'Unknown map', matchId: payload.submission.linkedMatchId, score: hudScore(payload) || scoreLabel, status: `${payload.submission.linkMode === 'new-match' ? 'New match created' : 'Linked to existing match'}${added.length ? ` · ${added.length} new player${added.length === 1 ? '' : 's'} added` : ''}${selected.length ? '' : ' · players not named'}${midGame ? ' · player stats from a TAB board opened mid-game, may be partial' : ''}${hudScore(payload) ? hudScoreNote(payload) : ''}` });
       setState({ batchResult: [...imported] });
     };
 
@@ -365,7 +394,7 @@ async function runOneImport(input: VodBatchImportInput, deps: VodImportDeps): Pr
       const payload = await response.json(); if (!response.ok) throw new Error(payload.error || `Game ${index + 1} could not be integrated.`);
       const unnamed = players.length === 0; if (unnamed) unnamedGames += 1;
       const score = linked && typeof linked.ourScore === 'number' ? `${linked.ourScore}–${linked.theirScore}` : hudScore(payload);
-      imported.push({ map: mapName, matchId: payload.submission.linkedMatchId, mapRead: boundary.mapRead, mapSource: boundary.mapSource ?? null, firedTokens: boundary.firedTokens, score: score || 'Score pending', status: `${payload.submission.linkMode === 'new-match' ? 'Timeline imported · scoreboard pending' : 'Linked and timeline imported'}${unnamed ? ' · players not named yet' : ''}${!linked && score ? ' · score read from the in-game HUD (left side counted as yours; Edit if reversed)' : ''}` });
+      imported.push({ map: mapName, matchId: payload.submission.linkedMatchId, mapRead: boundary.mapRead, mapSource: boundary.mapSource ?? null, firedTokens: boundary.firedTokens, score: score || 'Score pending', status: `${payload.submission.linkMode === 'new-match' ? 'Timeline imported · scoreboard pending' : 'Linked and timeline imported'}${unnamed ? ' · players not named yet' : ''}${!linked && score ? hudScoreNote(payload) : ''}` });
       if (boundary.mapSource === 'learned') imported[imported.length - 1].status += ' · map remembered from your correction';
       setState({ batchResult: [...imported] });
     };
