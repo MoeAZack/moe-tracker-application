@@ -251,6 +251,18 @@ describe('a VOD match takes its missing score from the HUD', () => {
     expect(replay).toMatchObject({ ourScore: 10, theirScore: 14, scoreVerification: { source: 'replay' } });
   });
 
+  it('does not grant replay score authority for null or partial replay scores', () => {
+    for (const incoming of [[null, null], [13, null], [null, 11]] as Array<[number | null, number | null]>) {
+      const match: any = { ourScore: null, theirScore: null, partialScore: { ours: 12, theirs: 11, source: 'vod-hud' }, scoreEvidence: { source: 'vod-hud', basis: 'end-banner' }, sourceMetadata: { provider: 'vrfkit' } };
+      applyVerifiedMatchScore(match, incoming[0], incoming[1], 'replay');
+      expect(match.scoreVerification).toBeUndefined(); expect(match.partialScore).toBeTruthy(); expect(match.scoreEvidence).toBeTruthy();
+      // General replay provenance is not score provenance; a later complete board remains eligible.
+      applyVerifiedMatchScore(match, 9, 15, 'scoreboard');
+      expect(match).toMatchObject({ ourScore: 9, theirScore: 15, scoreVerification: { source: 'scoreboard' } });
+      expect(match.partialScore).toBeUndefined(); expect(match.scoreEvidence).toBeUndefined();
+    }
+  });
+
   it('does not derive the score again once the coach cleared it', () => {
     const state = db(); integrateVodSubmission(state, submission(), 'Coach', ids(), '2026-10-23T00:00:00Z');
     const match = state.matches[0]; match.ourScore = null; match.theirScore = null;

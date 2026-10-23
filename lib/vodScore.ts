@@ -12,8 +12,11 @@ export function manuallyCorrectedScoreFields(match: any) {
 
 /** Verified board/replay facts replace automatic VOD score evidence, never explicit coach corrections. */
 export function applyVerifiedMatchScore(match: any, ourScore: number | null, theirScore: number | null, source: 'scoreboard' | 'replay') {
+  // Score authority is pair-level: one missing side cannot prove a result and
+  // must not clear uncertainty or block a later complete source.
+  if (!Number.isSafeInteger(ourScore) || !Number.isSafeInteger(theirScore)) return match;
   const corrected = manuallyCorrectedScoreFields(match);
-  if (source === 'scoreboard' && (match.scoreVerification?.source === 'replay' || match.sourceMetadata?.provider === 'vrfkit')) return match;
+  if (source === 'scoreboard' && match.scoreVerification?.source === 'replay') return match;
   if (!corrected.has('ourScore') && Number.isSafeInteger(ourScore)) match.ourScore = ourScore;
   if (!corrected.has('theirScore') && Number.isSafeInteger(theirScore)) match.theirScore = theirScore;
   if (Number.isSafeInteger(match.ourScore) && Number.isSafeInteger(match.theirScore)) { delete match.scoreEvidence; delete match.partialScore; match.scoreVerification = { source }; }
