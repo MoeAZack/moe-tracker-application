@@ -12,6 +12,7 @@
  * drawn differently at 1080p and 900p, and capped per digit, newest first.
  */
 import type { NumberRead, RgbaImage } from './ocrEngines';
+import type { OcrCorrectionSample } from './ocrLearning';
 
 export const GLYPH_TEMPLATE_VERSION = 'glyph-templates-v1';
 const WIDTH = 12; const HEIGHT = 16; const SIZE = WIDTH * HEIGHT;
@@ -135,4 +136,38 @@ export function parseGlyphTemplates(text: string | null | undefined): GlyphTempl
 
 export function glyphTemplateCounts(set: GlyphTemplateSet) {
   return Object.fromEntries(Object.entries(set.byResolution).map(([key, templates]) => [key, new Set(templates.filter((template, _index, all) => all.filter(other => other.digit === template.digit).length >= GLYPH_MIN_EXAMPLES).map(template => template.digit)).size]));
+}
+
+/** K/D/A glyphs of one full scoreboard read, by scoreboard row: [kills, deaths, assists] glyphs. */
+export interface ScoreboardGlyphs { resolution: string; rows: Record<number, GlyphFeature[][]> }
+
+const KDA_INDEX: Record<string, number> = { kills: 0, deaths: 1, assists: 2 };
+
+/**
+ * Teaches the templates from a saved review: every K/D/A cell the coach
+ * corrected or kept, at a scoreboard row, labels that number's glyphs with
+ * the saved value. These are the most useful examples there are: a
+ * correction is exactly a digit the engines got wrong. A value whose digit
+ * count doesn't match the glyphs found is skipped.
+ */
+export function learnGlyphsFromCorrections(set: GlyphTemplateSet, glyphs: ScoreboardGlyphs | null | undefined, samples: readonly OcrCorrectionSample[]) {
+  if (!glyphs) return 0;
+  let learned = 0;
+  for (const sample of samples) {
+    const index = KDA_INDEX[sample.field];
+    if (index === undefined || !Number.isInteger(sample.rowIndex) || typeof sample.corrected !== 'number' || !Number.isInteger(sample.corrected) || sample.corrected < 0) continue;
+    const features = glyphs.rows[sample.rowIndex!]?.[index];
+    if (features && learnGlyphs(set, glyphs.resolution, features, String(sample.corrected))) learned += 1;
+  }
+  return learned;
+}
+
+/** Adds every template of `source` to `target` (newest-first caps still apply). Returns the number added. */
+export function mergeGlyphTemplates(target: GlyphTemplateSet, source: GlyphTemplateSet) {
+  let added = 0;
+  for (const [resolution, templates] of Object.entries(source.byResolution)) {
+    // Oldest first, so the source's newest examples end up newest in the target.
+    for (const template of [...templates].reverse()) if (learnGlyphs(target, resolution, [{ vector: template.vector, aspect: template.aspect }], template.digit)) added += 1;
+  }
+  return added;
 }

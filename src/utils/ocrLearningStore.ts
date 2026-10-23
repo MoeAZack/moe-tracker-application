@@ -10,6 +10,7 @@ const MAX_OUTCOMES = 10_000;
 const ENABLED_KEY = 'moetracker-ocr-learning-enabled';
 const memoryCorrections = new Map<string, OcrCorrectionSample>();
 const memoryOutcomes = new Map<string, OcrSessionOutcome>();
+export function isOcrLearningEnabled() { return learningEnabled(); }
 function learningEnabled() { try { return globalThis.localStorage?.getItem(ENABLED_KEY) !== 'false'; } catch { return true; } }
 
 function openDb() {

@@ -12,6 +12,10 @@ Settings → OCR health & learning → **Number reader** picks who reads scorebo
 
 `lib/glyphTemplates.ts`. Nothing ships pre-trained. In Ensemble mode a K/D/A number teaches the templates when PaddleOCR reads it at calibrated confidence ≥ 96 (probability ≈ 0.97) and Tesseract did not read a different number. Each digit glyph becomes a 12×16 normalised vector, kept per scoreboard image height (1080p and 900p glyphs differ), at most 12 per digit, newest first. A digit votes once it has 3 examples; a number is read only when every glyph's best digit correlates ≥ 0.8 and leads the next digit by ≥ 0.05, otherwise the templates abstain. Stored in this PC's browser profile (`moetracker.glyph-templates/v1`), shown and resettable under Number reader. The capture backtest carries them from one session to the next in folder order.
 
+**Learning from your corrections.** When a reviewed import is saved (and OCR learning is on), every K/D/A cell the coach corrected or kept teaches the templates the saved value for that row's glyphs. A correction is exactly a digit both engines got wrong or missed, so this teaches what agreement alone can't. A value whose digit count doesn't match the glyphs found is skipped.
+
+**Pre-training from past scrims.** `node scripts/backtest-capture-browser.mjs <out> <capture folders> --engine ensemble --save-templates <file>` writes the templates learned over the whole run. The script refuses a path inside the repository: the file is learned from private captures and stays on that PC. Settings → Number reader → **Import digit templates** merges such a file into this PC's templates (per-digit caps still apply, the file's examples become the newest).
+
 ### Confidence calibration
 
 PaddleOCR's confidence is the weakest digit's softmax probability, not Tesseract's 0..100 score. `calibratedPaddleConfidence` maps probability 0.75 to 70 (the K/D/A floor and the learned-rule ceiling), 0.75..1 onto 70..100 and 0..0.75 onto 0..70. On the committed fixtures (540 reads: 270 numbers in both framings the app uses) every wrong PaddleOCR read had probability ≤ 0.67. Template confidence is the weakest glyph's correlation × 100 (≥ 80 whenever they vote).
@@ -47,7 +51,7 @@ These are round-number digits, not the scoreboard's K/D/A cells: same font famil
 | owocr (GameSentenceMiner) | Python wrapper over many engines. Its offline engines that matter here are Windows OneOCR (Snipping Tool's DLL: not redistributable; Windows 11 only), WinRT OCR (below), RapidOCR (= PaddleOCR ONNX, shipped here), EasyOCR, Manga OCR (Japanese). Its online engines (Google Lens, Bing) break the offline rule. |
 | Windows.Media.Ocr (WinRT OCR) | Built into Windows 10/11, zero install size, needs the English language pack. Needs a PowerShell or native bridge from Electron's main process; can't be measured off Windows. Candidate for a third ensemble voter after a PC measurement. |
 | EasyOCR / TrOCR-style transformers | PyTorch: Python runtime, hundreds of MB, slow on CPU. Not redistributable in an unsigned installer without Python. |
-| Fixed-font digit templates | **Shipped as Ensemble's third voter** (above), learned on the PC from very sure PaddleOCR reads. Learning from coach-corrected cells as well would teach exactly the digits both engines miss; that needs per-row glyphs mapped to saved stats and is a follow-up. |
+| Fixed-font digit templates | **Shipped as Ensemble's third voter** (above), learned on the PC from very sure PaddleOCR reads. They also learn from coach-corrected K/D/A cells and can be pre-trained from past captures (above). |
 
 ## Making PaddleOCR or Ensemble the default
 

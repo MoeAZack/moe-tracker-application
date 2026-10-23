@@ -1,6 +1,6 @@
 import { buildScreenshotReviewDraft } from './entryEngine';
 import { agreeingNumberRead, loadBrowserPaddleDigitRecognizer, normalizeOcrEngineId, ocrEngineModelSuffix, unanimousNumberRead, type OcrEngineId } from './ocrEngines';
-import { classifyGlyphs, glyphFeatures, glyphLearningLabel, learnGlyphs, type GlyphTemplateSet } from './glyphTemplates';
+import { classifyGlyphs, glyphFeatures, glyphLearningLabel, learnGlyphs, type GlyphFeature, type GlyphTemplateSet } from './glyphTemplates';
 
 export const LOCAL_OCR_RUNTIME = Object.freeze({
   tesseractVersion: '7.0.0',
@@ -758,7 +758,12 @@ export async function readSegmentedKda(
  * lib/ocrEngines.ts); names, maps and labels are always read by Tesseract.
  * The default, Tesseract, runs exactly the reads it always ran.
  */
-export async function createBrowserLocalTesseractAdapter(options: { engine?: OcrEngineId; glyphTemplates?: GlyphTemplateSet } = {}): Promise<LocalOcrAdapter> {
+export async function createBrowserLocalTesseractAdapter(options: {
+  engine?: OcrEngineId;
+  glyphTemplates?: GlyphTemplateSet;
+  /** Receives each full-scoreboard K/D/A line's glyphs (kills, deaths, assists), whatever the engine, so a saved review can label them. */
+  onKdaGlyphs?: (regionId: string, resolution: string, numbers: GlyphFeature[][]) => void;
+} = {}): Promise<LocalOcrAdapter> {
   if (typeof document === 'undefined') throw new Error('The local OCR adapter requires a browser canvas runtime.');
   // A build or machine where the PaddleOCR runtime cannot start reads with
   // Tesseract alone, and says so through `engine`, so the draft's source
@@ -847,6 +852,7 @@ export async function createBrowserLocalTesseractAdapter(options: { engine?: Ocr
               secondary: rectangle => readNumber(grayscaleNumber(rectangle), rectangle, 1.5),
             }, lowResolution);
             results.push({ regionId: region.id, ...read });
+            if (options.onKdaGlyphs && immutableProfile.id !== 'valorant-player-table-v1') options.onKdaGlyphs(region.id, `${immutableProfile.dimensions.height}p`, segmented.map(rectangle => glyphFeatures(grayscaleNumber(rectangle))));
             continue;
           }
           // Ensemble keeps a number only when both engines read it. The whole-line

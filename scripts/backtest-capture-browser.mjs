@@ -3,6 +3,9 @@
 //   node scripts/backtest-capture-browser.mjs <out-dir> <capture-folder>... [--resample 1600x900] [--engine tesseract|paddle|ensemble]
 // --resample redraws every capture at that size first, to measure a resolution the corpus lacks.
 // --engine picks who reads numbers (lib/ocrEngines.ts); the default, tesseract, is the shipped behaviour.
+// --save-templates <file> (with --engine ensemble) writes the digit templates learned over the run, to
+// import under Settings → OCR health & learning on this PC. They come from private captures, so the
+// file must be outside this repository.
 // Requires `npm run build` first (serves dist/ with the OCR/agent/weapon assets).
 // Optional: CHROMIUM_PATH (defaults to Playwright's bundled browser),
 // ROSTER_JSON (path to [{id?, displayName}]), CORRECTION_MODEL_JSON (a learned
@@ -23,6 +26,13 @@ const resample = resampleMatch ? { width: Number(resampleMatch[1]), height: Numb
 const engineIndex = args.indexOf('--engine');
 const engine = engineIndex >= 0 ? args.splice(engineIndex, 2)[1] : 'tesseract';
 if (!['tesseract', 'paddle', 'ensemble'].includes(engine)) throw new Error('--engine takes tesseract, paddle or ensemble.');
+const templatesIndex = args.indexOf('--save-templates');
+const templatesPath = templatesIndex >= 0 ? path.resolve(args.splice(templatesIndex, 2)[1] || '') : null;
+if (templatesPath) {
+  if (engine !== 'ensemble') throw new Error('--save-templates needs --engine ensemble: only Ensemble learns digit templates.');
+  const inside = path.relative(process.cwd(), templatesPath);
+  if (!inside.startsWith('..') && !path.isAbsolute(inside)) throw new Error('Write the templates outside the repository: they are learned from private captures and must never be committed.');
+}
 const [outDir, ...folders] = args;
 if (!outDir || !folders.length) throw new Error('Usage: node scripts/backtest-capture-browser.mjs <out-dir> <capture-folder>...');
 const root = process.cwd();
@@ -74,6 +84,7 @@ try {
     await writeFile(output, JSON.stringify({ folder: path.basename(folder), engine, seconds: Math.round((Date.now() - started) / 1000), ...result }, null, 2));
     console.log(`${path.basename(folder)}: ${result.meta.map} ${result.meta.ourScore}-${result.meta.theirScore} · ${result.rounds.length} rounds · ${Math.round((Date.now() - started) / 1000)}s`);
   }
+  if (templatesPath && glyphTemplates) { await writeFile(templatesPath, glyphTemplates); console.log(`Digit templates written to ${templatesPath}.`); }
 } finally {
   await browser.close();
   server.close();
