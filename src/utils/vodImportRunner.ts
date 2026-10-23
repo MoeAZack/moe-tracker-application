@@ -167,6 +167,7 @@ const fileFromBase64 = (base64: string, name: string, type: string) => {
 const sha256File = async (file: File) => [...new Uint8Array(await crypto.subtle.digest('SHA-256', await file.arrayBuffer()))].map(item => item.toString(16).padStart(2, '0')).join('');
 // The final score the server read from the in-game HUD, when no scoreboard or saved match gave one.
 const hudScore = (payload: any) => { const read = payload?.submission?.integration?.scoreFromHud; return read ? `${read.ourScore}–${read.theirScore}` : null; };
+const partialHudScore = (payload: any) => { const read = payload?.submission?.integration?.partialScoreFromHud; return read ? `Score pending · last HUD ${read.ourScore}–${read.theirScore} (partial)` : null; };
 // Where a derived score came from, for the game card: the end screen names the sides, the HUD does not.
 const hudScoreNote = (payload: any) => payload?.submission?.integration?.scoreFromHud?.basis === 'end-banner' ? ' · score read from the end screen (Allies counted as yours)' : ' · score read from the in-game HUD (left side counted as yours; Edit if reversed)';
 const stripRawText = (evidence: unknown) => JSON.parse(JSON.stringify(evidence, (key, item) => key === 'rawText' ? undefined : item));
@@ -415,7 +416,7 @@ async function runOneImport(input: VodBatchImportInput, deps: VodImportDeps): Pr
       const unnamed = players.length === 0; if (unnamed) unnamedGames += 1;
       const added: string[] = payload.submission.integration?.addedPlayers || []; added.forEach(name => addedPlayers.add(name));
       const score = linked && typeof linked.ourScore === 'number' ? `${linked.ourScore}–${linked.theirScore}` : hudScore(payload);
-      imported.push({ map: mapName, matchId: payload.submission.linkedMatchId, mapRead: boundary.mapRead, mapSource: boundary.mapSource ?? null, firedTokens: boundary.firedTokens, score: score || 'Score pending', status: `${payload.submission.linkMode === 'new-match' ? 'Timeline imported · scoreboard pending' : 'Linked and timeline imported'}${unnamed ? ' · players not named yet' : typedNames.length ? ' · names typed, K/D/A blank (no scoreboard)' : ''}${!linked && score ? hudScoreNote(payload) : ''}` });
+      imported.push({ map: mapName, matchId: payload.submission.linkedMatchId, mapRead: boundary.mapRead, mapSource: boundary.mapSource ?? null, firedTokens: boundary.firedTokens, score: score || partialHudScore(payload) || 'Score pending', status: `${payload.submission.linkMode === 'new-match' ? 'Timeline imported · scoreboard pending' : 'Linked and timeline imported'}${unnamed ? ' · players not named yet' : typedNames.length ? ' · names typed, K/D/A blank (no scoreboard)' : ''}${!linked && score ? hudScoreNote(payload) : ''}` });
       if (boundary.mapSource === 'learned') imported[imported.length - 1].status += ' · map remembered from your correction';
       setState({ batchResult: [...imported] });
     };

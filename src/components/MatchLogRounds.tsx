@@ -395,7 +395,7 @@ export default function MatchLogRounds({ data, theme, onSaveMatch, onRemove, onS
                       <span className={result === 'DRAW' ? 'text-gray-300' : won ? 'text-emerald-400' : 'text-rose-400'}>{score.ours}</span>
                       <span className="text-gray-500"> - </span>
                       <span className={result === 'DRAW' ? 'text-gray-300' : won ? 'text-rose-400' : 'text-emerald-400'}>{score.theirs}</span>
-                    </span> : <span className="text-xs font-mono text-gray-500">Score pending</span>}
+                    </span> : <span className="text-xs font-mono text-gray-500" title={m.partialScore ? 'The game never showed a final score. This is the last score the in-game HUD showed, left side counted as yours; it is not a result.' : undefined}>Score pending{m.partialScore ? ` · last HUD ${m.partialScore.ours}–${m.partialScore.theirs} (partial)` : ''}</span>}
                   </div>
 
                   <div className="flex justify-between items-center text-xs font-mono text-gray-400">

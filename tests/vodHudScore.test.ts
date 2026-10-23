@@ -118,6 +118,19 @@ describe('a VOD match takes its missing score from the HUD', () => {
     expect(state.rosterPlayers.filter((player: any) => five.includes(player.displayName))).toHaveLength(5);
   });
 
+  it('keeps the last HUD score of a game with no end screen as partial, with no result', () => {
+    // The game stopped at 12-12 (network problem, then the lobby): no final score, no W/L.
+    const state = db(); const saved = integrateVodSubmission(state, submission({ imageSha256: 'e'.repeat(64), timelineEvidence: timeline([[0, 0], [6, 5], [11, 11], [12, 11], [12, 12]]) }), 'Coach', ids(), '2026-10-23T00:00:00Z');
+    const match = state.matches.find((item: any) => item.id === saved.linkedMatchId);
+    expect(match).toMatchObject({ ourScore: null, theirScore: null, partialScore: { ours: 12, theirs: 12, basis: 'last-hud', source: 'vod-hud' } });
+    expect(matchResult(match)).toBeNull();
+    expect(saved.integration.partialScoreFromHud).toEqual({ ourScore: 12, theirScore: 12 });
+    expect(saved.integration.scoreFromHud).toBeUndefined();
+    // A final score replaces it.
+    const final = { ...match, partialScore: { ...match.partialScore } }; applyVodHudScore(final, { observations: [{ kind: 'end-banner', timestampMs: 1, score: [13, 12] }] } as any);
+    expect(final).toMatchObject({ ourScore: 13, theirScore: 12 }); expect(final.partialScore).toBeUndefined();
+  });
+
   it('does not derive the score again once the coach cleared it', () => {
     const state = db(); integrateVodSubmission(state, submission(), 'Coach', ids(), '2026-10-23T00:00:00Z');
     const match = state.matches[0]; match.ourScore = null; match.theirScore = null;
