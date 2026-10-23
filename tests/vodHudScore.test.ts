@@ -109,6 +109,15 @@ describe('a VOD match takes its missing score from the HUD', () => {
     expect(state.playerStats.every((stat: any) => stat.kills === null || stat.kills === undefined)).toBe(true);
   });
 
+  it('gives each game of one VOD its own match when the same five names are typed for every game', () => {
+    const blank = { agent: null, kills: null, deaths: null, assists: null, acs: null, adr: null, hs: null, fk: null, fd: null, plants: null, defuses: null, trades: null };
+    const state = db(); const five = ['Ana', 'Ben', 'Cy', 'Dee', 'Eli'];
+    const saved = ['b', 'c', 'd'].map(hash => integrateVodSubmission(state, submission({ imageSha256: hash.repeat(64), coachTeamEvidence: true, addObservedPlayers: true, players: five.map(observedName => ({ observedName, ...blank })) }), 'Coach', ids(), '2026-10-23T00:00:00Z'));
+    expect(new Set(saved.map(item => item.linkedMatchId)).size).toBe(3);
+    expect(saved.map(item => item.linkMode)).toEqual(['new-match', 'new-match', 'new-match']);
+    expect(state.rosterPlayers.filter((player: any) => five.includes(player.displayName))).toHaveLength(5);
+  });
+
   it('does not derive the score again once the coach cleared it', () => {
     const state = db(); integrateVodSubmission(state, submission(), 'Coach', ids(), '2026-10-23T00:00:00Z');
     const match = state.matches[0]; match.ourScore = null; match.theirScore = null;

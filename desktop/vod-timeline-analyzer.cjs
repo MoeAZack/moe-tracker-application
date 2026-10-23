@@ -365,13 +365,42 @@ function bannerDigitCrop(pixels, width, height) {
   return { pixels: crop, width: cropWidth, height: cropHeight, background: median };
 }
 
+// The stylised words are teal and red on a dark overlay: in grey they are dim. Stretching the
+// crop's own range to full black-to-white and inverting it gives page OCR dark text on white.
+function stretchedBanner(pixels, width, height) {
+  if (!pixels || pixels.length < width * height) return null;
+  const values = Uint8Array.from(pixels.subarray(0, width * height)).sort(); const low = values[Math.floor(values.length * .02)], high = values[Math.min(values.length - 1, Math.floor(values.length * .995))];
+  if (high - low < 20) return null;
+  const out = Buffer.alloc(width * height); for (let index = 0; index < width * height; index += 1) out[index] = 255 - Math.max(0, Math.min(255, Math.round((pixels[index] - low) * 255 / (high - low))));
+  return { pixels: out, width, height };
+}
+
+// One crop per score: the glyphs between the words split at the dash (the short glyph), or at the
+// widest gap, so "7" and "17" are read on their own and never run together as "717".
+function splitDigitCrop(crop) {
+  if (!crop) return null; const { pixels, width, height } = crop; const runs = [];
+  const span = x => { let top = -1, bottom = -1; for (let y = 0; y < height; y += 1) if (pixels[y * width + x] === 0) { if (top < 0) top = y; bottom = y; } return top < 0 ? null : [top, bottom]; };
+  for (let x = 0; x < width; x += 1) { const ink = span(x); if (!ink) continue; const last = runs.at(-1); if (last && x - last.end <= 2) { last.end = x; last.top = Math.min(last.top, ink[0]); last.bottom = Math.max(last.bottom, ink[1]); } else runs.push({ start: x, end: x, top: ink[0], bottom: ink[1] }); }
+  if (runs.length < 2) return null;
+  const tallest = Math.max(...runs.map(run => run.bottom - run.top + 1)); const dash = runs.findIndex((run, index) => index > 0 && index < runs.length - 1 && run.bottom - run.top + 1 < tallest * .45);
+  let left, right;
+  if (dash > 0) { left = runs.slice(0, dash); right = runs.slice(dash + 1); }
+  else { let widest = 0; for (let index = 1; index < runs.length; index += 1) if (runs[index].start - runs[index - 1].end > runs[widest + 1].start - runs[widest].end) widest = index - 1; left = runs.slice(0, widest + 1); right = runs.slice(widest + 1); }
+  if (!left.length || !right.length) return null;
+  const cut = (from, to) => { const pad = 10, cropWidth = to - from + 1 + pad * 2; const out = Buffer.alloc(cropWidth * height, 255); for (let y = 0; y < height; y += 1) for (let x = from; x <= to; x += 1) out[y * cropWidth + x - from + pad] = pixels[y * width + x]; return { pixels: out, width: cropWidth, height }; };
+  return [cut(left[0].start, left.at(-1).end), cut(right[0].start, right.at(-1).end)];
+}
+
+const BANNER_LINE = /\ballies\b[^\d]{0,24}?(\d{1,2})[^\d]{1,24}?(\d{1,2})[^\d]{0,24}?\benemies\b/i;
+
 /**
- * Re-read the end-screen scores digits-only. The page read often drops the stylised words, so a
- * frame qualifies when its text names either side, or when it splits like the banner (two wide
- * words around narrower glyphs) over a dark full-screen overlay.
+ * Re-read the end screen. The page read often drops the stylised words, so a frame qualifies when
+ * its text names either side, or when it splits like the banner (two wide words around narrower
+ * glyphs) over a dark full-screen overlay. Each one is read again as one line on a contrast-stretched
+ * crop (the words), then each score digits-only from its own crop. Left is Allies (ours).
  */
 async function readBannerDigits(frames, snapshots, worker, log = line => void line, limit = 40) {
-  const out = [...(snapshots || [])]; const counts = { frames: (frames || []).length, withText: 0, anchorWord: 0, darkSplit: 0, tried: 0, read: 0 };
+  const out = [...(snapshots || [])]; const counts = { frames: (frames || []).length, withText: 0, anchorWord: 0, darkSplit: 0, tried: 0, anchorRead: 0, read: 0 };
   const textAt = new Map(out.map(item => [item.timestampMs, item]));
   const chosen = [];
   for (const frame of frames || []) {
@@ -381,14 +410,27 @@ async function readBannerDigits(frames, snapshots, worker, log = line => void li
     const dark = !!crop && crop.background < 70; if (dark) counts.darkSplit += 1;
     if (crop && (word || dark)) chosen.push({ frame, crop, snapshot, word });
   }
+  const text = async image => String((await worker.recognize(pgm(image.pixels, image.width, image.height)))?.data?.text || '');
   try {
     if (chosen.length && worker) {
+      const tried = chosen.slice(-limit); counts.tried = tried.length;
+      // The words: one line, then one block, on the stretched crop.
+      for (const mode of ['7', '6']) {
+        await worker.setParameters({ tessedit_char_whitelist: '', tessedit_pageseg_mode: mode });
+        for (const item of tried) {
+          if (item.line) continue; const stretched = stretchedBanner(item.frame.pixels, item.frame.width, item.frame.height); if (!stretched) continue;
+          const read = await text(stretched); if (/allies|enemies/i.test(read)) { item.word = true; item.line = BANNER_LINE.test(read) ? read : item.line; if (!item.anchored) { item.anchored = true; counts.anchorRead += 1; } }
+        }
+      }
+      // The scores: each from its own crop, digits only; the whole middle only when it will not split.
       await worker.setParameters({ tessedit_char_whitelist: '0123456789', tessedit_pageseg_mode: '7' });
       const reads = [];
-      for (const { frame, crop, snapshot, word } of chosen.slice(-limit)) {
-        counts.tried += 1;
-        const text = String((await worker.recognize(pgm(crop.pixels, crop.width, crop.height)))?.data?.text || ''); const match = text.match(/(\d{1,2})\D+(\d{1,2})/);
-        if (match) reads.push({ frame, snapshot, word, banner: `ALLIES ${match[1]} - ${match[2]} ENEMIES` });
+      for (const item of tried) {
+        let left = null, right = null; const halves = splitDigitCrop(item.crop);
+        if (halves) { left = (await text(halves[0])).match(/\d{1,2}/)?.[0]; right = (await text(halves[1])).match(/\d{1,2}/)?.[0]; }
+        if (!left || !right) { const match = (await text(item.crop)).match(/(\d{1,2})\D+(\d{1,2})/); if (match) [left, right] = [match[1], match[2]]; }
+        if ((!left || !right) && item.line) { const match = item.line.match(BANNER_LINE); [left, right] = [match[1], match[2]]; }
+        if (left && right) reads.push({ ...item, banner: `ALLIES ${Number(left)} - ${Number(right)} ENEMIES` });
       }
       // A frame that names a side stands alone. A dark split without a word could be any dark
       // scene, so it counts only when another frame read the same score: the end screen stays up.
@@ -400,9 +442,23 @@ async function readBannerDigits(frames, snapshots, worker, log = line => void li
     }
   } finally {
     if (chosen.length && worker) await worker.setParameters({ tessedit_char_whitelist: '', tessedit_pageseg_mode: '11' }).catch(() => {});
-    log(`end-banner: frames ${counts.frames}, with text ${counts.withText}, anchor word ${counts.anchorWord}, dark split ${counts.darkSplit}, tried ${counts.tried}, digits read ${counts.read}`);
+    log(`end-banner: frames ${counts.frames}, with text ${counts.withText}, anchor word ${counts.anchorWord}, dark split ${counts.darkSplit}, tried ${counts.tried}, anchor read ${counts.anchorRead}, digits read ${counts.read}`);
   }
   return out.sort((a, b) => a.timestampMs - b.timestampMs);
+}
+
+// Sparse-text OCR puts each word of a kill-feed row on its own line, so "killer [gun] victim" never
+// shares a line. Words are put back into rows by their vertical centre, left to right.
+function rowText(data) {
+  const words = (data?.blocks || []).flatMap(block => (block.paragraphs || []).flatMap(paragraph => (paragraph.lines || []).flatMap(line => line.words || []))).filter(word => String(word.text || '').trim() && word.bbox);
+  if (!words.length) return '';
+  const heights = words.map(word => word.bbox.y1 - word.bbox.y0).sort((a, b) => a - b); const tolerance = Math.max(4, heights[Math.floor(heights.length / 2)] * .6);
+  const rows = [];
+  for (const word of [...words].sort((a, b) => (a.bbox.y0 + a.bbox.y1) - (b.bbox.y0 + b.bbox.y1))) {
+    const centre = (word.bbox.y0 + word.bbox.y1) / 2; const row = rows.find(item => Math.abs(item.centre - centre) <= tolerance);
+    if (row) { row.words.push(word); row.centre = (row.centre * (row.words.length - 1) + centre) / row.words.length; } else rows.push({ centre, words: [word] });
+  }
+  return rows.sort((a, b) => a.centre - b.centre).map(row => row.words.sort((a, b) => a.bbox.x0 - b.bbox.x0).map(word => String(word.text).trim()).join(' ')).join('\n');
 }
 
 function pgm(frame, width, height) { return Buffer.concat([Buffer.from(`P5\n${width} ${height}\n255\n`), frame]); }
@@ -429,7 +485,7 @@ async function recognizeFrames(frames, spec, pool, progress, offset, total, sign
   const keys = frames.map(frame => `${frame.timestampMs}:${visualSignature(frame.pixels)}`); const compatible = resume && Array.isArray(resume.keys) && JSON.stringify(resume.keys) === JSON.stringify(keys);
   let committed = compatible ? Math.max(0, Math.min(frames.length, Number(resume.processed) || 0)) : 0; const snapshots = compatible && Array.isArray(resume.snapshots) ? structuredClone(resume.snapshots) : [];
   const commit = async (index, result) => {
-    const text = String(result.data?.text || '').trim(); const confidence = Number(result.data?.confidence);
+    const text = String((spec.rows && rowText(result.data)) || result.data?.text || '').trim(); const confidence = Number(result.data?.confidence);
     if (text) snapshots.push({ timestampMs: frames[index].timestampMs, text, confidence: Number.isFinite(confidence) ? Math.max(0, Math.min(1, confidence / 100)) : null, visualSignature: visualSignature(frames[index].pixels) });
     if (saveCheckpoint && ((index + 1) % 10 === 0 || index + 1 === frames.length)) await saveCheckpoint({ keys, processed: index + 1, snapshots });
     progress?.({ stage: 'ocr', percent: Math.round((offset + index + 1) / Math.max(1, total) * 100), message: `Reading timeline evidence · ${offset + index + 1}/${total}` });
@@ -439,7 +495,7 @@ async function recognizeFrames(frames, spec, pool, progress, offset, total, sign
     const dispatch = () => {
       while (!failure && idle.length && next < frames.length) {
         const worker = idle.shift(); const index = next; next += 1;
-        const job = worker.recognize(pgm(frames[index].pixels, spec.width, spec.height)).then(result => { done.set(index, result); idle.push(worker); }, error => { failure = failure || error; }).finally(() => running.delete(job));
+        const job = worker.recognize(pgm(frames[index].pixels, spec.width, spec.height), undefined, spec.rows ? { text: true, blocks: true } : undefined).then(result => { done.set(index, result); idle.push(worker); }, error => { failure = failure || error; }).finally(() => running.delete(job));
         running.add(job);
       }
     };
@@ -488,7 +544,7 @@ async function analyzeVodTimeline(input, options = {}) {
     else file = await downloadYoutube(input.vodUrl, jobDirectory, progress, signal);
     const probe = await probeVideo(file, signal); progress?.({ stage: 'probe', percent: 100, message: `${Math.ceil(probe.durationSeconds / 60)} minute VOD detected · ${probe.width}×${probe.height}` });
     const specs = [
-      { key: 'killFeedSnapshots', label: 'kill feed', fps: 2, crop: 'crop=iw*0.42:ih*0.38:iw*0.58:0', width: 720, height: 366, threshold: .15, burstFrames: 3, maxCandidates: 3600 },
+      { key: 'killFeedSnapshots', label: 'kill feed', fps: 2, crop: 'crop=iw*0.42:ih*0.38:iw*0.58:0', width: 720, height: 366, threshold: .15, burstFrames: 3, maxCandidates: 3600, rows: true },
       { key: 'objectiveSnapshots', label: 'round and objective notices', fps: 1, crop: 'crop=iw*0.62:ih*0.34:iw*0.19:ih*0.02', width: 720, height: 222, threshold: .15, burstFrames: 2, maxCandidates: 1800 },
       { key: 'roundStateSnapshots', label: 'round state and score', fps: 1, crop: 'crop=iw*0.46:ih*0.20:iw*0.27:0', width: 700, height: 240, threshold: .10, burstFrames: 2, maxCandidates: 1800 },
       { key: 'ultimateSnapshots', label: 'ultimate state', fps: 1, crop: 'crop=iw*0.28:ih*0.25:iw*0.36:ih*0.72', width: 520, height: 260, threshold: .12, burstFrames: 2, maxCandidates: 1800 },
@@ -563,4 +619,4 @@ async function readVodFrame(directory, frame) {
   return { mediaType: 'image/png', base64: (await fsp.readFile(path.join(path.resolve(directory), name))).toString('base64') };
 }
 
-module.exports = { bannerDigitCrop, readBannerDigits, sweepOrphanedVodDirectories, readOwnedVodFrame, readVodFrame, normalizeYoutubeUrl, youtubeVideoId, probeVideo, analyzeVodTimeline, normalizeTimelinePlayers, discoverVodGames, releaseVodSource, createReviewClips, changedFrames, changedFramesTogether, sampleRegions, recognizeFrames, createOcrPool, frameDifference, visualSignature, ensureDiskSpace, scoreboardGeometryScore, agentSelectGeometryScore, chooseGameBoundaries, inferPovPlayer };
+module.exports = { rowText, stretchedBanner, splitDigitCrop, bannerDigitCrop, readBannerDigits, sweepOrphanedVodDirectories, readOwnedVodFrame, readVodFrame, normalizeYoutubeUrl, youtubeVideoId, probeVideo, analyzeVodTimeline, normalizeTimelinePlayers, discoverVodGames, releaseVodSource, createReviewClips, changedFrames, changedFramesTogether, sampleRegions, recognizeFrames, createOcrPool, frameDifference, visualSignature, ensureDiskSpace, scoreboardGeometryScore, agentSelectGeometryScore, chooseGameBoundaries, inferPovPlayer };

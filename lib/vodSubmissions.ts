@@ -104,7 +104,10 @@ export function integrateVodSubmission(db: any, input: SubmissionInput, actorNam
   // One shared identity answer; a header-only candidate must also hold all five players.
   // With no identities a date/map header alone could land on another game, so an unnamed import only ever creates its own match.
   const found = !requested && players.length ? findMatchCandidates(db, input, { stats: incomingIdentityRows, unknownMatches: true }) : { basis: null, matches: [] };
-  const automatic = found.basis === 'header' ? found.matches.filter((match: Match) => [...rosterIds].every(id => matchRosterIds(db, match.id).has(id))) : found.matches;
+  // A match that already holds a submission from this same VOD is another game of it (a re-import of
+  // the same game was caught as a duplicate above), so typed or shared names never fold two games into one.
+  const otherGameOfThisVod = (match: Match) => (db.vodSubmissions as VodSubmission[]).some(item => item.linkedMatchId === match.id && item.vodUrl === input.vodUrl && item.id !== ids.submissionId);
+  const automatic = (found.basis === 'header' ? found.matches.filter((match: Match) => [...rosterIds].every(id => matchRosterIds(db, match.id).has(id))) : found.matches).filter((match: Match) => !otherGameOfThisVod(match));
   let match: Match | undefined = requested || (automatic.length === 1 ? automatic[0] : undefined);
   const createdMatch = !match;
   if (!match) {
