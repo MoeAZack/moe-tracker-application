@@ -7,7 +7,7 @@ import analyzerModule from '../desktop/vod-timeline-analyzer.cjs';
 import { boundaryTimelinePlayers } from '../src/components/VodSubmission';
 
 const { aggregateVideoEvidence, NO_IDENTITIES_LIMITATION, parseKillFeedSnapshot, parseUltimateSnapshots, parseRoundStateSnapshot, buildRoundTimeline, buildObserverSegments, applyVisualTemplates, fuseVodEvidence } = evidenceModule;
-const { bannerDigitCrop, readBannerDigits, sweepOrphanedVodDirectories, normalizeYoutubeUrl, youtubeVideoId, frameDifference, visualSignature, scoreboardGeometryScore, agentSelectGeometryScore, chooseGameBoundaries, inferPovPlayer, analyzeVodTimeline, releaseVodSource, discoverVodGames, readVodFrame, readOwnedVodFrame, normalizeTimelinePlayers } = analyzerModule;
+const { rowText, stretchedBanner, splitDigitCrop, bannerDigitCrop, readBannerDigits, sweepOrphanedVodDirectories, normalizeYoutubeUrl, youtubeVideoId, frameDifference, visualSignature, scoreboardGeometryScore, agentSelectGeometryScore, chooseGameBoundaries, inferPovPlayer, analyzeVodTimeline, releaseVodSource, discoverVodGames, readVodFrame, readOwnedVodFrame, normalizeTimelinePlayers } = analyzerModule;
 const players = [
   { name: 'Alpha', team: 'ours' }, { name: 'Bravo', team: 'ours' }, { name: 'Charlie', team: 'ours' }, { name: 'Delta', team: 'ours' }, { name: 'Echo', team: 'ours' },
   { name: 'EnemyOne', team: 'theirs' }, { name: 'EnemyTwo', team: 'theirs' }, { name: 'EnemyThree', team: 'theirs' }, { name: 'EnemyFour', team: 'theirs' }, { name: 'EnemyFive', team: 'theirs' },
@@ -203,18 +203,52 @@ describe('VOD timeline evidence', () => {
     expect(bannerDigitCrop(Buffer.alloc(400 * 60, 30), 400, 60)).toBeNull();
   });
 
-  it('re-reads anchored end-screen frames digits-only and rewrites the banner text, then restores the worker', async () => {
-    const frame = bannerFrame(); const calls: any[] = [];
-    const worker = { setParameters: vi.fn(async (params: any) => { calls.push(params); }), recognize: vi.fn(async () => ({ data: { text: '7 17\n' } })) };
-    // Frame 700000 names a side. Frames 1 and 900000 are dark splits with no word: they count because they agree.
+  // A fake worker that answers by what it is shown: the stretched full line, one score's crop, or the whole middle.
+  const fakeWorker = (answers: { line: string; left: string; right: string; middle: string }) => {
+    const calls: any[] = [];
+    const worker = { calls, setParameters: vi.fn(async (params: any) => { calls.push(params); }), recognize: vi.fn(async (image: Buffer) => {
+      const width = Number(String(image.subarray(0, 20)).split(/\s+/)[1]);
+      return { data: { text: width === 400 ? answers.line : width === 36 ? answers.left : width === 51 ? answers.right : answers.middle } };
+    }) };
+    return worker;
+  };
+
+  it('stretches the dim end-screen words to black on white and cuts one crop per score', () => {
+    const frame = bannerFrame(); const stretched = stretchedBanner(frame.pixels, frame.width, frame.height);
+    expect(stretched.pixels[0]).toBe(255); expect(stretched.pixels[20 * 400 + 50]).toBe(0);
+    const halves = splitDigitCrop(bannerDigitCrop(frame.pixels, frame.width, frame.height));
+    expect(halves.map((half: any) => half.width)).toEqual([36, 51]);
+    // A dash between the scores is where they split, never inside a two-digit score.
+    const dashed = { width: 60, height: 20, pixels: Buffer.alloc(60 * 20, 255) };
+    const ink = (from: number, to: number, top: number, bottom: number) => { for (let y = top; y <= bottom; y += 1) for (let x = from; x <= to; x += 1) dashed.pixels[y * 60 + x] = 0; };
+    ink(2, 8, 2, 17); ink(20, 26, 9, 10); ink(32, 36, 2, 17); ink(40, 46, 2, 17);
+    expect(splitDigitCrop(dashed).map((half: any) => half.width)).toEqual([7 + 20, 15 + 20]);
+  });
+
+  it('reads the end-screen words from the stretched line and each score from its own crop, then restores the worker', async () => {
+    const frame = bannerFrame(); const worker = fakeWorker({ line: 'ALLIES | ENEMIES', left: '7', right: '17', middle: '717' });
     const snapshots = [{ timestampMs: 700_000, text: 'ALLIES | 1' }, { timestampMs: 900_000, text: 'spike planted' }]; const lines: string[] = [];
     const out = await readBannerDigits([{ ...frame, timestampMs: 1 }, { ...frame, timestampMs: 700_000 }, { ...frame, timestampMs: 900_000 }], snapshots, worker, (line: string) => lines.push(line));
     expect(out.map((item: any) => [item.timestampMs, item.text])).toEqual([[1, 'ALLIES 7 - 17 ENEMIES'], [700_000, 'ALLIES 7 - 17 ENEMIES'], [900_000, 'ALLIES 7 - 17 ENEMIES']]);
-    expect(lines).toEqual(['end-banner: frames 3, with text 2, anchor word 1, dark split 3, tried 3, digits read 3']);
-    // A lone dark split whose read nothing confirms is not taken for the end screen.
-    const lone = { setParameters: vi.fn(async () => {}), recognize: vi.fn(async () => ({ data: { text: '3 5' } })) };
-    expect((await readBannerDigits([{ ...frame, timestampMs: 1 }], [], lone)).length).toBe(0);
-    expect(calls).toEqual([{ tessedit_char_whitelist: '0123456789', tessedit_pageseg_mode: '7' }, { tessedit_char_whitelist: '', tessedit_pageseg_mode: '11' }]);
+    expect(lines).toEqual(['end-banner: frames 3, with text 2, anchor word 1, dark split 3, tried 3, anchor read 3, digits read 3']);
+    expect(worker.calls).toEqual([{ tessedit_char_whitelist: '', tessedit_pageseg_mode: '7' }, { tessedit_char_whitelist: '', tessedit_pageseg_mode: '6' }, { tessedit_char_whitelist: '0123456789', tessedit_pageseg_mode: '7' }, { tessedit_char_whitelist: '', tessedit_pageseg_mode: '11' }]);
+  });
+
+  it('takes the scores from the stretched line when the digit crops read nothing', async () => {
+    const frame = bannerFrame(); const worker = fakeWorker({ line: 'ALLIES 13 - 11 ENEMIES', left: '', right: '', middle: '' });
+    expect((await readBannerDigits([{ ...frame, timestampMs: 5 }], [], worker)).map((item: any) => item.text)).toEqual(['ALLIES 13 - 11 ENEMIES']);
+  });
+
+  it('does not take a lone dark split that names no side and nothing confirms for the end screen', async () => {
+    const frame = bannerFrame(); const worker = fakeWorker({ line: '', left: '3', right: '5', middle: '3 5' });
+    expect((await readBannerDigits([{ ...frame, timestampMs: 1 }], [], worker)).length).toBe(0);
+  });
+
+  it('puts kill-feed words back into rows so killer and victim share a line', () => {
+    const word = (text: string, x0: number, y0: number) => ({ text, bbox: { x0, y0, x1: x0 + 40, y1: y0 + 14 } });
+    const data = { blocks: [{ paragraphs: [{ lines: [{ words: [word('Ana', 10, 10), word('Bob', 200, 12)] }, { words: [word('Cy', 12, 40)] }, { words: [word('Dee', 210, 41)] }] }] }] };
+    expect(rowText(data)).toBe('Ana Bob\nCy Dee');
+    expect(rowText({ blocks: null })).toBe('');
   });
 
   it('deletes a completed downloaded VOD but never deletes a coach-selected local file', async () => {
