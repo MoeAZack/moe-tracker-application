@@ -5,7 +5,7 @@ import { integrateVodSubmission } from '../lib/vodSubmissions';
 import { applyVodHudScore } from '../lib/vodScore';
 import { matchResult, matchScore, sideSplit } from '../src/utils/matchScore';
 
-const { parseRoundStateSnapshot, parseEndBannerSnapshot, deriveFinalScore, aggregateVideoEvidence } = evidenceModule;
+const { parseRoundStateSnapshot, parseEndBannerSnapshot, deriveFinalScore, aggregateVideoEvidence, learnTabAliases, wordMatchesName } = evidenceModule;
 
 // HUD reads as the round-state reader stores them: "left  timer  right".
 const hud = (pairs: Array<[number, number]>, stepMs = 100_000) => pairs.map(([left, right], index) => parseRoundStateSnapshot({ timestampMs: (index + 1) * stepMs, text: `${left}  1:${String(30 - (index % 30)).padStart(2, '0')}  ${right}`, confidence: .8 }));
@@ -88,6 +88,35 @@ describe('reading the score on the in-game HUD', () => {
   });
 });
 
+describe('the last HUD read and kill-feed names', () => {
+  it('reads a HUD with no timer as a bare score used only for the partial', () => {
+    expect(parseRoundStateSnapshot({ timestampMs: 1, text: '12  12' })).toMatchObject({ score: null, bareScore: [12, 12] });
+    const result = aggregateVideoEvidence({ players: [], roundStateSnapshots: [{ timestampMs: 1000, text: '9  1:40  9' }, { timestampMs: 90_000, text: '10  1:12  10' }, { timestampMs: 200_000, text: '12  12' }] });
+    expect(deriveFinalScore(result)).toBeNull();
+    expect(deriveFinalScore(result, { partial: true })).toMatchObject({ left: 12, right: 12 });
+  });
+
+  it('matches feed names loosely: case, prefix and a few OCR edits', () => {
+    expect(wordMatchesName('anaval', 'anava1')).toBe(true);
+    expect(wordMatchesName('benj', 'benjamin')).toBe(true);
+    expect(wordMatchesName('ana', 'zed')).toBe(false);
+  });
+
+  it('gives a feed word to the closest of two names one letter apart', () => {
+    const players = [{ name: 'Player1', team: 'ours' }, { name: 'Player2', team: 'ours' }, { name: 'Zed', team: 'theirs' }];
+    const result = aggregateVideoEvidence({ players, killFeedSnapshots: [{ timestampMs: 5000, text: 'Player2 Vandal Zed' }] });
+    expect(result.playerMetrics.map((row: any) => [row.playerName, row.kills])).toEqual([['Player1', 0], ['Player2', 1], ['Zed', 0]]);
+  });
+
+  it('learns in-game names from the TAB board so feed kills credit typed players', () => {
+    const players = [{ name: 'Ana', team: 'ours' }, { name: 'Benji', team: 'ours' }, { name: 'EnemyOne', team: 'theirs' }];
+    const board = { timestampMs: 1000, rows: [{ name: 'AnaVal', kills: 0, deaths: 0, assists: 0 }, { name: 'xQ7zz', kills: 0, deaths: 0, assists: 0 }] };
+    expect(learnTabAliases(players, [board]).map((player: any) => player.aliases || [])).toEqual([['AnaVal'], ['xQ7zz'], []]);
+    const result = aggregateVideoEvidence({ players, tabBoards: [board], killFeedSnapshots: [{ timestampMs: 5000, text: 'AnaVal Vandal EnemyOne' }, { timestampMs: 9000, text: 'xQ7zz Phantom EnemyOne' }] });
+    expect(result.playerMetrics.filter((row: any) => row.team === 'ours').map((row: any) => row.kills)).toEqual([1, 1]);
+  });
+});
+
 describe('a VOD match takes its missing score from the HUD', () => {
   const db = () => { const state: any = createSeed(); Object.assign(state, { rosterPlayers: [], coreMemberships: [], matches: [], playerStats: [], rounds: [], vodSubmissions: [] }); return state; };
   const timeline = (pairs: Array<[number, number]>) => ({ schema: 'moetracker.vod-timeline-evidence/v2', grade: 'video-observation', coverage: { durationMs: 1, signals: { eliminations: 'unsupported' } }, observations: hud(pairs), rounds: [], playerMetrics: [], limitations: [] });
@@ -131,7 +160,7 @@ describe('a VOD match takes its missing score from the HUD', () => {
     evidenceModule.applyTabBoards(evidence, [{ timestampMs: 20_000, rows: [{ row: 0, name: 'Ana', kills: 1, deaths: 1, assists: 1 }] }, { timestampMs: 100_000, rows: [{ row: 0, name: 'ANA', kills: 10, deaths: 5, assists: 3 }, { row: 1, name: 'Bxx', kills: 2, deaths: 2, assists: 2 }] }]);
     // Ana: board 10/5/3 at 100 s plus one kill after. Ben's row did not match his name, so he keeps the feed count.
     expect(evidence.playerMetrics.map((metric: any) => [metric.kills, metric.deaths, metric.assists ?? null, metric.source ?? null])).toEqual([[11, 5, 3, 'tab-board+kill-feed'], [0, 0, null, null]]);
-    expect(evidence.tabBoard).toEqual({ timestampMs: 100_000, rows: 2, matched: 1 });
+    expect(evidence.tabBoard).toMatchObject({ timestampMs: 100_000, rows: 2, matched: 1 });
   });
 
   it('saves TAB-board assists with the kill-feed counts, marked partial', () => {
