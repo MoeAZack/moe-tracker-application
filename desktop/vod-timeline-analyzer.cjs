@@ -290,7 +290,8 @@ function createChangeCollector(spec, durationSeconds, range, progress, signal, l
         // A spec with rank (the TAB board) keeps the frame that looks most like its target in each bucket,
         // whatever the change gate says: a board up for one second is otherwise lost to the frame that closes it.
         const rank = spec.rank ? spec.rank(frame, spec.width, spec.height) : 0, ranked = spec.rank && rank >= (spec.rankKeep ?? 1);
-        if (changed || burstRemaining > 0 || heartbeat || ranked) {
+        // rankOnly (the TAB board) keeps nothing else, so its buckets hold boards only.
+        if (spec.rankOnly ? ranked : changed || burstRemaining > 0 || heartbeat || ranked) {
           lastKeptMs = timestampMs;
           const bucket = Math.min(spec.maxCandidates - 1, Math.floor(timestampMs / Math.max(1, durationSeconds * 1000) * spec.maxCandidates)); const existing = buckets.get(bucket);
           if (!existing || rank > existing.rank || (rank === existing.rank && difference > existing.difference)) buckets.set(bucket, { timestampMs, pixels: frame, difference, rank });
@@ -483,6 +484,10 @@ const TAB_ROW_HALF = .015;
 // The enemy five sit under the DEF/ATK strips, ~6.85 pitches below ours; scoring all ten rows keeps
 // the strips (lit icons on a dark band) from passing for two of our rows.
 const TAB_ENEMY_ROWS = TAB_OUR_ROWS.map(centre => +(centre + .2165).toFixed(4));
+// Teal top of our first row to red bottom of their last, and how far the fitted board may sit from it.
+const TAB_BLOCK = { y0: .317, y1: .683 }, TAB_DY_SLACK = .012;
+// A frame is a board when all ten rows show: our five and theirs.
+const isTabBoard = fit => fit.rows === 5 && fit.total >= 9;
 // Measured on the 2782 s frame: name 0.333-0.43 (the agent icon ends at 0.316, ULTIMATE starts at 0.439);
 // K 0.492-0.502, D 0.513-0.523, A 0.535-0.540, each padded so a two-digit value still fits.
 const TAB_CELLS = { name: { x0: .333, x1: .43 }, kills: { x0: .489, x1: .506 }, deaths: { x0: .510, x1: .527 }, assists: { x0: .531, x1: .548 } };
@@ -502,9 +507,13 @@ function tabBoardFit(pixels, width, height) {
   for (let y = 0; y < height; y += 1) { let sum = 0; for (let x = g0; x <= g1; x += 1) sum += pixels[y * width + x]; const mean = sum / (g1 - g0 + 1); for (let x = g0; x <= g1; x += 1) if (pixels[y * width + x] > Math.max(mean + 40, 90)) gapLit[y] += 1; }
   const rowOk = (top, bottom) => { let l = 0, d = 0, sum = 0, gap = 0; for (let y = Math.max(0, top); y <= Math.min(height - 1, bottom); y += 1) { l += lit[y]; d += dim[y]; sum += dimSum[y]; gap += gapLit[y]; } const count = l + d; return count > 0 && l / count >= .02 && l / count <= .4 && d > 0 && sum / d < 140 && gap <= (g1 - g0 + 1) * (bottom - top + 1) * .01; };
   const lineHeight = (TAB_BOX.y1 - TAB_BOX.y0) / height, scored = [];
-  const low = TAB_BOX.y0 + TAB_ROW_HALF - TAB_OUR_ROWS[0], high = TAB_BOX.y1 - TAB_ROW_HALF - TAB_OUR_ROWS.at(-1);
+  // The coach view always puts the board at the same height (HUD on top: header y 0.299, teal block from
+  // 0.317, red block to 0.683), so only a few pixels of slack are searched.
+  const low = -TAB_DY_SLACK, high = TAB_DY_SLACK;
   const ok = (centre, dy) => rowOk(py(centre + dy - TAB_ROW_HALF), py(centre + dy + TAB_ROW_HALF));
-  for (let dy = low; dy <= high; dy += lineHeight) { const rows = TAB_OUR_ROWS.filter(centre => ok(centre, dy)).length; scored.push({ rows, total: rows + TAB_ENEMY_ROWS.filter(centre => centre + dy + TAB_ROW_HALF <= TAB_BOX.y1 && ok(centre, dy)).length, dy }); }
+  // The ULTIMATE-K gap stays empty over the whole block, between rows too.
+  const spanEmpty = dy => { let gap = 0; const top = Math.max(0, py(TAB_BLOCK.y0 + dy)), bottom = Math.min(height - 1, py(TAB_BLOCK.y1 + dy)); for (let y = top; y <= bottom; y += 1) gap += gapLit[y]; return gap <= (g1 - g0 + 1) * (bottom - top + 1) * .01; };
+  for (let dy = low; dy <= high + 1e-9; dy += lineHeight) { if (!spanEmpty(dy)) { scored.push({ rows: 0, total: 0, dy }); continue; } const rows = TAB_OUR_ROWS.filter(centre => ok(centre, dy)).length; scored.push({ rows, total: rows + TAB_ENEMY_ROWS.filter(centre => centre + dy + TAB_ROW_HALF <= TAB_BOX.y1 && ok(centre, dy)).length, dy }); }
   // A window still passes when it only half covers the digits, so the best offset is the middle of the longest run at the top count.
   const top = Math.max(0, ...scored.map(item => item.total)); if (!top) return { rows: 0, total: 0, dy: 0 };
   let run = [], longest = [];
@@ -598,22 +607,21 @@ function loadPaddleDigitReader(log = line => void line) {
 
 /**
  * Read our five rows of each TAB board the coach opened: K, D and A each from its own cell (PP-OCR,
- * digits only on a crop hugging the glyphs, kept at confidence 70 or more or when Tesseract agrees; a cell
- * of narrow glyphs only is 1s), then the name cell
+ * digits only on a crop hugging the glyphs, kept at confidence 70 or more or when Tesseract agrees; a blank
+ * cell of narrow glyphs only is 1s), then the name cell
  * as text. A board counts when three of the five rows read all three numbers.
  * Returns [{ timestampMs, rows: [{ row, name, kills, deaths, assists }] }], oldest first.
  */
-async function readCoachTabBoards(frames, worker, log = line => void line, limit = 12, digitReader = undefined) {
+async function readCoachTabBoards(frames, worker, log = line => void line, limit = Infinity, digitReader = undefined) {
   const counts = { frames: (frames || []).length, looked: 0, tried: 0, boards: 0, cells: 0, cellsRead: 0, ones: 0 }; const boards = [];
   const chosen = [];
-  for (const frame of frames || []) { const { rows, total, dy } = tabBoardFit(frame.pixels, frame.width, frame.height); if (rows >= 4) { counts.looked += 1; chosen.push({ frame, rows, total, dy }); } }
+  for (const frame of frames || []) { const fit = tabBoardFit(frame.pixels, frame.width, frame.height), { rows, total, dy } = fit; if (isTabBoard(fit)) { counts.looked += 1; chosen.push({ frame, rows, total, dy }); } }
   // Most board-like frames first (all ten rows, then ours), at least 5 s apart (one tap gives several frames at 4 fps).
   const picked = []; for (const item of chosen.sort((a, b) => b.total - a.total || b.rows - a.rows)) { if (picked.length >= limit) break; if (picked.every(other => Math.abs(other.frame.timestampMs - item.frame.timestampMs) >= 5000)) picked.push(item); }
   const text = async image => String((await worker.recognize(pgm(image.pixels, image.width, image.height)))?.data?.text || '');
   const reader = digitReader === undefined ? (picked.length ? await loadPaddleDigitReader(log) : null) : digitReader;
   const readNumber = async image => {
     if (!image) return null; counts.cells += 1;
-    if (image.glyphs.length && image.glyphs.length <= 2 && image.glyphs.every(glyph => glyph.width / glyph.height < .42)) { counts.ones += 1; counts.cellsRead += 1; return Number('1'.repeat(image.glyphs.length)); }
     let read = null;
     const crop = image.tight || image;
     if (reader) {
@@ -621,7 +629,10 @@ async function readCoachTabBoards(frames, worker, log = line => void line, limit
       // An unsure Paddle read stands only when Tesseract reads the same number; a blank one stays blank.
       if (/^\d{1,2}$/.test(result.text) && ((result.confidence ?? 0) >= 70 || (worker && (await text(crop)).trim() === result.text))) read = Number(result.text);
     } else if (worker) { const value = (await text(crop)).trim(); if (/^\d{1,2}$/.test(value)) read = Number(value); }
-    if (read !== null && read <= 80) { counts.cellsRead += 1; return read; } return null;
+    if (read !== null && read <= 80) { counts.cellsRead += 1; return read; }
+    // Only a cell the reader left blank and whose glyphs are all as narrow as a 1 (a blurred 4 or 7 is wider) is 1s.
+    if (image.glyphs.length && image.glyphs.length <= 2 && image.glyphs.every(narrowGlyph)) { counts.ones += 1; counts.cellsRead += 1; return Number('1'.repeat(image.glyphs.length)); }
+    return null;
   };
   try {
     if (picked.length && worker) {
@@ -838,7 +849,7 @@ async function analyzeVodTimeline(input, options = {}) {
       { key: 'scoreboardSnapshots', label: 'scoreboard totals', fps: .2, crop: 'crop=iw*0.78:ih*0.72:iw*0.11:ih*0.14', width: 1100, height: 680, threshold: .12, burstFrames: 1, maxCandidates: 480 },
       // The custom-game end screen: one centred line "ALLIES n - m ENEMIES" that stays up for minutes.
       // It is static, so a change gate skips it: every 5 s is a candidate, one kept per time bucket.
-      { key: 'tabBoardSnapshots', label: 'TAB board', fps: 4, rank: (pixels, width, height) => tabBoardFit(pixels, width, height).total, rankKeep: 4, crop: `crop=iw*${+(TAB_BOX.x1 - TAB_BOX.x0).toFixed(3)}:ih*${+(TAB_BOX.y1 - TAB_BOX.y0).toFixed(3)}:iw*${TAB_BOX.x0}:ih*${TAB_BOX.y0}`, width: TAB_FRAME.width, height: TAB_FRAME.height, threshold: .2, burstFrames: 1, maxCandidates: 240, ocr: false },
+      { key: 'tabBoardSnapshots', label: 'TAB board', fps: 4, rank: (pixels, width, height) => { const fit = tabBoardFit(pixels, width, height); return isTabBoard(fit) ? fit.total : 0; }, rankKeep: 9, rankOnly: true, crop: `crop=iw*${+(TAB_BOX.x1 - TAB_BOX.x0).toFixed(3)}:ih*${+(TAB_BOX.y1 - TAB_BOX.y0).toFixed(3)}:iw*${TAB_BOX.x0}:ih*${TAB_BOX.y0}`, width: TAB_FRAME.width, height: TAB_FRAME.height, threshold: .2, burstFrames: 1, maxCandidates: 480, ocr: false },
       { key: 'endBannerSnapshots', label: 'end screen', fps: .2, crop: 'crop=iw*0.70:ih*0.13:iw*0.15:ih*0.42', width: 980, height: 182, threshold: 0, burstFrames: 0, maxCandidates: 240 },
     ];
     const checkpointKey = crypto.createHash('sha256').update(JSON.stringify({ source: input.sourceSha256 || path.resolve(file), startMs: Number(input.startMs) || 0, endMs: Number(input.endMs) || null, players: input.players || [], observerMode: !!input.observerMode, povPlayerName: input.povPlayerName || null })).digest('hex');
@@ -912,4 +923,4 @@ async function readVodFrame(directory, frame) {
   return { mediaType: 'image/png', base64: (await fsp.readFile(path.join(path.resolve(directory), name))).toString('base64') };
 }
 
-module.exports = { RESULT_SCORE_BOXES, tabBoardRows, tabBoardFit, tabCellImage, loadPaddleDigitReader, readCoachTabBoards, TAB_BOX, TAB_FRAME, TAB_OUR_ROWS, TAB_CELLS, killFeedSummary, createChangeCollector, readScoreBox, KILL_FEED_BOX, killFeedCrop, scoreBoxCrop, fixSevens, SCORE_BOXES, rowText, stretchedBanner, splitDigitCrop, bannerDigitCrop, readBannerDigits, sweepOrphanedVodDirectories, readOwnedVodFrame, readVodFrame, normalizeYoutubeUrl, youtubeVideoId, probeVideo, analyzeVodTimeline, normalizeTimelinePlayers, discoverVodGames, releaseVodSource, createReviewClips, changedFrames, changedFramesTogether, sampleRegions, recognizeFrames, createOcrPool, frameDifference, visualSignature, ensureDiskSpace, scoreboardGeometryScore, agentSelectGeometryScore, chooseGameBoundaries, inferPovPlayer };
+module.exports = { RESULT_SCORE_BOXES, tabBoardRows, tabBoardFit, isTabBoard, TAB_BLOCK, tabCellImage, loadPaddleDigitReader, readCoachTabBoards, TAB_BOX, TAB_FRAME, TAB_OUR_ROWS, TAB_CELLS, killFeedSummary, createChangeCollector, readScoreBox, KILL_FEED_BOX, killFeedCrop, scoreBoxCrop, fixSevens, SCORE_BOXES, rowText, stretchedBanner, splitDigitCrop, bannerDigitCrop, readBannerDigits, sweepOrphanedVodDirectories, readOwnedVodFrame, readVodFrame, normalizeYoutubeUrl, youtubeVideoId, probeVideo, analyzeVodTimeline, normalizeTimelinePlayers, discoverVodGames, releaseVodSource, createReviewClips, changedFrames, changedFramesTogether, sampleRegions, recognizeFrames, createOcrPool, frameDifference, visualSignature, ensureDiskSpace, scoreboardGeometryScore, agentSelectGeometryScore, chooseGameBoundaries, inferPovPlayer };

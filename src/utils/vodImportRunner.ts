@@ -170,7 +170,30 @@ const hudScore = (payload: any) => { const read = payload?.submission?.integrati
 const partialHudScore = (payload: any) => { const read = payload?.submission?.integration?.partialScoreFromHud; return read ? `Score pending · last HUD ${read.ourScore}–${read.theirScore} (partial)` : null; };
 // Where a derived score came from, for the game card: the end screen names the sides, the HUD does not.
 const hudScoreNote = (payload: any) => payload?.submission?.integration?.scoreFromHud?.basis === 'end-banner' ? ' · score read from the end screen (Allies counted as yours)' : ' · score read from the in-game HUD (left side counted as yours; Edit if reversed)';
-const stripRawText = (evidence: unknown) => JSON.parse(JSON.stringify(evidence, (key, item) => key === 'rawText' ? undefined : item));
+// The server keeps at most this many observations per game (schemas.ts).
+export const MAX_PUBLIC_OBSERVATIONS = 2000;
+/**
+ * The evidence as saved: no raw OCR text, and within the observation cap. A long game's HUD gives a
+ * read every few seconds; repeats of the same score are dropped first (each score's first and last
+ * read stay), then the oldest HUD reads. Kills and other events are never dropped for HUD reads.
+ */
+export function publicTimelineEvidence(evidence: unknown) {
+  const out = JSON.parse(JSON.stringify(evidence, (key, item) => key === 'rawText' ? undefined : item));
+  const observations: any[] = Array.isArray(out?.observations) ? out.observations : [];
+  if (observations.length <= MAX_PUBLIC_OBSERVATIONS) return out;
+  const scoreKey = (item: any) => JSON.stringify(item.score ?? item.bareScore ?? null);
+  const hud = observations.filter(item => item.kind === 'round-state'), others = observations.filter(item => item.kind !== 'round-state');
+  let kept = hud.filter((item, index) => index === 0 || index === hud.length - 1 || scoreKey(item) !== scoreKey(hud[index - 1]) || scoreKey(item) !== scoreKey(hud[index + 1]));
+  const room = Math.max(0, MAX_PUBLIC_OBSERVATIONS - others.length); if (kept.length > room) kept = kept.slice(kept.length - room);
+  out.observations = [...others.slice(-MAX_PUBLIC_OBSERVATIONS), ...kept].sort((a, b) => a.timestampMs - b.timestampMs).slice(-MAX_PUBLIC_OBSERVATIONS);
+  return out;
+}
+const stripRawText = publicTimelineEvidence;
+// The server's validation names the field it refused ("path: message"); show it, not just "Invalid request payload."
+export function submissionError(payload: any, index: number) {
+  const details = Array.isArray(payload?.details) ? payload.details.slice(0, 3).map(String).join('; ') : '';
+  return `${payload?.error || `Game ${index + 1} could not be integrated.`}${details ? ` (${details})` : ''}`;
+}
 
 /**
  * Scoreboard rows that name a known player: a roster match, or exactly a name
@@ -379,8 +402,8 @@ async function runOneImport(input: VodBatchImportInput, deps: VodImportDeps): Pr
       const ours = new Set(selected); const players = !selected.length ? [] : game.draft.stats.map((row, rowIndex) => ({ name: row.extractedName, team: ours.has(rowIndex) ? 'ours' as const : 'theirs' as const, expectedKills: row.kills, expectedDeaths: row.deaths })).filter(row => row.name && row.name.trim().length >= 2).slice(0, 10);
       const evidence = await desktop.analyzeVod({ vodUrl: normalizedVodUrl, cacheId, startMs, endMs, players, observerMode: perspective === 'coach', ...(perspective === 'player' && selectedPovName ? { povPlayerName: selectedPovName } : {}) });
       const publicTimeline = stripRawText(evidence);
-      setProgress(savingProgress(index, total)); const response = await deps.apiFetch('/api/vod-submissions', { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ vodUrl: normalizedVodUrl, imageSha256: game.imageSha256, ...(linked ? { matchId: linked.id } : {}), coachTeamEvidence: true, ...(newPlayers ? { addObservedPlayers: true } : {}), date: dateKey, map, opponent: linked?.opponent || null, ourScore: game.draft.match.ourScore, theirScore: game.draft.match.theirScore, players: rows.map(row => ({ observedName: row.extractedName, agent: row.agent, kills: value(row.kills), deaths: value(row.deaths), assists: value(row.assists), acs: value(row.acs), adr: value(row.adr), hs: value(row.hs), fk: value(row.fk), fd: value(row.fd), plants: value(row.plants), defuses: value(row.defuses), trades: value(row.trades) })), timelineEvidence: publicTimeline }) });
-      const payload = await response.json(); if (!response.ok) throw new Error(payload.error || `Game ${index + 1} could not be integrated.`);
+      setProgress(savingProgress(index, total)); const response = await deps.apiFetch('/api/vod-submissions', { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ vodUrl: normalizedVodUrl, imageSha256: game.imageSha256, ...(linked ? { matchId: linked.id } : {}), coachTeamEvidence: true, ...(newPlayers ? { addObservedPlayers: true } : {}), date: dateKey, map: map ?? null, opponent: linked?.opponent || null, ourScore: game.draft.match.ourScore, theirScore: game.draft.match.theirScore, players: rows.map(row => ({ observedName: row.extractedName, agent: row.agent, kills: value(row.kills), deaths: value(row.deaths), assists: value(row.assists), acs: value(row.acs), adr: value(row.adr), hs: value(row.hs), fk: value(row.fk), fd: value(row.fd), plants: value(row.plants), defuses: value(row.defuses), trades: value(row.trades) })), timelineEvidence: publicTimeline }) });
+      const payload = await response.json(); if (!response.ok) throw new Error(submissionError(payload, index));
       const added: string[] = payload.submission.integration?.addedPlayers || []; added.forEach(name => addedPlayers.add(name));
       if (!selected.length) unnamedGames += 1;
       imported.push({ map: map || 'Unknown map', matchId: payload.submission.linkedMatchId, score: hudScore(payload) || scoreLabel, status: `${payload.submission.linkMode === 'new-match' ? 'New match created' : 'Linked to existing match'}${added.length ? ` · ${added.length} new player${added.length === 1 ? '' : 's'} added` : ''}${selected.length ? '' : ' · players not named'}${midGame ? ' · player stats from a TAB board opened mid-game, may be partial' : ''}${hudScore(payload) ? hudScoreNote(payload) : ''}` });
@@ -413,8 +436,8 @@ async function runOneImport(input: VodBatchImportInput, deps: VodImportDeps): Pr
       // The server fills kills and deaths from the kill feed (marked partial) when no board gave them.
       const feedKills = (evidence.playerMetrics || []).reduce((sum: number, metric: any) => sum + (metric.kills || 0) + (metric.deaths || 0), 0);
       const publicTimeline = stripRawText(evidence); const boundaryFrame = await desktop.readVodFrame({ cacheId, frame: boundary.frame }); const frame = fileFromBase64(boundaryFrame.base64, `vod-game-start-${index + 1}.png`, boundaryFrame.mediaType);
-      setProgress(savingProgress(index, total)); const response = await deps.apiFetch('/api/vod-submissions', { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ vodUrl: normalizedVodUrl, imageSha256: await sha256File(frame), ...(linked ? { matchId: linked.id } : {}), coachTeamEvidence: true, date: dateKey, map: boundary.map, opponent: linked?.opponent || null, ourScore: linked?.ourScore ?? null, theirScore: linked?.theirScore ?? null, ...(typedNames.length ? { addObservedPlayers: true } : {}), players: typedNames.map(observedName => ({ observedName, agent: null, kills: null, deaths: null, assists: null, acs: null, adr: null, hs: null, fk: null, fd: null, plants: null, defuses: null, trades: null })), timelineEvidence: publicTimeline }) });
-      const payload = await response.json(); if (!response.ok) throw new Error(payload.error || `Game ${index + 1} could not be integrated.`);
+      setProgress(savingProgress(index, total)); const response = await deps.apiFetch('/api/vod-submissions', { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ vodUrl: normalizedVodUrl, imageSha256: await sha256File(frame), ...(linked ? { matchId: linked.id } : {}), coachTeamEvidence: true, date: dateKey, map: boundary.map ?? null, opponent: linked?.opponent || null, ourScore: linked?.ourScore ?? null, theirScore: linked?.theirScore ?? null, ...(typedNames.length ? { addObservedPlayers: true } : {}), players: typedNames.map(observedName => ({ observedName, agent: null, kills: null, deaths: null, assists: null, acs: null, adr: null, hs: null, fk: null, fd: null, plants: null, defuses: null, trades: null })), timelineEvidence: publicTimeline }) });
+      const payload = await response.json(); if (!response.ok) throw new Error(submissionError(payload, index));
       const unnamed = players.length === 0; if (unnamed) unnamedGames += 1;
       const added: string[] = payload.submission.integration?.addedPlayers || []; added.forEach(name => addedPlayers.add(name));
       const score = linked && typeof linked.ourScore === 'number' ? `${linked.ourScore}–${linked.theirScore}` : hudScore(payload);
