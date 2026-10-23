@@ -387,7 +387,9 @@ describe('VOD import runner survives leaving the VOD tab', () => {
       await h.finishAnalysis(); await h.finishAnalysis();
       await expect(run).resolves.toBe(true);
       const bodies = (h.apiFetch.mock.calls as any[]).filter(([url]) => url === '/api/vod-submissions').map(([, init]) => JSON.parse(String(init.body)));
-      expect(bodies.map(body => [body.ourScore, body.theirScore, body.players[0]?.kills])).toEqual([[13, 9, 18], [6, 4, 7]]);
+      expect(bodies.map(body => [body.ourScore, body.theirScore, body.players[0]?.kills])).toEqual([[13, 9, 18], [null, null, 7]]);
+      // Game 2 only had a mid-game TAB board: its score is not final, and its stats are labelled partial.
+      expect(vodImportStore.getSnapshot().batchResult.map(game => game.status.includes("may be partial"))).toEqual([false, true]);
     } finally { discovery.games = []; }
   });
 

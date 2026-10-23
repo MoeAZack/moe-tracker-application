@@ -1,7 +1,7 @@
 import type { Match, VodTimelineEvidence } from '../src/types';
 import evidenceModule from '../desktop/vod-timeline-evidence.cjs';
 
-type DerivedScore = { left: number; right: number; basis: 'final-read' | 'last-round'; reads: number };
+type DerivedScore = { left: number; right: number; basis: 'final-read' | 'last-round' | 'end-banner'; reads: number };
 const { deriveFinalScore } = evidenceModule as { deriveFinalScore: (evidence: VodTimelineEvidence | null | undefined) => DerivedScore | null };
 
 /**
