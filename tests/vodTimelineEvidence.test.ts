@@ -1,4 +1,4 @@
-import { describe, expect, it } from 'vitest';
+import { describe, expect, it, vi } from 'vitest';
 import fs from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
@@ -7,7 +7,7 @@ import analyzerModule from '../desktop/vod-timeline-analyzer.cjs';
 import { boundaryTimelinePlayers } from '../src/components/VodSubmission';
 
 const { aggregateVideoEvidence, NO_IDENTITIES_LIMITATION, parseKillFeedSnapshot, parseUltimateSnapshots, parseRoundStateSnapshot, buildRoundTimeline, buildObserverSegments, applyVisualTemplates, fuseVodEvidence } = evidenceModule;
-const { sweepOrphanedVodDirectories, normalizeYoutubeUrl, youtubeVideoId, frameDifference, visualSignature, scoreboardGeometryScore, agentSelectGeometryScore, chooseGameBoundaries, inferPovPlayer, analyzeVodTimeline, releaseVodSource, discoverVodGames, readVodFrame, readOwnedVodFrame, normalizeTimelinePlayers } = analyzerModule;
+const { bannerDigitCrop, readBannerDigits, sweepOrphanedVodDirectories, normalizeYoutubeUrl, youtubeVideoId, frameDifference, visualSignature, scoreboardGeometryScore, agentSelectGeometryScore, chooseGameBoundaries, inferPovPlayer, analyzeVodTimeline, releaseVodSource, discoverVodGames, readVodFrame, readOwnedVodFrame, normalizeTimelinePlayers } = analyzerModule;
 const players = [
   { name: 'Alpha', team: 'ours' }, { name: 'Bravo', team: 'ours' }, { name: 'Charlie', team: 'ours' }, { name: 'Delta', team: 'ours' }, { name: 'Echo', team: 'ours' },
   { name: 'EnemyOne', team: 'theirs' }, { name: 'EnemyTwo', team: 'theirs' }, { name: 'EnemyThree', team: 'theirs' }, { name: 'EnemyFour', team: 'theirs' }, { name: 'EnemyFive', team: 'theirs' },
@@ -182,6 +182,35 @@ describe('VOD timeline evidence', () => {
     await expect(analyzeVodTimeline({ localPath: path.join(directory, 'missing.mp4'), players: [] }, { workRoot: directory, minimumFreeBytes: 1, signal: controller.signal })).rejects.toThrow('cancelled by test');
     expect(await fs.readdir(directory)).toEqual([]);
     await fs.rm(directory, { recursive: true, force: true });
+  });
+
+  // A synthetic end screen: dark overlay, two wide words and two short numbers between them; the
+  // right number is dimmer, as the red digit is in grayscale.
+  const bannerFrame = () => {
+    const width = 400, height = 60, pixels = Buffer.alloc(width * height, 30);
+    const block = (from: number, to: number, value: number) => { for (let y = 15; y < 45; y += 1) for (let x = from; x <= to; x += 1) pixels[y * width + x] = value; };
+    block(20, 110, 230); block(160, 175, 210); block(220, 250, 110); block(290, 390, 230);
+    return { pixels, width, height };
+  };
+
+  it('cuts the two end-screen scores out from between ALLIES and ENEMIES, dark on light', () => {
+    const frame = bannerFrame(); const crop = bannerDigitCrop(frame.pixels, frame.width, frame.height);
+    expect(crop).toMatchObject({ width: (289 - 111 + 1) + 20, height: 30 + 20 });
+    // The red (dim) digit survives binarization as ink, the background is white.
+    const inkColumns = new Set<number>(); for (let y = 0; y < crop.height; y += 1) for (let x = 0; x < crop.width; x += 1) if (crop.pixels[y * crop.width + x] === 0) inkColumns.add(x);
+    expect(inkColumns.has(160 - 111 + 10)).toBe(true); expect(inkColumns.has(235 - 111 + 10)).toBe(true); expect(crop.pixels[0]).toBe(255);
+    // A line without the two words around something narrower does not split.
+    expect(bannerDigitCrop(Buffer.alloc(400 * 60, 30), 400, 60)).toBeNull();
+  });
+
+  it('re-reads anchored end-screen frames digits-only and rewrites the banner text, then restores the worker', async () => {
+    const frame = bannerFrame(); const calls: any[] = [];
+    const worker = { setParameters: vi.fn(async (params: any) => { calls.push(params); }), recognize: vi.fn(async () => ({ data: { text: '7 17\n' } })) };
+    const snapshots = [{ timestampMs: 5, text: 'ALLIES | 1 ENEMIES' }, { timestampMs: 9, text: 'spike planted' }];
+    const out = await readBannerDigits([{ ...frame, timestampMs: 5 }, { ...frame, timestampMs: 9 }], snapshots, worker);
+    expect(out.map((item: any) => item.text)).toEqual(['ALLIES 7 - 17 ENEMIES', 'spike planted']);
+    expect(worker.recognize).toHaveBeenCalledTimes(1);
+    expect(calls).toEqual([{ tessedit_char_whitelist: '0123456789', tessedit_pageseg_mode: '7' }, { tessedit_char_whitelist: '', tessedit_pageseg_mode: '11' }]);
   });
 
   it('deletes a completed downloaded VOD but never deletes a coach-selected local file', async () => {
