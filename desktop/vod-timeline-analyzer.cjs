@@ -524,7 +524,13 @@ function tabCellImage(pixels, width, height, box, scale = 6) {
   }
   const runs = []; for (let i = 0; i < w; i += 1) { let top = -1, bottom = -1; for (let j = 0; j < h; j += 1) if (dark[j * w + i]) { if (top < 0) top = j; bottom = j; } if (top < 0) continue; const run = runs.at(-1); if (run && i - run.end <= 1) { run.end = i; run.top = Math.min(run.top, top); run.bottom = Math.max(run.bottom, bottom); } else runs.push({ start: i, end: i, top, bottom }); }
   const tallest = Math.max(0, ...runs.map(run => run.bottom - run.top + 1)), glyphs = runs.filter(run => run.bottom - run.top + 1 >= tallest * .6);
-  return { pixels: out, width: w, height: h, glyphs: glyphs.map(run => ({ width: run.end - run.start + 1, height: run.bottom - run.top + 1 })) };
+  const image = { pixels: out, width: w, height: h, glyphs: glyphs.map(run => ({ width: run.end - run.start + 1, height: run.bottom - run.top + 1 })) };
+  if (!glyphs.length) return image;
+  // PP-OCR reads a lone digit only when the crop hugs it: a margin of a quarter glyph height around the runs.
+  const margin = Math.round(tallest * .25), left = Math.max(0, glyphs[0].start - margin), right = Math.min(w - 1, glyphs.at(-1).end + margin), top = Math.max(0, Math.min(...glyphs.map(run => run.top)) - margin), bottom = Math.min(h - 1, Math.max(...glyphs.map(run => run.bottom)) + margin);
+  const tightWidth = right - left + 1, tightHeight = bottom - top + 1, tight = Buffer.alloc(tightWidth * tightHeight);
+  for (let j = 0; j < tightHeight; j += 1) out.copy(tight, j * tightWidth, (top + j) * w + left, (top + j) * w + right + 1);
+  return { ...image, tight: { pixels: tight, width: tightWidth, height: tightHeight } };
 }
 
 // Where the digits of one of our rows actually sit: the weighted centre of the bright lines over the
@@ -562,10 +568,13 @@ function paddleTensor(image, inputHeight = 48, padFraction = .25) {
   return { tensor, width, height };
 }
 // Greedy CTC over the blank and the ten digits only; confidence is the weakest emitted digit, mapped
-// like lib/ocrEngines.ts (probability 0.75 -> 70, the K/D/A floor).
+// like lib/ocrEngines.ts (probability 0.75 -> 70, the K/D/A floor). A cell holds only digits, so each
+// step's probability is taken among the blank and the digits, the letter o counting for 0: a lone 0
+// otherwise loses most of its mass to it and never reaches the floor. A digit spread over several steps counts at its best step.
 function decodePaddleDigits(data, steps, classes, characters) {
-  const digits = characters.map((character, index) => /^[0-9]$/.test(character) ? index : -1).filter(index => index > 0); let text = '', previous = -1, low = Infinity;
-  for (let step = 0; step < steps; step += 1) { const offset = step * classes; let best = 0, probability = Number(data[offset]); for (const index of digits) if (Number(data[offset + index]) > probability) { probability = Number(data[offset + index]); best = index; } if (best !== 0 && best !== previous) { text += characters[best]; low = Math.min(low, probability); } previous = best; }
+  const digits = characters.map((character, index) => /^[0-9]$/.test(character) ? index : -1).filter(index => index > 0), zero = characters.indexOf('0'), rounds = ['o', 'O'].map(character => characters.indexOf(character)).filter(index => index > 0); let text = '', previous = -1, low = Infinity, run = null;
+  for (let step = 0; step < steps; step += 1) { const offset = step * classes; let best = 0, probability = Number(data[offset]), total = probability; for (const index of digits) { const value = Number(data[offset + index]) + (index === zero ? rounds.reduce((sum, round) => sum + Number(data[offset + round]), 0) : 0); total += value; if (value > probability) { probability = value; best = index; } } const share = total > 0 ? probability / total : 0; if (best !== 0 && best !== previous) { if (run !== null) low = Math.min(low, run); text += characters[best]; run = share; } else if (best !== 0) run = Math.max(run, share); previous = best; }
+  if (run !== null) low = Math.min(low, run);
   if (!text) return { text, confidence: null }; const value = Math.max(0, Math.min(1, low));
   return { text, confidence: value <= .75 ? value / .75 * 70 : 70 + (value - .75) / .25 * 30 };
 }
@@ -583,7 +592,8 @@ function loadPaddleDigitReader(log = line => void line) {
 
 /**
  * Read our five rows of each TAB board the coach opened: K, D and A each from its own cell (PP-OCR,
- * digits only, kept at confidence 70 or more; a cell of narrow glyphs only is 1s), then the name cell
+ * digits only on a crop hugging the glyphs, kept at confidence 70 or more or when Tesseract agrees; a cell
+ * of narrow glyphs only is 1s), then the name cell
  * as text. A board counts when three of the five rows read all three numbers.
  * Returns [{ timestampMs, rows: [{ row, name, kills, deaths, assists }] }], oldest first.
  */
@@ -599,8 +609,12 @@ async function readCoachTabBoards(frames, worker, log = line => void line, limit
     if (!image) return null; counts.cells += 1;
     if (image.glyphs.length && image.glyphs.length <= 2 && image.glyphs.every(glyph => glyph.width / glyph.height < .42)) { counts.ones += 1; counts.cellsRead += 1; return Number('1'.repeat(image.glyphs.length)); }
     let read = null;
-    if (reader) { const result = await reader.read(image); if (/^\d{1,2}$/.test(result.text) && (result.confidence ?? 0) >= 70) read = Number(result.text); }
-    else if (worker) { const value = (await text(image)).trim(); if (/^\d{1,2}$/.test(value)) read = Number(value); }
+    const crop = image.tight || image;
+    if (reader) {
+      const result = await reader.read(crop);
+      // An unsure Paddle read stands only when Tesseract reads the same number; a blank one stays blank.
+      if (/^\d{1,2}$/.test(result.text) && ((result.confidence ?? 0) >= 70 || (worker && (await text(crop)).trim() === result.text))) read = Number(result.text);
+    } else if (worker) { const value = (await text(crop)).trim(); if (/^\d{1,2}$/.test(value)) read = Number(value); }
     if (read !== null && read <= 80) { counts.cellsRead += 1; return read; } return null;
   };
   try {
