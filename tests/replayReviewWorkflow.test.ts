@@ -76,10 +76,9 @@ describe('coach replay review workflow', () => {
     round.events = [
       { kind: 'player-elimination', timestampMs: 1_000, killerPlayerId: 'raw-a', victimPlayerId: 'raw-x' },
       { kind: 'player-elimination', timestampMs: 2_000, killerPlayerId: 'raw-b', victimPlayerId: 'raw-y' },
-      { kind: 'player-elimination', timestampMs: 3_000, killerPlayerId: 'raw-x', victimPlayerId: 'raw-a' },
-      { kind: 'player-elimination', timestampMs: 4_000, killerPlayerId: 'raw-y', victimPlayerId: 'raw-b' },
     ];
-    round.winnerTeamId = 'team-them'; round.derived = { tradeOpportunities: 2, successfulTrades: 0, tradedDeathPlayerIds: [], multikills: [], clutches: [] };
+    round.winnerTeamId = 'team-them'; round.endReason = 'spike-detonated';
+    round.derived = { tradeOpportunities: 2, successfulTrades: 0, tradedDeathPlayerIds: [], multikills: [], clutches: [] };
     await fs.writeFile(dbPath, JSON.stringify(seeded));
     expect((await request(`/api/replay-intake/uploads/${sha256}/review`, coach, { expectedRevision: 0, requestId: 'valid-5v3', matchId: 'm1', teamId: 'team-us', mappings })).status).toBe(200);
     expect((await request(`/api/replay-intake/uploads/${sha256}/accept`, coach, { expectedRevision: 1, requestId: 'accept-valid-5v3', confirmed: true })).status).toBe(200);
