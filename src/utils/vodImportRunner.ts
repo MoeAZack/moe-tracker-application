@@ -174,6 +174,14 @@ const stripRawText = (evidence: unknown) => JSON.parse(JSON.stringify(evidence, 
  * this import already saved as ours. Near misses are not guessed here; the
  * coach is asked again.
  */
+/** Mid-game TAB boards look like scoreboards too. A game's own board is the last one with a
+ *  finished score (13+ and two clear), else the last board read inside that game. */
+export function endOfGameBoard<T extends { timestampMs: number; draft: { match: { ourScore: number | null; theirScore: number | null } } }>(boards: T[]): T | null {
+  const ordered = [...boards].sort((left, right) => left.timestampMs - right.timestampMs);
+  const finished = ordered.filter(({ draft: { match: { ourScore, theirScore } } }) => typeof ourScore === 'number' && typeof theirScore === 'number' && Math.max(ourScore, theirScore) >= 13 && Math.abs(ourScore - theirScore) >= 2);
+  return finished.at(-1) || ordered.at(-1) || null;
+}
+
 export function knownScoreboardRows(stats: ReadonlyArray<{ extractedName?: string | null; rosterMatch?: { status?: string } }>, oursThisRun: readonly string[]) {
   const ours = new Set(oursThisRun.map(name => normalizedMatchName(name)).filter(Boolean));
   return stats.map((row, index) => row.rosterMatch?.status === 'matched' || ours.has(normalizedMatchName(row.extractedName)) ? index : -1).filter(index => index >= 0);
@@ -362,7 +370,9 @@ async function runOneImport(input: VodBatchImportInput, deps: VodImportDeps): Pr
       setState({ batchResult: [...imported] });
     };
 
-    if (detected.length === requestedGames) {
+    // With a reliable start for every game, each game takes the board read inside it, so TAB boards never count as games.
+    const oneBoardPerGame = detected.length === requestedGames && (discovery.boundaries?.length !== requestedGames || detected.every((game, index) => game.timestampMs >= discovery.boundaries![index].timestampMs && game.timestampMs <= (discovery.boundaries![index + 1]?.timestampMs ?? discovery.durationMs)));
+    if (oneBoardPerGame) {
       const reliableBoundaries = discovery.boundaries?.length === detected.length ? discovery.boundaries : null;
       for (let index = 0; index < detected.length; index += 1) {
         const game = detected[index];
@@ -376,14 +386,15 @@ async function runOneImport(input: VodBatchImportInput, deps: VodImportDeps): Pr
         const boundary = boundaries[index]; const endMs = boundaries[index + 1]?.timestampMs || discovery.durationMs;
         // A game whose own scoreboard was read uses it; the others keep their timeline only.
         const own = detected.filter(game => game.timestampMs >= boundary.timestampMs && game.timestampMs <= endMs);
-        if (own.length === 1) await importScoreboardGame(own[0], index, boundaries.length, boundary.timestampMs, endMs, boundary.map);
+        const board = endOfGameBoard(own);
+        if (board) await importScoreboardGame(board, index, boundaries.length, boundary.timestampMs, endMs, boundary.map);
         else await importTimelineGame(boundary, index, boundaries.length, endMs);
       }
     }
     // On a fresh workspace nobody is on the roster yet; say what that leaves out instead of failing the import.
     const unnamedNote = unnamedGames ? ` No player names were known for ${unnamedGames === imported.length ? (imported.length === 1 ? 'this game' : 'these games') : `${unnamedGames} of them`}, so kills, deaths, trades and KAST are not credited to anyone yet. Players are added automatically from the end-of-game scoreboard when a VOD shows one; you can also add them under Roster and import this VOD again.` : '';
     const addedNote = addedPlayers.size ? ` ${addedPlayers.size} new player${addedPlayers.size === 1 ? ' was' : 's were'} added from the scoreboard names with their stats. They are tryouts under Roster: promote the ones you keep to core, and archive the rest (their matches stay).` : '';
-    const summary = detected.length === requestedGames ? `${imported.length} game${imported.length === 1 ? '' : 's'} detected, analyzed, and integrated automatically.` : `${imported.length} game${imported.length === 1 ? '' : 's'} separated and integrated. ${detected.length ? `${detected.length} of them showed a complete post-match scoreboard; the others` : 'This VOD did not show complete post-match scoreboards, so the games'} keep unavailable totals pending instead of being guessed.`;
+    const summary = oneBoardPerGame ? `${imported.length} game${imported.length === 1 ? '' : 's'} detected, analyzed, and integrated automatically.` : `${imported.length} game${imported.length === 1 ? '' : 's'} separated and integrated. ${detected.length ? `${detected.length} of them showed a complete post-match scoreboard; the others` : 'This VOD did not show complete post-match scoreboards, so the games'} keep unavailable totals pending instead of being guessed.`;
     setState({ message: `${summary}${addedNote}${unnamedNote}`, progress: { owner: 'batch', step: 4, stepPercent: 100, message: `${imported.length} games saved successfully.`, status: 'done' } });
     completed = true;
     // Maps nobody corrected count as confirmed: they weigh against learned reads that point elsewhere.
