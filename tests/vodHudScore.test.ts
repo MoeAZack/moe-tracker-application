@@ -102,6 +102,12 @@ describe('the last HUD read and kill-feed names', () => {
     expect(wordMatchesName('ana', 'zed')).toBe(false);
   });
 
+  it('gives a feed word to the closest of two names one letter apart', () => {
+    const players = [{ name: 'Player1', team: 'ours' }, { name: 'Player2', team: 'ours' }, { name: 'Zed', team: 'theirs' }];
+    const result = aggregateVideoEvidence({ players, killFeedSnapshots: [{ timestampMs: 5000, text: 'Player2 Vandal Zed' }] });
+    expect(result.playerMetrics.map((row: any) => [row.playerName, row.kills])).toEqual([['Player1', 0], ['Player2', 1], ['Zed', 0]]);
+  });
+
   it('learns in-game names from the TAB board so feed kills credit typed players', () => {
     const players = [{ name: 'Ana', team: 'ours' }, { name: 'Benji', team: 'ours' }, { name: 'EnemyOne', team: 'theirs' }];
     const board = { timestampMs: 1000, rows: [{ name: 'AnaVal', kills: 0, deaths: 0, assists: 0 }, { name: 'xQ7zz', kills: 0, deaths: 0, assists: 0 }] };
