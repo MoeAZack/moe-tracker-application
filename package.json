@@ -91,7 +91,7 @@
     "typescript": "~5.8.2",
     "unzipper": "^0.12.5",
     "vite": "^6.2.3",
-    "vitest": "^5.0.0",
+    "vitest": "^5.0.5",
     "wrangler": "^4.149.0"
   },
   "overrides": {
